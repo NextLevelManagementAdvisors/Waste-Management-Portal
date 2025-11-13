@@ -171,7 +171,7 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard setCurrentView={setCurrentView} />;
       case 'services':
         return <Services />;
       case 'subscriptions':
@@ -195,7 +195,7 @@ const App: React.FC = () => {
       case 'profile-settings':
         return <ProfileSettings />;
       default:
-        return <Dashboard />;
+        return <Dashboard setCurrentView={setCurrentView} />;
     }
   };
   

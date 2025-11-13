@@ -1,17 +1,24 @@
 
-import React, { useEffect, useState } from 'react';
-import { getSubscriptions, getInvoices, getServiceAlerts } from '../services/mockApiService';
+
+import React, { useEffect, useState, useMemo } from 'react';
+import { getSubscriptions, getInvoices, getServiceAlerts, getPaymentMethods } from '../services/mockApiService';
 import { getNextPickupInfo, PickupInfo } from '../services/optimoRouteService';
-import { Subscription, Invoice, ServiceAlert } from '../types';
+import { Subscription, Invoice, ServiceAlert, PaymentMethod, View } from '../types';
 import { Card } from './Card';
+import { Button } from './Button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { CalendarIcon, BanknotesIcon, ListBulletIcon, ClockIcon, MegaphoneIcon, XMarkIcon } from './Icons';
+import { CalendarIcon, BanknotesIcon, ListBulletIcon, ClockIcon, MegaphoneIcon, XMarkIcon, ExclamationTriangleIcon } from './Icons';
 import { useProperty } from '../App';
 
-const Dashboard: React.FC = () => {
+interface DashboardProps {
+    setCurrentView: (view: View) => void;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     const { user, selectedProperty } = useProperty();
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [pickupInfo, setPickupInfo] = useState<PickupInfo | null>(null);
     const [alerts, setAlerts] = useState<ServiceAlert[]>([]);
     const [visibleAlerts, setVisibleAlerts] = useState<string[]>([]);
@@ -23,14 +30,16 @@ const Dashboard: React.FC = () => {
             setLoading(true);
             setPickupInfo(null);
             try {
-                const [subsData, invoicesData, pickupData, alertsData] = await Promise.all([
+                const [subsData, invoicesData, pickupData, alertsData, methodsData] = await Promise.all([
                     getSubscriptions(),
                     getInvoices(),
                     getNextPickupInfo(selectedProperty.address),
-                    getServiceAlerts()
+                    getServiceAlerts(),
+                    getPaymentMethods()
                 ]);
                 setSubscriptions(subsData.filter(s => s.propertyId === selectedProperty.id));
                 setInvoices(invoicesData.filter(i => i.propertyId === selectedProperty.id));
+                setPaymentMethods(methodsData);
                 setPickupInfo(pickupData);
                 setAlerts(alertsData);
                 setVisibleAlerts(alertsData.map(a => a.id));
@@ -53,6 +62,24 @@ const Dashboard: React.FC = () => {
         return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
     };
 
+    const overdueInvoices = useMemo(() => 
+        invoices.filter(i => i.status === 'Overdue')
+    , [invoices]);
+
+    const expiredPaymentMethods = useMemo(() => 
+        paymentMethods.filter(method => {
+            if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
+                return false;
+            }
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth() + 1; // 1-indexed month
+            
+            return method.expiryYear < currentYear || (method.expiryYear === currentYear && method.expiryMonth < currentMonth);
+        })
+    , [paymentMethods]);
+
+    const needsAttention = overdueInvoices.length > 0 || expiredPaymentMethods.length > 0;
     const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
     const monthlyCost = activeSubscriptions.reduce((acc, sub) => acc + sub.totalPrice, 0);
     const nextBillingDate = activeSubscriptions.length > 0 ? activeSubscriptions[0].nextBillingDate : 'N/A';
@@ -78,6 +105,33 @@ const Dashboard: React.FC = () => {
 
     return (
         <div className="space-y-6">
+             {needsAttention && (
+                <Card className="bg-yellow-50 border-yellow-300">
+                    <div className="flex items-start">
+                        <div className="flex-shrink-0">
+                            <ExclamationTriangleIcon className="w-6 h-6 text-yellow-500" />
+                        </div>
+                        <div className="ml-3 flex-1">
+                            <h3 className="text-lg font-semibold text-yellow-800">Needs Attention</h3>
+                            <div className="mt-2 text-sm text-yellow-700 space-y-2">
+                                {overdueInvoices.length > 0 && (
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                        <p>You have {overdueInvoices.length} overdue invoice(s).</p>
+                                        <Button size="sm" variant="secondary" onClick={() => setCurrentView('billing')} className="flex-shrink-0">Pay Now</Button>
+                                    </div>
+                                )}
+                                {expiredPaymentMethods.length > 0 && (
+                                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                        <p>You have {expiredPaymentMethods.length} expired payment method(s).</p>
+                                        <Button size="sm" variant="secondary" onClick={() => setCurrentView('payment')} className="flex-shrink-0">Update Methods</Button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            )}
+
              {alerts.filter(a => visibleAlerts.includes(a.id)).map(alert => (
                 <div key={alert.id} className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md shadow-sm flex justify-between items-center" role="alert">
                     <div className="flex items-center">
