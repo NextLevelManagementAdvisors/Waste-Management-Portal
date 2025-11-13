@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications' | 'special-pickup' | 'vacation-holds' | 'missed-pickup' | 'property-settings';
+export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications' | 'special-pickup' | 'vacation-holds' | 'missed-pickup' | 'property-settings' | 'profile-settings';
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
@@ -125,3 +125,15 @@ export interface UpdatePropertyInfo {
 }
 
 export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'>, NewPropertyInfo {}
+
+export interface UpdateProfileInfo {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+}
+
+export interface UpdatePasswordInfo {
+    currentPassword: string;
+    newPassword: string;
+}

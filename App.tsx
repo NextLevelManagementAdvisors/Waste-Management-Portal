@@ -13,11 +13,12 @@ import VacationHolds from './components/VacationHolds';
 import MissedPickup from './components/MissedPickup';
 import AddPropertyModal from './components/AddPropertyModal';
 import PropertySettings from './components/PropertySettings';
+import ProfileSettings from './components/ProfileSettings';
 import AuthLayout from './components/AuthLayout';
 import Login from './components/Login';
 import Registration from './components/Registration';
-import { View, User, Property, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo } from './types';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails } from './services/mockApiService';
+import { View, User, Property, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from './types';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword } from './services/mockApiService';
 
 interface PropertyContextType {
     user: User | null;
@@ -27,6 +28,8 @@ interface PropertyContextType {
     loading: boolean;
     refreshUser: () => Promise<void>;
     updateProperty: (propertyId: string, details: UpdatePropertyInfo) => Promise<void>;
+    updateProfile: (profileInfo: UpdateProfileInfo) => Promise<void>;
+    updatePassword: (passwordInfo: UpdatePasswordInfo) => Promise<void>;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({
@@ -37,6 +40,8 @@ export const PropertyContext = createContext<PropertyContextType>({
     loading: true,
     refreshUser: async () => {},
     updateProperty: async () => {},
+    updateProfile: async () => {},
+    updatePassword: async () => {},
 });
 
 export const useProperty = () => useContext(PropertyContext);
@@ -143,6 +148,25 @@ const App: React.FC = () => {
       throw error;
     }
   };
+  
+  const handleUpdateProfile = async (profileInfo: UpdateProfileInfo) => {
+     try {
+       const updatedUser = await updateUserProfile(profileInfo);
+       setUser(updatedUser);
+     } catch (error) {
+        console.error("Failed to update profile:", error);
+        throw error;
+     }
+  };
+
+  const handleUpdatePassword = async (passwordInfo: UpdatePasswordInfo) => {
+      try {
+          await updateUserPassword(passwordInfo);
+      } catch (error) {
+          console.error("Failed to update password:", error);
+          throw error;
+      }
+  };
 
   const renderView = () => {
     switch (currentView) {
@@ -168,6 +192,8 @@ const App: React.FC = () => {
         return <Support />;
       case 'property-settings':
         return <PropertySettings />;
+      case 'profile-settings':
+        return <ProfileSettings />;
       default:
         return <Dashboard />;
     }
@@ -196,6 +222,8 @@ const App: React.FC = () => {
     loading: false, // Loading is handled within components now
     refreshUser: refreshUser,
     updateProperty: handleUpdateProperty,
+    updateProfile: handleUpdateProfile,
+    updatePassword: handleUpdatePassword,
   };
 
   return (
@@ -203,7 +231,7 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-base-100 text-neutral">
         <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
+          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
           <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
             {renderView()}
           </main>

@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View } from '../types';
-import { UserCircleIcon, TruckIcon, ArrowRightOnRectangleIcon } from './Icons';
+import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, BellIcon, BanknotesIcon, CreditCardIcon } from './Icons';
 import { useProperty } from '../App';
 
 interface HeaderProps {
   currentView: View;
+  setCurrentView: (view: View) => void;
   onAddPropertyClick: () => void;
   onLogout: () => void;
 }
@@ -21,11 +22,31 @@ const viewTitles: Record<View, string> = {
     'missed-pickup': 'Report Missed Pickup',
     support: 'Support',
     'property-settings': 'Property Settings',
+    'profile-settings': 'Profile Settings',
 };
 
-const Header: React.FC<HeaderProps> = ({ currentView, onAddPropertyClick, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout }) => {
   const { user, properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
   const title = viewTitles[currentView] || 'Dashboard';
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+  
+  const handleNavigation = (view: View) => {
+    setCurrentView(view);
+    setIsDropdownOpen(false);
+  };
 
   const handlePropertyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (e.target.value === 'add_new') {
@@ -70,15 +91,38 @@ const Header: React.FC<HeaderProps> = ({ currentView, onAddPropertyClick, onLogo
                 </div>
             )}
             <div className="w-px h-10 bg-base-300 hidden sm:block"></div>
-            <div className="hidden sm:flex items-center space-x-4">
-                <div className="text-right">
-                    <p className="font-semibold text-neutral">{user?.firstName} {user?.lastName}</p>
-                    <p className="text-sm text-gray-500">Customer</p>
-                </div>
-              <UserCircleIcon className="w-12 h-12 text-gray-300" />
-               <button onClick={onLogout} title="Logout" className="p-2 rounded-full hover:bg-base-200 transition-colors">
-                 <ArrowRightOnRectangleIcon className="w-6 h-6 text-gray-500" />
-               </button>
+            <div className="relative hidden sm:block" ref={dropdownRef}>
+                <button onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-base-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                    <UserCircleIcon className="w-10 h-10 text-gray-400" />
+                    <div className="text-right">
+                        <p className="font-semibold text-neutral">{user?.firstName} {user?.lastName}</p>
+                        <p className="text-sm text-gray-500">Customer</p>
+                    </div>
+                </button>
+
+                {isDropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
+                        <div className="py-1">
+                            <div className="px-4 py-3 border-b border-base-200">
+                                <p className="text-sm font-semibold text-neutral truncate">{user?.firstName} {user?.lastName}</p>
+                                <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                            </div>
+                            <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+                                <UserIcon className="w-5 h-5 mr-3 text-gray-500" /> Profile Settings
+                            </a>
+                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('billing'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+                                <BanknotesIcon className="w-5 h-5 mr-3 text-gray-500" /> Billing
+                            </a>
+                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('payment'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+                                <CreditCardIcon className="w-5 h-5 mr-3 text-gray-500" /> Payment Methods
+                            </a>
+                            <div className="border-t border-base-200 my-1"></div>
+                            <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+                                 <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-gray-500" /> Logout
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
       </div>

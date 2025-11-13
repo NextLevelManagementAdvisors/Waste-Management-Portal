@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from '../types';
-import { ChartPieIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon, ChatBubbleLeftRightIcon, Bars3Icon, XMarkIcon, TruckIcon, CreditCardIcon, BellIcon, CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, BuildingOffice2Icon } from './Icons';
+import { ChartPieIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon, ChatBubbleLeftRightIcon, Bars3Icon, XMarkIcon, TruckIcon, CreditCardIcon, BellIcon, CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, BuildingOffice2Icon, UserIcon } from './Icons';
 
 interface SidebarProps {
   currentView: View;
@@ -12,12 +12,10 @@ const navItems: { view: View; label: string; icon: React.ReactNode }[] = [
   { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-6 h-6" /> },
   { view: 'services', label: 'All Services', icon: <WrenchScrewdriverIcon className="w-6 h-6" /> },
   { view: 'subscriptions', label: 'My Subscriptions', icon: <ListBulletIcon className="w-6 h-6" /> },
+  { view: 'property-settings', label: 'Property Settings', icon: <BuildingOffice2Icon className="w-6 h-6" /> },
+  { view: 'notifications', label: 'Notifications', icon: <BellIcon className="w-6 h-6" /> },
   { view: 'special-pickup', label: 'Special Pickups', icon: <CalendarDaysIcon className="w-6 h-6" /> },
   { view: 'vacation-holds', label: 'Vacation Holds', icon: <PauseCircleIcon className="w-6 h-6" /> },
-  { view: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-6 h-6" /> },
-  { view: 'payment', label: 'Payment Methods', icon: <CreditCardIcon className="w-6 h-6" /> },
-  { view: 'notifications', label: 'Notifications', icon: <BellIcon className="w-6 h-6" /> },
-  { view: 'property-settings', label: 'Property Settings', icon: <BuildingOffice2Icon className="w-6 h-6" /> },
   { view: 'missed-pickup', label: 'Report Missed Pickup', icon: <ExclamationTriangleIcon className="w-6 h-6" /> },
   { view: 'support', label: 'Support', icon: <ChatBubbleLeftRightIcon className="w-6 h-6" /> },
 ];

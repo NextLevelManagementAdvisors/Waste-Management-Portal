@@ -1,7 +1,7 @@
 
 
 import React from 'react';
-import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo } from '../types';
+import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from '../types';
 import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, ShoppingBagIcon } from '../components/Icons';
 import * as stripeService from './stripeService';
 
@@ -138,6 +138,28 @@ export const logout = () => simulateApiCall({ success: true }, 100);
 export const getUser = () => {
     const { password, ...userWithoutPassword } = MOCK_USER;
     return simulateApiCall(userWithoutPassword);
+};
+
+export const updateUserProfile = (profileInfo: UpdateProfileInfo) => {
+    MOCK_USER.firstName = profileInfo.firstName;
+    MOCK_USER.lastName = profileInfo.lastName;
+    MOCK_USER.email = profileInfo.email;
+    MOCK_USER.phone = profileInfo.phone;
+    const { password, ...userWithoutPassword } = MOCK_USER;
+    return simulateApiCall(userWithoutPassword);
+};
+
+export const updateUserPassword = (passwordInfo: UpdatePasswordInfo) => {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (passwordInfo.currentPassword !== MOCK_USER.password) {
+                reject(new Error("Current password does not match."));
+            } else {
+                MOCK_USER.password = passwordInfo.newPassword;
+                resolve({ success: true });
+            }
+        }, 500);
+    });
 };
 
 
