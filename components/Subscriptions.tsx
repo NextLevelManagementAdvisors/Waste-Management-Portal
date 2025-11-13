@@ -1,7 +1,6 @@
-
-import React, { useEffect, useState } from 'react';
-import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod } from '../services/mockApiService';
-import { Subscription, PaymentMethod } from '../types';
+import React, { useEffect, useState, useMemo } from 'react';
+import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService';
+import { Subscription, PaymentMethod, Service } from '../types';
 import { Card } from './Card';
 import { Button } from './Button';
 import { useProperty } from '../App';
@@ -9,67 +8,31 @@ import Modal from './Modal';
 import { CreditCardIcon, BanknotesIcon } from './Icons';
 
 
-interface ChangePaymentMethodModalProps {
+const CancelSubscriptionModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onSave: (newPaymentMethodId: string) => void;
-    subscription: Subscription;
-    paymentMethods: PaymentMethod[];
-}
-
-const ChangePaymentMethodModal: React.FC<ChangePaymentMethodModalProps> = ({ isOpen, onClose, onSave, subscription, paymentMethods }) => {
-    const [selectedMethodId, setSelectedMethodId] = useState(subscription.paymentMethodId);
-
-    useEffect(() => {
-        setSelectedMethodId(subscription.paymentMethodId);
-    }, [subscription]);
-
-    const handleSave = () => {
-        onSave(selectedMethodId);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Change Payment for ${subscription.serviceName}`}>
-            <div className="space-y-4">
-                <p className="text-gray-600">Select a new payment method for this subscription.</p>
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    {paymentMethods.map(method => (
-                        <div 
-                            key={method.id} 
-                            onClick={() => setSelectedMethodId(method.id)}
-                            className={`flex items-center p-3 border rounded-lg cursor-pointer ${selectedMethodId === method.id ? 'border-primary ring-2 ring-primary' : 'border-gray-300'}`}
-                        >
-                            {method.type === 'Card' ? <CreditCardIcon className="w-6 h-6 mr-3 text-neutral" /> : <BanknotesIcon className="w-6 h-6 mr-3 text-neutral" />}
-                            <div className="flex-1">
-                                <p className="font-semibold">{method.brand ? `${method.brand} ending in ${method.last4}` : `Bank Account ending in ${method.last4}`}</p>
-                                {method.isPrimary && <p className="text-xs text-primary">Primary</p>}
-                            </div>
-                            <input
-                                type="radio"
-                                name="paymentMethod"
-                                value={method.id}
-                                checked={selectedMethodId === method.id}
-                                onChange={() => setSelectedMethodId(method.id)}
-                                className="form-radio h-4 w-4 text-primary"
-                            />
-                        </div>
-                    ))}
-                </div>
-                 <div className="mt-6 flex justify-end gap-3">
-                    <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-                    <Button type="button" onClick={handleSave}>Save Changes</Button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
+    onConfirm: () => void;
+    isLastBasic: boolean;
+}> = ({ isOpen, onClose, onConfirm, isLastBasic }) => (
+    <Modal isOpen={isOpen} onClose={onClose} title="Confirm Cancellation">
+        <p className="text-gray-600">
+            {isLastBasic 
+                ? "This is your last basic service for this property. Canceling it will also cancel all associated service upgrades. Are you sure you want to proceed?"
+                : "Are you sure you want to cancel this subscription?"}
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+            <Button type="button" variant="secondary" onClick={onClose}>Back</Button>
+            <Button type="button" variant="primary" className="bg-red-600 hover:bg-red-700 focus:ring-red-500" onClick={onConfirm}>
+                Confirm Cancellation
+            </Button>
+        </div>
+    </Modal>
+);
 
 const SubscriptionCard: React.FC<{
     sub: Subscription;
-    paymentMethod?: PaymentMethod;
-    onChangePayment: () => void;
-}> = ({ sub, paymentMethod, onChangePayment }) => {
+    onCancel: () => void;
+}> = ({ sub, onCancel }) => {
     const statusColor = {
         active: 'bg-green-100 text-green-800',
         paused: 'bg-yellow-100 text-yellow-800',
@@ -81,32 +44,28 @@ const SubscriptionCard: React.FC<{
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-4">
-                        <h3 className="text-xl font-semibold text-neutral">{sub.serviceName}</h3>
+                        <h3 className="text-xl font-semibold text-neutral">
+                            {sub.serviceName}
+                            {sub.quantity > 1 && <span className="text-lg font-normal text-gray-500 ml-2">x {sub.quantity}</span>}
+                        </h3>
                         <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusColor[sub.status]}`}>{sub.status}</span>
                     </div>
-                    <p className="text-gray-500 mt-1">Next bill on {sub.nextBillingDate} for <span className="font-semibold text-neutral">${sub.price.toFixed(2)}</span></p>
-                    <p className={`text-sm mt-2 font-mono ${sub.source === 'Stripe' ? 'text-indigo-600' : 'text-gray-400'}`}>Source: {sub.source}</p>
+                     {sub.status === 'paused' && sub.pausedUntil && (
+                        <p className="text-yellow-700 font-medium mt-1">Paused until {sub.pausedUntil}</p>
+                    )}
+                    <p className="text-gray-500 mt-1">Next bill on {sub.nextBillingDate} for <span className="font-semibold text-neutral">${sub.totalPrice.toFixed(2)}</span></p>
+                    {/* FIX: Removed UI element that was attempting to display a 'source' property which does not exist on the Subscription type. */}
                 </div>
                 <div className="flex-shrink-0">
-                    <Button variant="secondary" disabled={sub.status === 'canceled'}>Manage</Button>
+                     <Button 
+                        variant="secondary" 
+                        onClick={onCancel}
+                        disabled={sub.status === 'canceled'}
+                        className={sub.status !== 'canceled' ? "hover:bg-red-100 hover:text-red-700" : ""}
+                    >
+                        Cancel
+                    </Button>
                 </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-gray-200">
-                {paymentMethod ? (
-                    <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 flex items-center gap-2">
-                            {paymentMethod.type === 'Card' ? <CreditCardIcon className="w-5 h-5" /> : <BanknotesIcon className="w-5 h-5" />}
-                            Billed to {paymentMethod.brand ? `${paymentMethod.brand} •••• ${paymentMethod.last4}` : `Bank •••• ${paymentMethod.last4}`}
-                        </span>
-                        <button onClick={onChangePayment} className="font-semibold text-primary hover:text-primary-focus disabled:text-gray-400 disabled:cursor-not-allowed" disabled={sub.status === 'canceled'}>
-                            Change
-                        </button>
-                    </div>
-                ) : (
-                    <div className="text-sm text-red-500">
-                        Warning: No payment method assigned.
-                    </div>
-                )}
             </div>
         </Card>
     )
@@ -116,21 +75,24 @@ const SubscriptionCard: React.FC<{
 const Subscriptions: React.FC = () => {
     const { selectedProperty } = useProperty();
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+    const [services, setServices] = useState<Service[]>([]);
     const [loading, setLoading] = useState(true);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
 
+    const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [subToCancel, setSubToCancel] = useState<Subscription | null>(null);
 
     const fetchData = async () => {
-        setLoading(true);
+        // Don't show main loader on refresh
+        if (loading) {
+            setLoading(true);
+        }
         try {
-            const [subsData, payMethodsData] = await Promise.all([
+            const [subsData, servicesData] = await Promise.all([
                 getSubscriptions(),
-                getPaymentMethods()
+                getServices()
             ]);
             setAllSubscriptions(subsData);
-            setPaymentMethods(payMethodsData);
+            setServices(servicesData);
         } catch (error) {
             console.error("Failed to fetch data:", error);
         } finally {
@@ -142,36 +104,54 @@ const Subscriptions: React.FC = () => {
         fetchData();
     }, []);
 
-    const handleOpenChangePaymentModal = (sub: Subscription) => {
-        setSelectedSub(sub);
-        setIsModalOpen(true);
+    const handleOpenCancelModal = (sub: Subscription) => {
+        setSubToCancel(sub);
+        setIsCancelModalOpen(true);
     };
 
-    const handleCloseModal = () => {
-        setSelectedSub(null);
-        setIsModalOpen(false);
+    const handleCloseCancelModal = () => {
+        setSubToCancel(null);
+        setIsCancelModalOpen(false);
     };
 
-    const handleSavePaymentMethod = async (newPaymentMethodId: string) => {
-        if (!selectedSub) return;
+    const handleConfirmCancel = async () => {
+        if (!subToCancel) return;
 
         try {
-            await updateSubscriptionPaymentMethod(selectedSub.id, newPaymentMethodId);
-            await fetchData();
+            await cancelSubscription(subToCancel.id);
+            await fetchData(); // Refresh data
         } catch (error) {
-            console.error("Failed to update payment method:", error);
-            alert("Update failed. Please try again.");
+            console.error("Failed to cancel subscription:", error);
+            alert("Cancellation failed. Please try again.");
         } finally {
-            handleCloseModal();
+            handleCloseCancelModal();
         }
     };
+
+    const isLastBasicService = useMemo(() => {
+        if (!subToCancel || !selectedProperty) return false;
+
+        const service = services.find(s => s.id === subToCancel.serviceId);
+        if (service?.category !== 'base_service') {
+            return false;
+        }
+
+        const otherActiveBasicSubs = allSubscriptions.filter(s => 
+            s.propertyId === selectedProperty.id &&
+            s.id !== subToCancel.id &&
+            s.status === 'active' &&
+            services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
+        );
+
+        return otherActiveBasicSubs.length === 0;
+    }, [subToCancel, allSubscriptions, services, selectedProperty]);
     
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
     const filteredSubscriptions = selectedProperty 
-        ? allSubscriptions.filter(s => s.propertyId === selectedProperty.id) 
+        ? allSubscriptions.filter(s => s.propertyId === selectedProperty.id && s.status !== 'canceled') 
         : [];
 
     return (
@@ -188,17 +168,13 @@ const Subscriptions: React.FC = () => {
             <div className="space-y-4">
                 {selectedProperty ? (
                     filteredSubscriptions.length > 0 ? (
-                        filteredSubscriptions.map(sub => {
-                            const paymentMethod = paymentMethods.find(p => p.id === sub.paymentMethodId);
-                            return (
-                                <SubscriptionCard 
-                                    key={sub.id} 
-                                    sub={sub} 
-                                    paymentMethod={paymentMethod}
-                                    onChangePayment={() => handleOpenChangePaymentModal(sub)}
-                                />
-                            );
-                        })
+                        filteredSubscriptions.map(sub => (
+                            <SubscriptionCard 
+                                key={sub.id} 
+                                sub={sub}
+                                onCancel={() => handleOpenCancelModal(sub)}
+                            />
+                        ))
                     ) : (
                         <Card>
                             <p className="text-center text-gray-500 py-8">You have no active subscriptions for this property.</p>
@@ -210,13 +186,12 @@ const Subscriptions: React.FC = () => {
                     </Card>
                 )}
             </div>
-            {selectedSub && (
-                <ChangePaymentMethodModal
-                    isOpen={isModalOpen}
-                    onClose={handleCloseModal}
-                    onSave={handleSavePaymentMethod}
-                    subscription={selectedSub}
-                    paymentMethods={paymentMethods}
+            {subToCancel && (
+                 <CancelSubscriptionModal
+                    isOpen={isCancelModalOpen}
+                    onClose={handleCloseCancelModal}
+                    onConfirm={handleConfirmCancel}
+                    isLastBasic={isLastBasicService}
                 />
             )}
         </div>

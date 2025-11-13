@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -9,8 +8,16 @@ import Billing from './components/Billing';
 import PaymentMethods from './components/PaymentMethods';
 import Support from './components/Support';
 import Notifications from './components/Notifications';
-import { View, User, Property } from './types';
-import { getUser } from './services/mockApiService';
+import SpecialPickup from './components/SpecialPickup';
+import VacationHolds from './components/VacationHolds';
+import MissedPickup from './components/MissedPickup';
+import AddPropertyModal from './components/AddPropertyModal';
+import PropertySettings from './components/PropertySettings';
+import AuthLayout from './components/AuthLayout';
+import Login from './components/Login';
+import Registration from './components/Registration';
+import { View, User, Property, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo } from './types';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails } from './services/mockApiService';
 
 interface PropertyContextType {
     user: User | null;
@@ -19,6 +26,7 @@ interface PropertyContextType {
     setSelectedPropertyId: (id: string) => void;
     loading: boolean;
     refreshUser: () => Promise<void>;
+    updateProperty: (propertyId: string, details: UpdatePropertyInfo) => Promise<void>;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({
@@ -28,38 +36,113 @@ export const PropertyContext = createContext<PropertyContextType>({
     setSelectedPropertyId: () => {},
     loading: true,
     refreshUser: async () => {},
+    updateProperty: async () => {},
 });
 
 export const useProperty = () => useContext(PropertyContext);
 
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
+  const [authError, setAuthError] = useState<string | null>(null);
+  
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // No initial loading, handled by auth
+  const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
   
-  const fetchUser = async () => {
-      // Don't show main loader on refresh
-      if (!user) {
-        setLoading(true);
+  const fetchUserAndSetState = (userData: User) => {
+    setUser(userData);
+    if (userData.properties && userData.properties.length > 0) {
+      // If a property is already selected, try to keep it. Otherwise, select the first one.
+      const currentSelectedExists = userData.properties.some(p => p.id === selectedPropertyId);
+      if (!currentSelectedExists) {
+        setSelectedPropertyId(userData.properties[0].id);
       }
-      try {
-        const userData = await getUser();
-        setUser(userData);
-        if (!selectedPropertyId && userData.properties && userData.properties.length > 0) {
-          setSelectedPropertyId(userData.properties[0].id);
-        }
-      } catch (error) {
-        console.error("Failed to fetch user data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    } else {
+      setSelectedPropertyId(null);
+    }
+  };
     
-  useEffect(() => {
-    fetchUser();
-  }, []);
+  const refreshUser = async () => {
+    try {
+        const userData = await getUser();
+        fetchUserAndSetState(userData);
+    } catch (error) {
+        console.error("Failed to refresh user data:", error);
+    }
+  };
+
+  const handleLogin = async (email: string, password: string): Promise<void> => {
+    setAuthError(null);
+    try {
+      const userData = await login(email, password);
+      fetchUserAndSetState(userData);
+      setIsAuthenticated(true);
+      if (userData.properties && userData.properties.length === 0) {
+        setIsAddPropertyModalOpen(true);
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
+    }
+  };
+
+  const handleRegister = async (registrationInfo: RegistrationInfo): Promise<void> => {
+     setAuthError(null);
+    try {
+      const userData = await register(registrationInfo);
+      fetchUserAndSetState(userData);
+      setIsAuthenticated(true);
+      setCurrentView('services'); // Go to services page to select a plan for the new property
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
+    }
+  };
+
+  const handleLogout = async (): Promise<void> => {
+    await logout();
+    setIsAuthenticated(false);
+    setUser(null);
+    setSelectedPropertyId(null);
+    setAuthView('login');
+  };
+
+  const handleAddProperty = async (propertyInfo: NewPropertyInfo) => {
+    try {
+      const newProperty = await addProperty(propertyInfo);
+      // Manually update user state to reflect new property
+      setUser(prevUser => {
+        if (!prevUser) return null;
+        const updatedUser = { ...prevUser, properties: [...prevUser.properties, newProperty]};
+        return updatedUser;
+      });
+      setSelectedPropertyId(newProperty.id); 
+      setCurrentView('services'); 
+      setIsAddPropertyModalOpen(false); 
+    } catch (error) {
+      console.error("Failed to add property:", error);
+      alert("Could not add the new property. Please try again.");
+    }
+  };
+
+  const handleUpdateProperty = async (propertyId: string, details: UpdatePropertyInfo) => {
+    try {
+      const updatedProperty = await updatePropertyDetails(propertyId, details);
+      setUser(prevUser => {
+        if (!prevUser) return null;
+        const updatedProperties = prevUser.properties.map(p => 
+          p.id === propertyId ? updatedProperty : p
+        );
+        return { ...prevUser, properties: updatedProperties };
+      });
+    } catch (error) {
+      console.error("Failed to update property:", error);
+      // Re-throw the error so the component can handle it (e.g., show an alert)
+      throw error;
+    }
+  };
 
   const renderView = () => {
     switch (currentView) {
@@ -75,12 +158,32 @@ const App: React.FC = () => {
         return <PaymentMethods />;
       case 'notifications':
         return <Notifications />;
+      case 'special-pickup':
+        return <SpecialPickup />;
+      case 'vacation-holds':
+        return <VacationHolds />;
+      case 'missed-pickup':
+        return <MissedPickup />;
       case 'support':
         return <Support />;
+      case 'property-settings':
+        return <PropertySettings />;
       default:
         return <Dashboard />;
     }
   };
+  
+  if (!isAuthenticated) {
+    return (
+        <AuthLayout>
+            {authView === 'login' ? (
+                <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} error={authError} />
+            ) : (
+                <Registration onRegister={handleRegister} switchToLogin={() => setAuthView('login')} error={authError} />
+            )}
+        </AuthLayout>
+    )
+  }
 
   const properties = user?.properties || [];
   const selectedProperty = properties.find(p => p.id === selectedPropertyId) || null;
@@ -90,8 +193,9 @@ const App: React.FC = () => {
     properties,
     selectedProperty,
     setSelectedPropertyId,
-    loading,
-    refreshUser: fetchUser,
+    loading: false, // Loading is handled within components now
+    refreshUser: refreshUser,
+    updateProperty: handleUpdateProperty,
   };
 
   return (
@@ -99,13 +203,16 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-base-100 text-neutral">
         <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} />
+          <Header currentView={currentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
           <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
-            {loading ? (
-                 <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>
-            ) : renderView()}
+            {renderView()}
           </main>
         </div>
+        <AddPropertyModal 
+          isOpen={isAddPropertyModalOpen}
+          onClose={() => setIsAddPropertyModalOpen(false)}
+          onAddProperty={handleAddProperty}
+        />
       </div>
     </PropertyContext.Provider>
   );

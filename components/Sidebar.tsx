@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from '../types';
-import { ChartPieIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon, ChatBubbleLeftRightIcon, Bars3Icon, XMarkIcon, TruckIcon, CreditCardIcon, BellIcon } from './Icons';
+import { ChartPieIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon, ChatBubbleLeftRightIcon, Bars3Icon, XMarkIcon, TruckIcon, CreditCardIcon, BellIcon, CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, BuildingOffice2Icon } from './Icons';
 
 interface SidebarProps {
   currentView: View;
@@ -12,9 +12,13 @@ const navItems: { view: View; label: string; icon: React.ReactNode }[] = [
   { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-6 h-6" /> },
   { view: 'services', label: 'All Services', icon: <WrenchScrewdriverIcon className="w-6 h-6" /> },
   { view: 'subscriptions', label: 'My Subscriptions', icon: <ListBulletIcon className="w-6 h-6" /> },
+  { view: 'special-pickup', label: 'Special Pickups', icon: <CalendarDaysIcon className="w-6 h-6" /> },
+  { view: 'vacation-holds', label: 'Vacation Holds', icon: <PauseCircleIcon className="w-6 h-6" /> },
   { view: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-6 h-6" /> },
   { view: 'payment', label: 'Payment Methods', icon: <CreditCardIcon className="w-6 h-6" /> },
   { view: 'notifications', label: 'Notifications', icon: <BellIcon className="w-6 h-6" /> },
+  { view: 'property-settings', label: 'Property Settings', icon: <BuildingOffice2Icon className="w-6 h-6" /> },
+  { view: 'missed-pickup', label: 'Report Missed Pickup', icon: <ExclamationTriangleIcon className="w-6 h-6" /> },
   { view: 'support', label: 'Support', icon: <ChatBubbleLeftRightIcon className="w-6 h-6" /> },
 ];
 
@@ -86,7 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
       {/* Mobile Sidebar */}
       <div className={`fixed inset-0 z-40 transform transition-transform duration-300 ease-in-out lg:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="absolute inset-0 bg-black/30" onClick={() => setIsOpen(false)}></div>
-        <div className="relative w-64 h-full">
+        <div className="relative w-72 h-full">
             <SidebarContent />
             <button onClick={() => setIsOpen(false)} className="absolute top-4 right-[-40px] z-50 p-2 text-white">
                  <XMarkIcon className="w-6 h-6" />
@@ -95,7 +99,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
       </div>
       
       {/* Desktop Sidebar */}
-      <div className="hidden lg:block lg:w-64 lg:flex-shrink-0">
+      <div className="hidden lg:block lg:w-72 lg:flex-shrink-0">
         <SidebarContent />
       </div>
     </>

@@ -1,11 +1,11 @@
 
 import React, { useEffect, useState } from 'react';
-import { getSubscriptions, getInvoices } from '../services/mockApiService';
+import { getSubscriptions, getInvoices, getServiceAlerts } from '../services/mockApiService';
 import { getNextPickupInfo, PickupInfo } from '../services/optimoRouteService';
-import { Subscription, Invoice } from '../types';
+import { Subscription, Invoice, ServiceAlert } from '../types';
 import { Card } from './Card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { CalendarIcon, BanknotesIcon, ListBulletIcon, ClockIcon } from './Icons';
+import { CalendarIcon, BanknotesIcon, ListBulletIcon, ClockIcon, MegaphoneIcon, XMarkIcon } from './Icons';
 import { useProperty } from '../App';
 
 const Dashboard: React.FC = () => {
@@ -13,6 +13,8 @@ const Dashboard: React.FC = () => {
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [pickupInfo, setPickupInfo] = useState<PickupInfo | null>(null);
+    const [alerts, setAlerts] = useState<ServiceAlert[]>([]);
+    const [visibleAlerts, setVisibleAlerts] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -21,14 +23,17 @@ const Dashboard: React.FC = () => {
             setLoading(true);
             setPickupInfo(null);
             try {
-                const [subsData, invoicesData, pickupData] = await Promise.all([
+                const [subsData, invoicesData, pickupData, alertsData] = await Promise.all([
                     getSubscriptions(),
                     getInvoices(),
-                    getNextPickupInfo(selectedProperty.address)
+                    getNextPickupInfo(selectedProperty.address),
+                    getServiceAlerts()
                 ]);
                 setSubscriptions(subsData.filter(s => s.propertyId === selectedProperty.id));
                 setInvoices(invoicesData.filter(i => i.propertyId === selectedProperty.id));
                 setPickupInfo(pickupData);
+                setAlerts(alertsData);
+                setVisibleAlerts(alertsData.map(a => a.id));
             } catch (error) {
                 console.error("Failed to fetch dashboard data:", error);
             } finally {
@@ -38,6 +43,10 @@ const Dashboard: React.FC = () => {
         fetchData();
     }, [selectedProperty]);
     
+    const dismissAlert = (alertId: string) => {
+        setVisibleAlerts(current => current.filter(id => id !== alertId));
+    };
+
     const formatPickupDate = (dateString: string): string => {
         // Adjust for timezone differences by parsing as UTC
         const date = new Date(dateString + 'T00:00:00Z');
@@ -45,13 +54,17 @@ const Dashboard: React.FC = () => {
     };
 
     const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
-    const monthlyCost = activeSubscriptions.reduce((acc, sub) => acc + sub.price, 0);
+    const monthlyCost = activeSubscriptions.reduce((acc, sub) => acc + sub.totalPrice, 0);
     const nextBillingDate = activeSubscriptions.length > 0 ? activeSubscriptions[0].nextBillingDate : 'N/A';
 
-    const chartData = invoices.slice().reverse().map(inv => ({
-        name: new Date(inv.date).toLocaleString('default', { month: 'short' }),
-        amount: inv.amount
-    }));
+    const chartData = invoices
+        .filter(inv => inv.status === 'Paid')
+        .slice()
+        .reverse()
+        .map(inv => ({
+            name: new Date(inv.date).toLocaleString('default', { month: 'short' }),
+            amount: inv.amount
+        }));
     
     const isToday = pickupInfo && pickupInfo.date === new Date().toISOString().split('T')[0];
 
@@ -65,7 +78,18 @@ const Dashboard: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-3xl font-bold text-neutral">Welcome back, {user?.name}!</h1>
+             {alerts.filter(a => visibleAlerts.includes(a.id)).map(alert => (
+                <div key={alert.id} className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md shadow-sm flex justify-between items-center" role="alert">
+                    <div className="flex items-center">
+                        <MegaphoneIcon className="w-6 h-6 mr-3" />
+                        <p className="font-medium">{alert.message}</p>
+                    </div>
+                    <button onClick={() => dismissAlert(alert.id)} className="p-1 rounded-full hover:bg-blue-200">
+                        <XMarkIcon className="w-5 h-5" />
+                    </button>
+                </div>
+            ))}
+            <h1 className="text-3xl font-bold text-neutral">Welcome back, {user?.firstName}!</h1>
             <p className="text-gray-600">Showing overview for <span className="font-semibold text-neutral">{selectedProperty.address}</span></p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -125,7 +149,7 @@ const Dashboard: React.FC = () => {
             </div>
             
             <Card>
-                <h3 className="text-xl font-semibold text-neutral mb-4">Billing History</h3>
+                <h3 className="text-xl font-semibold text-neutral mb-4">Billing History (Last 6 Months)</h3>
                  {chartData.length > 0 ? (
                     <div style={{ width: '100%', height: 300 }}>
                         <ResponsiveContainer>
@@ -141,7 +165,7 @@ const Dashboard: React.FC = () => {
                     </div>
                  ) : (
                      <div className="text-center py-12 text-gray-500">
-                         No billing history for this property yet.
+                         No paid invoices for this property yet.
                      </div>
                  )}
             </Card>

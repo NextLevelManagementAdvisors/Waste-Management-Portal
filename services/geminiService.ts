@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { User, Subscription, Invoice } from '../types';
 
@@ -14,7 +15,6 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const getSupportResponse = async (
   prompt: string,
-  // FIX: Updated user type to include the dynamically added 'address' property.
   userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] }
 ): Promise<string> => {
   if (!API_KEY) {
@@ -23,7 +23,7 @@ export const getSupportResponse = async (
 
   const contextString = `
     User Details:
-    - Name: ${userContext.user.name}
+    - Name: ${userContext.user.firstName} ${userContext.user.lastName}
     - Address: ${userContext.user.address}
 
     Active Subscriptions:

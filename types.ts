@@ -1,7 +1,6 @@
-
 import React from 'react';
 
-export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications';
+export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications' | 'special-pickup' | 'vacation-holds' | 'missed-pickup' | 'property-settings';
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
@@ -9,15 +8,25 @@ export interface NotificationPreferences {
   driverUpdates: { email: boolean; sms: boolean };
 }
 
+export type ServiceType = 'personal' | 'commercial' | 'short-term' | 'rental' | 'other';
+
 export interface Property {
   id: string;
   address: string;
+  serviceType: ServiceType;
+  inHOA: boolean;
+  communityName?: string;
+  hasGateCode: boolean;
+  gateCode?: string;
   notificationPreferences: NotificationPreferences;
 }
 
 export interface User {
-  name: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
   email: string;
+  password?: string;
   memberSince: string;
   properties: Property[];
 }
@@ -29,10 +38,29 @@ export interface Service {
   price: number;
   frequency: 'Weekly' | 'Bi-Weekly' | 'Monthly' | 'One-Time';
   icon: React.ReactNode;
+  category: 'base_service' | 'upgrade' | 'standalone' | 'base_fee';
+}
+
+export interface SpecialPickupService {
+    id: string;
+    name: string;
+    description: string;
+    price: number;
+    icon: React.ReactNode;
+}
+
+export interface SpecialPickupRequest {
+    id: string;
+    propertyId: string;
+    serviceId: string;
+    serviceName: string;
+    date: string;
+    status: 'Scheduled' | 'Completed';
+    price: number;
 }
 
 export interface Subscription {
-  id: string;
+  id:string;
   propertyId: string;
   serviceId: string;
   serviceName: string;
@@ -40,8 +68,10 @@ export interface Subscription {
   status: 'active' | 'paused' | 'canceled';
   nextBillingDate: string;
   price: number;
-  source: 'In-App' | 'Stripe';
+  totalPrice: number;
   paymentMethodId: string;
+  quantity: number;
+  pausedUntil?: string; // YYYY-MM-DD
 }
 
 export interface Invoice {
@@ -50,6 +80,7 @@ export interface Invoice {
   amount: number;
   date: string;
   status: 'Paid' | 'Due' | 'Overdue';
+  paymentDate?: string;
 }
 
 export interface SupportMessage {
@@ -66,3 +97,31 @@ export interface PaymentMethod {
   expiryYear?: number;
   isPrimary: boolean;
 }
+
+export interface ServiceAlert {
+    id: string;
+    message: string;
+    type: 'info' | 'warning' | 'error';
+}
+
+export interface NewPropertyInfo {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  serviceType: ServiceType;
+  inHOA: 'yes' | 'no';
+  communityName?: string;
+  hasGateCode: 'yes' | 'no';
+  gateCode?: string;
+}
+
+export interface UpdatePropertyInfo {
+  serviceType: ServiceType;
+  inHOA: 'yes' | 'no';
+  communityName?: string;
+  hasGateCode: 'yes' | 'no';
+  gateCode?: string;
+}
+
+export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'>, NewPropertyInfo {}
