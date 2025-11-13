@@ -1,21 +1,43 @@
-
 import React, { useState, useEffect } from 'react';
-import { PaymentMethod } from '../types';
-import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions } from '../services/mockApiService';
+import { PaymentMethod, View, Subscription } from '../types';
+import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/mockApiService';
 import { Card } from './Card';
 import { Button } from './Button';
 import Modal from './Modal';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons';
 import { useProperty } from '../App';
 
+interface PaymentMethodsProps {
+    setCurrentView: (view: View) => void;
+}
+
+const isMethodExpired = (method: PaymentMethod): boolean => {
+    if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
+        return false;
+    }
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-indexed month
+
+    if (method.expiryYear < currentYear) {
+        return true;
+    }
+    if (method.expiryYear === currentYear && method.expiryMonth < currentMonth) {
+        return true;
+    }
+
+    return false;
+};
+
 const PaymentMethodCard: React.FC<{
     method: PaymentMethod;
     onDelete: (id: string) => void;
     onSetPrimary: (id: string) => void;
-}> = ({ method, onDelete, onSetPrimary }) => {
+    isExpired: boolean;
+}> = ({ method, onDelete, onSetPrimary, isExpired }) => {
     
     return (
-        <Card className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Card className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${isExpired ? 'bg-red-50 border-red-300' : ''}`}>
             <div className="flex items-center gap-4">
                 {method.type === 'Card' ? <CreditCardIcon className="w-8 h-8 text-neutral" /> : <BanknotesIcon className="w-8 h-8 text-neutral" />}
                 <div>
@@ -24,12 +46,17 @@ const PaymentMethodCard: React.FC<{
                            {method.brand ? `${method.brand} ending in ${method.last4}` : `Bank Account ending in ${method.last4}`}
                         </h3>
                         {method.isPrimary && <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-primary text-primary-content">Primary</span>}
+                        {isExpired && <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-200 text-red-800">Expired</span>}
                     </div>
-                    {method.type === 'Card' && <p className="text-sm text-gray-500">Expires {method.expiryMonth}/{method.expiryYear}</p>}
+                    {method.type === 'Card' && (
+                        <p className={`text-sm ${isExpired ? 'text-red-700' : 'text-gray-500'}`}>
+                            Expires {method.expiryMonth}/{method.expiryYear}
+                        </p>
+                    )}
                 </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-                {!method.isPrimary && <Button variant="secondary" size="sm" onClick={() => onSetPrimary(method.id)}>Set as Primary</Button>}
+                {!method.isPrimary && !isExpired && <Button variant="secondary" size="sm" onClick={() => onSetPrimary(method.id)}>Set as Primary</Button>}
                 <Button variant="ghost" size="sm" onClick={() => onDelete(method.id)} aria-label={`Delete ${method.brand} ending in ${method.last4}`}>
                     <TrashIcon className="w-5 h-5 text-red-500" />
                 </Button>
@@ -137,13 +164,14 @@ const UpdateSubscriptionsPrompt: React.FC<{
 );
 
 
-const PaymentMethods: React.FC = () => {
+const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
     const { selectedProperty } = useProperty();
     const [methods, setMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalStep, setModalStep] = useState<'add' | 'prompt'>('add');
     const [newlyAddedMethod, setNewlyAddedMethod] = useState<PaymentMethod | null>(null);
+    const [isDeleteErrorModalOpen, setIsDeleteErrorModalOpen] = useState(false);
 
     const fetchMethods = async () => {
         // Don't set loading to true here to avoid flicker on add
@@ -161,6 +189,15 @@ const PaymentMethods: React.FC = () => {
     }, []);
 
     const handleDelete = async (id: string) => {
+        // Check if the payment method is in use by any active subscription
+        const allSubs = await getSubscriptions();
+        const isInUse = allSubs.some(sub => sub.paymentMethodId === id && sub.status === 'active');
+
+        if (isInUse) {
+            setIsDeleteErrorModalOpen(true);
+            return;
+        }
+
         if (confirm("Are you sure you want to delete this payment method?")) {
             try {
                 await deletePaymentMethod(id);
@@ -232,6 +269,7 @@ const PaymentMethods: React.FC = () => {
                             method={method}
                             onDelete={handleDelete}
                             onSetPrimary={handleSetPrimary}
+                            isExpired={isMethodExpired(method)}
                          />
                     ))
                 ) : (
@@ -259,6 +297,28 @@ const PaymentMethods: React.FC = () => {
                         propertyName={selectedProperty?.address || ''}
                     />
                 )}
+            </Modal>
+            
+            <Modal
+                isOpen={isDeleteErrorModalOpen}
+                onClose={() => setIsDeleteErrorModalOpen(false)}
+                title="Cannot Delete Payment Method"
+            >
+                <p className="text-gray-600 mb-4">
+                    This payment method cannot be deleted because it is currently linked to one or more active subscriptions.
+                </p>
+                <p className="text-gray-600 mb-6">
+                    Please update your subscriptions to use a different payment method before deleting this one.
+                </p>
+                <div className="flex justify-end gap-3">
+                    <Button variant="secondary" onClick={() => setIsDeleteErrorModalOpen(false)}>Close</Button>
+                    <Button onClick={() => {
+                        setIsDeleteErrorModalOpen(false);
+                        setCurrentView('subscriptions');
+                    }}>
+                        Update Subscriptions
+                    </Button>
+                </div>
             </Modal>
         </div>
     );

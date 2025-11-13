@@ -78,7 +78,7 @@ const STRIPE_PRODUCTS = [
 // Simulate Stripe's PaymentMethods attached to the customer
 let STRIPE_PAYMENT_METHODS: PaymentMethod[] = [
     { id: 'pm_1', type: 'Card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2026, isPrimary: true },
-    { id: 'pm_2', type: 'Card', brand: 'Mastercard', last4: '5555', expiryMonth: 8, expiryYear: 2025, isPrimary: false },
+    { id: 'pm_2', type: 'Card', brand: 'Mastercard', last4: '5555', expiryMonth: 8, expiryYear: 2023, isPrimary: false },
     { id: 'pm_3', type: 'Bank Account', last4: '6789', isPrimary: false },
 ];
 

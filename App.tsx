@@ -179,7 +179,7 @@ const App: React.FC = () => {
       case 'billing':
         return <Billing />;
       case 'payment':
-        return <PaymentMethods />;
+        return <PaymentMethods setCurrentView={setCurrentView} />;
       case 'notifications':
         return <Notifications />;
       case 'special-pickup':
