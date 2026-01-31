@@ -116,7 +116,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-2 border-b-2 border-base-200 pb-4">
                 <div>
-                    <h1 className="text-4xl font-black text-neutral tracking-tight">
+                    <h1 className="text-4xl font-black text-gray-900 tracking-tight">
                         {isAllMode ? "Portfolio Summary" : "Property Overview"}
                     </h1>
                     <p className="text-gray-500 text-lg font-medium mt-1">
@@ -133,20 +133,20 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {/* Portfolio Aggregate Card */}
-                 <Card className={`${isAllMode ? 'bg-primary text-white border-none shadow-xl shadow-teal-900/20' : 'bg-white border-base-300'} transition-all duration-500 overflow-hidden relative`}>
+                 {/* Portfolio Aggregate Card - Ensuring White Text on Primary Teal */}
+                 <Card className={`${isAllMode ? 'bg-primary border-none shadow-xl shadow-teal-900/20' : 'bg-white border-base-300'} transition-all duration-500 overflow-hidden relative`}>
                     <div className="flex items-center space-x-4 relative z-10">
                         <div className={`${isAllMode ? 'bg-white/20' : 'bg-primary/10'} p-4 rounded-2xl`}>
                            <BanknotesIcon className={`w-8 h-8 ${isAllMode ? 'text-white' : 'text-primary'}`} />
                         </div>
                         <div>
-                            <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isAllMode ? 'text-teal-100' : 'text-gray-400'}`}>
+                            <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isAllMode ? 'text-teal-50' : 'text-gray-400'}`}>
                                 {isAllMode ? 'Portfolio Monthly' : 'Property Monthly'}
                             </h3>
-                            <p className={`text-4xl font-black mt-1 ${isAllMode ? 'text-white' : 'text-neutral'}`}>
+                            <p className={`text-4xl font-black mt-1 ${isAllMode ? 'text-white' : 'text-gray-900'}`}>
                                 ${monthlyCost.toFixed(2)}
                             </p>
-                            <p className={`text-[9px] font-black mt-1.5 uppercase tracking-widest flex items-center gap-1.5 ${isAllMode ? 'text-teal-200' : 'text-primary'}`}>
+                            <p className={`text-[9px] font-black mt-1.5 uppercase tracking-widest flex items-center gap-1.5 ${isAllMode ? 'text-teal-100' : 'text-primary'}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${isAllMode ? 'bg-teal-200' : 'bg-primary'} animate-pulse`} />
                                 {activeSubscriptions.length} Active Services
                             </p>
@@ -168,7 +168,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                             <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Soonest Pickup</h3>
                             {nextPickupInfo ? (
                                 <>
-                                    <p className="text-2xl font-black text-neutral uppercase">
+                                    <p className="text-2xl font-black text-gray-900 uppercase">
                                         {isToday && nextPickupInfo.eta ? `~ ${nextPickupInfo.eta}` : new Date(nextPickupInfo.date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}
                                     </p>
                                     <p className="text-[9px] text-primary font-black mt-1 uppercase tracking-tighter">Next Scheduled Route</p>
@@ -187,7 +187,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                         </div>
                         <div>
                             <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Active Locations</h3>
-                            <p className="text-3xl font-black text-neutral">{isAllMode ? properties.length : '1'}</p>
+                            <p className="text-3xl font-black text-gray-900">{isAllMode ? properties.length : '1'}</p>
                             <p className="text-[9px] text-primary font-black mt-1 uppercase tracking-tighter">{isAllMode ? 'Total Managed' : 'Active Property'}</p>
                         </div>
                     </div>
@@ -198,7 +198,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <Card>
                     <div className="flex justify-between items-center mb-10">
                         <div>
-                            <h3 className="text-2xl font-black text-neutral tracking-tight">Spending Trend</h3>
+                            <h3 className="text-2xl font-black text-gray-900 tracking-tight">Spending Trend</h3>
                             <p className="text-sm text-gray-500">{isAllMode ? "Portfolio-wide" : "Local property"} spending history</p>
                         </div>
                         <div className="text-right">

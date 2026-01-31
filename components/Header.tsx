@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { View } from '../types';
 import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, BanknotesIcon, CreditCardIcon } from './Icons';
@@ -63,7 +62,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
     <header className="flex-shrink-0 bg-white border-b border-base-300 z-20 sticky top-0">
       <div className="flex items-center justify-between p-4 h-20">
         <div className="flex items-center">
-            <h2 className="text-2xl font-black text-neutral tracking-tight pl-12 lg:pl-0">{title}</h2>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight pl-12 lg:pl-0">{title}</h2>
         </div>
         <div className="flex items-center space-x-4">
             {loading ? (
@@ -73,7 +72,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                     <select
                         value={currentVal}
                         onChange={handlePropertyChange}
-                        className="appearance-none w-full bg-base-200 border border-base-300 text-neutral py-2.5 pl-4 pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-sm transition-all"
+                        className="appearance-none w-full bg-base-200 border border-base-300 text-gray-900 py-2.5 pl-4 pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-sm transition-all"
                         aria-label="Select property context"
                         disabled={properties.length === 0}
                     >
@@ -101,7 +100,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                 <button onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-base-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                     <UserCircleIcon className="w-10 h-10 text-gray-400" />
                     <div className="text-right">
-                        <p className="font-bold text-neutral text-sm">{user?.firstName} {user?.lastName}</p>
+                        <p className="font-bold text-gray-900 text-sm">{user?.firstName} {user?.lastName}</p>
                         <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Customer</p>
                     </div>
                 </button>
@@ -110,7 +109,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                     <div className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none z-30">
                         <div className="py-1">
                             <div className="px-4 py-3 border-b border-base-200 bg-gray-50 rounded-t-xl">
-                                <p className="text-sm font-bold text-neutral truncate">{user?.firstName} {user?.lastName}</p>
+                                <p className="text-sm font-bold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
                                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                             </div>
                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">

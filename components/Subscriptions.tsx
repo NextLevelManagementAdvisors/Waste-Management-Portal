@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService';
 import { Subscription, PaymentMethod, Service, Property } from '../types';
@@ -5,7 +6,7 @@ import { Card } from './Card';
 import { Button } from './Button';
 import { useProperty } from '../App';
 import Modal from './Modal';
-import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon } from './Icons';
+import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon, ExclamationTriangleIcon } from './Icons';
 
 const SubscriptionCard: React.FC<{
     sub: Subscription;
@@ -24,13 +25,13 @@ const SubscriptionCard: React.FC<{
             <div className="flex flex-col sm:flex-row justify-between gap-4">
                 <div className="flex-1">
                     <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-black text-neutral">
+                        <h3 className="text-lg font-black text-gray-900">
                             {sub.serviceName}
                             {sub.quantity > 1 && <span className="text-sm font-normal text-gray-400 ml-2">x {sub.quantity}</span>}
                         </h3>
                         <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[sub.status]}`}>{sub.status}</span>
                     </div>
-                    <p className="text-gray-500 mt-1 text-sm font-medium">Next charge: <span className="font-bold text-neutral">${sub.totalPrice.toFixed(2)}</span> on {sub.nextBillingDate}</p>
+                    <p className="text-gray-500 mt-1 text-sm font-medium">Next charge: <span className="font-bold text-gray-900">${sub.totalPrice.toFixed(2)}</span> on {sub.nextBillingDate}</p>
                      <div className="mt-3 text-[10px] text-gray-400 font-black flex items-center bg-gray-50 p-2 rounded-lg w-fit uppercase tracking-wider">
                         {paymentMethod?.type === 'Card' ? <CreditCardIcon className="w-4 h-4 mr-2" /> : <BanknotesIcon className="w-4 h-4 mr-2" />}
                         {paymentMethod ? `${paymentMethod.brand || 'BANK'} •• ${paymentMethod.last4}` : 'NO METHOD'}
@@ -56,10 +57,17 @@ const Subscriptions: React.FC = () => {
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // Modal States
+    const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [tempPaymentMethodId, setTempPaymentMethodId] = useState('');
+
     const isAllMode = !selectedProperty && properties.length > 0;
 
     const fetchData = async () => {
-        if (loading) setLoading(true);
+        setLoading(true);
         try {
             const [subsData, servicesData, methodsData] = await Promise.all([
                 getSubscriptions(),
@@ -102,6 +110,48 @@ const Subscriptions: React.FC = () => {
         }, [] as { property: Property, subs: Subscription[] }[]);
     }, [properties, allSubscriptions]);
 
+    // Handlers
+    const openCancelModal = (sub: Subscription) => {
+        setSelectedSub(sub);
+        setIsCancelModalOpen(true);
+    };
+
+    const openPaymentModal = (sub: Subscription) => {
+        setSelectedSub(sub);
+        setTempPaymentMethodId(sub.paymentMethodId);
+        setIsPaymentModalOpen(true);
+    };
+
+    const handleConfirmCancel = async () => {
+        if (!selectedSub) return;
+        setIsProcessing(true);
+        try {
+            await cancelSubscription(selectedSub.id);
+            await fetchData();
+            setIsCancelModalOpen(false);
+        } catch (error) {
+            alert("Failed to cancel subscription.");
+        } finally {
+            setIsProcessing(false);
+            setSelectedSub(null);
+        }
+    };
+
+    const handleConfirmPaymentUpdate = async () => {
+        if (!selectedSub || !tempPaymentMethodId) return;
+        setIsProcessing(true);
+        try {
+            await updateSubscriptionPaymentMethod(selectedSub.id, tempPaymentMethodId);
+            await fetchData();
+            setIsPaymentModalOpen(false);
+        } catch (error) {
+            alert("Failed to update payment method.");
+        } finally {
+            setIsProcessing(false);
+            setSelectedSub(null);
+        }
+    };
+
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
@@ -110,7 +160,7 @@ const Subscriptions: React.FC = () => {
         <div className="space-y-6 animate-in fade-in duration-500">
             <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4 border-b-2 border-base-200 pb-4">
                 <div>
-                    <h1 className="text-4xl font-black text-neutral tracking-tight">
+                    <h1 className="text-4xl font-black text-gray-900 tracking-tight">
                         {isAllMode ? "Account Portfolio" : "Active Services"}
                     </h1>
                     <p className="text-gray-500 font-medium mt-1 text-lg">
@@ -120,14 +170,13 @@ const Subscriptions: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {/* Requirement: White text against primary teal when All Properties is selected */}
-                 <Card className={`${isAllMode ? 'bg-primary text-white border-none shadow-xl shadow-teal-900/20' : 'bg-white border-base-300'} relative overflow-hidden transition-all duration-500`}>
+                 <Card className={`${isAllMode ? 'bg-primary border-none shadow-xl shadow-teal-900/20' : 'bg-white border-base-300'} relative overflow-hidden transition-all duration-500`}>
                     <ChartPieIcon className={`absolute -right-4 -bottom-4 w-32 h-32 opacity-10 ${isAllMode ? 'text-white' : 'text-primary'}`} />
                     <div className="relative z-10">
                         <h3 className={`font-black text-[10px] uppercase tracking-[0.2em] ${isAllMode ? 'text-teal-50' : 'text-gray-400'}`}>
                             {isAllMode ? 'Portfolio Monthly' : 'Property Total'}
                         </h3>
-                        <p className={`text-5xl font-black mt-2 leading-none ${isAllMode ? 'text-white' : 'text-neutral'}`}>
+                        <p className={`text-5xl font-black mt-2 leading-none ${isAllMode ? 'text-white' : 'text-gray-900'}`}>
                             ${grandTotal.toFixed(2)}
                             <span className={`text-lg font-bold ml-1 ${isAllMode ? 'text-white/60' : 'text-gray-400'}`}>/mo</span>
                         </p>
@@ -140,7 +189,7 @@ const Subscriptions: React.FC = () => {
 
                 <Card className="border-base-300">
                     <h3 className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Active Statements</h3>
-                    <p className="text-3xl font-black text-neutral mt-2">Aug 1, 2025</p>
+                    <p className="text-3xl font-black text-gray-900 mt-2">Aug 1, 2025</p>
                     <p className="text-[10px] text-primary font-black mt-8 flex items-center gap-2 uppercase tracking-widest">
                         <SparklesIcon className="w-4 h-4" />
                         Unified Autopay Active
@@ -152,7 +201,7 @@ const Subscriptions: React.FC = () => {
                     <div className="mt-2 flex items-center gap-3">
                         <CreditCardIcon className="w-8 h-8 text-primary" />
                         <div>
-                             <p className="text-xl font-black text-neutral">•••• 4242</p>
+                             <p className="text-xl font-black text-gray-900">•••• 4242</p>
                              <p className="text-[10px] text-gray-500 font-bold uppercase">Visa Corporate</p>
                         </div>
                     </div>
@@ -165,7 +214,7 @@ const Subscriptions: React.FC = () => {
                         <div key={property.id} className="space-y-4">
                             <div className="flex items-center gap-3 border-b-2 border-base-200 pb-3">
                                 <BuildingOffice2Icon className="w-6 h-6 text-primary" />
-                                <h2 className="text-2xl font-black text-neutral leading-tight tracking-tight">{property.address}</h2>
+                                <h2 className="text-2xl font-black text-gray-900 leading-tight tracking-tight">{property.address}</h2>
                                 <div className="ml-auto">
                                     <Button variant="ghost" size="sm" onClick={() => setSelectedPropertyId(property.id)} className="text-xs font-black uppercase tracking-widest">
                                         Focus Property <ArrowRightIcon className="w-4 h-4 ml-2" />
@@ -178,8 +227,8 @@ const Subscriptions: React.FC = () => {
                                         key={sub.id} 
                                         sub={sub}
                                         paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
-                                        onCancel={() => {}}
-                                        onChangePayment={() => {}}
+                                        onCancel={() => openCancelModal(sub)}
+                                        onChangePayment={() => openPaymentModal(sub)}
                                     />
                                 ))}
                             </div>
@@ -193,8 +242,8 @@ const Subscriptions: React.FC = () => {
                                     key={sub.id} 
                                     sub={sub}
                                     paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
-                                    onCancel={() => {}}
-                                    onChangePayment={() => {}}
+                                    onCancel={() => openCancelModal(sub)}
+                                    onChangePayment={() => openPaymentModal(sub)}
                                 />
                             ))
                         ) : (
@@ -206,6 +255,67 @@ const Subscriptions: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Confirmation Modal for Cancellation */}
+            <Modal
+                isOpen={isCancelModalOpen}
+                onClose={() => setIsCancelModalOpen(false)}
+                title="Cancel Subscription?"
+            >
+                <div className="space-y-4">
+                    <div className="flex items-center gap-3 text-red-600">
+                        <ExclamationTriangleIcon className="w-8 h-8" />
+                        <h4 className="font-bold text-lg">Are you sure?</h4>
+                    </div>
+                    <p className="text-gray-600">
+                        You are about to cancel your <span className="font-bold text-neutral">{selectedSub?.serviceName}</span>. 
+                        If this is a base service, all associated upgrades for this property will also be terminated.
+                    </p>
+                    <div className="flex justify-end gap-3 mt-8">
+                        <Button variant="ghost" onClick={() => setIsCancelModalOpen(false)} disabled={isProcessing}>Keep Service</Button>
+                        <Button variant="secondary" onClick={handleConfirmCancel} disabled={isProcessing} className="bg-red-50 text-red-600 hover:bg-red-100">
+                            {isProcessing ? 'Canceling...' : 'Yes, Cancel Service'}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Modal for Updating Payment Method */}
+            <Modal
+                isOpen={isPaymentModalOpen}
+                onClose={() => setIsPaymentModalOpen(false)}
+                title="Update Billing Method"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-gray-500">Select which payment method to use for <span className="font-bold text-neutral">{selectedSub?.serviceName}</span>.</p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                        {paymentMethods.map(method => (
+                            <div 
+                                key={method.id}
+                                onClick={() => setTempPaymentMethodId(method.id)}
+                                className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${tempPaymentMethodId === method.id ? 'border-primary ring-1 ring-primary bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}
+                            >
+                                {method.type === 'Card' ? <CreditCardIcon className="w-5 h-5 mr-3 text-neutral" /> : <BanknotesIcon className="w-5 h-5 mr-3 text-neutral" />}
+                                <div className="flex-1">
+                                    <p className="text-sm font-bold text-neutral">{method.brand || 'Bank Account'} •• {method.last4}</p>
+                                </div>
+                                <input 
+                                    type="radio" 
+                                    checked={tempPaymentMethodId === method.id} 
+                                    onChange={() => setTempPaymentMethodId(method.id)}
+                                    className="form-radio text-primary"
+                                />
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex justify-end gap-3 mt-6">
+                        <Button variant="secondary" onClick={() => setIsPaymentModalOpen(false)} disabled={isProcessing}>Cancel</Button>
+                        <Button onClick={handleConfirmPaymentUpdate} disabled={isProcessing || !tempPaymentMethodId}>
+                            {isProcessing ? 'Updating...' : 'Save Changes'}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
