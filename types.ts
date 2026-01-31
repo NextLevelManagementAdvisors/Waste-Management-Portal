@@ -36,6 +36,8 @@ export interface Service {
   name: string;
   description: string;
   price: number;
+  setupFee?: number;
+  stickerFee?: number;
   frequency: 'Weekly' | 'Bi-Weekly' | 'Monthly' | 'One-Time';
   icon: React.ReactNode;
   category: 'base_service' | 'upgrade' | 'standalone' | 'base_fee';

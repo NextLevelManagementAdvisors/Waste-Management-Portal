@@ -1,8 +1,6 @@
-
-
 import React from 'react';
 import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from '../types';
-import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, ShoppingBagIcon } from '../components/Icons';
+import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, ShoppingBagIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons';
 import * as stripeService from './stripeService';
 
 // --- NON-STRIPE MOCK DATA ---
@@ -75,9 +73,13 @@ const getIconFromName = (iconName: string): React.ReactNode => {
         case 'ArrowPathIcon':
             return React.createElement(ArrowPathIcon, { className: "w-8 h-8 text-accent" });
         case 'TruckIcon':
-            return React.createElement(TruckIcon, { className: "w-8 h-8 text-yellow-500" });
+            return React.createElement(TruckIcon, { className: "w-8 h-8 text-primary" });
         case 'SunIcon':
             return React.createElement(SunIcon, { className: "w-8 h-8 text-yellow-500" });
+        case 'BuildingOffice2Icon':
+            return React.createElement(BuildingOffice2Icon, { className: "w-8 h-8 text-indigo-500" });
+        case 'WrenchScrewdriverIcon':
+            return React.createElement(WrenchScrewdriverIcon, { className: "w-8 h-8 text-gray-600" });
         default:
             return React.createElement(TrashIcon, { className: "w-8 h-8 text-gray-400" });
     }
@@ -200,13 +202,15 @@ export const getServices = async (): Promise<Service[]> => {
     const stripeProducts = await stripeService.listProducts();
 
     return stripeProducts.map(p => {
-        const frequency: Service['frequency'] = p.default_price.recurring.interval === 'month' ? 'Monthly' : 'Weekly';
+        const frequency: Service['frequency'] = p.default_price.recurring?.interval === 'month' ? 'Monthly' : 'One-Time';
         
         return {
             id: p.id,
             name: p.name,
             description: p.description,
             price: p.default_price.unit_amount / 100,
+            setupFee: p.metadata.setup_fee ? Number(p.metadata.setup_fee) / 100 : undefined,
+            stickerFee: p.metadata.sticker_fee !== undefined ? Number(p.metadata.sticker_fee) / 100 : undefined,
             frequency: frequency,
             icon: getIconFromName(p.metadata.icon_name),
             category: p.metadata.category as Service['category'],
@@ -218,29 +222,23 @@ export const getServices = async (): Promise<Service[]> => {
 // --- Subscriptions (with Business Logic) ---
 export const getSubscriptions = () => stripeService.listSubscriptions();
 
-export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number = 1) => {
+export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number = 1, useSticker: boolean = false) => {
     const methods = await stripeService.listPaymentMethods();
     const primaryMethod = methods.find(p => p.isPrimary) || methods[0];
     if (!primaryMethod) {
         throw new Error("Cannot subscribe without a payment method on file.");
     }
     
-    // If adding a base service can (trash or recycling), ensure the base fee is also active.
-    if (service.category === 'base_service') {
-        const allSubs = await stripeService.listSubscriptions();
-        const hasBaseFee = allSubs.some(s => s.propertyId === propertyId && s.status === 'active' && s.serviceId === 'prod_BASE_FEE');
-
-        if (!hasBaseFee) {
-            const allServices = await getServices();
-            const baseFeeService = allServices.find(s => s.id === 'prod_BASE_FEE');
-            if (baseFeeService) {
-                // Subscribe to base fee first
-                await stripeService.createSubscription(baseFeeService, propertyId, primaryMethod.id, 1);
-            }
-        }
+    // In this business model, we always ensure a core service is present.
+    const sub = await stripeService.createSubscription(service, propertyId, primaryMethod.id, quantity);
+    
+    // Add setup or sticker fee as a one-time invoice
+    const feeAmount = useSticker ? (service.stickerFee || 0) : (service.setupFee || 0);
+    if (feeAmount > 0) {
+        await stripeService.createInvoice(propertyId, feeAmount * quantity, `Startup Fee for ${service.name} (${useSticker ? 'Sticker' : 'Provided Can'})`);
     }
 
-    return stripeService.createSubscription(service, propertyId, primaryMethod.id, quantity);
+    return sub;
 };
 
 export const changeServiceQuantity = async (service: Service, propertyId: string, change: 'increment' | 'decrement') => {
@@ -280,8 +278,8 @@ export const cancelSubscription = async (subscriptionId: string) => {
     const allServices = await getServices();
     const service = allServices.find(s => s.id === subToCancel.serviceId);
     
-    // Business Logic: If canceling the base fee, cancel everything else for that property.
-    if (subToCancel.serviceId === 'prod_BASE_FEE') {
+    // Business Logic: If canceling the primary curbside service, also cancel all upgrades.
+    if (subToCancel.serviceId === 'prod_TOvYnQt1VYbKie') {
         const otherPropertySubscriptions = allSubs.filter(sub => 
             sub.propertyId === subToCancel.propertyId &&
             sub.id !== subToCancel.id &&
@@ -290,28 +288,6 @@ export const cancelSubscription = async (subscriptionId: string) => {
         
         const cancellationPromises = otherPropertySubscriptions.map(sub => stripeService.cancelSubscription(sub.id));
         await Promise.all(cancellationPromises);
-    }
-    // Business Logic: If canceling the last base service can (trash or recycling), also cancel all upgrades and the base fee.
-    else if (service?.category === 'base_service') {
-        const otherBaseServices = allSubs.filter(sub => {
-            const otherService = allServices.find(s => s.id === sub.serviceId);
-            return sub.propertyId === subToCancel.propertyId &&
-                sub.id !== subToCancel.id &&
-                sub.status === 'active' &&
-                otherService?.category === 'base_service';
-        });
-
-        if (otherBaseServices.length === 0) {
-            // It's the last base can. Cancel related services.
-            const relatedCancellations = allSubs
-                .filter(sub => sub.propertyId === subToCancel.propertyId && sub.status === 'active' && (
-                    allServices.find(s => s.id === sub.serviceId)?.category === 'upgrade' ||
-                    sub.serviceId === 'prod_BASE_FEE'
-                ))
-                .map(sub => stripeService.cancelSubscription(sub.id));
-            
-            await Promise.all(relatedCancellations);
-        }
     }
 
     return stripeService.cancelSubscription(subToCancel.id);

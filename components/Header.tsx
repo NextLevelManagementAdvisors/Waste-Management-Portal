@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { View } from '../types';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, BellIcon, BanknotesIcon, CreditCardIcon } from './Icons';
+import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, BanknotesIcon, CreditCardIcon } from './Icons';
 import { useProperty } from '../App';
 
 interface HeaderProps {
@@ -13,7 +14,7 @@ interface HeaderProps {
 const viewTitles: Record<View, string> = {
     dashboard: 'Dashboard',
     services: 'All Services',
-    subscriptions: 'My Subscriptions',
+    subscriptions: 'Subscriptions',
     'special-pickup': 'Special Pickups',
     'vacation-holds': 'Vacation Holds',
     billing: 'Billing',
@@ -56,27 +57,32 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
       }
   };
 
+  const currentVal = selectedProperty ? selectedProperty.id : (properties.length > 0 ? 'all' : '');
+
   return (
-    <header className="flex-shrink-0 bg-white border-b border-base-300">
+    <header className="flex-shrink-0 bg-white border-b border-base-300 z-20 sticky top-0">
       <div className="flex items-center justify-between p-4 h-20">
         <div className="flex items-center">
-            <h2 className="text-2xl font-bold text-neutral capitalize pl-12 lg:pl-0">{title}</h2>
+            <h2 className="text-2xl font-black text-neutral tracking-tight pl-12 lg:pl-0">{title}</h2>
         </div>
         <div className="flex items-center space-x-4">
             {loading ? (
                 <div className="w-48 h-8 bg-gray-200 rounded animate-pulse"></div>
             ) : (
-                <div className="relative">
+                <div className="relative min-w-[220px]">
                     <select
-                        value={selectedProperty?.id || ''}
+                        value={currentVal}
                         onChange={handlePropertyChange}
-                        className="appearance-none w-full bg-base-200 border border-base-300 text-neutral py-2 pl-4 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-primary"
-                        aria-label="Select a property"
+                        className="appearance-none w-full bg-base-200 border border-base-300 text-neutral py-2.5 pl-4 pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-sm transition-all"
+                        aria-label="Select property context"
                         disabled={properties.length === 0}
                     >
+                        {properties.length > 1 && (
+                            <option value="all">📂 All Properties</option>
+                        )}
                         {properties.length > 0 ? (
                             properties.map(p => (
-                                <option key={p.id} value={p.id}>{p.address}</option>
+                                <option key={p.id} value={p.id}>🏠 {p.address}</option>
                             ))
                         ) : (
                             <option>No properties found</option>
@@ -85,7 +91,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                             + Add New Property...
                         </option>
                     </select>
-                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
                         <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                     </div>
                 </div>
@@ -95,30 +101,30 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                 <button onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-base-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                     <UserCircleIcon className="w-10 h-10 text-gray-400" />
                     <div className="text-right">
-                        <p className="font-semibold text-neutral">{user?.firstName} {user?.lastName}</p>
-                        <p className="text-sm text-gray-500">Customer</p>
+                        <p className="font-bold text-neutral text-sm">{user?.firstName} {user?.lastName}</p>
+                        <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Customer</p>
                     </div>
                 </button>
 
                 {isDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
+                    <div className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none z-30">
                         <div className="py-1">
-                            <div className="px-4 py-3 border-b border-base-200">
-                                <p className="text-sm font-semibold text-neutral truncate">{user?.firstName} {user?.lastName}</p>
+                            <div className="px-4 py-3 border-b border-base-200 bg-gray-50 rounded-t-xl">
+                                <p className="text-sm font-bold text-neutral truncate">{user?.firstName} {user?.lastName}</p>
                                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                             </div>
-                            <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
-                                <UserIcon className="w-5 h-5 mr-3 text-gray-500" /> Profile Settings
+                            <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+                                <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
                             </a>
-                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('billing'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
-                                <BanknotesIcon className="w-5 h-5 mr-3 text-gray-500" /> Billing
+                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('billing'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+                                <BanknotesIcon className="w-5 h-5 mr-3 text-gray-400" /> Billing
                             </a>
-                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('payment'); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
-                                <CreditCardIcon className="w-5 h-5 mr-3 text-gray-500" /> Payment Methods
+                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('payment'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+                                <CreditCardIcon className="w-5 h-5 mr-3 text-gray-400" /> Payment Methods
                             </a>
                             <div className="border-t border-base-200 my-1"></div>
-                            <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
-                                 <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-gray-500" /> Logout
+                            <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">
+                                 <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-red-400" /> Logout
                             </button>
                         </div>
                     </div>

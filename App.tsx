@@ -55,16 +55,16 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); // No initial loading, handled by auth
+  const [loading, setLoading] = useState(false); 
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
   
   const fetchUserAndSetState = (userData: User) => {
     setUser(userData);
     if (userData.properties && userData.properties.length > 0) {
-      // If a property is already selected, try to keep it. Otherwise, select the first one.
-      const currentSelectedExists = userData.properties.some(p => p.id === selectedPropertyId);
+      const currentSelectedExists = userData.properties.some(p => p.id === selectedPropertyId) || selectedPropertyId === 'all';
       if (!currentSelectedExists) {
-        setSelectedPropertyId(userData.properties[0].id);
+        // Default to "all" if user has multiple properties, else the first one
+        setSelectedPropertyId(userData.properties.length > 1 ? 'all' : userData.properties[0].id);
       }
     } else {
       setSelectedPropertyId(null);
@@ -100,7 +100,7 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      setCurrentView('services'); // Go to services page to select a plan for the new property
+      setCurrentView('services'); 
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
@@ -117,7 +117,6 @@ const App: React.FC = () => {
   const handleAddProperty = async (propertyInfo: NewPropertyInfo) => {
     try {
       const newProperty = await addProperty(propertyInfo);
-      // Manually update user state to reflect new property
       setUser(prevUser => {
         if (!prevUser) return null;
         const updatedUser = { ...prevUser, properties: [...prevUser.properties, newProperty]};
@@ -144,7 +143,6 @@ const App: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to update property:", error);
-      // Re-throw the error so the component can handle it (e.g., show an alert)
       throw error;
     }
   };
@@ -212,14 +210,15 @@ const App: React.FC = () => {
   }
 
   const properties = user?.properties || [];
-  const selectedProperty = properties.find(p => p.id === selectedPropertyId) || null;
+  // selectedProperty is null if selectedPropertyId is 'all'
+  const selectedProperty = selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null;
 
   const contextValue = {
     user,
     properties,
     selectedProperty,
     setSelectedPropertyId,
-    loading: false, // Loading is handled within components now
+    loading: false, 
     refreshUser: refreshUser,
     updateProperty: handleUpdateProperty,
     updateProfile: handleUpdateProfile,

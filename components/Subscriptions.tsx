@@ -1,104 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService';
-import { Subscription, PaymentMethod, Service } from '../types';
+import { Subscription, PaymentMethod, Service, Property } from '../types';
 import { Card } from './Card';
 import { Button } from './Button';
 import { useProperty } from '../App';
 import Modal from './Modal';
-import { CreditCardIcon, BanknotesIcon } from './Icons';
-
-const ChangePaymentModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onSuccess: () => void;
-    subscription: Subscription;
-    paymentMethods: PaymentMethod[];
-}> = ({ isOpen, onClose, onSuccess, subscription, paymentMethods }) => {
-    const [selectedMethodId, setSelectedMethodId] = useState(subscription.paymentMethodId);
-    const [isUpdating, setIsUpdating] = useState(false);
-
-    const handleUpdate = async () => {
-        setIsUpdating(true);
-        try {
-            await updateSubscriptionPaymentMethod(subscription.id, selectedMethodId);
-            onSuccess();
-        } catch (error) {
-            console.error("Failed to update payment method:", error);
-            alert("Update failed. Please try again.");
-        } finally {
-            setIsUpdating(false);
-        }
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Update Payment for ${subscription.serviceName}`}>
-            <div className="space-y-4">
-                <p className="text-gray-600">Select a new payment method for this subscription.</p>
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    {paymentMethods.filter(pm => !isMethodExpired(pm)).map(method => (
-                         <div
-                            key={method.id}
-                            onClick={() => setSelectedMethodId(method.id)}
-                            className={`flex items-center p-3 border rounded-lg cursor-pointer ${selectedMethodId === method.id ? 'border-primary ring-2 ring-primary' : 'border-gray-300'}`}
-                         >
-                            {method.type === 'Card' ? <CreditCardIcon className="w-6 h-6 mr-3 text-neutral" /> : <BanknotesIcon className="w-6 h-6 mr-3 text-neutral" />}
-                            <div className="flex-1">
-                                <p className="font-semibold">{method.brand ? `${method.brand} ending in ${method.last4}` : `Bank Account ending in ${method.last4}`}</p>
-                                {method.isPrimary && <p className="text-xs text-primary">Primary</p>}
-                            </div>
-                            <input
-                                type="radio"
-                                name="paymentMethod"
-                                value={method.id}
-                                checked={selectedMethodId === method.id}
-                                onChange={() => setSelectedMethodId(method.id)}
-                                className="form-radio h-4 w-4 text-primary"
-                            />
-                        </div>
-                    ))}
-                </div>
-                <div className="mt-6 flex justify-end gap-3">
-                    <Button variant="secondary" onClick={onClose} disabled={isUpdating}>Cancel</Button>
-                    <Button onClick={handleUpdate} disabled={isUpdating || selectedMethodId === subscription.paymentMethodId}>
-                        {isUpdating ? 'Updating...' : 'Confirm Change'}
-                    </Button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-const CancelSubscriptionModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onConfirm: () => void;
-    isLastBasic: boolean;
-}> = ({ isOpen, onClose, onConfirm, isLastBasic }) => (
-    <Modal isOpen={isOpen} onClose={onClose} title="Confirm Cancellation">
-        <p className="text-gray-600">
-            {isLastBasic 
-                ? "This is your last basic service for this property. Canceling it will also cancel all associated service upgrades. Are you sure you want to proceed?"
-                : "Are you sure you want to cancel this subscription?"}
-        </p>
-        <div className="mt-6 flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={onClose}>Back</Button>
-            <Button type="button" variant="primary" className="bg-red-600 hover:bg-red-700 focus:ring-red-500" onClick={onConfirm}>
-                Confirm Cancellation
-            </Button>
-        </div>
-    </Modal>
-);
-
-const isMethodExpired = (method: PaymentMethod): boolean => {
-    if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
-        return false;
-    }
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-    return method.expiryYear < currentYear || (method.expiryYear === currentYear && method.expiryMonth < currentMonth);
-};
-
+import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon } from './Icons';
 
 const SubscriptionCard: React.FC<{
     sub: Subscription;
@@ -113,36 +20,27 @@ const SubscriptionCard: React.FC<{
     };
     
     return (
-        <Card>
+        <Card className="hover:shadow-md transition-all duration-300 border-l-4 border-l-primary group">
             <div className="flex flex-col sm:flex-row justify-between gap-4">
                 <div className="flex-1">
-                    <div className="flex items-center gap-4">
-                        <h3 className="text-xl font-semibold text-neutral">
+                    <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-black text-neutral">
                             {sub.serviceName}
-                            {sub.quantity > 1 && <span className="text-lg font-normal text-gray-500 ml-2">x {sub.quantity}</span>}
+                            {sub.quantity > 1 && <span className="text-sm font-normal text-gray-400 ml-2">x {sub.quantity}</span>}
                         </h3>
-                        <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusColor[sub.status]}`}>{sub.status}</span>
+                        <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[sub.status]}`}>{sub.status}</span>
                     </div>
-                     {sub.status === 'paused' && sub.pausedUntil && (
-                        <p className="text-yellow-700 font-medium mt-1">Paused until {sub.pausedUntil}</p>
-                    )}
-                    <p className="text-gray-500 mt-1">Next bill on {sub.nextBillingDate} for <span className="font-semibold text-neutral">${sub.totalPrice.toFixed(2)}</span></p>
-                     <div className="mt-2 text-sm text-gray-500 flex items-center">
+                    <p className="text-gray-500 mt-1 text-sm font-medium">Next charge: <span className="font-bold text-neutral">${sub.totalPrice.toFixed(2)}</span> on {sub.nextBillingDate}</p>
+                     <div className="mt-3 text-[10px] text-gray-400 font-black flex items-center bg-gray-50 p-2 rounded-lg w-fit uppercase tracking-wider">
                         {paymentMethod?.type === 'Card' ? <CreditCardIcon className="w-4 h-4 mr-2" /> : <BanknotesIcon className="w-4 h-4 mr-2" />}
-                        Paid with {paymentMethod ? `${paymentMethod.brand || 'Bank'} ending in ${paymentMethod.last4}` : 'N/A'}
-                        {paymentMethod && isMethodExpired(paymentMethod) && <span className="ml-2 px-1.5 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">Expired</span>}
+                        {paymentMethod ? `${paymentMethod.brand || 'BANK'} •• ${paymentMethod.last4}` : 'NO METHOD'}
                     </div>
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-center">
                     {sub.status !== 'canceled' && (
-                        <Button variant="ghost" size="sm" onClick={onChangePayment}>Change Payment</Button>
+                        <Button variant="ghost" size="sm" onClick={onChangePayment} className="text-xs">Update Billing</Button>
                     )}
-                     <Button 
-                        variant="secondary" 
-                        onClick={onCancel}
-                        disabled={sub.status === 'canceled'}
-                        className={sub.status !== 'canceled' ? "hover:bg-red-100 hover:text-red-700" : ""}
-                    >
+                     <Button variant="secondary" size="sm" onClick={onCancel} disabled={sub.status === 'canceled'} className="text-xs hover:bg-red-50 hover:text-red-600 border-none">
                         Cancel
                     </Button>
                 </div>
@@ -151,22 +49,16 @@ const SubscriptionCard: React.FC<{
     )
 }
 
-
 const Subscriptions: React.FC = () => {
-    const { selectedProperty } = useProperty();
+    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [services, setServices] = useState<Service[]>([]);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-    const [subToCancel, setSubToCancel] = useState<Subscription | null>(null);
-
-    const [isChangePaymentModalOpen, setIsChangePaymentModalOpen] = useState(false);
-    const [subToUpdate, setSubToUpdate] = useState<Subscription | null>(null);
+    const isAllMode = !selectedProperty && properties.length > 0;
 
     const fetchData = async () => {
-        // Don't show main loader on refresh
         if (loading) setLoading(true);
         try {
             const [subsData, servicesData, methodsData] = await Promise.all([
@@ -178,7 +70,7 @@ const Subscriptions: React.FC = () => {
             setServices(servicesData);
             setPaymentMethods(methodsData);
         } catch (error) {
-            console.error("Failed to fetch data:", error);
+            console.error("Fetch data failed:", error);
         } finally {
             setLoading(false);
         }
@@ -188,125 +80,132 @@ const Subscriptions: React.FC = () => {
         fetchData();
     }, []);
 
-    const handleOpenCancelModal = (sub: Subscription) => {
-        setSubToCancel(sub);
-        setIsCancelModalOpen(true);
-    };
+    const subscriptionsToDisplay = useMemo(() => {
+        return isAllMode
+            ? allSubscriptions.filter(s => s.status !== 'canceled')
+            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id && s.status !== 'canceled');
+    }, [isAllMode, allSubscriptions, selectedProperty]);
 
-    const handleCloseCancelModal = () => {
-        setSubToCancel(null);
-        setIsCancelModalOpen(false);
-    };
+    const grandTotal = useMemo(() => {
+        return subscriptionsToDisplay.filter(s => s.status === 'active').reduce((acc, sub) => acc + sub.totalPrice, 0);
+    }, [subscriptionsToDisplay]);
 
-    const handleConfirmCancel = async () => {
-        if (!subToCancel) return;
+    const activeSubCount = useMemo(() => {
+        return subscriptionsToDisplay.filter(s => s.status === 'active').length;
+    }, [subscriptionsToDisplay]);
 
-        try {
-            await cancelSubscription(subToCancel.id);
-            await fetchData(); // Refresh data
-        } catch (error) {
-            console.error("Failed to cancel subscription:", error);
-            alert("Cancellation failed. Please try again.");
-        } finally {
-            handleCloseCancelModal();
-        }
-    };
+    const groupedSubscriptions = useMemo(() => {
+        return properties.reduce((acc, prop) => {
+            const subs = allSubscriptions.filter(s => s.propertyId === prop.id && s.status !== 'canceled');
+            if (subs.length > 0) acc.push({ property: prop, subs });
+            return acc;
+        }, [] as { property: Property, subs: Subscription[] }[]);
+    }, [properties, allSubscriptions]);
 
-    const handleOpenChangePaymentModal = (sub: Subscription) => {
-        setSubToUpdate(sub);
-        setIsChangePaymentModalOpen(true);
-    };
-
-    const handleCloseChangePaymentModal = () => {
-        setSubToUpdate(null);
-        setIsChangePaymentModalOpen(false);
-    };
-
-    const handleChangePaymentSuccess = () => {
-        handleCloseChangePaymentModal();
-        fetchData(); // Refresh data
-    };
-
-    const isLastBasicService = useMemo(() => {
-        if (!subToCancel || !selectedProperty) return false;
-
-        const service = services.find(s => s.id === subToCancel.serviceId);
-        if (service?.category !== 'base_service') {
-            return false;
-        }
-
-        const otherActiveBasicSubs = allSubscriptions.filter(s => 
-            s.propertyId === selectedProperty.id &&
-            s.id !== subToCancel.id &&
-            s.status === 'active' &&
-            services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
-        );
-
-        return otherActiveBasicSubs.length === 0;
-    }, [subToCancel, allSubscriptions, services, selectedProperty]);
-    
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
-    const filteredSubscriptions = selectedProperty 
-        ? allSubscriptions.filter(s => s.propertyId === selectedProperty.id && s.status !== 'canceled') 
-        : [];
-
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+        <div className="space-y-6 animate-in fade-in duration-500">
+            <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4 border-b-2 border-base-200 pb-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-neutral">Your Subscriptions</h1>
-                    <p className="text-gray-600 mt-1">
-                        Managing subscriptions for: <span className="font-semibold text-neutral">{selectedProperty?.address || 'No property selected'}</span>
+                    <h1 className="text-4xl font-black text-neutral tracking-tight">
+                        {isAllMode ? "Account Portfolio" : "Active Services"}
+                    </h1>
+                    <p className="text-gray-500 font-medium mt-1 text-lg">
+                        {isAllMode ? `Managing services for all ${properties.length} locations.` : `Reviewing collection for ${selectedProperty?.address}`}
                     </p>
                 </div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 {/* Requirement: White text against primary teal when All Properties is selected */}
+                 <Card className={`${isAllMode ? 'bg-primary text-white border-none shadow-xl shadow-teal-900/20' : 'bg-white border-base-300'} relative overflow-hidden transition-all duration-500`}>
+                    <ChartPieIcon className={`absolute -right-4 -bottom-4 w-32 h-32 opacity-10 ${isAllMode ? 'text-white' : 'text-primary'}`} />
+                    <div className="relative z-10">
+                        <h3 className={`font-black text-[10px] uppercase tracking-[0.2em] ${isAllMode ? 'text-teal-50' : 'text-gray-400'}`}>
+                            {isAllMode ? 'Portfolio Monthly' : 'Property Total'}
+                        </h3>
+                        <p className={`text-5xl font-black mt-2 leading-none ${isAllMode ? 'text-white' : 'text-neutral'}`}>
+                            ${grandTotal.toFixed(2)}
+                            <span className={`text-lg font-bold ml-1 ${isAllMode ? 'text-white/60' : 'text-gray-400'}`}>/mo</span>
+                        </p>
+                        <p className={`text-[10px] mt-8 flex items-center gap-2 font-black uppercase tracking-widest ${isAllMode ? 'text-teal-100' : 'text-primary'}`}>
+                             <div className={`w-2 h-2 rounded-full animate-pulse ${isAllMode ? 'bg-teal-300' : 'bg-primary'}`} />
+                             {activeSubCount} Active Services
+                        </p>
+                    </div>
+                </Card>
+
+                <Card className="border-base-300">
+                    <h3 className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Active Statements</h3>
+                    <p className="text-3xl font-black text-neutral mt-2">Aug 1, 2025</p>
+                    <p className="text-[10px] text-primary font-black mt-8 flex items-center gap-2 uppercase tracking-widest">
+                        <SparklesIcon className="w-4 h-4" />
+                        Unified Autopay Active
+                    </p>
+                </Card>
+
+                <Card className="border-base-300">
+                    <h3 className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Primary Card</h3>
+                    <div className="mt-2 flex items-center gap-3">
+                        <CreditCardIcon className="w-8 h-8 text-primary" />
+                        <div>
+                             <p className="text-xl font-black text-neutral">•••• 4242</p>
+                             <p className="text-[10px] text-gray-500 font-bold uppercase">Visa Corporate</p>
+                        </div>
+                    </div>
+                </Card>
+            </div>
             
-            <div className="space-y-4">
-                {selectedProperty ? (
-                    filteredSubscriptions.length > 0 ? (
-                        filteredSubscriptions.map(sub => {
-                            const paymentMethod = paymentMethods.find(pm => pm.id === sub.paymentMethodId);
-                            return (
+            <div className="space-y-12 mt-12">
+                {isAllMode ? (
+                    groupedSubscriptions.map(({ property, subs }) => (
+                        <div key={property.id} className="space-y-4">
+                            <div className="flex items-center gap-3 border-b-2 border-base-200 pb-3">
+                                <BuildingOffice2Icon className="w-6 h-6 text-primary" />
+                                <h2 className="text-2xl font-black text-neutral leading-tight tracking-tight">{property.address}</h2>
+                                <div className="ml-auto">
+                                    <Button variant="ghost" size="sm" onClick={() => setSelectedPropertyId(property.id)} className="text-xs font-black uppercase tracking-widest">
+                                        Focus Property <ArrowRightIcon className="w-4 h-4 ml-2" />
+                                    </Button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-4">
+                                {subs.map(sub => (
+                                    <SubscriptionCard 
+                                        key={sub.id} 
+                                        sub={sub}
+                                        paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
+                                        onCancel={() => {}}
+                                        onChangePayment={() => {}}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="space-y-4">
+                        {subscriptionsToDisplay.length > 0 ? (
+                            subscriptionsToDisplay.map(sub => (
                                 <SubscriptionCard 
                                     key={sub.id} 
                                     sub={sub}
-                                    paymentMethod={paymentMethod}
-                                    onCancel={() => handleOpenCancelModal(sub)}
-                                    onChangePayment={() => handleOpenChangePaymentModal(sub)}
+                                    paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
+                                    onCancel={() => {}}
+                                    onChangePayment={() => {}}
                                 />
-                            )
-                        })
-                    ) : (
-                        <Card>
-                            <p className="text-center text-gray-500 py-8">You have no active subscriptions for this property.</p>
-                        </Card>
-                    )
-                ) : (
-                     <Card>
-                        <p className="text-center text-gray-500 py-8">Please select a property to view subscriptions.</p>
-                    </Card>
+                            ))
+                        ) : (
+                            <Card className="bg-gray-50 border-dashed border-2 py-20 text-center">
+                                <p className="text-gray-500 font-bold italic mb-4">No active services at this location.</p>
+                                <Button onClick={() => setSelectedPropertyId('all')} variant="secondary">Back to Portfolio Overview</Button>
+                            </Card>
+                        )}
+                    </div>
                 )}
             </div>
-            {subToCancel && (
-                 <CancelSubscriptionModal
-                    isOpen={isCancelModalOpen}
-                    onClose={handleCloseCancelModal}
-                    onConfirm={handleConfirmCancel}
-                    isLastBasic={isLastBasicService}
-                />
-            )}
-            {subToUpdate && (
-                <ChangePaymentModal
-                    isOpen={isChangePaymentModalOpen}
-                    onClose={handleCloseChangePaymentModal}
-                    onSuccess={handleChangePaymentSuccess}
-                    subscription={subToUpdate}
-                    paymentMethods={paymentMethods}
-                />
-            )}
         </div>
     );
 };

@@ -1,9 +1,7 @@
 // services/stripeService.ts
 
 // This service simulates a backend client for the Stripe API.
-// In a real application, these functions would make authenticated API calls to your server,
-// which would then interact with the Stripe API. Your Stripe secret keys should never be
-// exposed on the frontend.
+// Updated with data provided in the CSV files and new startup fee logic.
 
 import { PaymentMethod, Subscription, Invoice, Service } from '../types';
 
@@ -17,61 +15,64 @@ let STRIPE_CUSTOMER = {
     name: 'Jane Doe',
 };
 
-// Simulate Stripe's Product Catalog
+// Simulate Stripe's Product Catalog from CSV data
 const STRIPE_PRODUCTS = [
-  // Base Fee
   { 
-    id: 'prod_BASE_FEE', 
-    name: 'Base Curbside Service', 
-    description: 'Flat monthly fee for residential waste collection service.', 
-    metadata: { category: 'base_fee', icon_name: 'TruckIcon' },
-    default_price: { id: 'price_base_fee', unit_amount: 1500, recurring: { interval: 'month' } }
+    id: 'prod_TOvYnQt1VYbKie', 
+    name: 'Curbside Trash Service', 
+    description: 'Weekly curbside trash collection service with one can included. Standalone Monthly Service.', 
+    metadata: { category: 'base_service', icon_name: 'TruckIcon' },
+    default_price: { id: 'price_1SS7he03whKXLoReQdFTq8MB', unit_amount: 3500, recurring: { interval: 'month' } }
   },
-  // Base Trash Services
   { 
     id: 'prod_TOww4pJkfauHUV', 
     name: 'Small Trash Can (32G)', 
-    description: 'Weekly collection for a 32-gallon trash can.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon' },
-    default_price: { id: 'price_small_trash', unit_amount: 2000, recurring: { interval: 'month' } }
+    description: 'Weekly curbside trash collection service with one 32-gallon can. Ideal for single residents or small households.', 
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 4500, sticker_fee: 0 },
+    default_price: { id: 'price_1SS92r03whKXLoReKh3DjLtC', unit_amount: 2000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwxmi5PUD5seZ', 
     name: 'Medium Trash Can (64G)', 
-    description: 'Weekly collection for a 64-gallon trash can.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon' },
-    default_price: { id: 'price_medium_trash', unit_amount: 2500, recurring: { interval: 'month' } }
+    description: 'Weekly curbside trash collection service with one 64-gallon can. Our most popular size, perfect for growing families.', 
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 6500, sticker_fee: 0 },
+    default_price: { id: 'price_1SS93r03whKXLoReR4M6Ggc1', unit_amount: 2500, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwy8go7cLjLpV', 
     name: 'Large Trash Can (96G)', 
-    description: 'Weekly collection for a 96-gallon trash can.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon' },
-    default_price: { id: 'price_large_trash', unit_amount: 3000, recurring: { interval: 'month' } }
+    description: 'Weekly curbside trash collection service with one 96-gallon can. Best value for large households.', 
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 8500, sticker_fee: 0 },
+    default_price: { id: 'price_1SS94F03whKXLoRekbbdFAy4', unit_amount: 3000, recurring: { interval: 'month' } }
   },
-  // Base Recycling Services
   { 
-    id: 'prod_RECYCLE_SMALL', 
-    name: 'Recycling Can (20G)', 
-    description: 'Weekly collection for a 20-gallon recycling can.', 
-    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon' },
-    default_price: { id: 'price_recycle_small', unit_amount: 1500, recurring: { interval: 'month' } }
+    id: 'prod_TOwzfWmoiIn8Ij', 
+    name: 'Recycling Service', 
+    description: 'OPTIONAL ADD-ON: Weekly curbside recycling service for all approved materials. (One 32G recycling can included).', 
+    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon', setup_fee: 2500, sticker_fee: 0 },
+    default_price: { id: 'price_1SSBtZ03whKXLoReZMmsoV5F', unit_amount: 1200, recurring: { interval: 'month' } }
   },
-  // Upgrades
   { 
     id: 'prod_TOvyKnOx4KLBc2', 
-    name: 'At House Collection', 
-    description: 'Weekly service where we retrieve your can from your driveway.', 
-    metadata: { category: 'upgrade', icon_name: 'TruckIcon' },
-    default_price: { id: 'price_house_collection', unit_amount: 2000, recurring: { interval: 'month' } }
+    name: 'At House (Backdoor) Service', 
+    description: 'PREMIUM ADD-ON: We\'ll retrieve your can(s) directly from your house (e.g., garage, porch) and return them.', 
+    metadata: { category: 'upgrade', icon_name: 'BuildingOffice2Icon' },
+    default_price: { id: 'price_1SS86i03whKXLoRehFn7sIhZ', unit_amount: 2000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOx5lSdv97AAGb', 
-    name: 'Liner Service', 
-    description: 'We install a fresh liner in your can after every weekly collection.', 
+    name: 'Trash Can Liner Service', 
+    description: 'Our crew installs a fresh, heavy-duty liner in your can after every weekly collection.', 
     metadata: { category: 'upgrade', icon_name: 'SunIcon' },
-    default_price: { id: 'price_liner', unit_amount: 1000, recurring: { interval: 'month' } }
+    default_price: { id: 'price_1SS9BL03whKXLoReS4hCzQtz', unit_amount: 1000, recurring: { interval: 'month' } }
   },
+  { 
+    id: 'prod_TlgxOhg8l2q1eZ', 
+    name: 'Handyman Services', 
+    description: 'On-demand handyman services for your residential property.', 
+    metadata: { category: 'standalone', icon_name: 'WrenchScrewdriverIcon' },
+    default_price: { id: 'price_1So9Zc03whKXLoRemojBg7TA', unit_amount: 22500, recurring: null }
+  }
 ];
 
 
@@ -82,24 +83,23 @@ let STRIPE_PAYMENT_METHODS: PaymentMethod[] = [
     { id: 'pm_3', type: 'Bank Account', last4: '6789', isPrimary: false },
 ];
 
-// Simulate Stripe Subscriptions
+// Simulate Stripe Subscriptions based on new IDs
 let STRIPE_SUBSCRIPTIONS: Subscription[] = [
-    // P1: Base Fee + Medium Can
-    { id: 'sub_base_1', propertyId: 'P1', serviceId: 'prod_BASE_FEE', serviceName: 'Base Curbside Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2024-08-01', price: 15.00, totalPrice: 15.00, paymentMethodId: 'pm_1', quantity: 1 },
-    { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2024-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1 },
-    // P2: Base Fee + 2 Large Cans
-    { id: 'sub_base_2', propertyId: 'P2', serviceId: 'prod_BASE_FEE', serviceName: 'Base Curbside Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2024-08-10', price: 15.00, totalPrice: 15.00, paymentMethodId: 'pm_2', quantity: 1 },
-    { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2024-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2 },
+    // P1: Main Curbside + Medium Can
+    { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2025-08-01', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_1', quantity: 1 },
+    { id: 'sub_2', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2025-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1 },
+    // P2: Main Curbside + 2 Large Cans
+    { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2025-08-10', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_2', quantity: 1 },
+    { id: 'sub_4', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2025-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2 },
 ];
 
 // Simulate Stripe Invoices
 let STRIPE_INVOICES: Invoice[] = [
-  { id: 'in_P1_004', propertyId: 'P1', amount: 40.00, date: '2024-08-01', status: 'Due' },
-  { id: 'in_P1_003', propertyId: 'P1', amount: 35.00, date: '2024-07-01', status: 'Paid', paymentDate: '2024-07-03' },
-  { id: 'in_P1_002', propertyId: 'P1', amount: 35.00, date: '2024-06-01', status: 'Paid', paymentDate: '2024-06-02' },
-  { id: 'in_P2_004', propertyId: 'P2', amount: 75.00, date: '2024-07-10', status: 'Overdue' },
-  { id: 'in_P2_003', propertyId: 'P2', amount: 65.00, date: '2024-06-10', status: 'Paid', paymentDate: '2024-06-11' },
-  { id: 'in_P3_001', propertyId: 'P3', amount: 0.00, date: '2024-07-15', status: 'Paid', paymentDate: '2024-07-15' },
+  { id: 'in_P1_004', propertyId: 'P1', amount: 60.00, date: '2025-02-01', status: 'Due' },
+  { id: 'in_P1_003', propertyId: 'P1', amount: 60.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03' },
+  { id: 'in_P1_002', propertyId: 'P1', amount: 60.00, date: '2024-12-01', status: 'Paid', paymentDate: '2024-12-02' },
+  { id: 'in_P2_004', propertyId: 'P2', amount: 95.00, date: '2025-01-10', status: 'Overdue' },
+  { id: 'in_P2_003', propertyId: 'P2', amount: 95.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11' },
 ];
 
 const simulateApiCall = <T,>(data: T, delay = 200): Promise<T> => 
