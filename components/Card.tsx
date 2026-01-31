@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface CardProps {
@@ -6,7 +7,6 @@ interface CardProps {
 }
 
 export const Card: React.FC<CardProps> = ({ children, className = '' }) => {
-  // Check if specific utility patterns are present to avoid adding defaults
   const hasBg = className.includes('bg-');
   const hasBorder = className.includes('border-');
   const hasShadow = className.includes('shadow-');
@@ -14,9 +14,9 @@ export const Card: React.FC<CardProps> = ({ children, className = '' }) => {
   return (
     <div className={`
       ${!hasBg ? 'bg-white' : ''} 
-      ${!hasBorder ? 'border border-base-300' : ''} 
-      ${!hasShadow ? 'shadow-sm' : ''}
-      rounded-2xl p-6 transition-all duration-300 
+      ${!hasBorder ? 'border border-base-200' : ''} 
+      ${!hasShadow ? 'shadow-[0_8px_30px_rgb(0,0,0,0.04)]' : ''}
+      rounded-[1.5rem] p-8 transition-all duration-300 
       ${className}
     `}>
       {children}
