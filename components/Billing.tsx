@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { getInvoices, getPaymentMethods, payInvoice } from '../services/mockApiService';
 import { Invoice, PaymentMethod, Property } from '../types';
@@ -110,6 +111,15 @@ const Billing: React.FC = () => {
     useEffect(() => {
         fetchAllData();
     }, []);
+
+    // Hooks must be called unconditionally before any potential early return.
+    const displayInvoices = useMemo(() => {
+        let filtered = allInvoices;
+        if (!isAllMode && selectedProperty) {
+            filtered = allInvoices.filter(i => i.propertyId === selectedProperty.id);
+        }
+        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [allInvoices, selectedProperty, isAllMode]);
     
     const handleOpenPayModal = (invoice: Invoice) => {
         setSelectedInvoice(invoice);
@@ -131,14 +141,6 @@ const Billing: React.FC = () => {
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
-
-    const displayInvoices = useMemo(() => {
-        let filtered = allInvoices;
-        if (!isAllMode && selectedProperty) {
-            filtered = allInvoices.filter(i => i.propertyId === selectedProperty.id);
-        }
-        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [allInvoices, selectedProperty, isAllMode]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">

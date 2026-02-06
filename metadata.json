@@ -1,5 +1,5 @@
 {
-  "name": "Waste Management Portal",
+  "name": "WastePortal",
   "description": "A customer portal for a residential waste management company. It allows users to manage subscriptions, view billing, and get support. Subscriptions can be created in-app or synced from Stripe.",
   "requestFramePermissions": []
 }

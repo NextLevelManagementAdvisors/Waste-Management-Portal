@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, createContext, useContext, useMemo, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -24,6 +25,8 @@ interface PropertyContextType {
     user: User | null;
     properties: Property[];
     selectedProperty: Property | null;
+    // Fix: Added selectedPropertyId to context type
+    selectedPropertyId: string | null;
     setSelectedPropertyId: (id: string) => void;
     loading: boolean;
     refreshUser: () => Promise<void>;
@@ -36,6 +39,8 @@ export const PropertyContext = createContext<PropertyContextType>({
     user: null,
     properties: [],
     selectedProperty: null,
+    // Fix: Added selectedPropertyId default value
+    selectedPropertyId: null,
     setSelectedPropertyId: () => {},
     loading: true,
     refreshUser: async () => {},
@@ -166,17 +171,19 @@ const App: React.FC = () => {
       }
   }, []);
 
+  // Fix: Added selectedPropertyId to contextValue
   const contextValue = useMemo(() => ({
     user,
     properties,
     selectedProperty,
+    selectedPropertyId,
     setSelectedPropertyId,
     loading: false, 
     refreshUser,
     updateProperty: handleUpdateProperty,
     updateProfile: handleUpdateProfile,
     updatePassword: handleUpdatePassword,
-  }), [user, properties, selectedProperty, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword]);
+  }), [user, properties, selectedProperty, selectedPropertyId, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword]);
 
   const renderView = () => {
     switch (currentView) {
