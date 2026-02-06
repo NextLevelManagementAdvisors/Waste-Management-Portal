@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export const ChartPieIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -177,9 +178,14 @@ export const MegaphoneIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) =>
 
 export const BuildingOffice2Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21.25 12.25c0-2.485-2.015-4.5-4.5-4.5H3.75c-2.485 0-4.5 2.015-4.5 4.5v6.5c0 2.485 2.015 4.5 4.5 4.5h13.5c2.485 0 4.5-2.015 4.5-4.5v-6.5Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21.25 12.25c0-2.485-2.015-4.5-4.5-4.5H3.75c-2.485 0-4.5 2.015-4.5 4.5v6.5c0 2.485 2.015 4.5 4.5 4.5h13.5c2.485 0 4.5-2.015 4.5-4.5v-6.5Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12.25h.008v.008H8.625v-.008ZM12 12.25h.008v.008H12v-.008ZM15.375 12.25h.008v.008h-.008v-.008ZM8.625 15.25h.008v.008H8.625v-.008ZM12 15.25h.008v.008H12v-.008ZM15.375 15.25h.008v.008h-.008v-.008ZM8.625 18.25h.008v.008H8.625v-.008ZM12 18.25h.008v.008H12v-.008ZM15.375 18.25h.008v.008h-.008v-.008Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+    </svg>
+);
+
+export const MapPinIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
     </svg>
 );
 

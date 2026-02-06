@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications' | 'special-pickup' | 'vacation-holds' | 'missed-pickup' | 'property-settings' | 'profile-settings';
@@ -18,6 +19,7 @@ export interface Property {
   communityName?: string;
   hasGateCode: boolean;
   gateCode?: string;
+  notes?: string;
   notificationPreferences: NotificationPreferences;
 }
 
@@ -116,6 +118,7 @@ export interface NewPropertyInfo {
   communityName?: string;
   hasGateCode: 'yes' | 'no';
   gateCode?: string;
+  notes?: string;
 }
 
 export interface UpdatePropertyInfo {
@@ -124,6 +127,7 @@ export interface UpdatePropertyInfo {
   communityName?: string;
   hasGateCode: 'yes' | 'no';
   gateCode?: string;
+  notes?: string;
 }
 
 export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'>, NewPropertyInfo {}

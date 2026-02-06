@@ -28,8 +28,8 @@ export interface AccountHealth {
 
 // --- MOCK DATA ---
 const MOCK_PROPERTIES: Property[] = [
-    { id: 'P1', address: '121 Elsia Dr', serviceType: 'personal', inHOA: false, hasGateCode: false, notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: true }, driverUpdates: { email: false, sms: true } } },
-    { id: 'P2', address: '7258 Baldwin Ridge Rd', serviceType: 'short-term', inHOA: true, communityName: 'Lake View Estates', hasGateCode: true, gateCode: '54321', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
+    { id: 'P1', address: '121 Elsia Dr', serviceType: 'personal', inHOA: false, hasGateCode: false, notes: 'Beware of dog in the backyard. Cans are located on the left side of the garage.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: true }, driverUpdates: { email: false, sms: true } } },
+    { id: 'P2', address: '7258 Baldwin Ridge Rd', serviceType: 'short-term', inHOA: true, communityName: 'Lake View Estates', hasGateCode: true, gateCode: '54321', notes: 'Short-term rental. Please ensure lids are fully closed.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
 ];
 
 let MOCK_USER: User = {
@@ -48,8 +48,13 @@ const MOCK_SERVICE_ALERTS: ServiceAlert[] = [
 
 // --- API FACADE ---
 
+/**
+ * FIXED: Removed JSON.stringify/parse. 
+ * Serializing React elements (icons) destroys their internal markers ($$typeof symbol),
+ * causing React Error #31. We use a simpler promise delay now.
+ */
 const simulateApiCall = <T,>(data: T, delay = 300): Promise<T> => 
-  new Promise(resolve => setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), delay));
+  new Promise(resolve => setTimeout(() => resolve(data), delay));
 
 export const getUser = () => simulateApiCall(MOCK_USER);
 
@@ -60,7 +65,6 @@ export const getServiceAlerts = () => simulateApiCall(MOCK_SERVICE_ALERTS);
 
 /**
  * The "Better Way": A single call that prepares the entire dashboard state.
- * This prevents UI components from doing heavy lifting or complex hook logic.
  */
 export const getDashboardState = async (selectedPropertyId: string | 'all') => {
     const [user, subscriptions, invoices, alerts] = await Promise.all([
@@ -107,40 +111,69 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
     return { states, health };
 };
 
-// ... keep existing auth/special-pickup logic below ...
 export const login = (email: string, password: string): Promise<User> => {
     return simulateApiCall(MOCK_USER);
 };
 export const logout = () => simulateApiCall({ success: true });
 export const register = (info: any): Promise<User> => simulateApiCall(MOCK_USER);
-export const addProperty = (info: any) => {
-    const newP: Property = { ...MOCK_PROPERTIES[0], id: `P${Date.now()}`, address: info.street };
+export const addProperty = (info: NewPropertyInfo) => {
+    const newP: Property = { 
+        id: `P${Date.now()}`, 
+        address: info.street,
+        serviceType: info.serviceType,
+        inHOA: info.inHOA === 'yes',
+        communityName: info.communityName,
+        hasGateCode: info.hasGateCode === 'yes',
+        gateCode: info.gateCode,
+        notes: info.notes,
+        notificationPreferences: {
+            pickupReminders: { email: true, sms: true },
+            scheduleChanges: { email: true, sms: true },
+            driverUpdates: { email: true, sms: true }
+        }
+    };
     MOCK_USER.properties.push(newP);
     return simulateApiCall(newP);
 };
-export const updatePropertyDetails = (id: string, details: any) => simulateApiCall(MOCK_PROPERTIES[0]);
+export const updatePropertyDetails = (id: string, details: UpdatePropertyInfo) => {
+    const p = MOCK_USER.properties.find(prop => prop.id === id);
+    if (p) {
+        p.serviceType = details.serviceType;
+        p.inHOA = details.inHOA === 'yes';
+        p.communityName = details.communityName;
+        p.hasGateCode = details.hasGateCode === 'yes';
+        p.gateCode = details.gateCode;
+        p.notes = details.notes;
+        return simulateApiCall(p);
+    }
+    throw new Error("Property not found");
+};
 export const updateUserProfile = (info: any) => simulateApiCall(MOCK_USER);
 export const updateUserPassword = (info: any) => simulateApiCall({ success: true });
 
-// Fix: Corrected getServices to include metadata and proper types
 export const getServices = async (): Promise<Service[]> => {
     const prods = await stripeService.listProducts();
-    return prods.map(p => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        price: p.default_price.unit_amount / 100,
-        setupFee: p.metadata.setup_fee ? Number(p.metadata.setup_fee) / 100 : undefined,
-        stickerFee: p.metadata.sticker_fee ? Number(p.metadata.sticker_fee) / 100 : undefined,
-        frequency: 'Monthly' as 'Monthly',
-        category: p.metadata.category as Service['category'],
-        icon: React.createElement(TrashIcon)
-    }));
+    return prods.map(p => {
+        let icon: React.ReactNode = React.createElement(TrashIcon);
+        if (p.metadata.icon_name === 'ArrowPathIcon') icon = React.createElement(ArrowPathIcon);
+        if (p.metadata.icon_name === 'SunIcon') icon = React.createElement(SunIcon);
+        if (p.metadata.icon_name === 'BuildingOffice2Icon') icon = React.createElement(BuildingOffice2Icon);
+        
+        return {
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            price: p.default_price.unit_amount / 100,
+            setupFee: p.metadata.setup_fee ? Number(p.metadata.setup_fee) / 100 : undefined,
+            stickerFee: p.metadata.sticker_fee ? Number(p.metadata.sticker_fee) / 100 : undefined,
+            frequency: 'Monthly' as 'Monthly',
+            category: p.metadata.category as Service['category'],
+            icon
+        };
+    });
 };
 
 export const payInvoice = stripeService.payInvoice;
-
-// Fix: Exporting missing members requested by components
 
 export const subscribeToNewService = (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
     return stripeService.createSubscription(service, propertyId, 'pm_1', quantity);

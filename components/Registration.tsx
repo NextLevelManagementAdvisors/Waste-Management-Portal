@@ -1,9 +1,11 @@
+
 import React, { useState } from 'react';
 import { Button } from './Button';
 import { RegistrationInfo } from '../types';
 
+// Define the missing RegistrationProps interface
 interface RegistrationProps {
-    onRegister: (userInfo: RegistrationInfo) => Promise<void>;
+    onRegister: (info: RegistrationInfo) => Promise<void>;
     switchToLogin: () => void;
     error: string | null;
 }
@@ -22,7 +24,8 @@ const initialFormData: RegistrationInfo = {
     inHOA: 'no',
     communityName: '',
     hasGateCode: 'no',
-    gateCode: ''
+    gateCode: '',
+    notes: ''
 };
 
 
@@ -31,7 +34,7 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
     const [formData, setFormData] = useState<RegistrationInfo>(initialFormData);
     const [isLoading, setIsLoading] = useState(false);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
@@ -140,6 +143,19 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
             </div>
             {formData.hasGateCode === 'yes' && (<div><label htmlFor="gateCode" className="block text-sm font-medium text-gray-700">Gate Code</label><input type="text" name="gateCode" id="gateCode" value={formData.gateCode} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary" required /></div>)}
             
+            <div>
+                <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Service Instructions</label>
+                <textarea
+                    name="notes"
+                    id="notes"
+                    value={formData.notes}
+                    onChange={handleChange}
+                    rows={3}
+                    placeholder="e.g., Cans are behind the side gate, Beware of dog..."
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary resize-none"
+                />
+            </div>
+
              {error && <p className="text-sm text-red-600 text-center">{error}</p>}
             
             <div className="flex justify-between gap-3">
