@@ -13,9 +13,9 @@ import StartService from './components/StartService.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
-import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from './types.ts';
+import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder } from './services/mockApiService.ts';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
 import { KeyIcon } from './components/Icons.tsx';
@@ -90,6 +90,8 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       if (userData.properties && userData.properties.length === 0) {
         setCurrentView('start-service');
+      } else {
+        setCurrentView('home');
       }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
@@ -102,8 +104,10 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      setCurrentView('myservice'); 
-    } catch (error) {
+      // Direct all new users to start service flow.
+      setCurrentView('start-service'); 
+    } catch (error)
+    {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
   }, [fetchUserAndSetState]);
@@ -132,14 +136,32 @@ const App: React.FC = () => {
     setCurrentView('start-service');
   }, []);
 
-  const handleAddProperty = useCallback(async (propertyInfo: NewPropertyInfo) => {
+  const handleCompleteSetup = useCallback(async (
+    propertyInfo: NewPropertyInfo, 
+    servicesToSubscribe: { serviceId: string; useSticker: boolean; quantity: number }[]
+  ) => {
     try {
+      // 1. Add property
       const newProperty = await addProperty(propertyInfo);
-      await refreshUser(); // Re-fetch all user data for consistency
+
+      // 2. Fetch all available services to get their full details
+      const allServices = await getServices();
+
+      // 3. Subscribe to each selected service for the new property
+      for (const sub of servicesToSubscribe) {
+          const serviceDetails = allServices.find(s => s.id === sub.serviceId);
+          if (serviceDetails) {
+              await subscribeToNewService(serviceDetails, newProperty.id, sub.quantity, sub.useSticker);
+          }
+      }
+      
+      // 4. Refresh user data and navigate
+      await refreshUser();
       setSelectedPropertyId(newProperty.id); 
       setCurrentView('myservice'); 
     } catch (error) {
-      console.error("Failed to add property:", error);
+      console.error("Failed to complete setup:", error);
+      throw error;
     }
   }, [refreshUser]);
 
@@ -234,7 +256,7 @@ const App: React.FC = () => {
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
       case 'profile-settings': return <ProfileSettings />;
-      case 'start-service': return <StartService onAddProperty={handleAddProperty} onCancel={() => setCurrentView(properties.length > 0 ? 'myservice' : 'home')} />;
+      case 'start-service': return <StartService onCompleteSetup={handleCompleteSetup} onCancel={() => setCurrentView(properties.length > 0 ? 'myservice' : 'home')} />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };

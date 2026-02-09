@@ -27,28 +27,28 @@ const STRIPE_PRODUCTS = [
     id: 'prod_TOww4pJkfauHUV', 
     name: 'Small Trash Can (32G)', 
     description: 'Weekly curbside trash collection service with one 32-gallon can. Ideal for single residents or small households.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 4500, sticker_fee: 1500 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 4500, sticker_fee: 0 },
     default_price: { id: 'price_1SS92r03whKXLoReKh3DjLtC', unit_amount: 2000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwxmi5PUD5seZ', 
     name: 'Medium Trash Can (64G)', 
     description: 'Weekly curbside trash collection service with one 64-gallon can. Our most popular size, perfect for growing families.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 6500, sticker_fee: 1500 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 6500, sticker_fee: 0 },
     default_price: { id: 'price_1SS93r03whKXLoReR4M6Ggc1', unit_amount: 2500, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwy8go7cLjLpV', 
     name: 'Large Trash Can (96G)', 
     description: 'Weekly curbside trash collection service with one 96-gallon can. Best value for large households.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 8500, sticker_fee: 1500 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 8500, sticker_fee: 0 },
     default_price: { id: 'price_1SS94F03whKXLoRekbbdFAy4', unit_amount: 3000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwzfWmoiIn8Ij', 
     name: 'Recycling Service', 
     description: 'OPTIONAL ADD-ON: Weekly curbside recycling service for all approved materials. (One 32G recycling can included).', 
-    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon', setup_fee: 2500, sticker_fee: 1000 },
+    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon', setup_fee: 2500, sticker_fee: 0 },
     default_price: { id: 'price_1SSBtZ03whKXLoReZMmsoV5F', unit_amount: 1200, recurring: { interval: 'month' } }
   },
   { 
@@ -167,37 +167,28 @@ export const createSubscription = async (service: Service, propertyId: string, p
     const product = STRIPE_PRODUCTS.find(p => p.id === service.id);
     if (!product) throw new Error("Product not found in Stripe catalog.");
 
-    // BEST PRACTICE: Sync billing dates and handle proration.
+    // Sync billing date with existing subscriptions if they exist.
     const existingSubs = STRIPE_SUBSCRIPTIONS.filter(s => s.propertyId === propertyId && s.status === 'active');
     let nextBillingDate: string;
 
     if (existingSubs.length > 0) {
-        // This simulates setting a `billing_cycle_anchor` in Stripe.
         nextBillingDate = existingSubs[0].nextBillingDate;
-        
-        // This simulates creating a prorated charge.
-        const today = new Date();
-        const cycleEndDate = new Date(nextBillingDate);
-        const cycleStartDate = new Date(cycleEndDate.getFullYear(), cycleEndDate.getMonth(), cycleEndDate.getDate());
-        cycleStartDate.setMonth(cycleStartDate.getMonth() - 1);
-        
-        const totalDaysInCycle = (cycleEndDate.getTime() - cycleStartDate.getTime()) / (1000 * 3600 * 24);
-        const daysRemaining = Math.max(0, (cycleEndDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
-
-        if (daysRemaining > 0 && daysRemaining < totalDaysInCycle) {
-            const proratedPrice = (service.price / totalDaysInCycle) * daysRemaining;
-            const description = `Prorated charge for ${service.name}`;
-            await createInvoice(propertyId, proratedPrice, description);
-        }
-
     } else {
-        // This is the first subscription, set a new billing date.
         const today = new Date();
-        const futureDate = new Date(today.setMonth(today.getMonth() + 1));
+        const futureDate = new Date(new Date().setMonth(today.getMonth() + 1));
         nextBillingDate = futureDate.toISOString().split('T')[0];
     }
     
-    // Handle one-time setup fees for new equipment
+    // --- Create Immediate Invoices for Upfront Charges ---
+    
+    // 1. Invoice for the first full month of service.
+    const firstMonthCharge = service.price * quantity;
+    if (firstMonthCharge > 0) {
+        const description = `First Month: ${service.name} (x${quantity})`;
+        await createInvoice(propertyId, firstMonthCharge, description);
+    }
+    
+    // 2. Invoice for one-time setup fees.
     if (service.category === 'base_service') {
         const fee = useSticker ? (service.stickerFee || 0) : (service.setupFee || 0);
         if (fee > 0) {
@@ -213,7 +204,7 @@ export const createSubscription = async (service: Service, propertyId: string, p
         serviceName: service.name,
         startDate: new Date().toISOString().split('T')[0],
         status: 'active',
-        nextBillingDate: nextBillingDate, // Use the synchronized date
+        nextBillingDate: nextBillingDate, // First recurring charge is next month.
         price: service.price,
         totalPrice: service.price * quantity,
         paymentMethodId: paymentMethodId,
@@ -392,5 +383,25 @@ export const restartAllSubscriptionsForProperty = async (propertyId: string) => 
     if (restarted) {
         console.log(`(Stripe) Restarted services for property ${propertyId}`);
     }
+    return simulateApiCall({ success: true });
+};
+
+export const pauseSubscriptionsForProperty = async (propertyId: string, until: string) => {
+    STRIPE_SUBSCRIPTIONS.forEach(s => {
+        if (s.propertyId === propertyId && s.status === 'active') {
+            s.status = 'paused';
+            s.pausedUntil = until;
+        }
+    });
+    return simulateApiCall({ success: true });
+};
+
+export const resumeSubscriptionsForProperty = async (propertyId: string) => {
+    STRIPE_SUBSCRIPTIONS.forEach(s => {
+        if (s.propertyId === propertyId && s.status === 'paused') {
+            s.status = 'active';
+            delete s.pausedUntil;
+        }
+    });
     return simulateApiCall({ success: true });
 };

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
 import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService.ts';
 import { Subscription, PaymentMethod, Service, Property } from '../types.ts';
@@ -120,13 +119,15 @@ const Subscriptions: React.FC = () => {
 
     const subscriptionsToDisplay = useMemo(() => {
         return isAllMode
-            ? allSubscriptions.filter(s => s.status !== 'canceled')
-            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id && s.status !== 'canceled');
+            // Fix: Changed filter logic from `s.status !== 'canceled'` to an equivalent, more explicit check to resolve a TypeScript comparison error.
+            ? allSubscriptions.filter(s => s.status === 'active' || s.status === 'paused')
+            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id && (s.status === 'active' || s.status === 'paused'));
     }, [isAllMode, allSubscriptions, selectedProperty]);
 
     const groupedSubscriptions = useMemo(() => {
         return properties.reduce((acc, prop) => {
-            const subs = allSubscriptions.filter(s => s.propertyId === prop.id && s.status !== 'canceled');
+            // Fix: Changed filter logic from `s.status !== 'canceled'` to an equivalent, more explicit check to resolve a TypeScript comparison error and maintain consistency.
+            const subs = allSubscriptions.filter(s => s.propertyId === prop.id && (s.status === 'active' || s.status === 'paused'));
             if (subs.length > 0) acc.push({ property: prop, subs });
             return acc;
         }, [] as { property: Property, subs: Subscription[] }[]);

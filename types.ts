@@ -128,6 +128,14 @@ export interface NewPropertyInfo {
   hasGateCode: 'yes' | 'no';
   gateCode?: string;
   notes?: string;
+  referralCode?: string;
+}
+
+export interface AddressSuggestion {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
 }
 
 export interface UpdatePropertyInfo {
@@ -139,7 +147,7 @@ export interface UpdatePropertyInfo {
   notes?: string;
 }
 
-export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'>, NewPropertyInfo {}
+export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'> {}
 
 export interface UpdateProfileInfo {
   firstName: string;

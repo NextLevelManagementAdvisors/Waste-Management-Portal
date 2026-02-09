@@ -167,11 +167,24 @@ export const login = (email: string, password: string): Promise<User> => {
     return simulateApiCall(MOCK_USER);
 };
 export const logout = () => simulateApiCall({ success: true });
-export const register = (info: RegistrationInfo): Promise<User> => simulateApiCall(MOCK_USER);
+export const register = (info: RegistrationInfo): Promise<User> => {
+    const newUser: User = {
+        ...info,
+        memberSince: new Date().toISOString().split('T')[0],
+        properties: [] // New users start with no properties
+    };
+    MOCK_USER = newUser; // Replace the mock user with the new registration
+    return simulateApiCall(MOCK_USER);
+};
 export const addProperty = (info: NewPropertyInfo) => {
+    // Simulate applying referral code
+    if (info.referralCode) {
+        console.log(`[API MOCK] Referral code '${info.referralCode}' applied successfully! A $10 credit will be added to the account.`);
+    }
+
     const newP: Property = { 
         id: `P${Date.now()}`, 
-        address: info.street,
+        address: `${info.street}, ${info.city}, ${info.state} ${info.zip}`,
         serviceType: info.serviceType,
         inHOA: info.inHOA === 'yes',
         communityName: info.communityName,
@@ -344,21 +357,11 @@ export const requestSpecialPickup = async (serviceId: string, propertyId: string
 };
 
 export const pauseSubscriptionsForProperty = async (propertyId: string, until: string) => {
-    const subs = await stripeService.listSubscriptions();
-    subs.filter(s => s.propertyId === propertyId && s.status === 'active').forEach(s => {
-        s.status = 'paused';
-        s.pausedUntil = until;
-    });
-    return simulateApiCall({ success: true });
+    return stripeService.pauseSubscriptionsForProperty(propertyId, until);
 };
 
 export const resumeSubscriptionsForProperty = async (propertyId: string) => {
-    const subs = await stripeService.listSubscriptions();
-    subs.filter(s => s.propertyId === propertyId && s.status === 'paused').forEach(s => {
-        s.status = 'active';
-        delete s.pausedUntil;
-    });
-    return simulateApiCall({ success: true });
+    return stripeService.resumeSubscriptionsForProperty(propertyId);
 };
 
 export const reportMissedPickup = (propertyId: string, date: string, notes: string) => simulateApiCall({ success: true });

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SupportMessage } from '../types.ts';
 import { Button } from './Button.tsx';
-import { PaperAirplaneIcon, SparklesIcon, ArrowRightIcon } from './Icons.tsx';
+import { PaperAirplaneIcon, SparklesIcon, ArrowRightIcon, MapPinIcon } from './Icons.tsx';
 import { getSupportResponseStream } from '../services/geminiService.ts';
 import { getSubscriptions, getInvoices } from '../services/mockApiService.ts';
 import { useProperty } from '../PropertyContext.tsx';
@@ -11,6 +11,7 @@ import { useProperty } from '../PropertyContext.tsx';
 interface GroundingSource {
     title: string;
     uri: string;
+    type: 'web' | 'map';
 }
 
 const Support: React.FC = () => {
@@ -22,12 +23,29 @@ const Support: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [streamingText, setStreamingText] = useState('');
     const [streamingSources, setStreamingSources] = useState<GroundingSource[]>([]);
+    const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streamingText]);
+
+    useEffect(() => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setLocation({
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                    });
+                },
+                (error) => {
+                    console.warn(`Geolocation error: ${error.message}`);
+                }
+            );
+        }
+    }, []);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -56,7 +74,7 @@ const Support: React.FC = () => {
                 user: { ...user, address: selectedProperty.address },
                 subscriptions: propertySubs,
                 invoices: propertyInvoices
-            });
+            }, location);
 
             let fullText = "";
             let finalSources: GroundingSource[] = [];
@@ -72,7 +90,15 @@ const Support: React.FC = () => {
                         if (gChunk.web?.uri && !finalSources.some(s => s.uri === gChunk.web.uri)) {
                             finalSources.push({
                                 title: gChunk.web.title || gChunk.web.uri,
-                                uri: gChunk.web.uri
+                                uri: gChunk.web.uri,
+                                type: 'web',
+                            });
+                        }
+                        if (gChunk.maps?.uri && !finalSources.some(s => s.uri === gChunk.maps.uri)) {
+                            finalSources.push({
+                                title: gChunk.maps.title || 'View on Google Maps',
+                                uri: gChunk.maps.uri,
+                                type: 'map',
                             });
                         }
                     });
@@ -137,7 +163,7 @@ const Support: React.FC = () => {
                                         rel="noopener noreferrer"
                                         className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 hover:bg-primary/10 transition-colors flex items-center gap-1.5"
                                     >
-                                        <ArrowRightIcon className="w-3 h-3" />
+                                        {source.type === 'map' ? <MapPinIcon className="w-3 h-3" /> : <ArrowRightIcon className="w-3 h-3" />}
                                         {source.title}
                                     </a>
                                 ))}
@@ -161,7 +187,7 @@ const Support: React.FC = () => {
                                         rel="noopener noreferrer"
                                         className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 flex items-center gap-1.5"
                                     >
-                                        <ArrowRightIcon className="w-3 h-3" />
+                                        {source.type === 'map' ? <MapPinIcon className="w-3 h-3" /> : <ArrowRightIcon className="w-3 h-3" />}
                                         {source.title}
                                     </a>
                                 ))}
