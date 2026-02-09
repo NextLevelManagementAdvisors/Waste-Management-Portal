@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import SpecialPickup from './SpecialPickup.tsx';
 import VacationHolds from './VacationHolds.tsx';
@@ -10,10 +11,9 @@ const Tabs: React.FC<{
     activeTab: RequestView;
     setActiveTab: (tab: RequestView) => void;
 }> = ({ activeTab, setActiveTab }) => {
-    // FIX: The explicit type annotation for `tabs` was too generic (`React.ReactElement`),
-    // which caused TypeScript to lose information about the icon components' props.
-    // By removing the annotation and using `as const`, TypeScript can infer the precise
-    // type of each icon, allowing `React.cloneElement` to be type-checked correctly.
+    // Using 'as const' tells TypeScript to infer the most specific type possible for the array.
+    // This is useful for preserving literal types, for example, making 'tab.id' have the type 'extra' | 'hold' | 'missed' 
+    // instead of just 'string'.
     const tabs = [
         { id: 'extra', label: 'Extra Pickup', icon: <CalendarDaysIcon className="w-5 h-5" />, color: 'text-primary' },
         { id: 'hold', label: 'Vacation Hold', icon: <PauseCircleIcon className="w-5 h-5" />, color: 'text-orange-500' },
@@ -34,7 +34,7 @@ const Tabs: React.FC<{
                         }`}
                         aria-current={activeTab === tab.id ? 'page' : undefined}
                     >
-                        {React.cloneElement(tab.icon, { className: `w-5 h-5 ${activeTab === tab.id ? tab.color : ''}` })}
+                        {tab.icon}
                         <span>{tab.label}</span>
                     </button>
                 ))}

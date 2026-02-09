@@ -9,7 +9,7 @@ import Support from './components/Support.tsx';
 import ProfileSettings from './components/ProfileSettings.tsx';
 import ReferralsHub from './components/ReferralsHub.tsx';
 import WalletHub from './components/WalletHub.tsx';
-import AddPropertyModal from './components/AddPropertyModal.tsx';
+import StartService from './components/StartService.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
@@ -31,7 +31,6 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('home');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
-  const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -90,7 +89,7 @@ const App: React.FC = () => {
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
       if (userData.properties && userData.properties.length === 0) {
-        setIsAddPropertyModalOpen(true);
+        setCurrentView('start-service');
       }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
@@ -129,24 +128,20 @@ const App: React.FC = () => {
     setIsApiKeyReady(false);
   }, []);
   
-  const openAddPropertyModal = useCallback(() => {
-    setIsAddPropertyModalOpen(true);
+  const startNewServiceFlow = useCallback(() => {
+    setCurrentView('start-service');
   }, []);
 
   const handleAddProperty = useCallback(async (propertyInfo: NewPropertyInfo) => {
     try {
       const newProperty = await addProperty(propertyInfo);
-      setUser(prevUser => {
-        if (!prevUser) return null;
-        return { ...prevUser, properties: [...prevUser.properties, newProperty]};
-      });
+      await refreshUser(); // Re-fetch all user data for consistency
       setSelectedPropertyId(newProperty.id); 
       setCurrentView('myservice'); 
-      setIsAddPropertyModalOpen(false); 
     } catch (error) {
       console.error("Failed to add property:", error);
     }
-  }, []);
+  }, [refreshUser]);
 
   const handleUpdateProperty = useCallback(async (propertyId: string, details: UpdatePropertyInfo) => {
     try {
@@ -227,8 +222,8 @@ const App: React.FC = () => {
     cancelPropertyServices: handleCancelPropertyServices,
     restartPropertyServices: handleRestartPropertyServices,
     sendTransferReminder: handleSendTransferReminder,
-    openAddPropertyModal,
-  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, openAddPropertyModal]);
+    startNewServiceFlow,
+  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, startNewServiceFlow]);
 
   const renderView = () => {
     switch (currentView) {
@@ -239,6 +234,7 @@ const App: React.FC = () => {
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
       case 'profile-settings': return <ProfileSettings />;
+      case 'start-service': return <StartService onAddProperty={handleAddProperty} onCancel={() => setCurrentView(properties.length > 0 ? 'myservice' : 'home')} />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };
@@ -297,18 +293,13 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-base-100 text-neutral">
         <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={openAddPropertyModal} onLogout={handleLogout} />
+          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onLogout={handleLogout} />
           <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto w-full">
               {renderView()}
             </div>
           </main>
         </div>
-        <AddPropertyModal 
-          isOpen={isAddPropertyModalOpen}
-          onClose={() => setIsAddPropertyModalOpen(false)}
-          onAddProperty={handleAddProperty}
-        />
       </div>
     </PropertyContext.Provider>
   );

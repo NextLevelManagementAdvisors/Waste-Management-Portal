@@ -10,15 +10,19 @@ import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, Spark
 
 const SubscriptionCard: React.FC<{
     sub: Subscription;
+    service: Service | undefined;
     paymentMethod: PaymentMethod | undefined;
     onCancel: () => void;
     onChangePayment: () => void;
-}> = ({ sub, paymentMethod, onCancel, onChangePayment }) => {
+}> = ({ sub, service, paymentMethod, onCancel, onChangePayment }) => {
     const statusColor = {
         active: 'bg-green-100 text-green-800',
         paused: 'bg-yellow-100 text-yellow-800',
-        canceled: 'bg-red-100 text-red-800',
+        canceled: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200',
     };
+
+    const isNew = (new Date().getTime() - new Date(sub.startDate).getTime()) < 7 * 24 * 60 * 60 * 1000; // 7 days
+    const setupFee = sub.equipmentType === 'own_can' ? (service?.stickerFee || 0) : (service?.setupFee || 0);
     
     return (
         <Card className="hover:shadow-lg transition-all duration-300 border-l-4 border-primary group">
@@ -41,7 +45,14 @@ const SubscriptionCard: React.FC<{
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-y-4 gap-x-6 p-4 bg-gray-50/70 rounded-xl border border-base-200">
                             <div className="flex-1">
                                 <p className="text-sm text-gray-500">Next charge on <span className="font-bold text-gray-900">{sub.nextBillingDate}</span></p>
-                                <p className="text-2xl font-black text-primary">${sub.totalPrice.toFixed(2)}</p>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <p className="text-2xl font-black text-primary">${sub.totalPrice.toFixed(2)}</p>
+                                    {isNew && setupFee > 0 && (
+                                        <span className="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-1 rounded-full animate-in fade-in">
+                                            + ${setupFee.toFixed(2)} Setup Fee
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                             <div className="w-full lg:w-px h-px lg:h-12 bg-base-200"></div>
                             <div className="flex items-center gap-3">
@@ -110,12 +121,12 @@ const Subscriptions: React.FC = () => {
     const subscriptionsToDisplay = useMemo(() => {
         return isAllMode
             ? allSubscriptions.filter(s => s.status !== 'canceled')
-            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id);
+            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id && s.status !== 'canceled');
     }, [isAllMode, allSubscriptions, selectedProperty]);
 
     const groupedSubscriptions = useMemo(() => {
         return properties.reduce((acc, prop) => {
-            const subs = allSubscriptions.filter(s => s.propertyId === prop.id);
+            const subs = allSubscriptions.filter(s => s.propertyId === prop.id && s.status !== 'canceled');
             if (subs.length > 0) acc.push({ property: prop, subs });
             return acc;
         }, [] as { property: Property, subs: Subscription[] }[]);
@@ -123,6 +134,22 @@ const Subscriptions: React.FC = () => {
 
     // Handlers
     const openCancelModal = (sub: Subscription) => {
+        const baseFeeService = services.find(s => s.category === 'base_fee');
+        
+        if (baseFeeService && sub.serviceId === baseFeeService.id) {
+            const hasActiveCans = allSubscriptions.some(s => 
+                s.propertyId === sub.propertyId &&
+                s.status === 'active' &&
+                s.id !== sub.id &&
+                services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
+            );
+
+            if (hasActiveCans) {
+                alert("The 'Standard Curbside' service is a required base fee and cannot be canceled while you have active can subscriptions. Please cancel your can subscriptions first, or cancel all services via the Settings page.");
+                return;
+            }
+        }
+        
         setSelectedSub(sub);
         setIsCancelModalOpen(true);
     };
@@ -137,8 +164,38 @@ const Subscriptions: React.FC = () => {
         if (!selectedSub) return;
         setIsProcessing(true);
         try {
+            // Cancel the selected subscription first
             await cancelSubscription(selectedSub.id);
-            await fetchData();
+
+            // Check if we need to cascade-cancel the base fee
+            const selectedService = services.find(s => s.id === selectedSub.serviceId);
+            if (selectedService?.category === 'base_service') {
+                // We just canceled a can. Check if it was the last one.
+                const currentSubs = await getSubscriptions();
+                
+                const remainingCans = currentSubs.filter(s =>
+                    s.propertyId === selectedSub.propertyId &&
+                    s.status === 'active' &&
+                    services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
+                );
+
+                if (remainingCans.length === 0) {
+                    // This was the last can, so cancel the base fee service too.
+                    const baseFeeService = services.find(s => s.category === 'base_fee');
+                    if (baseFeeService) {
+                        const baseFeeSub = currentSubs.find(s => 
+                            s.propertyId === selectedSub.propertyId &&
+                            s.serviceId === baseFeeService.id &&
+                            s.status === 'active'
+                        );
+                        if (baseFeeSub) {
+                            await cancelSubscription(baseFeeSub.id);
+                        }
+                    }
+                }
+            }
+            
+            await fetchData(); // This will refresh the state with all cancellations
             setIsCancelModalOpen(false);
         } catch (error) {
             alert("Failed to cancel subscription.");
@@ -197,30 +254,37 @@ const Subscriptions: React.FC = () => {
                                 <ArrowRightIcon className="w-4 h-4" />
                             </h3>
                             <div className="space-y-4">
-                                {subs.map(sub => (
+                                {subs.map(sub => {
+                                    const service = services.find(s => s.id === sub.serviceId);
+                                    return (
                                      <SubscriptionCard 
                                         key={sub.id} 
                                         sub={sub} 
+                                        service={service}
                                         paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
                                         onCancel={() => openCancelModal(sub)}
                                         onChangePayment={() => openPaymentModal(sub)}
                                     />
-                                ))}
+                                )})}
                             </div>
                         </div>
                     ))}
                 </div>
             ) : (
                 <div className="space-y-4">
-                     {subscriptionsToDisplay.map(sub => (
+                     {subscriptionsToDisplay.map(sub => {
+                         const service = services.find(s => s.id === sub.serviceId);
+                         return (
                          <SubscriptionCard 
                             key={sub.id} 
                             sub={sub} 
+                            service={service}
                             paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
                             onCancel={() => openCancelModal(sub)}
                             onChangePayment={() => openPaymentModal(sub)}
                         />
-                     ))}
+                     )}
+                    )}
                 </div>
             )}
 

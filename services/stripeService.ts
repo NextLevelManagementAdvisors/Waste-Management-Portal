@@ -1,3 +1,4 @@
+
 // services/stripeService.ts
 
 // This service simulates a backend client for the Stripe API.
@@ -26,28 +27,28 @@ const STRIPE_PRODUCTS = [
     id: 'prod_TOww4pJkfauHUV', 
     name: 'Small Trash Can (32G)', 
     description: 'Weekly curbside trash collection service with one 32-gallon can. Ideal for single residents or small households.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 4500, sticker_fee: 0 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 4500, sticker_fee: 1500 },
     default_price: { id: 'price_1SS92r03whKXLoReKh3DjLtC', unit_amount: 2000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwxmi5PUD5seZ', 
     name: 'Medium Trash Can (64G)', 
     description: 'Weekly curbside trash collection service with one 64-gallon can. Our most popular size, perfect for growing families.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 6500, sticker_fee: 0 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 6500, sticker_fee: 1500 },
     default_price: { id: 'price_1SS93r03whKXLoReR4M6Ggc1', unit_amount: 2500, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwy8go7cLjLpV', 
     name: 'Large Trash Can (96G)', 
     description: 'Weekly curbside trash collection service with one 96-gallon can. Best value for large households.', 
-    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 8500, sticker_fee: 0 },
+    metadata: { category: 'base_service', icon_name: 'TrashIcon', setup_fee: 8500, sticker_fee: 1500 },
     default_price: { id: 'price_1SS94F03whKXLoRekbbdFAy4', unit_amount: 3000, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOwzfWmoiIn8Ij', 
     name: 'Recycling Service', 
     description: 'OPTIONAL ADD-ON: Weekly curbside recycling service for all approved materials. (One 32G recycling can included).', 
-    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon', setup_fee: 2500, sticker_fee: 0 },
+    metadata: { category: 'base_service', icon_name: 'ArrowPathIcon', setup_fee: 2500, sticker_fee: 1000 },
     default_price: { id: 'price_1SSBtZ03whKXLoReZMmsoV5F', unit_amount: 1200, recurring: { interval: 'month' } }
   },
   { 
@@ -81,17 +82,17 @@ let STRIPE_PAYMENT_METHODS: PaymentMethod[] = [
 
 let STRIPE_SUBSCRIPTIONS: Subscription[] = [
     { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2025-08-01', price: 29.00, totalPrice: 29.00, paymentMethodId: 'pm_1', quantity: 1 },
-    { id: 'sub_2', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2025-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1 },
+    { id: 'sub_2', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2025-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1, equipmentType: 'rental', equipmentStatus: 'at_property' },
     { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2025-08-10', price: 29.00, totalPrice: 29.00, paymentMethodId: 'pm_2', quantity: 1 },
-    { id: 'sub_4', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2025-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2 },
+    { id: 'sub_4', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2025-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2, equipmentType: 'own_can', equipmentStatus: 'at_property' },
 ];
 
 let STRIPE_INVOICES: Invoice[] = [
-  { id: 'in_P1_004', propertyId: 'P1', amount: 54.00, date: '2025-02-01', status: 'Due' },
-  { id: 'in_P1_003', propertyId: 'P1', amount: 54.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03' },
-  { id: 'in_P1_002', propertyId: 'P1', amount: 54.00, date: '2024-12-01', status: 'Paid', paymentDate: '2024-12-02' },
-  { id: 'in_P2_004', propertyId: 'P2', amount: 89.00, date: '2025-01-10', status: 'Overdue' },
-  { id: 'in_P2_003', propertyId: 'P2', amount: 89.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11' },
+  { id: 'in_P1_004', propertyId: 'P1', amount: 54.00, date: '2025-02-01', status: 'Due', description: 'Monthly Service (Feb 2025)' },
+  { id: 'in_P1_003', propertyId: 'P1', amount: 54.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03', description: 'Monthly Service (Jan 2025)' },
+  { id: 'in_P1_002', propertyId: 'P1', amount: 54.00, date: '2024-12-01', status: 'Paid', paymentDate: '2024-12-02', description: 'Monthly Service (Dec 2024)' },
+  { id: 'in_P2_004', propertyId: 'P2', amount: 89.00, date: '2025-01-10', status: 'Overdue', description: 'Monthly Service (Jan 2025)' },
+  { id: 'in_P2_003', propertyId: 'P2', amount: 89.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11', description: 'Monthly Service (Dec 2024)' },
 ];
 
 /**
@@ -162,22 +163,63 @@ export const updateCustomerDefaultPaymentMethod = async (id: string) => {
     throw new Error("Payment method not found");
 };
 
-export const createSubscription = async (service: Service, propertyId: string, paymentMethodId: string, quantity: number) => {
+export const createSubscription = async (service: Service, propertyId: string, paymentMethodId: string, quantity: number, useSticker: boolean) => {
     const product = STRIPE_PRODUCTS.find(p => p.id === service.id);
     if (!product) throw new Error("Product not found in Stripe catalog.");
+
+    // BEST PRACTICE: Sync billing dates and handle proration.
+    const existingSubs = STRIPE_SUBSCRIPTIONS.filter(s => s.propertyId === propertyId && s.status === 'active');
+    let nextBillingDate: string;
+
+    if (existingSubs.length > 0) {
+        // This simulates setting a `billing_cycle_anchor` in Stripe.
+        nextBillingDate = existingSubs[0].nextBillingDate;
+        
+        // This simulates creating a prorated charge.
+        const today = new Date();
+        const cycleEndDate = new Date(nextBillingDate);
+        const cycleStartDate = new Date(cycleEndDate.getFullYear(), cycleEndDate.getMonth(), cycleEndDate.getDate());
+        cycleStartDate.setMonth(cycleStartDate.getMonth() - 1);
+        
+        const totalDaysInCycle = (cycleEndDate.getTime() - cycleStartDate.getTime()) / (1000 * 3600 * 24);
+        const daysRemaining = Math.max(0, (cycleEndDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+
+        if (daysRemaining > 0 && daysRemaining < totalDaysInCycle) {
+            const proratedPrice = (service.price / totalDaysInCycle) * daysRemaining;
+            const description = `Prorated charge for ${service.name}`;
+            await createInvoice(propertyId, proratedPrice, description);
+        }
+
+    } else {
+        // This is the first subscription, set a new billing date.
+        const today = new Date();
+        const futureDate = new Date(today.setMonth(today.getMonth() + 1));
+        nextBillingDate = futureDate.toISOString().split('T')[0];
+    }
+    
+    // Handle one-time setup fees for new equipment
+    if (service.category === 'base_service') {
+        const fee = useSticker ? (service.stickerFee || 0) : (service.setupFee || 0);
+        if (fee > 0) {
+            const description = `${useSticker ? 'Sticker Fee' : 'One-Time Setup Fee'} for ${quantity}x ${service.name}`;
+            await createInvoice(propertyId, fee * quantity, description);
+        }
+    }
 
     const newSub: Subscription = {
         id: `sub_${Date.now()}`,
         propertyId: propertyId,
         serviceId: service.id,
         serviceName: service.name,
-        startDate: new Date().toISOString(),
+        startDate: new Date().toISOString().split('T')[0],
         status: 'active',
-        nextBillingDate: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split('T')[0],
+        nextBillingDate: nextBillingDate, // Use the synchronized date
         price: service.price,
         totalPrice: service.price * quantity,
         paymentMethodId: paymentMethodId,
         quantity: quantity,
+        equipmentType: service.category === 'base_service' ? (useSticker ? 'own_can' : 'rental') : undefined,
+        equipmentStatus: service.category === 'base_service' ? 'at_property' : undefined,
     };
     STRIPE_SUBSCRIPTIONS.push(newSub);
     return simulateApiCall(newSub);
@@ -185,19 +227,45 @@ export const createSubscription = async (service: Service, propertyId: string, p
 
 export const changeSubscriptionQuantity = async (subscriptionId: string, newQuantity: number) => {
     const sub = STRIPE_SUBSCRIPTIONS.find(s => s.id === subscriptionId);
-    if (!sub) {
-        throw new Error("Stripe subscription not found.");
-    }
-    if (newQuantity < 0) {
-        throw new Error("Quantity cannot be negative.");
-    }
-    if (newQuantity === 0) {
-        return cancelSubscription(subscriptionId);
-    }
+    if (!sub) { throw new Error("Stripe subscription not found."); }
+    if (newQuantity < 0) { throw new Error("Quantity cannot be negative."); }
+    if (newQuantity === 0) { return cancelSubscription(subscriptionId); }
 
     const product = STRIPE_PRODUCTS.find(p => p.id === sub.serviceId);
-    if (!product) {
-        throw new Error("Associated product not found.");
+    if (!product) { throw new Error("Associated product not found."); }
+    
+    const quantityChange = newQuantity - sub.quantity;
+
+    // Handle immediate charges for increments (proration & setup fees)
+    if (quantityChange > 0) {
+        // Handle one-time setup fees for additional equipment
+        if (product.metadata.category === 'base_service') {
+            const useSticker = sub.equipmentType === 'own_can';
+            const fee = useSticker 
+                ? ((product.metadata.sticker_fee || 0) / 100) 
+                : ((product.metadata.setup_fee || 0) / 100);
+            
+            if (fee > 0) {
+                const feeType = useSticker ? 'Sticker Fee' : 'Setup Fee';
+                const description = `One-Time ${feeType} for ${quantityChange}x additional ${sub.serviceName}`;
+                await createInvoice(sub.propertyId, fee * quantityChange, description);
+            }
+        }
+
+        // Handle proration on quantity change.
+        const pricePerUnit = product.default_price.unit_amount / 100;
+        const today = new Date();
+        const cycleEndDate = new Date(sub.nextBillingDate);
+        const cycleStartDate = new Date(cycleEndDate.getFullYear(), cycleEndDate.getMonth(), cycleEndDate.getDate());
+        cycleStartDate.setMonth(cycleStartDate.getMonth() - 1);
+        const totalDaysInCycle = (cycleEndDate.getTime() - cycleStartDate.getTime()) / (1000 * 3600 * 24);
+        const daysRemaining = Math.max(0, (cycleEndDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+
+        if (daysRemaining > 0 && daysRemaining < totalDaysInCycle) {
+            const proratedPrice = (pricePerUnit / totalDaysInCycle) * daysRemaining * quantityChange;
+            const description = `Prorated charge for adding ${quantityChange}x ${sub.serviceName}`;
+            await createInvoice(sub.propertyId, proratedPrice, description);
+        }
     }
     
     sub.quantity = newQuantity;
@@ -210,12 +278,32 @@ export const changeSubscriptionQuantity = async (subscriptionId: string, newQuan
 export const cancelSubscription = async (subscriptionId: string) => {
     const sub = STRIPE_SUBSCRIPTIONS.find(s => s.id === subscriptionId);
     if (sub) {
+        const product = STRIPE_PRODUCTS.find(p => p.id === sub.serviceId);
         sub.status = 'canceled';
         sub.quantity = 0;
         sub.totalPrice = 0;
+        if (product?.metadata.category === 'base_service') {
+            sub.equipmentStatus = 'retrieved';
+        }
         return simulateApiCall(sub);
     }
     throw new Error("Stripe subscription not found.");
+};
+
+export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
+    console.log(`[Stripe MOCK] Canceling all services for property ${propertyId}`);
+    STRIPE_SUBSCRIPTIONS.forEach(s => {
+        if (s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused')) {
+            const product = STRIPE_PRODUCTS.find(p => p.id === s.serviceId);
+            s.status = 'canceled';
+            s.totalPrice = 0;
+            s.quantity = 0;
+            if (product?.metadata.category === 'base_service') {
+                s.equipmentStatus = 'retrieved';
+            }
+        }
+    });
+    return simulateApiCall({ success: true });
 };
 
 export const listSubscriptions = async () => {
@@ -255,31 +343,51 @@ export const createInvoice = async(propertyId: string, amount: number, descripti
      const newInvoice: Invoice = {
         id: `in_sp_${Date.now()}`,
         propertyId,
-        amount: amount,
+        amount: Math.round(amount * 100) / 100, // Round to 2 decimal places
         date: new Date().toISOString().split('T')[0],
-        status: 'Due'
+        status: 'Due',
+        description: description,
     };
     STRIPE_INVOICES.unshift(newInvoice);
-    console.log(`(Stripe) Created invoice for ${description}`);
+    console.log(`(Stripe) Created invoice for ${description}: $${newInvoice.amount}`);
     return simulateApiCall(newInvoice);
 };
 
 export const restartAllSubscriptionsForProperty = async (propertyId: string) => {
     const today = new Date();
-    // Setting day to 1st of next month for billing cycle consistency
     const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().split('T')[0];
     const newStartDate = new Date().toISOString().split('T')[0];
 
     let restarted = false;
-    STRIPE_SUBSCRIPTIONS.forEach(s => {
+    for (const s of STRIPE_SUBSCRIPTIONS) {
         if (s.propertyId === propertyId && s.status === 'canceled') {
+            const product = STRIPE_PRODUCTS.find(p => p.id === s.serviceId);
+            if (!product) continue;
+
             s.status = 'active';
             s.startDate = newStartDate;
             s.nextBillingDate = nextBillingDate;
+            s.quantity = 1; // Default to 1 on restart
+            s.totalPrice = (product.default_price.unit_amount / 100);
             delete s.pausedUntil;
+
+            if (product.metadata.category === 'base_service') {
+                if (s.equipmentStatus === 'retrieved') {
+                    // Equipment was picked up, so charge a new setup fee
+                    const fee = s.equipmentType === 'own_can' 
+                        ? (product.metadata.sticker_fee || 0) / 100 
+                        : (product.metadata.setup_fee || 0) / 100;
+                    
+                    if (fee > 0) {
+                         const description = `New ${s.equipmentType === 'own_can' ? 'Sticker' : 'Setup'} Fee for ${s.serviceName}`;
+                         await createInvoice(propertyId, fee, description);
+                    }
+                }
+                s.equipmentStatus = 'at_property'; // Mark equipment as present now
+            }
             restarted = true;
         }
-    });
+    }
 
     if (restarted) {
         console.log(`(Stripe) Restarted services for property ${propertyId}`);

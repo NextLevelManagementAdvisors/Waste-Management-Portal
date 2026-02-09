@@ -1,7 +1,7 @@
 
 import React from 'react';
 
-export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet';
+export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'start-service';
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
@@ -82,6 +82,8 @@ export interface Subscription {
   paymentMethodId: string;
   quantity: number;
   pausedUntil?: string; // YYYY-MM-DD
+  equipmentType?: 'rental' | 'own_can';
+  equipmentStatus?: 'at_property' | 'retrieved';
 }
 
 export interface Invoice {
@@ -91,6 +93,7 @@ export interface Invoice {
   date: string;
   status: 'Paid' | 'Due' | 'Overdue';
   paymentDate?: string;
+  description?: string;
 }
 
 export interface SupportMessage {

@@ -4,7 +4,7 @@ import { View } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { 
   HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon, 
-  CalendarDaysIcon, Bars3Icon, XMarkIcon, UserIcon, GiftIcon 
+  CalendarDaysIcon, Bars3Icon, XMarkIcon, UserIcon, GiftIcon, PlusCircleIcon
 } from './Icons.tsx';
 
 interface SidebarProps {
@@ -21,6 +21,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
   { id: 'myservice', label: 'My Service', icon: <TruckIcon className="w-5 h-5" /> },
+  { id: 'start-service', label: 'Start New Service', icon: <PlusCircleIcon className="w-5 h-5" /> },
   { id: 'wallet', label: 'Digital Wallet', icon: <BanknotesIcon className="w-5 h-5" /> },
   { id: 'requests', label: 'Requests', icon: <CalendarDaysIcon className="w-5 h-5" /> },
   { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
@@ -49,7 +50,7 @@ const NavLink: React.FC<{
         {item.icon}
       </span>
       <span className="ml-3 text-[14px] tracking-tight">{item.label}</span>
-      {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+      {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
     </a>
   </li>
 );

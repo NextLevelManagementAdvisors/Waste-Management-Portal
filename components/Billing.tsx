@@ -64,7 +64,8 @@ const PayInvoiceModal: React.FC<{
                                 name="paymentMethod"
                                 value={method.id}
                                 checked={selectedMethodId === method.id}
-                                className="form-radio h-4 w-4 text-primary"
+                                readOnly
+                                className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
                             />
                         </div>
                     )) : (
@@ -83,6 +84,63 @@ const PayInvoiceModal: React.FC<{
     );
 };
 
+// Reusable table component for displaying invoices
+const InvoiceTable: React.FC<{ 
+    invoices: Invoice[];
+    onPay: (invoice: Invoice) => void;
+}> = ({ invoices, onPay }) => {
+    const statusColor = {
+        Paid: 'bg-green-100 text-green-800',
+        Due: 'bg-yellow-100 text-yellow-800',
+        Overdue: 'bg-red-100 text-red-800',
+    };
+
+    return (
+         <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50/50">
+                    <tr>
+                        <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Description</th>
+                        <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Date</th>
+                        <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Amount</th>
+                        <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                        <th scope="col" className="relative px-6 py-4"><span className="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                    {invoices.map((invoice) => (
+                        <tr key={invoice.id} className="hover:bg-gray-50/50 transition-colors group">
+                            <td className="px-6 py-5 whitespace-nowrap max-w-sm">
+                                <p className="text-sm font-bold text-neutral truncate">{invoice.description || 'Monthly Service'}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">ID: {invoice.id}</p>
+                            </td>
+                            <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-600">{invoice.date}</td>
+                            <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${invoice.amount.toFixed(2)}</td>
+                            <td className="px-6 py-5 whitespace-nowrap text-sm">
+                                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                                {invoice.status === 'Paid' && invoice.paymentDate && (
+                                    <div className="text-[10px] text-green-600 font-bold mt-1.5 flex items-center uppercase tracking-tighter">
+                                        <CheckCircleIcon className="w-3 h-3 mr-1" />
+                                        Success: {invoice.paymentDate}
+                                    </div>
+                                )}
+                            </td>
+                            <td className="px-6 py-5 whitespace-nowrap text-right text-sm font-medium">
+                                {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
+                                    <Button size="sm" onClick={() => onPay(invoice)} className="shadow-sm">Pay Now</Button>
+                                ) : (
+                                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download
+                                    </Button>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
 
 const Billing: React.FC = () => {
     const { selectedProperty, properties } = useProperty();
@@ -111,13 +169,25 @@ const Billing: React.FC = () => {
         fetchAllData();
     }, []);
 
-    const displayInvoices = useMemo(() => {
-        let filtered = allInvoices;
-        if (!isAllMode && selectedProperty) {
-            filtered = allInvoices.filter(i => i.propertyId === selectedProperty.id);
-        }
-        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const singlePropertyInvoices = useMemo(() => {
+        if (isAllMode || !selectedProperty) return [];
+        return allInvoices
+            .filter(i => i.propertyId === selectedProperty.id)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [allInvoices, selectedProperty, isAllMode]);
+
+    const groupedInvoices = useMemo(() => {
+        if (!isAllMode) return [];
+        return properties
+            .map(property => ({
+                property,
+                invoices: allInvoices
+                    .filter(i => i.propertyId === property.id)
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+            }))
+            .filter(group => group.invoices.length > 0)
+            .sort((a, b) => a.property.address.localeCompare(b.property.address));
+    }, [allInvoices, properties, isAllMode]);
     
     const handleOpenPayModal = (invoice: Invoice) => {
         setSelectedInvoice(invoice);
@@ -130,84 +200,46 @@ const Billing: React.FC = () => {
         getInvoices().then(setAllInvoices); 
     };
 
-    const statusColor = {
-        Paid: 'bg-green-100 text-green-800',
-        Due: 'bg-yellow-100 text-yellow-800',
-        Overdue: 'bg-red-100 text-red-800',
-    };
-    
     if (loading) {
-        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
+        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
     return (
         <div className="space-y-6">
-            <Card className="overflow-hidden border-none shadow-xl">
-                 <div className="p-6 border-b border-base-100 bg-gray-50/50">
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History</h2>
+            {isAllMode ? (
+                <div className="space-y-8">
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History by Property</h2>
+                    {groupedInvoices.length > 0 ? (
+                        groupedInvoices.map(({ property, invoices }) => (
+                            <Card key={property.id} className="overflow-hidden border-none shadow-xl p-0">
+                                <div className="p-6 border-b border-base-100 bg-gray-50/50 flex items-center gap-3">
+                                    <BuildingOffice2Icon className="w-5 h-5 text-primary" />
+                                    <h3 className="text-lg font-bold text-gray-800 tracking-tight">{property.address}</h3>
+                                </div>
+                                <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} />
+                            </Card>
+                        ))
+                    ) : (
+                        <Card className="text-center py-20 text-gray-400 font-medium italic">
+                            No billing activity found for any property.
+                        </Card>
+                    )}
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50/50">
-                            <tr>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Invoice Details</th>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Date</th>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Amount</th>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                                <th scope="col" className="relative px-6 py-4">
-                                    <span className="sr-only">Actions</span>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-100">
-                            {displayInvoices.length > 0 ? (
-                                displayInvoices.map((invoice) => {
-                                    const property = properties.find(p => p.id === invoice.propertyId);
-                                    return (
-                                        <tr key={invoice.id} className="hover:bg-gray-50/50 transition-colors group">
-                                            <td className="px-6 py-5 whitespace-nowrap">
-                                                <div className="text-sm font-bold text-neutral">{invoice.id}</div>
-                                                <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                                                    <BuildingOffice2Icon className="w-3 h-3" />
-                                                    {property?.address || 'Account Wide'}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-600">{invoice.date}</td>
-                                            <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${invoice.amount.toFixed(2)}</td>
-                                            <td className="px-6 py-5 whitespace-nowrap text-sm">
-                                                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor[invoice.status]}`}>
-                                                    {invoice.status}
-                                                </span>
-                                                {invoice.status === 'Paid' && invoice.paymentDate && (
-                                                    <div className="text-[10px] text-green-600 font-bold mt-1.5 flex items-center uppercase tracking-tighter">
-                                                        <CheckCircleIcon className="w-3 h-3 mr-1" />
-                                                        Success: {invoice.paymentDate}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-5 whitespace-nowrap text-right text-sm font-medium">
-                                                {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
-                                                    <Button size="sm" onClick={() => handleOpenPayModal(invoice)} className="shadow-sm">Pay Now</Button>
-                                                ) : (
-                                                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download
-                                                    </Button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                })
-                             ) : (
-                                <tr>
-                                    <td colSpan={5} className="text-center py-20 text-gray-400 font-medium italic">
-                                        No billing activity found for the selected view.
-                                    </td>
-                                </tr>
-                             )}
-                        </tbody>
-                    </table>
-                </div>
-            </Card>
+            ) : (
+                <Card className="overflow-hidden border-none shadow-xl p-0">
+                    <div className="p-6 border-b border-base-100 bg-gray-50/50">
+                        <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History</h2>
+                    </div>
+                    {singlePropertyInvoices.length > 0 ? (
+                        <InvoiceTable invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                    ) : (
+                        <div className="text-center py-20 text-gray-400 font-medium italic">
+                            No billing activity found for this property.
+                        </div>
+                    )}
+                </Card>
+            )}
+
             {isPaymentModalOpen && selectedInvoice && (
                 <PayInvoiceModal
                     isOpen={isPaymentModalOpen}

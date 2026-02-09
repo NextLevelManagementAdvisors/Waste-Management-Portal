@@ -11,6 +11,21 @@ export interface PickupInfo {
     };
 }
 
+export type TaskType = 'DELIVERY' | 'PICKUP';
+
+export interface Task {
+    orderNo: string;
+    date: string; // YYYY-MM-DD
+    type: TaskType;
+    location: {
+        address: string;
+    };
+    notes: string;
+}
+
+// Store for created tasks
+const MOCK_OPTIMO_TASKS: Task[] = [];
+
 // --- Dynamic Mock Data Generation ---
 
 const getISODateString = (date: Date): string => date.toISOString().split('T')[0];
@@ -20,6 +35,14 @@ const tomorrow = new Date();
 tomorrow.setDate(today.getDate() + 1);
 const dayAfter = new Date();
 dayAfter.setDate(today.getDate() + 2);
+
+// Function to get next day's date string
+const getNextBusinessDay = (): string => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    // Simple version: just add a day. A real one would skip weekends/holidays.
+    return date.toISOString().split('T')[0];
+};
 
 
 // Mock data to simulate API responses for different addresses.
@@ -46,43 +69,53 @@ const MOCK_OPTIMO_ROUTES: Record<string, PickupInfo> = {
  */
 export const getNextPickupInfo = async (address: string): Promise<PickupInfo | null> => {
     // In a real application, you would make a network request to the OptimoRoute API.
-    // The code would look something like this:
-    /*
-    const today = new Date().toISOString().split('T')[0];
-    const url = `${API_URL}?key=${API_KEY}&dateFrom=${today}&search=${encodeURIComponent(address)}`;
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.error('Failed to fetch from OptimoRoute:', response.statusText);
-            return null;
-        }
-        const data = await response.json();
-        if (data.success && data.data.orders.length > 0) {
-            const order = data.data.orders.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
-            const pickupInfo: PickupInfo = {
-                date: order.date,
-                eta: order.eta ? new Date(order.eta).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : undefined,
-                timeWindow: order.plannedTimeFrom && order.plannedTimeTo ? {
-                    start: new Date(order.plannedTimeFrom).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-                    end: new Date(order.plannedTimeTo).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-                } : undefined
-            };
-            return pickupInfo;
-        }
-        return null;
-    } catch (error) {
-        console.error("OptimoRoute API error:", error);
-        return null;
-    }
-    */
-
     // For this simulation, we'll return mock data with a delay to mimic a real API call.
-    console.log(`Fetching OptimoRoute schedule for: ${address}`);
+    console.log(`[OptimoRoute MOCK] Fetching schedule for: ${address}`);
     return new Promise(resolve => {
         setTimeout(() => {
             const schedule = MOCK_OPTIMO_ROUTES[address];
             resolve(schedule || null); // Return null if no specific schedule is mocked for the address
         }, 700); // Simulate network latency
+    });
+};
+
+/**
+ * Simulates creating a delivery task in OptimoRoute.
+ */
+export const createDeliveryTask = async (address: string, serviceName: string, quantity: number): Promise<{ success: boolean; task: Task }> => {
+    const task: Task = {
+        orderNo: `DEL-${Date.now()}`,
+        date: getNextBusinessDay(),
+        type: 'DELIVERY',
+        location: { address },
+        notes: `Deliver ${quantity}x "${serviceName}" to customer.`
+    };
+
+    // In a real app, this would be a POST request to API_URL
+    MOCK_OPTIMO_TASKS.push(task);
+    console.log(`[OptimoRoute MOCK] Created DELIVERY task: ${task.orderNo} for ${address}. Notes: ${task.notes}`);
+    
+    return new Promise(resolve => {
+        setTimeout(() => resolve({ success: true, task }), 250); // Simulate API latency
+    });
+};
+
+/**
+ * Simulates creating a pickup/retrieval task in OptimoRoute.
+ */
+export const createPickupTask = async (address: string, serviceName: string, quantity: number): Promise<{ success: boolean; task: Task }> => {
+    const task: Task = {
+        orderNo: `PCK-${Date.now()}`,
+        date: getNextBusinessDay(),
+        type: 'PICKUP',
+        location: { address },
+        notes: `Pick up ${quantity}x "${serviceName}" from customer location.`
+    };
+
+    MOCK_OPTIMO_TASKS.push(task);
+    console.log(`[OptimoRoute MOCK] Created PICKUP task: ${task.orderNo} for ${address}. Notes: ${task.notes}`);
+
+    return new Promise(resolve => {
+        setTimeout(() => resolve({ success: true, task }), 250);
     });
 };

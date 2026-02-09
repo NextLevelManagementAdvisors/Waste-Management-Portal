@@ -3,6 +3,7 @@ import React from 'react';
 import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
 import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons.tsx';
 import * as stripeService from './stripeService.ts';
+import * as optimoRouteService from './optimoRouteService.ts';
 
 // --- TYPES FOR CONSOLIDATED DATA ---
 export interface PropertyState {
@@ -79,7 +80,7 @@ function simulateApiCall<T>(data: T, delay: number = 300): Promise<T> {
   return new Promise(resolve => setTimeout(() => resolve(data), delay));
 }
 
-export const getUser = () => simulateApiCall(MOCK_USER);
+export const getUser = () => simulateApiCall(JSON.parse(JSON.stringify(MOCK_USER)));
 
 export const getInvoices = () => stripeService.listInvoices();
 export const getSubscriptions = () => stripeService.listSubscriptions();
@@ -226,23 +227,74 @@ export const getServices = async (): Promise<Service[]> => {
 
 export const payInvoice = stripeService.payInvoice;
 
-export const subscribeToNewService = (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
-    return stripeService.createSubscription(service, propertyId, 'pm_1', quantity);
+export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (!property) throw new Error("Property not found for creating subscription.");
+
+    const newSub = await stripeService.createSubscription(service, propertyId, 'pm_1', quantity, useSticker);
+
+    // If a new physical can is being rented, create a delivery task.
+    if (service.category === 'base_service' && !useSticker) {
+        await optimoRouteService.createDeliveryTask(property.address, service.name, quantity);
+    }
+    
+    return newSub;
 };
 
-export const changeServiceQuantity = async (service: Service, propertyId: string, change: 'increment' | 'decrement') => {
+export const changeServiceQuantity = async (service: Service, propertyId: string, change: 'increment' | 'decrement', useSticker?: boolean) => {
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (!property) throw new Error("Property not found for changing quantity.");
+
     const subs = await stripeService.listSubscriptions();
     const existing = subs.find(s => s.propertyId === propertyId && s.serviceId === service.id && s.status === 'active');
+    
     if (existing) {
         const newQty = change === 'increment' ? existing.quantity + 1 : existing.quantity - 1;
-        return stripeService.changeSubscriptionQuantity(existing.id, newQty);
+        const changeAmount = newQty - existing.quantity;
+
+        const updatedSub = await stripeService.changeSubscriptionQuantity(existing.id, newQty);
+
+        // If it's a rental can and quantity changed, create a task.
+        if (service.category === 'base_service' && existing.equipmentType === 'rental') {
+            if (changeAmount > 0) {
+                await optimoRouteService.createDeliveryTask(property.address, service.name, changeAmount);
+            } else if (changeAmount < 0) {
+                await optimoRouteService.createPickupTask(property.address, service.name, Math.abs(changeAmount));
+            }
+        }
+        return updatedSub;
+
     } else if (change === 'increment') {
-        return stripeService.createSubscription(service, propertyId, 'pm_1', 1);
+        // This is creating a new subscription
+        const newSub = await stripeService.createSubscription(service, propertyId, 'pm_1', 1, useSticker ?? false);
+        // If a new physical can is being rented, create a delivery task.
+        if (service.category === 'base_service' && !(useSticker ?? false)) {
+            await optimoRouteService.createDeliveryTask(property.address, service.name, 1);
+        }
+        return newSub;
     }
 };
 
 export const updateSubscriptionPaymentMethod = stripeService.updateSubscriptionPaymentMethod;
-export const cancelSubscription = stripeService.cancelSubscription;
+
+export const cancelSubscription = async (subscriptionId: string) => {
+    const allSubs = await stripeService.listSubscriptions();
+    const subToCancel = allSubs.find(s => s.id === subscriptionId);
+    
+    if (!subToCancel) throw new Error("Subscription to cancel not found.");
+
+    const service = (await getServices()).find(s => s.id === subToCancel.serviceId);
+    const property = MOCK_USER.properties.find(p => p.id === subToCancel.propertyId);
+
+    const result = await stripeService.cancelSubscription(subscriptionId);
+
+    if (property && service?.category === 'base_service' && subToCancel.equipmentType === 'rental' && subToCancel.quantity > 0) {
+        await optimoRouteService.createPickupTask(property.address, subToCancel.serviceName, subToCancel.quantity);
+    }
+    
+    return result;
+};
+
 export const addPaymentMethod = stripeService.attachPaymentMethod;
 export const deletePaymentMethod = stripeService.detachPaymentMethod;
 export const setPrimaryPaymentMethod = stripeService.updateCustomerDefaultPaymentMethod;
@@ -333,14 +385,26 @@ export const sendTransferReminder = (propertyId: string) => {
 };
 
 export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
-    console.log(`[API MOCK] Canceling all services for property ${propertyId}`);
-    const subs = await stripeService.listSubscriptions();
-    subs.forEach(s => {
-        if (s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused')) {
-            s.status = 'canceled';
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (!property) throw new Error("Property not found for cancellation.");
+
+    const allSubs = await stripeService.listSubscriptions();
+    const services = await getServices();
+    
+    const subsToCancel = allSubs.filter(s => s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused'));
+    
+    // Perform the cancellation in the mock DB
+    const result = await stripeService.cancelAllSubscriptionsForProperty(propertyId);
+
+    // After cancellation, create pickup tasks for each rental can
+    for (const sub of subsToCancel) {
+        const service = services.find(s => s.id === sub.serviceId);
+        if (service?.category === 'base_service' && sub.equipmentType === 'rental' && sub.quantity > 0) {
+            await optimoRouteService.createPickupTask(property.address, sub.serviceName, sub.quantity);
         }
-    });
-    return simulateApiCall({ success: true });
+    }
+
+    return result;
 };
 
 export const restartAllSubscriptionsForProperty = (propertyId: string) => {
@@ -348,7 +412,7 @@ export const restartAllSubscriptionsForProperty = (propertyId: string) => {
 };
 
 export const getReferralInfo = (): Promise<ReferralInfo> => {
-    return simulateApiCall(MOCK_REFERRAL_INFO, 500);
+    return simulateApiCall(JSON.parse(JSON.stringify(MOCK_REFERRAL_INFO)), 500);
 };
 
 // --- NEW DRIVER COMMUNICATION FUNCTIONS ---
