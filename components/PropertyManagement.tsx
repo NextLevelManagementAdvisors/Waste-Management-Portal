@@ -1,0 +1,119 @@
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { useProperty } from '../PropertyContext.tsx';
+import { getSubscriptions } from '../services/mockApiService.ts';
+import { Property, Subscription } from '../types.ts';
+import PropertyCard from './PropertyCard.tsx';
+import { ListBulletIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon } from './Icons.tsx';
+
+type FilterStatus = 'all' | 'active' | 'paused' | 'canceled';
+
+export interface PropertyWithStatus extends Property {
+    status: 'active' | 'paused' | 'canceled';
+    monthlyTotal: number;
+    activeServicesCount: number;
+}
+
+const FilterButton: React.FC<{
+    label: string;
+    count: number;
+    icon: React.ReactNode;
+    isActive: boolean;
+    onClick: () => void;
+}> = ({ label, count, icon, isActive, onClick }) => (
+    <button
+        onClick={onClick}
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all duration-300
+            ${isActive
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-primary'
+            }`}
+    >
+        {icon}
+        {label}
+        <span className={`px-2 py-0.5 rounded-full text-[10px] ${isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>
+    </button>
+);
+
+const PropertyManagement: React.FC = () => {
+    const { properties } = useProperty();
+    const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
+
+    useEffect(() => {
+        getSubscriptions().then(subs => {
+            setAllSubscriptions(subs);
+            setLoading(false);
+        });
+    }, []);
+
+    const propertiesWithStatus = useMemo((): PropertyWithStatus[] => {
+        return properties.map(prop => {
+            const propSubs = allSubscriptions.filter(s => s.propertyId === prop.id);
+            let status: 'active' | 'paused' | 'canceled' = 'canceled';
+            if (propSubs.length > 0) {
+                if (propSubs.some(s => s.status === 'paused')) {
+                    status = 'paused';
+                } else if (propSubs.some(s => s.status === 'active')) {
+                    status = 'active';
+                }
+            }
+            const activeSubs = propSubs.filter(s => s.status === 'active' || s.status === 'paused');
+            return {
+                ...prop,
+                status,
+                monthlyTotal: activeSubs.reduce((acc, s) => acc + s.totalPrice, 0),
+                activeServicesCount: activeSubs.length,
+            };
+        });
+    }, [properties, allSubscriptions]);
+
+    const filteredProperties = useMemo(() => {
+        if (activeFilter === 'all') return propertiesWithStatus;
+        return propertiesWithStatus.filter(p => p.status === activeFilter);
+    }, [propertiesWithStatus, activeFilter]);
+    
+    const filterCounts = useMemo(() => ({
+        all: propertiesWithStatus.length,
+        active: propertiesWithStatus.filter(p => p.status === 'active').length,
+        paused: propertiesWithStatus.filter(p => p.status === 'paused').length,
+        canceled: propertiesWithStatus.filter(p => p.status === 'canceled').length,
+    }), [propertiesWithStatus]);
+
+    if (loading) {
+        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div></div>;
+    }
+
+    return (
+        <div className="space-y-8">
+            <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
+                <div>
+                    <h1 className="text-4xl font-black text-gray-900 tracking-tight">Service Hub</h1>
+                    <p className="text-gray-500 font-medium mt-1 text-lg">Manage collection plans for all your registered addresses.</p>
+                </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-100 rounded-2xl">
+                <FilterButton label="All" count={filterCounts.all} icon={<ListBulletIcon className="w-5 h-5" />} isActive={activeFilter === 'all'} onClick={() => setActiveFilter('all')} />
+                <FilterButton label="Active" count={filterCounts.active} icon={<CheckCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'active'} onClick={() => setActiveFilter('active')} />
+                <FilterButton label="On Hold" count={filterCounts.paused} icon={<PauseCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'paused'} onClick={() => setActiveFilter('paused')} />
+                <FilterButton label="Canceled" count={filterCounts.canceled} icon={<XCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'canceled'} onClick={() => setActiveFilter('canceled')} />
+            </div>
+
+            {filteredProperties.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
+                    {filteredProperties.map(prop => (
+                        <PropertyCard key={prop.id} property={prop} />
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-20 bg-gray-50 rounded-2xl">
+                    <h3 className="text-lg font-bold text-gray-500">No properties match the filter "{activeFilter}".</h3>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default PropertyManagement;

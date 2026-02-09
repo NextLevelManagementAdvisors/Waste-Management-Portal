@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useProperty } from '../App';
-import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/mockApiService';
-import { Subscription, Property } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import Modal from './Modal';
-import { PauseCircleIcon, PlayCircleIcon, ArrowRightIcon, CheckCircleIcon, BuildingOffice2Icon } from './Icons';
+import { useProperty } from '../PropertyContext.tsx';
+import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/mockApiService.ts';
+import { Subscription, Property } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
+import { PauseCircleIcon, PlayCircleIcon, ArrowRightIcon, CheckCircleIcon } from './Icons.tsx';
 
 const PortfolioHoldCard: React.FC<{
     property: Property;

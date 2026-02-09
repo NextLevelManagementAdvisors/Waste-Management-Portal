@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { useProperty } from '../App';
-import { reportMissedPickup } from '../services/mockApiService';
-import { Card } from './Card';
-import { Button } from './Button';
-import { ExclamationTriangleIcon, BuildingOffice2Icon, ArrowRightIcon, CheckCircleIcon } from './Icons';
-import { Property } from '../types';
+import { useProperty } from '../PropertyContext.tsx';
+import { reportMissedPickup } from '../services/mockApiService.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import { ExclamationTriangleIcon, ArrowRightIcon, CheckCircleIcon } from './Icons.tsx';
+import { Property } from '../types.ts';
 
 const PortfolioMissedCard: React.FC<{
     property: Property;

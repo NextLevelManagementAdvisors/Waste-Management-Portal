@@ -1,11 +1,11 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { subscribeToNewService, getServices, getSubscriptions, changeServiceQuantity } from '../services/mockApiService';
-import { Service, Subscription, Property } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import { useProperty } from '../App';
-import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon, ArrowRightIcon, PauseCircleIcon, CheckCircleIcon } from './Icons';
+import { subscribeToNewService, getServices, getSubscriptions, changeServiceQuantity } from '../services/mockApiService.ts';
+import { Service, Subscription } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import { useProperty } from '../PropertyContext.tsx';
+import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon } from './Icons.tsx';
 
 const QuantitySelector: React.FC<{
     quantity: number;
@@ -45,69 +45,8 @@ const QuantitySelector: React.FC<{
     );
 };
 
-const PortfolioPropertyCard: React.FC<{
-    property: Property;
-    subscriptions: Subscription[];
-    onSelect: (id: string) => void;
-}> = ({ property, subscriptions, onSelect }) => {
-    const propertySubs = subscriptions.filter(s => s.propertyId === property.id && s.status === 'active');
-    const isPaused = subscriptions.some(s => s.propertyId === property.id && s.status === 'paused');
-    const monthlyTotal = propertySubs.reduce((acc, s) => acc + s.totalPrice, 0);
-
-    return (
-        <Card className="hover:shadow-xl transition-all duration-300 border-none ring-1 ring-base-200 group">
-            <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{property.serviceType}</p>
-                    <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors">{property.address}</h3>
-                </div>
-                {isPaused ? (
-                    <div className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full flex items-center gap-2">
-                        <PauseCircleIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">On Hold</span>
-                    </div>
-                ) : (
-                    <div className="px-3 py-1 bg-primary/5 text-primary rounded-full flex items-center gap-2">
-                        <CheckCircleIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Active</span>
-                    </div>
-                )}
-            </div>
-
-            <div className="space-y-2 mb-6 min-h-[60px]">
-                {propertySubs.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                        {propertySubs.map(s => (
-                            <span key={s.id} className="px-2 py-0.5 bg-gray-50 border border-gray-100 rounded text-[10px] font-bold text-gray-600 uppercase">
-                                {s.serviceName}
-                            </span>
-                        ))}
-                    </div>
-                ) : (
-                    <p className="text-xs text-gray-400 italic font-medium">No services active for this location.</p>
-                )}
-            </div>
-
-            <div className="flex items-center justify-between border-t border-base-100 pt-4 mt-auto">
-                <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">Monthly Billing</p>
-                    <p className="text-xl font-black text-gray-900 mt-1">${monthlyTotal.toFixed(2)}</p>
-                </div>
-                <Button 
-                    onClick={() => onSelect(property.id)} 
-                    variant="primary" 
-                    size="sm" 
-                    className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
-                >
-                    Manage Plan <ArrowRightIcon className="w-4 h-4 ml-2" />
-                </Button>
-            </div>
-        </Card>
-    );
-};
-
 const Services: React.FC = () => {
-    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
+    const { selectedProperty } = useProperty(); // No more properties, setSelectedPropertyId
     const [services, setServices] = useState<Service[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
@@ -184,7 +123,7 @@ const Services: React.FC = () => {
     };
 
     const hasBaseSubscription = useMemo(() => 
-        selectedProperty && subscriptions.some(sub => sub.propertyId === selectedProperty.id && services.find(s => s.id === sub.serviceId)?.category === 'base_service')
+        selectedProperty && subscriptions.some(sub => sub.propertyId === selectedProperty.id && services.find(s => s.id === sub.serviceId)?.category === 'base_service' && sub.status !== 'canceled')
     , [subscriptions, services, selectedProperty]);
 
     const serviceGroups = useMemo(() => services.reduce((acc, service) => {
@@ -213,50 +152,10 @@ const Services: React.FC = () => {
     }, [newServiceQuantities, services, baseFeeService, canSources]);
     
     const getSubscriptionForService = (serviceId: string) => 
-        subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id);
+        subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
 
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
-    }
-
-    // --- PORTFOLIO VIEW (When "All Properties" selected) ---
-    if (!selectedProperty) {
-        return (
-            <div className="space-y-8 animate-in fade-in duration-500">
-                <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
-                    <div>
-                        <h1 className="text-4xl font-black text-gray-900 tracking-tight">Service Hub</h1>
-                        <p className="text-gray-500 font-medium mt-1 text-lg">Manage collection plans for all your registered addresses.</p>
-                    </div>
-                    <div className="flex gap-4">
-                        <div className="text-right">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Global Monthly</p>
-                            <p className="text-2xl font-black text-primary">${subscriptions.filter(s => s.status === 'active').reduce((acc, s) => acc + s.totalPrice, 0).toFixed(2)}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {properties.map(prop => (
-                        <PortfolioPropertyCard 
-                            key={prop.id} 
-                            property={prop} 
-                            subscriptions={subscriptions} 
-                            onSelect={setSelectedPropertyId} 
-                        />
-                    ))}
-                    <button 
-                        onClick={() => {/* Trigger Add Property Modal via Context/Prop in real app */}}
-                        className="group relative flex flex-col items-center justify-center p-8 border-2 border-dashed border-base-200 rounded-[1.5rem] hover:border-primary hover:bg-primary/5 transition-all min-h-[250px]"
-                    >
-                        <div className="p-4 bg-gray-50 rounded-2xl group-hover:bg-primary group-hover:text-white transition-all">
-                            <PlusIcon className="w-8 h-8" />
-                        </div>
-                        <p className="mt-4 font-black text-gray-400 group-hover:text-primary uppercase text-xs tracking-widest">Register New Address</p>
-                    </button>
-                </div>
-            </div>
-        );
     }
 
     // --- NEW USER FLOW (Catalog Entry) ---
@@ -352,11 +251,6 @@ const Services: React.FC = () => {
 
     return (
         <div className="space-y-8 max-w-5xl mx-auto">
-            <div>
-                <h1 className="text-3xl font-black text-gray-900 tracking-tight">Manage Subscriptions</h1>
-                <p className="text-gray-500 font-medium">Updating service levels for: <span className="font-bold text-gray-900">{selectedProperty.address}</span></p>
-            </div>
-            
             <div className="grid grid-cols-1 gap-8">
                 <Card className="border-none ring-1 ring-base-200">
                     <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest mb-6 pb-4 border-b border-base-100">Equipment & Frequency</h2>

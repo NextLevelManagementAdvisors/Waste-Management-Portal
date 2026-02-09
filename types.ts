@@ -1,7 +1,7 @@
 
 import React from 'react';
 
-export type View = 'dashboard' | 'services' | 'subscriptions' | 'billing' | 'payment' | 'support' | 'notifications' | 'special-pickup' | 'vacation-holds' | 'missed-pickup' | 'property-settings' | 'profile-settings';
+export type View = 'home' | 'myservice' | 'billing' | 'requests' | 'help' | 'profile-settings' | 'referrals';
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
@@ -21,6 +21,12 @@ export interface Property {
   gateCode?: string;
   notes?: string;
   notificationPreferences: NotificationPreferences;
+  transferStatus?: 'pending' | 'completed' | null;
+  pendingOwner?: {
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
 }
 
 export interface User {
@@ -142,4 +148,18 @@ export interface UpdateProfileInfo {
 export interface UpdatePasswordInfo {
     currentPassword: string;
     newPassword: string;
+}
+
+export interface Referral {
+    id: string;
+    name: string;
+    status: 'pending' | 'completed';
+    date: string;
+}
+
+export interface ReferralInfo {
+    referralCode: string;
+    shareLink: string;
+    referrals: Referral[];
+    totalRewards: number; // in dollars
 }

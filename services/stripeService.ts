@@ -1,13 +1,13 @@
+
 // services/stripeService.ts
 
 // This service simulates a backend client for the Stripe API.
-// Updated with data provided in the CSV files and new startup fee logic.
+// Updated to fix unsafe serialization and ensure reliable mock responses.
 
-import { PaymentMethod, Subscription, Invoice, Service } from '../types';
+import { PaymentMethod, Subscription, Invoice, Service } from '../types.ts';
 
 // --- MOCK STRIPE DATABASE ---
 
-// Simulate a Stripe Customer object
 let STRIPE_CUSTOMER = {
     id: 'cus_MOCK12345',
     default_payment_method: 'pm_1',
@@ -15,7 +15,6 @@ let STRIPE_CUSTOMER = {
     name: 'Jane Doe',
 };
 
-// Simulate Stripe's Product Catalog from CSV data
 const STRIPE_PRODUCTS = [
   { 
     id: 'prod_TOvYnQt1VYbKie', 
@@ -75,25 +74,19 @@ const STRIPE_PRODUCTS = [
   }
 ];
 
-
-// Simulate Stripe's PaymentMethods attached to the customer
 let STRIPE_PAYMENT_METHODS: PaymentMethod[] = [
     { id: 'pm_1', type: 'Card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2026, isPrimary: true },
     { id: 'pm_2', type: 'Card', brand: 'Mastercard', last4: '5555', expiryMonth: 8, expiryYear: 2023, isPrimary: false },
     { id: 'pm_3', type: 'Bank Account', last4: '6789', isPrimary: false },
 ];
 
-// Simulate Stripe Subscriptions based on new IDs
 let STRIPE_SUBSCRIPTIONS: Subscription[] = [
-    // P1: Main Curbside + Medium Can
     { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2025-08-01', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_1', quantity: 1 },
     { id: 'sub_2', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2025-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1 },
-    // P2: Main Curbside + 2 Large Cans
     { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2025-08-10', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_2', quantity: 1 },
     { id: 'sub_4', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2025-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2 },
 ];
 
-// Simulate Stripe Invoices
 let STRIPE_INVOICES: Invoice[] = [
   { id: 'in_P1_004', propertyId: 'P1', amount: 60.00, date: '2025-02-01', status: 'Due' },
   { id: 'in_P1_003', propertyId: 'P1', amount: 60.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03' },
@@ -102,9 +95,12 @@ let STRIPE_INVOICES: Invoice[] = [
   { id: 'in_P2_003', propertyId: 'P2', amount: 95.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11' },
 ];
 
-const simulateApiCall = <T,>(data: T, delay = 200): Promise<T> => 
-  new Promise(resolve => setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), delay));
-
+/**
+ * Safer API simulation that avoids JSON serialization issues.
+ */
+function simulateApiCall<T>(data: T, delay = 200): Promise<T> {
+  return new Promise(resolve => setTimeout(() => resolve(data), delay));
+}
 
 // --- STRIPE API MOCKS ---
 
@@ -264,4 +260,27 @@ export const createInvoice = async(propertyId: string, amount: number, descripti
     STRIPE_INVOICES.unshift(newInvoice);
     console.log(`(Stripe) Created invoice for ${description}`);
     return simulateApiCall(newInvoice);
+};
+
+export const restartAllSubscriptionsForProperty = async (propertyId: string) => {
+    const today = new Date();
+    // Setting day to 1st of next month for billing cycle consistency
+    const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().split('T')[0];
+    const newStartDate = new Date().toISOString().split('T')[0];
+
+    let restarted = false;
+    STRIPE_SUBSCRIPTIONS.forEach(s => {
+        if (s.propertyId === propertyId && s.status === 'canceled') {
+            s.status = 'active';
+            s.startDate = newStartDate;
+            s.nextBillingDate = nextBillingDate;
+            delete s.pausedUntil;
+            restarted = true;
+        }
+    });
+
+    if (restarted) {
+        console.log(`(Stripe) Restarted services for property ${propertyId}`);
+    }
+    return simulateApiCall({ success: true });
 };

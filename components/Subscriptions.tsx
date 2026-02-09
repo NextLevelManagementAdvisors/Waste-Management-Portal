@@ -1,12 +1,12 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService';
-import { Subscription, PaymentMethod, Service, Property } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import { useProperty } from '../App';
-import Modal from './Modal';
-import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon, ExclamationTriangleIcon } from './Icons';
+import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService.ts';
+import { Subscription, PaymentMethod, Service, Property } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import { useProperty } from '../PropertyContext.tsx';
+import Modal from './Modal.tsx';
+import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon, ExclamationTriangleIcon } from './Icons.tsx';
 
 const SubscriptionCard: React.FC<{
     sub: Subscription;

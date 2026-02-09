@@ -1,18 +1,16 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { User, Subscription, Invoice } from '../types';
-
-// Initialize with the standard API key from environment
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+import { User, Subscription, Invoice } from '../types.ts';
 
 /**
  * Enhanced Support AI with Streaming and Google Search Grounding.
- * This allows the agent to check for real-time schedule delays, weather, or holidays.
  */
 export const getSupportResponseStream = async (
   prompt: string,
   userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] }
 ) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
   const contextString = `
     User Details:
     - Name: ${userContext.user.firstName} ${userContext.user.lastName}
@@ -26,9 +24,7 @@ export const getSupportResponseStream = async (
   try {
     const responseStream = await ai.models.generateContentStream({
       model: 'gemini-3-flash-preview',
-      contents: [
-        { role: 'user', parts: [{ text: `Context:\n${contextString}\n\nQuestion: ${prompt}` }] }
-      ],
+      contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
       config: {
         systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details and Google Search. Use search to verify any external events like holiday schedules, weather delays, or local traffic if relevant to the user's trash collection. Always cite your search sources if used.",
         tools: [{ googleSearch: {} }]

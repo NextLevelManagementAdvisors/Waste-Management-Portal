@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from '../types';
-import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, ShoppingBagIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons';
-import * as stripeService from './stripeService';
+import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
+import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons.tsx';
+import * as stripeService from './stripeService.ts';
 
 // --- TYPES FOR CONSOLIDATED DATA ---
 export interface PropertyState {
@@ -46,15 +46,26 @@ const MOCK_SERVICE_ALERTS: ServiceAlert[] = [
     { id: 'alert1', message: "Holiday Schedule: All pickups delayed by one day.", type: 'info' }
 ];
 
+const MOCK_REFERRAL_INFO: ReferralInfo = {
+    referralCode: 'JANE-D-8432',
+    shareLink: 'https://zipadee.com/join?ref=JANE-D-8432',
+    totalRewards: 20,
+    referrals: [
+        { id: 'ref1', name: 'John Smith', status: 'completed', date: '2025-06-20' },
+        { id: 'ref2', name: 'Emily White', status: 'completed', date: '2025-05-15' },
+        { id: 'ref3', name: 'Michael Brown', status: 'pending', date: '2025-07-02' },
+        { id: 'ref4', name: 'Sarah Wilson', status: 'pending', date: '2025-07-10' },
+    ]
+};
+
 // --- API FACADE ---
 
 /**
- * FIXED: Removed JSON.stringify/parse. 
- * Serializing React elements (icons) destroys their internal markers ($$typeof symbol),
- * causing React Error #31. We use a simpler promise delay now.
+ * Safer API simulation that avoids serialization issues.
  */
-const simulateApiCall = <T,>(data: T, delay = 300): Promise<T> => 
-  new Promise(resolve => setTimeout(() => resolve(data), delay));
+function simulateApiCall<T>(data: T, delay: number = 300): Promise<T> {
+  return new Promise(resolve => setTimeout(() => resolve(data), delay));
+}
 
 export const getUser = () => simulateApiCall(MOCK_USER);
 
@@ -115,7 +126,7 @@ export const login = (email: string, password: string): Promise<User> => {
     return simulateApiCall(MOCK_USER);
 };
 export const logout = () => simulateApiCall({ success: true });
-export const register = (info: any): Promise<User> => simulateApiCall(MOCK_USER);
+export const register = (info: RegistrationInfo): Promise<User> => simulateApiCall(MOCK_USER);
 export const addProperty = (info: NewPropertyInfo) => {
     const newP: Property = { 
         id: `P${Date.now()}`, 
@@ -148,8 +159,8 @@ export const updatePropertyDetails = (id: string, details: UpdatePropertyInfo) =
     }
     throw new Error("Property not found");
 };
-export const updateUserProfile = (info: any) => simulateApiCall(MOCK_USER);
-export const updateUserPassword = (info: any) => simulateApiCall({ success: true });
+export const updateUserProfile = (info: UpdateProfileInfo) => simulateApiCall(MOCK_USER);
+export const updateUserPassword = (info: UpdatePasswordInfo) => simulateApiCall({ success: true });
 
 export const getServices = async (): Promise<Service[]> => {
     const prods = await stripeService.listProducts();
@@ -209,7 +220,7 @@ export const updateAllUserSubscriptions = async (paymentMethodId: string) => {
 };
 
 export const updateNotificationPreferences = (propertyId: string, prefs: NotificationPreferences) => {
-    const p = MOCK_PROPERTIES.find(prop => prop.id === propertyId);
+    const p = MOCK_USER.properties.find(prop => prop.id === propertyId);
     if (p) p.notificationPreferences = prefs;
     return simulateApiCall({ success: true });
 };
@@ -259,3 +270,43 @@ export const resumeSubscriptionsForProperty = async (propertyId: string) => {
 };
 
 export const reportMissedPickup = (propertyId: string, date: string, notes: string) => simulateApiCall({ success: true });
+
+export const transferPropertyOwnership = (propertyId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
+    console.log(`[API MOCK] Initiating transfer for property ${propertyId}`);
+    
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (property) {
+        property.transferStatus = 'pending';
+        property.pendingOwner = newOwner;
+    }
+    
+    return simulateApiCall({ success: true, message: 'Transfer invitation sent.' }, 1000);
+};
+
+export const sendTransferReminder = (propertyId: string) => {
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (property && property.transferStatus === 'pending' && property.pendingOwner) {
+        console.log(`[API MOCK] Reminder sent to ${property.pendingOwner.email} for property ${property.address}.`);
+        return simulateApiCall({ success: true });
+    }
+    return simulateApiCall({ success: false }, 400);
+};
+
+export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
+    console.log(`[API MOCK] Canceling all services for property ${propertyId}`);
+    const subs = await stripeService.listSubscriptions();
+    subs.forEach(s => {
+        if (s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused')) {
+            s.status = 'canceled';
+        }
+    });
+    return simulateApiCall({ success: true });
+};
+
+export const restartAllSubscriptionsForProperty = (propertyId: string) => {
+    return stripeService.restartAllSubscriptionsForProperty(propertyId);
+};
+
+export const getReferralInfo = (): Promise<ReferralInfo> => {
+    return simulateApiCall(MOCK_REFERRAL_INFO, 500);
+};

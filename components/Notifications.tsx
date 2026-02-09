@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useProperty } from '../App';
-import { updateNotificationPreferences } from '../services/mockApiService';
-import { NotificationPreferences } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import ToggleSwitch from './ToggleSwitch';
+import { useProperty } from '../PropertyContext.tsx';
+import { updateNotificationPreferences } from '../services/mockApiService.ts';
+import { NotificationPreferences } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import ToggleSwitch from './ToggleSwitch.tsx';
 
 const Notifications: React.FC = () => {
     const { selectedProperty, refreshUser } = useProperty();
@@ -54,7 +54,7 @@ const Notifications: React.FC = () => {
     };
     
     if (!selectedProperty) {
-        return <div className="text-center p-8">Please select a property to manage notifications.</div>;
+        return null;
     }
     
     if (!prefs) {
@@ -94,12 +94,7 @@ const Notifications: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral">Notification Preferences</h1>
-                <p className="text-gray-600 mt-1">
-                    Manage notifications for: <span className="font-semibold text-neutral">{selectedProperty.address}</span>
-                </p>
-            </div>
+            <h3 className="text-xl font-black text-gray-900 tracking-tight">Communication</h3>
             <Card>
                 <div className="divide-y divide-gray-200">
                     <NotificationCategory 

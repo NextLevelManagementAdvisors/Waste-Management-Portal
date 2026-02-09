@@ -1,12 +1,12 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { getInvoices, getPaymentMethods, payInvoice } from '../services/mockApiService';
-import { Invoice, PaymentMethod, Property } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import Modal from './Modal';
-import { ArrowDownTrayIcon, CheckCircleIcon, CreditCardIcon, BanknotesIcon, BuildingOffice2Icon } from './Icons';
-import { useProperty } from '../App';
+import { getInvoices, getPaymentMethods, payInvoice } from '../services/mockApiService.ts';
+import { Invoice, PaymentMethod } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
+import { ArrowDownTrayIcon, CheckCircleIcon, CreditCardIcon, BanknotesIcon, BuildingOffice2Icon } from './Icons.tsx';
+import { useProperty } from '../PropertyContext.tsx';
 
 const PayInvoiceModal: React.FC<{
     isOpen: boolean;
@@ -64,7 +64,6 @@ const PayInvoiceModal: React.FC<{
                                 name="paymentMethod"
                                 value={method.id}
                                 checked={selectedMethodId === method.id}
-                                onChange={() => setSelectedMethodId(method.id)}
                                 className="form-radio h-4 w-4 text-primary"
                             />
                         </div>
@@ -112,7 +111,6 @@ const Billing: React.FC = () => {
         fetchAllData();
     }, []);
 
-    // Hooks must be called unconditionally before any potential early return.
     const displayInvoices = useMemo(() => {
         let filtered = allInvoices;
         if (!isAllMode && selectedProperty) {
@@ -143,19 +141,11 @@ const Billing: React.FC = () => {
     }
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-2">
-                <div>
-                    <h1 className="text-4xl font-black text-neutral tracking-tight">Billing Center</h1>
-                    <p className="text-gray-600 text-lg">
-                        {isAllMode 
-                            ? "Reviewing consolidated statement history for all locations." 
-                            : `Reviewing invoices for: ${selectedProperty?.address}`}
-                    </p>
-                </div>
-            </div>
-
+        <div className="space-y-6">
             <Card className="overflow-hidden border-none shadow-xl">
+                 <div className="p-6 border-b border-base-100 bg-gray-50/50">
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History</h2>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50/50">

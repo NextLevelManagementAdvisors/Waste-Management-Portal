@@ -1,21 +1,28 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { SupportMessage } from '../types';
-import { Button } from './Button';
-import { PaperAirplaneIcon, SparklesIcon, XMarkIcon } from './Icons';
-import { getSupportResponseStream } from '../services/geminiService';
-import { getSubscriptions, getInvoices } from '../services/mockApiService';
-import { useProperty } from '../App';
+import { SupportMessage } from '../types.ts';
+import { Button } from './Button.tsx';
+import { PaperAirplaneIcon, SparklesIcon, ArrowRightIcon } from './Icons.tsx';
+import { getSupportResponseStream } from '../services/geminiService.ts';
+import { getSubscriptions, getInvoices } from '../services/mockApiService.ts';
+import { useProperty } from '../PropertyContext.tsx';
+
+// Define GroundingSource interface for displaying search results
+interface GroundingSource {
+    title: string;
+    uri: string;
+}
 
 const Support: React.FC = () => {
-    const { user, selectedProperty } = useProperty();
-    const [messages, setMessages] = useState<SupportMessage[]>([
+    const { user, selectedProperty, resetApiKey } = useProperty();
+    const [messages, setMessages] = useState<(SupportMessage & { sources?: GroundingSource[] })[]>([
         { sender: 'gemini', text: "Welcome to your AI Concierge. I can help you with account billing, scheduling, or searching for holiday delays. How can I assist you?" }
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [streamingText, setStreamingText] = useState('');
-
+    const [streamingSources, setStreamingSources] = useState<GroundingSource[]>([]);
+    
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -31,6 +38,7 @@ const Support: React.FC = () => {
         setInput('');
         setIsLoading(true);
         setStreamingText('');
+        setStreamingSources([]);
 
         try {
             if (!user || !selectedProperty) {
@@ -51,17 +59,39 @@ const Support: React.FC = () => {
             });
 
             let fullText = "";
+            let finalSources: GroundingSource[] = [];
+
             for await (const chunk of stream) {
                 const text = chunk.text || "";
                 fullText += text;
                 setStreamingText(fullText);
+
+                const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+                if (groundingChunks) {
+                    groundingChunks.forEach((gChunk: any) => {
+                        if (gChunk.web?.uri && !finalSources.some(s => s.uri === gChunk.web.uri)) {
+                            finalSources.push({
+                                title: gChunk.web.title || gChunk.web.uri,
+                                uri: gChunk.web.uri
+                            });
+                        }
+                    });
+                    setStreamingSources([...finalSources]);
+                }
             }
 
-            setMessages(prev => [...prev, { sender: 'gemini', text: fullText }]);
+            setMessages(prev => [...prev, { sender: 'gemini', text: fullText, sources: finalSources }]);
             setStreamingText('');
+            setStreamingSources([]);
         } catch (error) {
             console.error(error);
-            setMessages(prev => [...prev, { sender: 'gemini', text: "I'm having trouble connecting to my knowledge base. Please try again or call our support line." }]);
+            // Handle specific API key error as per guidelines
+            if (error instanceof Error && error.message.includes("Requested entity was not found.")) {
+                setMessages(prev => [...prev, { sender: 'gemini', text: "There was an issue with the API key. Please re-select a valid key to continue." }]);
+                resetApiKey(); // Signal to App.tsx to re-prompt for key
+            } else {
+                setMessages(prev => [...prev, { sender: 'gemini', text: "I'm having trouble connecting to my knowledge base. Please try again or call our support line." }]);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -89,7 +119,7 @@ const Support: React.FC = () => {
 
             <div className="flex-1 p-8 overflow-y-auto space-y-8 bg-white">
                 {messages.map((msg, index) => (
-                    <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div key={index} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
                         <div className={`max-w-[85%] px-6 py-4 rounded-[1.5rem] leading-relaxed font-medium shadow-sm border ${
                             msg.sender === 'user' 
                                 ? 'bg-primary text-white border-primary shadow-primary/10' 
@@ -97,14 +127,46 @@ const Support: React.FC = () => {
                         }`}>
                             <p className="whitespace-pre-wrap text-sm">{msg.text}</p>
                         </div>
+                        {msg.sources && msg.sources.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2 max-w-[85%]">
+                                {msg.sources.map((source, sIdx) => (
+                                    <a 
+                                        key={sIdx} 
+                                        href={source.uri} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 hover:bg-primary/10 transition-colors flex items-center gap-1.5"
+                                    >
+                                        <ArrowRightIcon className="w-3 h-3" />
+                                        {source.title}
+                                    </a>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ))}
                 
                 {streamingText && (
-                    <div className="flex justify-start">
+                    <div className="flex flex-col items-start">
                         <div className="max-w-[85%] px-6 py-4 rounded-[1.5rem] bg-gray-50 text-gray-700 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-2">
                              <p className="whitespace-pre-wrap text-sm">{streamingText}</p>
                         </div>
+                        {streamingSources.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2 max-w-[85%]">
+                                {streamingSources.map((source, sIdx) => (
+                                    <a 
+                                        key={sIdx} 
+                                        href={source.uri} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 flex items-center gap-1.5"
+                                    >
+                                        <ArrowRightIcon className="w-3 h-3" />
+                                        {source.title}
+                                    </a>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 

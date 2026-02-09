@@ -7,6 +7,29 @@
     <title>Waste Management Client Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      /**
+       * SAFE PROCESS SHIM & ERROR HANDLING
+       */
+      (function() {
+        if (typeof window.process === 'undefined') {
+          window.process = { env: {} };
+        }
+        if (typeof window.process.env === 'undefined') {
+          window.process.env = {};
+        }
+        
+        // Ensure process is available globally
+        Object.assign(globalThis, { process: window.process });
+
+        // Catch silent module errors
+        window.addEventListener('error', function(e) {
+          console.error('Captured Global Error:', e.message, 'at', e.filename, 'line', e.lineno);
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+          console.error('Unhandled Promise Rejection:', e.reason);
+        });
+      })();
+
       tailwind.config = {
         theme: {
           extend: {
@@ -29,8 +52,10 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.0",
     "recharts": "https://aistudiocdn.com/recharts@^3.4.1"
@@ -40,6 +65,6 @@
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>

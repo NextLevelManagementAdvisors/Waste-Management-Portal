@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { View } from '../types';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, BanknotesIcon, CreditCardIcon } from './Icons';
-import { useProperty } from '../App';
+import { View } from '../types.ts';
+import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon } from './Icons.tsx';
+import { useProperty } from '../PropertyContext.tsx';
 
 interface HeaderProps {
   currentView: View;
@@ -11,23 +12,19 @@ interface HeaderProps {
 }
 
 const viewTitles: Record<View, string> = {
-    dashboard: 'Dashboard',
-    services: 'All Services',
-    subscriptions: 'Subscriptions',
-    'special-pickup': 'Special Pickups',
-    'vacation-holds': 'Vacation Holds',
+    home: 'Home',
+    myservice: 'My Service',
     billing: 'Billing',
-    payment: 'Payment Methods',
-    notifications: 'Notifications',
-    'missed-pickup': 'Report Missed Pickup',
-    support: 'Support',
-    'property-settings': 'Property Settings',
+    requests: 'Requests',
+    help: 'Help',
     'profile-settings': 'Profile Settings',
+    // FIX: Added 'referrals' to satisfy the Record<View, string> type.
+    referrals: 'Referrals'
 };
 
 const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout }) => {
   const { user, properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
-  const title = viewTitles[currentView] || 'Dashboard';
+  const title = viewTitles[currentView] || 'Home';
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -56,7 +53,9 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
       }
   };
 
-  const currentVal = selectedProperty ? selectedProperty.id : (properties.length > 0 ? 'all' : '');
+  const currentVal = selectedProperty 
+    ? selectedProperty.id 
+    : (properties.length > 1 ? 'all' : (properties[0]?.id || ''));
 
   return (
     <header className="flex-shrink-0 bg-white border-b border-base-300 z-20 sticky top-0">
@@ -72,7 +71,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                     <select
                         value={currentVal}
                         onChange={handlePropertyChange}
-                        className="appearance-none w-full bg-base-200 border border-base-300 text-gray-900 py-2.5 pl-4 pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-sm transition-all"
+                        className="appearance-none w-full bg-base-200 border border-base-300 text-gray-900 py-2.5 pl-4 pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-sm transition-all cursor-pointer hover:border-primary"
                         aria-label="Select property context"
                         disabled={properties.length === 0}
                     >
@@ -84,10 +83,10 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                                 <option key={p.id} value={p.id}>🏠 {p.address}</option>
                             ))
                         ) : (
-                            <option>No properties found</option>
+                            <option value="">No properties found</option>
                         )}
                         <option value="add_new" className="font-bold text-primary">
-                            + Add New Property...
+                            + Add New Address...
                         </option>
                     </select>
                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
@@ -114,12 +113,6 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                             </div>
                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
                                 <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
-                            </a>
-                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('billing'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-                                <BanknotesIcon className="w-5 h-5 mr-3 text-gray-400" /> Billing
-                            </a>
-                             <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('payment'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-                                <CreditCardIcon className="w-5 h-5 mr-3 text-gray-400" /> Payment Methods
                             </a>
                             <div className="border-t border-base-200 my-1"></div>
                             <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">

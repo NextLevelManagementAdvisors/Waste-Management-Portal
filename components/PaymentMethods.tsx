@@ -1,11 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
-import { PaymentMethod, View, Subscription } from '../types';
-import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/mockApiService';
-import { Card } from './Card';
-import { Button } from './Button';
-import Modal from './Modal';
-import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons';
-import { useProperty } from '../App';
+import { PaymentMethod, View } from '../types.ts';
+import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/mockApiService.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
+import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx';
+import { useProperty } from '../PropertyContext.tsx';
 
 interface PaymentMethodsProps {
     setCurrentView: (view: View) => void;
@@ -37,7 +38,7 @@ const PaymentMethodCard: React.FC<{
 }> = ({ method, onDelete, onSetPrimary, isExpired }) => {
     
     return (
-        <Card className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${isExpired ? 'bg-red-50 border-red-300' : ''}`}>
+        <Card className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${isExpired ? 'bg-red-50 border-red-300' : 'bg-white'}`}>
             <div className="flex items-center gap-4">
                 {method.type === 'Card' ? <CreditCardIcon className="w-8 h-8 text-neutral" /> : <BanknotesIcon className="w-8 h-8 text-neutral" />}
                 <div>
@@ -55,8 +56,8 @@ const PaymentMethodCard: React.FC<{
                     )}
                 </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-                {!method.isPrimary && !isExpired && <Button variant="secondary" size="sm" onClick={() => onSetPrimary(method.id)}>Set as Primary</Button>}
+            <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                {!method.isPrimary && !isExpired && <Button variant="ghost" size="sm" onClick={() => onSetPrimary(method.id)}>Set Primary</Button>}
                 <Button variant="ghost" size="sm" onClick={() => onDelete(method.id)} aria-label={`Delete ${method.brand} ending in ${method.last4}`}>
                     <TrashIcon className="w-5 h-5 text-red-500" />
                 </Button>
@@ -72,9 +73,6 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsAdding(true);
-        // In a real app, you would use Stripe Elements for PCI compliance
-        // and get a token to send to your backend.
-        // Here, we'll just simulate it.
         try {
             let newMethod;
             if (type === 'card') {
@@ -174,7 +172,6 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
     const [isDeleteErrorModalOpen, setIsDeleteErrorModalOpen] = useState(false);
 
     const fetchMethods = async () => {
-        // Don't set loading to true here to avoid flicker on add
         try {
             const data = await getPaymentMethods();
             setMethods(data);
@@ -189,7 +186,6 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
     }, []);
 
     const handleDelete = async (id: string) => {
-        // Check if the payment method is in use by any active subscription
         const allSubs = await getSubscriptions();
         const isInUse = allSubs.some(sub => sub.paymentMethodId === id && sub.status === 'active');
 
@@ -215,14 +211,13 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
     };
 
     const handleMethodAdded = (newMethod: PaymentMethod) => {
-        fetchMethods(); // Refresh the list
+        fetchMethods();
         setNewlyAddedMethod(newMethod);
-        setModalStep('prompt'); // Move to the next step
+        setModalStep('prompt');
     };
 
     const closeModal = () => {
         setIsModalOpen(false);
-        // Reset modal to first step after a short delay to allow closing animation
         setTimeout(() => setModalStep('add'), 300);
     };
 
@@ -250,38 +245,38 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral">Payment Methods</h1>
-                    <p className="text-gray-600 mt-1">Manage your saved credit cards and bank accounts.</p>
+            <Card className="shadow-xl border-none">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 p-6 bg-gray-50/50 border-b border-base-100">
+                    <div>
+                        <h2 className="text-xl font-black text-gray-900 tracking-tight">Digital Wallet</h2>
+                        <p className="text-gray-500 text-sm mt-1">Manage your saved credit cards and bank accounts.</p>
+                    </div>
+                    <Button onClick={() => setIsModalOpen(true)} className="shrink-0 rounded-xl">
+                        <PlusIcon className="w-5 h-5 mr-2" />
+                        Add New Method
+                    </Button>
                 </div>
-                 <Button onClick={() => setIsModalOpen(true)}>
-                    <PlusIcon className="w-5 h-5 mr-2" />
-                    Add Method
-                </Button>
-            </div>
 
-            <div className="space-y-4">
-                {methods.length > 0 ? (
-                    methods.map(method => (
-                        <PaymentMethodCard 
-                            key={method.id} 
-                            method={method}
-                            onDelete={handleDelete}
-                            onSetPrimary={handleSetPrimary}
-                            isExpired={isMethodExpired(method)}
-                         />
-                    ))
-                ) : (
-                     <Card>
+                <div className="space-y-4 p-6">
+                    {methods.length > 0 ? (
+                        methods.map(method => (
+                            <PaymentMethodCard 
+                                key={method.id} 
+                                method={method}
+                                onDelete={handleDelete}
+                                onSetPrimary={handleSetPrimary}
+                                isExpired={isMethodExpired(method)}
+                            />
+                        ))
+                    ) : (
                         <div className="text-center py-12">
                             <CreditCardIcon className="mx-auto h-12 w-12 text-gray-400" />
                             <h3 className="mt-2 text-sm font-medium text-gray-900">No payment methods</h3>
                             <p className="mt-1 text-sm text-gray-500">Get started by adding a new card or bank account.</p>
                         </div>
-                    </Card>
-                )}
-            </div>
+                    )}
+                </div>
+            </Card>
 
             <Modal 
                 title={modalStep === 'add' ? "Add New Payment Method" : "Update Subscriptions?"} 
@@ -314,7 +309,7 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
                     <Button variant="secondary" onClick={() => setIsDeleteErrorModalOpen(false)}>Close</Button>
                     <Button onClick={() => {
                         setIsDeleteErrorModalOpen(false);
-                        setCurrentView('subscriptions');
+                        setCurrentView('myservice');
                     }}>
                         Update Subscriptions
                     </Button>

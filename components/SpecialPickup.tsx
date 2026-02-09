@@ -1,12 +1,12 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useProperty } from '../App';
-import { getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup } from '../services/mockApiService';
-import { SpecialPickupService, SpecialPickupRequest, Property } from '../types';
-import { Card } from './Card';
-import { Button } from './Button';
-import Modal from './Modal';
-import { CalendarDaysIcon, ArrowRightIcon, BuildingOffice2Icon, CheckCircleIcon, ClockIcon } from './Icons';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useProperty } from '../PropertyContext.tsx';
+import { getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup } from '../services/mockApiService.ts';
+import { SpecialPickupService, SpecialPickupRequest, Property } from '../types.ts';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
+import { CalendarDaysIcon, ArrowRightIcon, CheckCircleIcon, ClockIcon } from './Icons.tsx';
 
 const PortfolioPickupCard: React.FC<{
     property: Property;

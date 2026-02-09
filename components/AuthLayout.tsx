@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { TruckIcon } from './Icons';
+import { TruckIcon } from './Icons.tsx';
 
 interface AuthLayoutProps {
     children: React.ReactNode;

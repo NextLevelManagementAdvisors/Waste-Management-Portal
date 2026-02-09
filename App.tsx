@@ -1,80 +1,104 @@
 
-import React, { useState, useEffect, createContext, useContext, useMemo, useCallback } from 'react';
-import Sidebar from './components/Sidebar';
-import Header from './components/Header';
-import Dashboard from './components/Dashboard';
-import Services from './components/Services';
-import Subscriptions from './components/Subscriptions';
-import Billing from './components/Billing';
-import PaymentMethods from './components/PaymentMethods';
-import Support from './components/Support';
-import Notifications from './components/Notifications';
-import SpecialPickup from './components/SpecialPickup';
-import VacationHolds from './components/VacationHolds';
-import MissedPickup from './components/MissedPickup';
-import AddPropertyModal from './components/AddPropertyModal';
-import PropertySettings from './components/PropertySettings';
-import ProfileSettings from './components/ProfileSettings';
-import AuthLayout from './components/AuthLayout';
-import Login from './components/Login';
-import Registration from './components/Registration';
-import { View, User, Property, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from './types';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword } from './services/mockApiService';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import Sidebar from './components/Sidebar.tsx';
+import Header from './components/Header.tsx';
+import Dashboard from './components/Dashboard.tsx';
+import MyServiceHub from './components/MyServiceHub.tsx';
+import BillingHub from './components/BillingHub.tsx';
+import RequestsHub from './components/RequestsHub.tsx';
+import Support from './components/Support.tsx';
+import ProfileSettings from './components/ProfileSettings.tsx';
+import ReferralsHub from './components/ReferralsHub.tsx';
+import AddPropertyModal from './components/AddPropertyModal.tsx';
+import AuthLayout from './components/AuthLayout.tsx';
+import Login from './components/Login.tsx';
+import Registration from './components/Registration.tsx';
+import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from './types.ts';
+import { PropertyContext } from './PropertyContext.tsx';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder } from './services/mockApiService.ts';
+import { Card } from './components/Card.tsx';
+import { Button } from './components/Button.tsx';
+import { KeyIcon } from './components/Icons.tsx';
 
-interface PropertyContextType {
-    user: User | null;
-    properties: Property[];
-    selectedProperty: Property | null;
-    // Fix: Added selectedPropertyId to context type
-    selectedPropertyId: string | null;
-    setSelectedPropertyId: (id: string) => void;
-    loading: boolean;
-    refreshUser: () => Promise<void>;
-    updateProperty: (propertyId: string, details: UpdatePropertyInfo) => Promise<void>;
-    updateProfile: (profileInfo: UpdateProfileInfo) => Promise<void>;
-    updatePassword: (passwordInfo: UpdatePasswordInfo) => Promise<void>;
-}
-
-export const PropertyContext = createContext<PropertyContextType>({
-    user: null,
-    properties: [],
-    selectedProperty: null,
-    // Fix: Added selectedPropertyId default value
-    selectedPropertyId: null,
-    setSelectedPropertyId: () => {},
-    loading: true,
-    refreshUser: async () => {},
-    updateProperty: async () => {},
-    updateProfile: async () => {},
-    updatePassword: async () => {},
-});
-
-export const useProperty = () => useContext(PropertyContext);
+// Simplified hash parsing, removing sub-view logic
+const parseHash = () => {
+  const hash = window.location.hash.slice(1);
+  const parts = hash.split('/');
+  const viewPart = parts[0] as View || 'home';
+  const propPart = parts[1] || null;
+  return { view: viewPart, propId: propPart };
+};
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState<string | null>(null);
   
-  const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [user, setUser] = useState<User | null>(null);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [isApiKeyReady, setIsApiKeyReady] = useState(false);
+  const [isCheckingApiKey, setIsCheckingApiKey] = useState(false);
+  
+  const [currentView, setCurrentView] = useState<View>(() => parseHash().view);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(() => parseHash().propId);
+
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const properties = useMemo(() => user?.properties || [], [user]);
   const selectedProperty = useMemo(() => 
     selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null
   , [selectedPropertyId, properties]);
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      setIsCheckingApiKey(true);
+      const checkApiKey = async () => {
+        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+          const keySelected = await window.aistudio.hasSelectedApiKey();
+          setIsApiKeyReady(keySelected);
+        } else {
+          setIsApiKeyReady(true);
+        }
+        setIsCheckingApiKey(false);
+      };
+      checkApiKey();
+    } else {
+      setIsApiKeyReady(false);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const propPart = selectedPropertyId ? `/${selectedPropertyId}` : '/all';
+    const newHash = `#${currentView}${propPart}`;
+    if (window.location.hash !== newHash) {
+      window.history.replaceState(null, '', newHash);
+    }
+  }, [currentView, selectedPropertyId, isAuthenticated]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const { view, propId } = parseHash();
+      const validViews: View[] = ['home', 'myservice', 'billing', 'requests', 'help', 'profile-settings', 'referrals'];
+      if (validViews.includes(view)) {
+        setCurrentView(view);
+      }
+      setSelectedPropertyId(propId);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const fetchUserAndSetState = useCallback((userData: User) => {
     setUser(userData);
     if (userData.properties && userData.properties.length > 0) {
-      const currentSelectedExists = userData.properties.some(p => p.id === selectedPropertyId) || selectedPropertyId === 'all';
-      if (!currentSelectedExists) {
-        setSelectedPropertyId(userData.properties.length > 1 ? 'all' : userData.properties[0].id);
-      }
+        if (!selectedPropertyId || (selectedPropertyId !== 'all' && !userData.properties.some(p => p.id === selectedPropertyId))) {
+            const { propId } = parseHash();
+            const isValidProp = userData.properties.some(p => p.id === propId);
+            setSelectedPropertyId(isValidProp ? propId : (userData.properties.length > 1 ? 'all' : userData.properties[0].id));
+        }
     } else {
-      setSelectedPropertyId(null);
+        setSelectedPropertyId(null);
     }
   }, [selectedPropertyId]);
     
@@ -107,7 +131,7 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      setCurrentView('services'); 
+      setCurrentView('myservice'); 
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
@@ -119,6 +143,18 @@ const App: React.FC = () => {
     setUser(null);
     setSelectedPropertyId(null);
     setAuthView('login');
+    window.location.hash = '';
+  }, []);
+  
+  const handleSelectKey = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+        await window.aistudio.openSelectKey();
+        setIsApiKeyReady(true);
+    }
+  };
+
+  const handleResetApiKey = useCallback(() => {
+    setIsApiKeyReady(false);
   }, []);
 
   const handleAddProperty = useCallback(async (propertyInfo: NewPropertyInfo) => {
@@ -129,7 +165,7 @@ const App: React.FC = () => {
         return { ...prevUser, properties: [...prevUser.properties, newProperty]};
       });
       setSelectedPropertyId(newProperty.id); 
-      setCurrentView('services'); 
+      setCurrentView('myservice'); 
       setIsAddPropertyModalOpen(false); 
     } catch (error) {
       console.error("Failed to add property:", error);
@@ -171,64 +207,132 @@ const App: React.FC = () => {
       }
   }, []);
 
-  // Fix: Added selectedPropertyId to contextValue
+  const handleCancelPropertyServices = useCallback(async (propertyId: string) => {
+    try {
+      await cancelAllSubscriptionsForProperty(propertyId);
+      await refreshUser(); // Re-fetch user data to get updated subscription statuses
+    } catch (error) {
+      console.error("Failed to cancel services:", error);
+      throw error;
+    }
+  }, [refreshUser]);
+
+  const handleRestartPropertyServices = useCallback(async (propertyId: string) => {
+    try {
+      await restartAllSubscriptionsForProperty(propertyId);
+      await refreshUser(); // Re-fetch user data to get updated subscription statuses
+    } catch (error) {
+      console.error("Failed to restart services:", error);
+      throw error;
+    }
+  }, [refreshUser]);
+  
+  const handleSendTransferReminder = useCallback(async (propertyId: string) => {
+      try {
+          await sendTransferReminder(propertyId);
+      } catch (error) {
+          console.error("Failed to send reminder:", error);
+          throw error;
+      }
+  }, []);
+
   const contextValue = useMemo(() => ({
     user,
     properties,
     selectedProperty,
     selectedPropertyId,
     setSelectedPropertyId,
-    loading: false, 
+    loading, 
     refreshUser,
     updateProperty: handleUpdateProperty,
     updateProfile: handleUpdateProfile,
     updatePassword: handleUpdatePassword,
-  }), [user, properties, selectedProperty, selectedPropertyId, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword]);
+    resetApiKey: handleResetApiKey,
+    cancelPropertyServices: handleCancelPropertyServices,
+    restartPropertyServices: handleRestartPropertyServices,
+    sendTransferReminder: handleSendTransferReminder,
+  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder]);
 
   const renderView = () => {
     switch (currentView) {
-      case 'dashboard': return <Dashboard setCurrentView={setCurrentView} />;
-      case 'services': return <Services />;
-      case 'subscriptions': return <Subscriptions />;
-      case 'billing': return <Billing />;
-      case 'payment': return <PaymentMethods setCurrentView={setCurrentView} />;
-      case 'notifications': return <Notifications />;
-      case 'special-pickup': return <SpecialPickup />;
-      case 'vacation-holds': return <VacationHolds />;
-      case 'missed-pickup': return <MissedPickup />;
-      case 'support': return <Support />;
-      case 'property-settings': return <PropertySettings />;
+      case 'home': return <Dashboard setCurrentView={setCurrentView} />;
+      case 'myservice': return <MyServiceHub />;
+      case 'billing': return <BillingHub />;
+      case 'requests': return <RequestsHub />;
+      case 'referrals': return <ReferralsHub />;
+      case 'help': return <Support />;
       case 'profile-settings': return <ProfileSettings />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <AuthLayout>
+        {authView === 'login' ? (
+            <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} error={authError} />
+        ) : (
+            <Registration onRegister={handleRegister} switchToLogin={() => setAuthView('login')} error={authError} />
+        )}
+      </AuthLayout>
+    );
+  }
+
+  if (isCheckingApiKey) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-base-100">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary/20 border-t-primary"></div>
+          <p className="mt-4 text-sm font-bold text-gray-500">Verifying AI Engine Access...</p>
+      </div>
+    );
+  }
+
+  if (!isApiKeyReady) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-base-100 p-4">
+          <Card className="max-w-lg text-center border-t-4 border-primary shadow-2xl animate-in fade-in duration-500">
+              <div className="w-16 h-16 bg-primary/5 text-primary rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <KeyIcon className="w-8 h-8" />
+              </div>
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight">API Key Required</h2>
+              <p className="text-gray-500 mt-4 leading-relaxed">
+                  To activate advanced AI features, please select an API key associated with a paid Google Cloud project. This is a one-time setup.
+              </p>
+              <p className="text-xs text-gray-400 mt-4">
+                  For more details on billing, visit the{' '}
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      official documentation
+                  </a>.
+              </p>
+              <Button
+                  onClick={handleSelectKey}
+                  className="w-full mt-8 rounded-2xl py-4 font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20"
+              >
+                  Select Your API Key
+              </Button>
+          </Card>
+      </div>
+    );
+  }
   
   return (
     <PropertyContext.Provider value={contextValue}>
-      {!isAuthenticated ? (
-        <AuthLayout>
-          {authView === 'login' ? (
-              <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} error={authError} />
-          ) : (
-              <Registration onRegister={handleRegister} switchToLogin={() => setAuthView('login')} error={authError} />
-          )}
-        </AuthLayout>
-      ) : (
-        <div className="flex h-screen bg-base-100 text-neutral">
-          <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
-            <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
+      <div className="flex h-screen bg-base-100 text-neutral">
+        <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
+          <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
+            <div className="max-w-7xl mx-auto w-full">
               {renderView()}
-            </main>
-          </div>
-          <AddPropertyModal 
-            isOpen={isAddPropertyModalOpen}
-            onClose={() => setIsAddPropertyModalOpen(false)}
-            onAddProperty={handleAddProperty}
-          />
+            </div>
+          </main>
         </div>
-      )}
+        <AddPropertyModal 
+          isOpen={isAddPropertyModalOpen}
+          onClose={() => setIsAddPropertyModalOpen(false)}
+          onAddProperty={handleAddProperty}
+        />
+      </div>
     </PropertyContext.Provider>
   );
 };
