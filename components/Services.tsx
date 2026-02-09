@@ -5,8 +5,7 @@ import { Service, Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon, ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
-import Modal from './Modal.tsx';
+import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, HomeModernIcon, ExclamationTriangleIcon, PlayCircleIcon, CheckCircleIcon } from './Icons.tsx';
 
 const QuantitySelector: React.FC<{
     quantity: number;
@@ -53,8 +52,11 @@ const Services: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [updatingIds, setUpdatingIds] = useState<Record<string, boolean>>({});
     
+    // New property setup state
     const [newServiceQuantities, setNewServiceQuantities] = useState<Record<string, number>>({});
     const [canSources, setCanSources] = useState<Record<string, 'sticker' | 'provided'>>({});
+    const [initialServiceLevel, setInitialServiceLevel] = useState<'curbside' | 'athouse'>('curbside');
+
 
     const [propertyStatus, setPropertyStatus] = useState<'new' | 'active' | 'canceled'>('new');
     const [isRestarting, setIsRestarting] = useState(false);
@@ -110,8 +112,9 @@ const Services: React.FC = () => {
     };
     
     const handleInitialSubscriptions = async () => {
-        if (!selectedProperty) return;
-        const servicesToSubscribe = Object.entries(newServiceQuantities)
+        if (!selectedProperty || !baseFeeService) return;
+        
+        let servicesToSubscribe = Object.entries(newServiceQuantities)
             .map(([id, qty]) => ({ 
                 service: services.find(s => s.id === id), 
                 qty: Number(qty),
@@ -119,10 +122,19 @@ const Services: React.FC = () => {
             }))
             .filter((item): item is { service: Service; qty: number; useSticker: boolean } => !!item.service && item.qty > 0);
 
+        // This check is redundant due to button state, but good for safety
         if (servicesToSubscribe.length === 0) {
-            alert("Please select at least one can to start your service.");
+            alert("You must select at least one can to start your service.");
             return;
         }
+
+        // Automatically add the mandatory base fee service
+        servicesToSubscribe.push({ service: baseFeeService, qty: 1, useSticker: false });
+
+        if (atHouseService && initialServiceLevel === 'athouse') {
+            servicesToSubscribe.push({ service: atHouseService, qty: 1, useSticker: false });
+        }
+
         setUpdatingIds(servicesToSubscribe.reduce((acc, { service }) => ({ ...acc, [service.id]: true }), {}));
         try {
             await Promise.all(servicesToSubscribe.map(({ service, qty, useSticker }) => 
@@ -158,30 +170,60 @@ const Services: React.FC = () => {
     }, {} as Record<Service['category'], Service[]>), [services]);
     
     const baseFeeService = useMemo(() => services.find(s => s.category === 'base_fee'), [services]);
+    const atHouseService = useMemo(() => services.find(s => s.id === 'prod_TOvyKnOx4KLBc2'), [services]);
+
+    const isAtHouseSubscribed = useMemo(() => {
+        if (!atHouseService || !selectedProperty) return false;
+        return subscriptions.some(sub => sub.serviceId === atHouseService.id && sub.propertyId === selectedProperty.id && sub.status === 'active');
+    }, [subscriptions, atHouseService, selectedProperty]);
     
     const totals = useMemo(() => {
         const servicesWithQuantities = Object.entries(newServiceQuantities)
             .map(([id, qty]) => ({ service: services.find(s => s.id === id), qty: Number(qty), useSticker: canSources[id] === 'sticker' }))
             .filter((item): item is { service: Service; qty: number; useSticker: boolean } => !!item.service && item.qty > 0);
 
-        if (servicesWithQuantities.length === 0) return { monthly: 0, setup: 0, count: 0 };
-        let monthly = (baseFeeService?.price || 35.00);
+        let monthly = 0;
         let setup = 0;
         let count = 0;
+        
         for (const item of servicesWithQuantities) {
             monthly += item.qty * item.service!.price;
             count += item.qty;
             setup += item.qty * (item.useSticker ? (item.service!.stickerFee || 0) : (item.service!.setupFee || 0));
         }
+
+        // Add base fees only if at least one can is selected
+        if (count > 0) {
+             monthly += (baseFeeService?.price || 0);
+            if (initialServiceLevel === 'athouse' && atHouseService) {
+                monthly += atHouseService.price;
+            }
+        }
+
         return { monthly, setup, count };
-    }, [newServiceQuantities, services, baseFeeService, canSources]);
+    }, [newServiceQuantities, services, baseFeeService, canSources, initialServiceLevel, atHouseService]);
     
     const getSubscriptionForService = (serviceId: string) => 
         subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
 
+    const totalBaseServiceCans = useMemo(() => {
+        if (!selectedProperty) return 0;
+        const baseServiceIds = services.filter(s => s.category === 'base_service').map(s => s.id);
+        return subscriptions
+            .filter(s => s.propertyId === selectedProperty.id && baseServiceIds.includes(s.serviceId) && s.status === 'active')
+            .reduce((total, sub) => total + sub.quantity, 0);
+    }, [subscriptions, services, selectedProperty]);
+    
+    const monthlyTotal = useMemo(() => {
+        if (!selectedProperty) return 0;
+        return subscriptions
+            .filter(s => s.propertyId === selectedProperty.id && s.status === 'active')
+            .reduce((total, sub) => total + sub.totalPrice, 0);
+    }, [subscriptions, selectedProperty]);
+
     const isTransferPending = selectedProperty?.transferStatus === 'pending';
     
-    if (loading) {
+    if (loading || !baseFeeService) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
@@ -196,11 +238,40 @@ const Services: React.FC = () => {
                         <div className="text-center mb-8">
                             <h1 className="text-4xl font-extrabold text-neutral tracking-tight">Setup Your Service</h1>
                             <p className="text-gray-600 mt-2 text-lg">
-                                Collection at <span className="font-bold text-neutral">{selectedProperty?.address}</span> includes a ${baseFeeService?.price.toFixed(2)}/mo base fee.
+                                All plans for <span className="font-bold text-neutral">{selectedProperty?.address}</span> include weekly collections.
                             </p>
                         </div>
 
+                        {/* Service Level Selection */}
+                        <div className="mb-8">
+                             <h2 className="text-center font-black text-gray-400 text-xs uppercase tracking-[0.2em] mb-4">1. Choose Your Collection Method</h2>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Card onClick={() => setInitialServiceLevel('curbside')} className={`cursor-pointer transition-all duration-300 ${initialServiceLevel === 'curbside' ? 'border-primary ring-2 ring-primary/20' : 'hover:border-gray-300'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <TruckIcon className={`w-8 h-8 transition-colors ${initialServiceLevel === 'curbside' ? 'text-primary' : 'text-gray-400'}`} />
+                                        <div>
+                                            <h3 className="font-black text-lg text-gray-900">Standard Curbside</h3>
+                                            <p className="text-sm font-bold text-gray-500">${baseFeeService.price.toFixed(2)} / mo</p>
+                                        </div>
+                                    </div>
+                                </Card>
+                                {atHouseService && (
+                                    <Card onClick={() => setInitialServiceLevel('athouse')} className={`cursor-pointer transition-all duration-300 ${initialServiceLevel === 'athouse' ? 'border-primary ring-2 ring-primary/20' : 'hover:border-gray-300'}`}>
+                                        <div className="flex items-center gap-4">
+                                            <HomeModernIcon className={`w-8 h-8 transition-colors ${initialServiceLevel === 'athouse' ? 'text-primary' : 'text-gray-400'}`} />
+                                            <div>
+                                                <h3 className="font-black text-lg text-gray-900">Premium At House</h3>
+                                                <p className="text-sm font-bold text-gray-500">${(baseFeeService.price + atHouseService.price).toFixed(2)} / mo</p>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                )}
+                             </div>
+                        </div>
+
+                        {/* Can Selection */}
                         <div className="space-y-6">
+                            <h2 className="text-center font-black text-gray-400 text-xs uppercase tracking-[0.2em] mb-4">2. Select Your Equipment</h2>
                             {canServices.map(service => {
                                 const quantity = Number(newServiceQuantities[service.id] || 0);
                                 const source = canSources[service.id] || 'provided';
@@ -302,11 +373,68 @@ const Services: React.FC = () => {
     }
 
     const baseServices = (serviceGroups.base_service || []);
-    const upgrades = (serviceGroups.upgrade || []);
+    const upgrades = (serviceGroups.upgrade || []).filter(s => s.id !== atHouseService?.id);
 
     return (
         <div className="space-y-8 max-w-5xl mx-auto">
             <div className="grid grid-cols-1 gap-8">
+                 <Card className="border-none ring-1 ring-base-200">
+                    <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest mb-6 pb-4 border-b border-base-100">Collection Method</h2>
+                    {isAtHouseSubscribed && atHouseService ? (
+                         <div className="p-6 bg-teal-50 border-2 border-primary rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-4 flex-1">
+                                <HomeModernIcon className="w-8 h-8 text-primary" />
+                                <div>
+                                    <h3 className="font-black text-gray-900 text-lg">Premium At House</h3>
+                                    <p className="text-sm text-gray-600">We retrieve cans from your property for you.</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                                <div className="text-right">
+                                    <p className="font-black text-2xl text-primary">${(baseFeeService.price + atHouseService.price).toFixed(2)}</p>
+                                    <p className="text-[10px] text-primary/70 font-black uppercase tracking-widest mt-0.5">Total Fee</p>
+                                </div>
+                                <Button 
+                                   onClick={() => handleQuantityChange(atHouseService, 'decrement')}
+                                   disabled={!!updatingIds[atHouseService.id]}
+                                   variant="secondary" 
+                                   size="sm"
+                                   className="rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest shrink-0 w-full sm:w-auto"
+                               >
+                                  {!!updatingIds[atHouseService.id] ? 'Updating...' : 'Downgrade to Curbside'}
+                               </Button>
+                           </div>
+                        </div>
+                    ) : (
+                         <div className="p-6 bg-white border border-base-200 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-4 flex-1">
+                                <TruckIcon className="w-8 h-8 text-gray-500" />
+                                <div>
+                                    <h3 className="font-black text-gray-900 text-lg">Standard Curbside</h3>
+                                    <p className="text-sm text-gray-600">Cans must be placed at the curb for collection.</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                                <div className="text-right">
+                                    <p className="font-black text-2xl text-gray-900">${baseFeeService.price.toFixed(2)}</p>
+                                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">Base Fee</p>
+                                </div>
+                                 {atHouseService && (
+                                    <Button 
+                                        onClick={() => handleQuantityChange(atHouseService, 'increment')}
+                                        disabled={!!updatingIds[atHouseService.id]}
+                                        variant="primary" 
+                                        size="sm"
+                                        className="rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest shrink-0 w-full sm:w-auto"
+                                    >
+                                        {!!updatingIds[atHouseService.id] ? 'Updating...' : `Upgrade to At House (+$${atHouseService.price.toFixed(2)}/mo)`}
+                                    </Button>
+                                 )}
+                            </div>
+                        </div>
+                    )}
+                </Card>
+
                 <Card className="border-none ring-1 ring-base-200">
                     <h2 className="text-xl font-black text-gray-900 uppercase tracking-widest mb-6 pb-4 border-b border-base-100">Equipment & Frequency</h2>
                     <div className="space-y-4">
@@ -314,25 +442,33 @@ const Services: React.FC = () => {
                             const subscription = getSubscriptionForService(service.id);
                             const quantity = subscription?.quantity || 0;
                             return (
-                                <div key={service.id} className="p-6 border border-base-200 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 bg-white hover:border-primary/50 transition-colors group">
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <div className="bg-base-100 p-3 rounded-xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">{service.icon}</div>
-                                        <div>
-                                            <h3 className="font-black text-gray-900">{service.name}</h3>
-                                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">Weekly Collection</p>
+                                <div key={service.id} className="p-6 border border-base-200 rounded-2xl bg-white hover:border-primary/50 transition-colors group">
+                                    <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                                        <div className="flex items-center gap-4 flex-1">
+                                            <div className="bg-base-100 p-3 rounded-xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">{service.icon}</div>
+                                            <div>
+                                                <h3 className="font-black text-gray-900">{service.name}</h3>
+                                                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">Weekly Collection</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-8 w-full sm:w-auto border-t sm:border-t-0 pt-4 sm:pt-0">
-                                        <div className="text-right">
-                                            <p className="font-black text-2xl text-gray-900 leading-none">${service.price.toFixed(2)}</p>
-                                            <p className="text-[10px] text-gray-400 font-black uppercase mt-1">Per Can</p>
+                                        <div className="flex items-center gap-8 w-full sm:w-auto border-t sm:border-t-0 pt-4 sm:pt-0">
+                                            <div className="text-right">
+                                                <p className="font-black text-2xl text-gray-900 leading-none">${service.price.toFixed(2)}</p>
+                                                <p className="text-[10px] text-gray-400 font-black uppercase mt-1">Per Can</p>
+                                            </div>
+                                            <QuantitySelector
+                                                quantity={quantity}
+                                                onIncrement={() => handleQuantityChange(service, 'increment')}
+                                                onDecrement={() => {
+                                                    if (totalBaseServiceCans <= 1 && quantity <= 1) {
+                                                        alert("You must have at least one trash can on your plan.");
+                                                        return;
+                                                    }
+                                                    handleQuantityChange(service, 'decrement');
+                                                }}
+                                                isUpdating={!!updatingIds[service.id]}
+                                            />
                                         </div>
-                                        <QuantitySelector
-                                            quantity={quantity}
-                                            onIncrement={() => handleQuantityChange(service, 'increment')}
-                                            onDecrement={() => handleQuantityChange(service, 'decrement')}
-                                            isUpdating={!!updatingIds[service.id]}
-                                        />
                                     </div>
                                 </div>
                             );
@@ -370,6 +506,18 @@ const Services: React.FC = () => {
                     </div>
                 </Card>
             </div>
+            
+            <Card className="sticky bottom-4 bg-white/90 backdrop-blur-md border-primary/20 ring-2 ring-primary/10 shadow-2xl z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-center sm:text-left">
+                    <div>
+                        <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest">Total Monthly Bill</h3>
+                        <p className="text-4xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
+                    </div>
+                    <Button size="md" className="rounded-xl font-black uppercase tracking-widest text-xs h-14 px-8 w-full sm:w-auto">
+                        Manage Billing
+                    </Button>
+                </div>
+            </Card>
         </div>
     );
 };

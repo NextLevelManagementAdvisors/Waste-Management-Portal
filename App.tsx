@@ -4,11 +4,11 @@ import Sidebar from './components/Sidebar.tsx';
 import Header from './components/Header.tsx';
 import Dashboard from './components/Dashboard.tsx';
 import MyServiceHub from './components/MyServiceHub.tsx';
-import BillingHub from './components/BillingHub.tsx';
 import RequestsHub from './components/RequestsHub.tsx';
 import Support from './components/Support.tsx';
 import ProfileSettings from './components/ProfileSettings.tsx';
 import ReferralsHub from './components/ReferralsHub.tsx';
+import WalletHub from './components/WalletHub.tsx';
 import AddPropertyModal from './components/AddPropertyModal.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
@@ -234,7 +234,7 @@ const App: React.FC = () => {
     switch (currentView) {
       case 'home': return <Dashboard setCurrentView={setCurrentView} />;
       case 'myservice': return <MyServiceHub />;
-      case 'billing': return <BillingHub />;
+      case 'wallet': return <WalletHub />;
       case 'requests': return <RequestsHub />;
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;

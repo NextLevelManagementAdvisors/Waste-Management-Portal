@@ -1,16 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { PaymentMethod, View } from '../types.ts';
+import { PaymentMethod } from '../types.ts';
 import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/mockApiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-
-interface PaymentMethodsProps {
-    setCurrentView: (view: View) => void;
-}
 
 const isMethodExpired = (method: PaymentMethod): boolean => {
     if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
@@ -162,7 +158,7 @@ const UpdateSubscriptionsPrompt: React.FC<{
 );
 
 
-const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
+const PaymentMethods: React.FC = () => {
     const { selectedProperty } = useProperty();
     const [methods, setMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
@@ -306,12 +302,8 @@ const PaymentMethods: React.FC<PaymentMethodsProps> = ({ setCurrentView }) => {
                     Please update your subscriptions to use a different payment method before deleting this one.
                 </p>
                 <div className="flex justify-end gap-3">
-                    <Button variant="secondary" onClick={() => setIsDeleteErrorModalOpen(false)}>Close</Button>
-                    <Button onClick={() => {
-                        setIsDeleteErrorModalOpen(false);
-                        setCurrentView('myservice');
-                    }}>
-                        Update Subscriptions
+                    <Button onClick={() => setIsDeleteErrorModalOpen(false)}>
+                        Okay
                     </Button>
                 </div>
             </Modal>

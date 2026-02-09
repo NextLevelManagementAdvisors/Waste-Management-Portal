@@ -88,7 +88,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <Card className="p-6">
                          <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-6 h-6"/>} onClick={() => setCurrentView('billing')} />
+                            <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-6 h-6"/>} onClick={() => setCurrentView('myservice')} />
                             <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-6 h-6"/>} onClick={() => setCurrentView('requests')} />
                             <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-6 h-6"/>} onClick={() => setCurrentView('requests')} />
                             <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-6 h-6"/>} onClick={() => setCurrentView('myservice')} />

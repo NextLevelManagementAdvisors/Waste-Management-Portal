@@ -1,4 +1,3 @@
-
 // services/stripeService.ts
 
 // This service simulates a backend client for the Stripe API.
@@ -19,9 +18,9 @@ const STRIPE_PRODUCTS = [
   { 
     id: 'prod_TOvYnQt1VYbKie', 
     name: 'Curbside Trash Service', 
-    description: 'Weekly curbside trash collection service with one can included. Standalone Monthly Service.', 
+    description: 'Weekly curbside trash collection base fee. Equipment must be added separately.', 
     metadata: { category: 'base_fee', icon_name: 'TruckIcon' },
-    default_price: { id: 'price_1SS7he03whKXLoReQdFTq8MB', unit_amount: 3500, recurring: { interval: 'month' } }
+    default_price: { id: 'price_1SS7he03whKXLoReQdFTq8MB', unit_amount: 2900, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TOww4pJkfauHUV', 
@@ -81,18 +80,18 @@ let STRIPE_PAYMENT_METHODS: PaymentMethod[] = [
 ];
 
 let STRIPE_SUBSCRIPTIONS: Subscription[] = [
-    { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2025-08-01', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_1', quantity: 1 },
+    { id: 'sub_1', propertyId: 'P1', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2023-01-14', status: 'active', nextBillingDate: '2025-08-01', price: 29.00, totalPrice: 29.00, paymentMethodId: 'pm_1', quantity: 1 },
     { id: 'sub_2', propertyId: 'P1', serviceId: 'prod_TOwxmi5PUD5seZ', serviceName: 'Medium Trash Can (64G)', startDate: '2023-01-15', status: 'active', nextBillingDate: '2025-08-01', price: 25.00, totalPrice: 25.00, paymentMethodId: 'pm_1', quantity: 1 },
-    { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2025-08-10', price: 35.00, totalPrice: 35.00, paymentMethodId: 'pm_2', quantity: 1 },
+    { id: 'sub_3', propertyId: 'P2', serviceId: 'prod_TOvYnQt1VYbKie', serviceName: 'Curbside Trash Service', startDate: '2022-11-09', status: 'active', nextBillingDate: '2025-08-10', price: 29.00, totalPrice: 29.00, paymentMethodId: 'pm_2', quantity: 1 },
     { id: 'sub_4', propertyId: 'P2', serviceId: 'prod_TOwy8go7cLjLpV', serviceName: 'Large Trash Can (96G)', startDate: '2022-11-10', status: 'active', nextBillingDate: '2025-08-10', price: 30.00, totalPrice: 60.00, paymentMethodId: 'pm_2', quantity: 2 },
 ];
 
 let STRIPE_INVOICES: Invoice[] = [
-  { id: 'in_P1_004', propertyId: 'P1', amount: 60.00, date: '2025-02-01', status: 'Due' },
-  { id: 'in_P1_003', propertyId: 'P1', amount: 60.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03' },
-  { id: 'in_P1_002', propertyId: 'P1', amount: 60.00, date: '2024-12-01', status: 'Paid', paymentDate: '2024-12-02' },
-  { id: 'in_P2_004', propertyId: 'P2', amount: 95.00, date: '2025-01-10', status: 'Overdue' },
-  { id: 'in_P2_003', propertyId: 'P2', amount: 95.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11' },
+  { id: 'in_P1_004', propertyId: 'P1', amount: 54.00, date: '2025-02-01', status: 'Due' },
+  { id: 'in_P1_003', propertyId: 'P1', amount: 54.00, date: '2025-01-01', status: 'Paid', paymentDate: '2025-01-03' },
+  { id: 'in_P1_002', propertyId: 'P1', amount: 54.00, date: '2024-12-01', status: 'Paid', paymentDate: '2024-12-02' },
+  { id: 'in_P2_004', propertyId: 'P2', amount: 89.00, date: '2025-01-10', status: 'Overdue' },
+  { id: 'in_P2_003', propertyId: 'P2', amount: 89.00, date: '2024-12-10', status: 'Paid', paymentDate: '2024-12-11' },
 ];
 
 /**
@@ -109,7 +108,8 @@ export const listProducts = async () => {
 };
 
 export const listPaymentMethods = async () => {
-    return simulateApiCall(STRIPE_PAYMENT_METHODS);
+    // Return a deep copy to prevent state mutation issues in React components
+    return simulateApiCall(JSON.parse(JSON.stringify(STRIPE_PAYMENT_METHODS)));
 };
 
 export const attachPaymentMethod = async (method: Omit<PaymentMethod, 'id' | 'isPrimary'>) => {
@@ -219,7 +219,8 @@ export const cancelSubscription = async (subscriptionId: string) => {
 };
 
 export const listSubscriptions = async () => {
-    return simulateApiCall(STRIPE_SUBSCRIPTIONS);
+    // Return a deep copy to prevent state mutation issues in React components
+    return simulateApiCall(JSON.parse(JSON.stringify(STRIPE_SUBSCRIPTIONS)));
 };
 
 export const updateSubscriptionPaymentMethod = async (subscriptionId: string, paymentMethodId: string) => {
@@ -232,7 +233,8 @@ export const updateSubscriptionPaymentMethod = async (subscriptionId: string, pa
 };
 
 export const listInvoices = async () => {
-    return simulateApiCall(STRIPE_INVOICES);
+    // Return a deep copy to prevent state mutation issues in React components
+    return simulateApiCall(JSON.parse(JSON.stringify(STRIPE_INVOICES)));
 };
 
 export const payInvoice = async (invoiceId: string, paymentMethodId: string) => {

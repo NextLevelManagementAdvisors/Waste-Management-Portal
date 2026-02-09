@@ -21,7 +21,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
   { id: 'myservice', label: 'My Service', icon: <TruckIcon className="w-5 h-5" /> },
-  { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
+  { id: 'wallet', label: 'Digital Wallet', icon: <BanknotesIcon className="w-5 h-5" /> },
   { id: 'requests', label: 'Requests', icon: <CalendarDaysIcon className="w-5 h-5" /> },
   { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
   { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" /> },

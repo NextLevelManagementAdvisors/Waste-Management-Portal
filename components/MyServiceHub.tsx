@@ -7,7 +7,7 @@ import ServiceStatusOverview from './ServiceStatusOverview.tsx';
 import PropertyManagement, { PropertyWithStatus } from './PropertyManagement.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 import { Button } from './Button.tsx';
-import { getSubscriptions, getDashboardState } from '../services/mockApiService.ts';
+import { getSubscriptions, getDashboardState, getInvoices } from '../services/mockApiService.ts';
 import { Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { 
@@ -17,6 +17,86 @@ import {
 import AccountTransfer from './AccountTransfer.tsx';
 import DangerZone from './DangerZone.tsx';
 import CollectionHistory from './CollectionHistory.tsx';
+import Billing from './Billing.tsx';
+import Subscriptions from './Subscriptions.tsx';
+
+// --- Sub-component for the new Billing Tab ---
+const PropertyBilling: React.FC = () => {
+    const { selectedProperty, properties } = useProperty();
+    const [outstandingBalance, setOutstandingBalance] = useState(0);
+    const [monthlyTotal, setMonthlyTotal] = useState(0);
+    const [loading, setLoading] = useState(true);
+
+    const isAllMode = !selectedProperty && properties.length > 0;
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const [invoices, subscriptions] = await Promise.all([getInvoices(), getSubscriptions()]);
+                
+                const targetInvoices = isAllMode 
+                    ? invoices 
+                    : invoices.filter(i => i.propertyId === selectedProperty?.id);
+                const balance = targetInvoices.filter(i => i.status !== 'Paid').reduce((acc, i) => acc + i.amount, 0);
+                setOutstandingBalance(balance);
+
+                const targetSubs = isAllMode
+                    ? subscriptions
+                    : subscriptions.filter(s => s.propertyId === selectedProperty?.id);
+                const total = targetSubs.filter(s => s.status === 'active').reduce((acc, s) => acc + s.totalPrice, 0);
+                setMonthlyTotal(total);
+
+            } catch (error) {
+                console.error("Failed to fetch billing summary:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [selectedProperty, isAllMode]);
+
+    if (loading) {
+        return <div className="flex justify-center items-center h-96"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>
+    }
+
+    return (
+        <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card className="md:col-span-1">
+                    <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center">
+                            <BanknotesIcon className="w-6 h-6"/>
+                        </div>
+                        <div>
+                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Outstanding Balance</p>
+                             <p className="text-3xl font-black text-gray-900 mt-1">${outstandingBalance.toFixed(2)}</p>
+                        </div>
+                    </div>
+                </Card>
+                 <Card className="md:col-span-2">
+                     <div className="flex flex-col sm:flex-row justify-between items-center h-full gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-primary/5 text-primary flex items-center justify-center">
+                                <CalendarDaysIcon className="w-6 h-6"/>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Next AutoPay</p>
+                                <p className="text-lg font-black text-gray-900 mt-1">August 1, 2025</p>
+                            </div>
+                        </div>
+                         <div className="text-left sm:text-right">
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Estimated Total</p>
+                            <p className="text-lg font-black text-gray-900 mt-1">${monthlyTotal.toFixed(2)}</p>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+            <div><Subscriptions /></div>
+            <div><Billing /></div>
+        </div>
+    );
+};
 
 // Tab button component
 const TabButton: React.FC<{
@@ -56,7 +136,7 @@ const OverviewStatCard: React.FC<{ title: string; value: React.ReactNode; icon: 
 
 const MyServiceHub: React.FC = () => {
     const { selectedProperty, setSelectedPropertyId } = useProperty();
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState('services');
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
     const [dashboardState, setDashboardState] = useState<any | null>(null);
@@ -64,7 +144,7 @@ const MyServiceHub: React.FC = () => {
 
     useEffect(() => {
         if (selectedProperty) {
-            setActiveTab('overview'); // Reset to overview tab when property changes
+            setActiveTab('services'); // Reset to services tab when property changes
             setLoadingDashboard(true);
             getDashboardState(selectedProperty.id).then(res => {
                 setDashboardState(res.states[0]);
@@ -124,6 +204,7 @@ const MyServiceHub: React.FC = () => {
         { id: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
         { id: 'services', label: 'Services', icon: <TruckIcon className="w-5 h-5" /> },
         { id: 'history', label: 'History', icon: <ListBulletIcon className="w-5 h-5" /> },
+        { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
         { id: 'settings', label: 'Settings', icon: <WrenchScrewdriverIcon className="w-5 h-5" /> },
     ];
 
@@ -161,6 +242,12 @@ const MyServiceHub: React.FC = () => {
                         <div className="max-w-4xl mx-auto">
                             <CollectionHistory />
                         </div>
+                    </div>
+                );
+            case 'billing':
+                return (
+                    <div className="p-4 sm:p-8 bg-white rounded-b-2xl shadow-2xl">
+                        <PropertyBilling />
                     </div>
                 );
             case 'settings':

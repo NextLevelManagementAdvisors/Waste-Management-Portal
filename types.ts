@@ -1,7 +1,7 @@
 
 import React from 'react';
 
-export type View = 'home' | 'myservice' | 'billing' | 'requests' | 'help' | 'profile-settings' | 'referrals';
+export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet';
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };

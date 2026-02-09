@@ -14,7 +14,7 @@ interface HeaderProps {
 const viewTitles: Record<View, string> = {
     home: 'Overview',
     myservice: 'My Service',
-    billing: 'Billing',
+    wallet: 'Digital Wallet',
     requests: 'Requests',
     help: 'Help',
     'profile-settings': 'Profile Settings',
