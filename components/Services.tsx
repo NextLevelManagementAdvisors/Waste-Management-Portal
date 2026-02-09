@@ -5,7 +5,7 @@ import { Service, Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon } from './Icons.tsx';
+import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon, ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
 
 const QuantitySelector: React.FC<{
     quantity: number;
@@ -46,7 +46,7 @@ const QuantitySelector: React.FC<{
 };
 
 const Services: React.FC = () => {
-    const { selectedProperty } = useProperty(); // No more properties, setSelectedPropertyId
+    const { selectedProperty, restartPropertyServices } = useProperty();
     const [services, setServices] = useState<Service[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
@@ -54,6 +54,9 @@ const Services: React.FC = () => {
     
     const [newServiceQuantities, setNewServiceQuantities] = useState<Record<string, number>>({});
     const [canSources, setCanSources] = useState<Record<string, 'sticker' | 'provided'>>({});
+
+    const [propertyStatus, setPropertyStatus] = useState<'new' | 'active' | 'canceled'>('new');
+    const [isRestarting, setIsRestarting] = useState(false);
 
     const fetchData = async () => {
         setLoading(true);
@@ -77,14 +80,26 @@ const Services: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, []);
+    
+    useEffect(() => {
+        if (selectedProperty && !loading) {
+            const propSubs = subscriptions.filter(s => s.propertyId === selectedProperty.id);
+            if (propSubs.length === 0) {
+                setPropertyStatus('new');
+            } else if (propSubs.some(s => s.status !== 'canceled')) {
+                setPropertyStatus('active');
+            } else {
+                setPropertyStatus('canceled');
+            }
+        }
+    }, [subscriptions, selectedProperty, loading]);
 
     const handleQuantityChange = async (service: Service, change: 'increment' | 'decrement') => {
         if (!selectedProperty) return;
         setUpdatingIds(prev => ({...prev, [service.id]: true }));
         try {
             await changeServiceQuantity(service, selectedProperty.id, change);
-            const subsData = await getSubscriptions();
-            setSubscriptions(subsData);
+            await fetchData();
         } catch (error) {
             console.error("Failed to update quantity:", error);
             alert("Update failed. Please try again.");
@@ -122,9 +137,18 @@ const Services: React.FC = () => {
         }
     };
 
-    const hasBaseSubscription = useMemo(() => 
-        selectedProperty && subscriptions.some(sub => sub.propertyId === selectedProperty.id && services.find(s => s.id === sub.serviceId)?.category === 'base_service' && sub.status !== 'canceled')
-    , [subscriptions, services, selectedProperty]);
+    const handleRestartServices = async () => {
+        if (!selectedProperty) return;
+        setIsRestarting(true);
+        try {
+            await restartPropertyServices(selectedProperty.id);
+            await fetchData();
+        } catch(error) {
+            alert("Failed to restart services. Please try again.");
+        } finally {
+            setIsRestarting(false);
+        }
+    };
 
     const serviceGroups = useMemo(() => services.reduce((acc, service) => {
         if (!acc[service.category]) acc[service.category] = [];
@@ -154,12 +178,13 @@ const Services: React.FC = () => {
     const getSubscriptionForService = (serviceId: string) => 
         subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
 
+    const isTransferPending = selectedProperty?.transferStatus === 'pending';
+    
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
-    // --- NEW USER FLOW (Catalog Entry) ---
-    if (!hasBaseSubscription) {
+    if (propertyStatus === 'new') {
         const canServices = (serviceGroups.base_service || []).filter(s => s.id !== 'prod_TOvYnQt1VYbKie');
         const isSubscribing = Object.values(updatingIds).some(v => v);
 
@@ -170,7 +195,7 @@ const Services: React.FC = () => {
                         <div className="text-center mb-8">
                             <h1 className="text-4xl font-extrabold text-neutral tracking-tight">Setup Your Service</h1>
                             <p className="text-gray-600 mt-2 text-lg">
-                                Collection at <span className="font-bold text-neutral">{selectedProperty.address}</span> includes a $35.00/mo base fee.
+                                Collection at <span className="font-bold text-neutral">{selectedProperty?.address}</span> includes a $35.00/mo base fee.
                             </p>
                         </div>
 
@@ -245,7 +270,36 @@ const Services: React.FC = () => {
         );
     }
 
-    // --- EXISTING USER FLOW (Management) ---
+    if (propertyStatus === 'canceled') {
+        return (
+            <div className="space-y-8 max-w-5xl mx-auto animate-in fade-in duration-500">
+                <Card className="border-2 border-red-200 bg-red-50 text-center">
+                    <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4"/>
+                    <h2 className="text-2xl font-black text-red-800">Services Canceled</h2>
+                    <p className="text-red-700 mt-2 max-w-md mx-auto">All recurring services for this property have been terminated. You will not be billed further.</p>
+                </Card>
+                
+                <Card className={`border-2 shadow-lg ${isTransferPending ? 'border-gray-300 bg-gray-50' : 'border-primary bg-primary/5'}`}>
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center">
+                        <div>
+                            <h4 className={`font-bold text-lg ${isTransferPending ? 'text-gray-400' : 'text-gray-900'}`}>Ready to come back?</h4>
+                            <p className={`text-sm mt-1 ${isTransferPending ? 'text-gray-400' : 'text-gray-600'}`}>You can restart your previous service plan at any time.</p>
+                        </div>
+                        <Button 
+                            onClick={handleRestartServices} 
+                            disabled={isRestarting || isTransferPending} 
+                            className="bg-primary hover:bg-primary-focus text-white mt-4 sm:mt-0 rounded-xl px-6 font-black uppercase text-xs tracking-widest flex items-center h-14">
+                            {isRestarting 
+                                ? 'Restarting...' 
+                                : <><PlayCircleIcon className="w-5 h-5 mr-2" /> Restart Services</>
+                            }
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+        );
+    }
+
     const baseServices = (serviceGroups.base_service || []).filter(s => s.id !== 'prod_TOvYnQt1VYbKie');
     const upgrades = (serviceGroups.upgrade || []);
 

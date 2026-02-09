@@ -52,13 +52,12 @@ const PropertyManagement: React.FC = () => {
         return properties.map(prop => {
             const propSubs = allSubscriptions.filter(s => s.propertyId === prop.id);
             let status: 'active' | 'paused' | 'canceled' = 'canceled';
-            if (propSubs.length > 0) {
-                if (propSubs.some(s => s.status === 'paused')) {
-                    status = 'paused';
-                } else if (propSubs.some(s => s.status === 'active')) {
-                    status = 'active';
-                }
+            if (propSubs.some(s => s.status === 'active')) {
+                status = 'active';
+            } else if (propSubs.some(s => s.status === 'paused')) {
+                status = 'paused';
             }
+            
             const activeSubs = propSubs.filter(s => s.status === 'active' || s.status === 'paused');
             return {
                 ...prop,

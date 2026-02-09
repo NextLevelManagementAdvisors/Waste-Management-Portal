@@ -20,15 +20,6 @@ import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
 import { KeyIcon } from './components/Icons.tsx';
 
-// Simplified hash parsing, removing sub-view logic
-const parseHash = () => {
-  const hash = window.location.hash.slice(1);
-  const parts = hash.split('/');
-  const viewPart = parts[0] as View || 'home';
-  const propPart = parts[1] || null;
-  return { view: viewPart, propId: propPart };
-};
-
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
@@ -37,8 +28,8 @@ const App: React.FC = () => {
   const [isApiKeyReady, setIsApiKeyReady] = useState(false);
   const [isCheckingApiKey, setIsCheckingApiKey] = useState(false);
   
-  const [currentView, setCurrentView] = useState<View>(() => parseHash().view);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(() => parseHash().propId);
+  const [currentView, setCurrentView] = useState<View>('home');
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -67,40 +58,21 @@ const App: React.FC = () => {
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const propPart = selectedPropertyId ? `/${selectedPropertyId}` : '/all';
-    const newHash = `#${currentView}${propPart}`;
-    if (window.location.hash !== newHash) {
-      window.history.replaceState(null, '', newHash);
-    }
-  }, [currentView, selectedPropertyId, isAuthenticated]);
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      const { view, propId } = parseHash();
-      const validViews: View[] = ['home', 'myservice', 'billing', 'requests', 'help', 'profile-settings', 'referrals'];
-      if (validViews.includes(view)) {
-        setCurrentView(view);
-      }
-      setSelectedPropertyId(propId);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
   const fetchUserAndSetState = useCallback((userData: User) => {
     setUser(userData);
     if (userData.properties && userData.properties.length > 0) {
-        if (!selectedPropertyId || (selectedPropertyId !== 'all' && !userData.properties.some(p => p.id === selectedPropertyId))) {
-            const { propId } = parseHash();
-            const isValidProp = userData.properties.some(p => p.id === propId);
-            setSelectedPropertyId(isValidProp ? propId : (userData.properties.length > 1 ? 'all' : userData.properties[0].id));
+        // Default to 'all' properties view if user has more than one
+        if (userData.properties.length > 1) {
+            setSelectedPropertyId('all');
+        } else {
+            // Otherwise, select the single property they have
+            setSelectedPropertyId(userData.properties[0].id);
         }
     } else {
+        // No properties, so no selection
         setSelectedPropertyId(null);
     }
-  }, [selectedPropertyId]);
+  }, []);
     
   const refreshUser = useCallback(async () => {
     try {
@@ -143,7 +115,7 @@ const App: React.FC = () => {
     setUser(null);
     setSelectedPropertyId(null);
     setAuthView('login');
-    window.location.hash = '';
+    setCurrentView('home');
   }, []);
   
   const handleSelectKey = async () => {
