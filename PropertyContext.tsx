@@ -17,6 +17,7 @@ export interface PropertyContextType {
     cancelPropertyServices: (propertyId: string) => Promise<void>;
     restartPropertyServices: (propertyId: string) => Promise<void>;
     sendTransferReminder: (propertyId: string) => Promise<void>;
+    openAddPropertyModal: () => void;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({
@@ -34,6 +35,7 @@ export const PropertyContext = createContext<PropertyContextType>({
     cancelPropertyServices: async () => {},
     restartPropertyServices: async () => {},
     sendTransferReminder: async () => {},
+    openAddPropertyModal: () => {},
 });
 
 export const useProperty = () => useContext(PropertyContext);

@@ -66,8 +66,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         { name: 'Balance', value: data.health.outstandingBalance }
     ];
 
-    const nextPickup = data.states[0]?.nextPickup;
-
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* Header */}
@@ -126,35 +124,29 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
 
                 {/* Right Column */}
                 <div className="space-y-8">
-                    {/* Next Pickup */}
-                    <Card className={`p-6 border-l-4 ${nextPickup?.isToday ? 'border-l-primary shadow-2xl' : 'border-l-base-300'}`}>
-                         <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Next Pickup</h2>
-                         <div className="flex items-center gap-4">
-                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 ${nextPickup?.isToday ? 'bg-primary text-white' : 'bg-gray-100 text-gray-400'}`}>
-                                <TruckIcon className="w-8 h-8" />
-                            </div>
-                            <div>
-                                <p className={`text-xl font-black ${nextPickup?.isToday ? 'text-primary' : 'text-gray-900'} tracking-tight`}>
-                                    {nextPickup?.label || 'Not Scheduled'}
-                                </p>
-                                <p className="text-sm font-medium text-gray-500 mt-1">
-                                    {nextPickup?.eta ? `ETA: ${nextPickup.eta}` : 'Standard Route'}
-                                </p>
-                            </div>
-                         </div>
-                    </Card>
-
-                    {/* Active Services */}
                     <Card className="p-6">
-                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Active Services</h2>
+                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Upcoming Collections</h2>
                         <div className="space-y-3">
-                            {data.states[0]?.activeServices.length > 0 ? data.states[0].activeServices.map(service => (
-                                <div key={service} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                                    <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                    <p className="text-sm font-bold text-gray-600">{service}</p>
+                            {data.states.length > 0 ? data.states.map(state => (
+                                <div key={state.property.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-base-200">
+                                    <div>
+                                        <p className="font-bold text-gray-900 text-sm">{state.property.address}</p>
+                                        <p className={`text-xs font-black uppercase tracking-widest mt-1 ${state.nextPickup?.isToday ? 'text-primary' : 'text-gray-500'}`}>
+                                            {state.nextPickup?.label || 'Not Scheduled'}
+                                        </p>
+                                    </div>
+                                    {state.nextPickup?.isToday && (
+                                        <div className="flex items-center gap-2">
+                                             <div className="w-2 h-2 rounded-full bg-primary animate-ping" />
+                                            <span className="text-[10px] font-black text-primary uppercase tracking-widest">In Progress</span>
+                                        </div>
+                                    )}
                                 </div>
                             )) : (
-                                <p className="text-sm text-gray-400 italic">No services are currently active for this view.</p>
+                                <div className="text-center py-12">
+                                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No scheduled pickups</p>
+                                    <p className="text-xs text-gray-400 mt-1">There are no upcoming collections for the selected properties.</p>
+                                </div>
                             )}
                         </div>
                     </Card>

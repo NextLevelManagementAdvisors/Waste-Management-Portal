@@ -128,6 +128,10 @@ const App: React.FC = () => {
   const handleResetApiKey = useCallback(() => {
     setIsApiKeyReady(false);
   }, []);
+  
+  const openAddPropertyModal = useCallback(() => {
+    setIsAddPropertyModalOpen(true);
+  }, []);
 
   const handleAddProperty = useCallback(async (propertyInfo: NewPropertyInfo) => {
     try {
@@ -223,7 +227,8 @@ const App: React.FC = () => {
     cancelPropertyServices: handleCancelPropertyServices,
     restartPropertyServices: handleRestartPropertyServices,
     sendTransferReminder: handleSendTransferReminder,
-  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder]);
+    openAddPropertyModal,
+  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, openAddPropertyModal]);
 
   const renderView = () => {
     switch (currentView) {
@@ -292,7 +297,7 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-base-100 text-neutral">
         <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={() => setIsAddPropertyModalOpen(true)} onLogout={handleLogout} />
+          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={openAddPropertyModal} onLogout={handleLogout} />
           <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto w-full">
               {renderView()}

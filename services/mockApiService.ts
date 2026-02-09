@@ -11,9 +11,16 @@ export interface PropertyState {
         date: string;
         label: string;
         isToday: boolean;
-        status: 'upcoming' | 'in-progress' | 'completed' | 'missed' | 'paused';
+        status: 'upcoming' | 'in-progress' | 'paused';
         eta?: string;
     } | null;
+    lastPickup: {
+        date: string;
+        label: string;
+        status: 'completed';
+        feedbackSubmitted: boolean;
+    } | null;
+    collectionIntent: 'out' | 'skip' | null;
     monthlyTotal: number;
     activeServices: string[];
 }
@@ -26,10 +33,15 @@ export interface AccountHealth {
     criticalAlerts: ServiceAlert[];
 }
 
+// --- MOCK DATA STORE ---
+let MOCK_COLLECTION_INTENTS: Record<string, { intent: 'out' | 'skip', date: string }> = {};
+let MOCK_DRIVER_FEEDBACK: { propertyId: string; pickupDate: string; tip?: number; note?: string }[] = [];
+
 // --- MOCK DATA ---
 const MOCK_PROPERTIES: Property[] = [
     { id: 'P1', address: '121 Elsia Dr', serviceType: 'personal', inHOA: false, hasGateCode: false, notes: 'Beware of dog in the backyard. Cans are located on the left side of the garage.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: true }, driverUpdates: { email: false, sms: true } } },
     { id: 'P2', address: '7258 Baldwin Ridge Rd', serviceType: 'short-term', inHOA: true, communityName: 'Lake View Estates', hasGateCode: true, gateCode: '54321', notes: 'Short-term rental. Please ensure lids are fully closed.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
+    { id: 'P3', address: '804 W 13th St', serviceType: 'personal', inHOA: false, hasGateCode: false, notes: 'Cans on curb.', notificationPreferences: { pickupReminders: { email: true, sms: true }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
 ];
 
 let MOCK_USER: User = {
@@ -93,19 +105,47 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         const propSubs = subscriptions.filter(s => s.propertyId === prop.id && s.status === 'active');
         const isPaused = subscriptions.some(s => s.propertyId === prop.id && s.status === 'paused');
         
-        // Mocking lifecycle logic
-        const todayStr = new Date().toISOString().split('T')[0];
-        const isToday = prop.id === 'P1'; // Mock P1 as being today
+        let state: Omit<PropertyState, 'property' | 'monthlyTotal' | 'activeServices'>;
         
+        const today = new Date();
+        const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+
+        // Define pickup dates for simulation
+        const p1PickupDate = today.toISOString().split('T')[0];
+        const p2PickupDate = new Date(new Date().setDate(today.getDate() - 1)).toISOString().split('T')[0]; // Yesterday
+        const p3PickupDate = tomorrow.toISOString().split('T')[0];
+        
+        const feedback = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === prop.id && f.pickupDate === p2PickupDate);
+
+        switch (prop.id) {
+            case 'P1': // In-progress pickup
+                state = {
+                    nextPickup: { date: p1PickupDate, label: 'TODAY', isToday: true, status: isPaused ? 'paused' : 'in-progress', eta: '11:30 AM' },
+                    lastPickup: null,
+                    collectionIntent: null
+                };
+                break;
+            case 'P2': // Completed pickup
+                state = {
+                    nextPickup: null,
+                    lastPickup: { date: p2PickupDate, label: 'Yesterday', status: 'completed', feedbackSubmitted: !!feedback },
+                    collectionIntent: null
+                };
+                break;
+            case 'P3': // Upcoming pickup
+            default:
+                const intent = MOCK_COLLECTION_INTENTS[prop.id]?.date === p3PickupDate ? MOCK_COLLECTION_INTENTS[prop.id].intent : null;
+                state = {
+                    nextPickup: { date: p3PickupDate, label: 'Tomorrow', isToday: false, status: isPaused ? 'paused' : 'upcoming' },
+                    lastPickup: null,
+                    collectionIntent: intent
+                };
+                break;
+        }
+
         return {
+            ...state,
             property: prop,
-            nextPickup: {
-                date: isToday ? todayStr : '2025-08-01',
-                label: isToday ? 'TODAY' : 'Friday, Aug 1',
-                isToday,
-                status: isPaused ? 'paused' : (isToday ? 'in-progress' : 'upcoming'),
-                eta: isToday ? '11:30 AM' : undefined
-            },
             monthlyTotal: propSubs.reduce((acc, s) => acc + s.totalPrice, 0),
             activeServices: propSubs.map(s => s.serviceName)
         };
@@ -309,4 +349,34 @@ export const restartAllSubscriptionsForProperty = (propertyId: string) => {
 
 export const getReferralInfo = (): Promise<ReferralInfo> => {
     return simulateApiCall(MOCK_REFERRAL_INFO, 500);
+};
+
+// --- NEW DRIVER COMMUNICATION FUNCTIONS ---
+
+export const setCollectionIntent = (propertyId: string, intent: 'out' | 'skip', date: string) => {
+    MOCK_COLLECTION_INTENTS[propertyId] = { intent, date };
+    console.log(`[API MOCK] Intent for ${propertyId} on ${date} set to: ${intent}`);
+    return simulateApiCall({ success: true });
+};
+
+export const leaveDriverTip = (propertyId: string, amount: number, pickupDate: string) => {
+    const existing = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === propertyId && f.pickupDate === pickupDate);
+    if (existing) {
+        existing.tip = (existing.tip || 0) + amount;
+    } else {
+        MOCK_DRIVER_FEEDBACK.push({ propertyId, pickupDate, tip: amount });
+    }
+    console.log(`[API MOCK] Tip of $${amount} left for ${propertyId} for pickup on ${pickupDate}.`);
+    return simulateApiCall({ success: true });
+};
+
+export const leaveDriverNote = (propertyId: string, note: string, pickupDate: string) => {
+    const existing = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === propertyId && f.pickupDate === pickupDate);
+    if (existing) {
+        existing.note = note;
+    } else {
+        MOCK_DRIVER_FEEDBACK.push({ propertyId, pickupDate, note });
+    }
+    console.log(`[API MOCK] Note left for ${propertyId} for pickup on ${pickupDate}: "${note}"`);
+    return simulateApiCall({ success: true });
 };

@@ -12,19 +12,18 @@ interface HeaderProps {
 }
 
 const viewTitles: Record<View, string> = {
-    home: 'Home',
+    home: 'Overview',
     myservice: 'My Service',
     billing: 'Billing',
     requests: 'Requests',
     help: 'Help',
     'profile-settings': 'Profile Settings',
-    // FIX: Added 'referrals' to satisfy the Record<View, string> type.
     referrals: 'Referrals'
 };
 
 const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout }) => {
   const { user, properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
-  const title = viewTitles[currentView] || 'Home';
+  const title = viewTitles[currentView] || 'Overview';
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 

@@ -20,7 +20,7 @@ const STRIPE_PRODUCTS = [
     id: 'prod_TOvYnQt1VYbKie', 
     name: 'Curbside Trash Service', 
     description: 'Weekly curbside trash collection service with one can included. Standalone Monthly Service.', 
-    metadata: { category: 'base_service', icon_name: 'TruckIcon' },
+    metadata: { category: 'base_fee', icon_name: 'TruckIcon' },
     default_price: { id: 'price_1SS7he03whKXLoReQdFTq8MB', unit_amount: 3500, recurring: { interval: 'month' } }
   },
   { 

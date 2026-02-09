@@ -5,7 +5,8 @@ import { Service, Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon, ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
+import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, BuildingOffice2Icon, ExclamationTriangleIcon, PlayCircleIcon, PlusCircleIcon } from './Icons.tsx';
+import Modal from './Modal.tsx';
 
 const QuantitySelector: React.FC<{
     quantity: number;
@@ -57,6 +58,7 @@ const Services: React.FC = () => {
 
     const [propertyStatus, setPropertyStatus] = useState<'new' | 'active' | 'canceled'>('new');
     const [isRestarting, setIsRestarting] = useState(false);
+    const [isAddServiceModalOpen, setIsAddServiceModalOpen] = useState(false);
 
     const fetchData = async () => {
         setLoading(true);
@@ -178,6 +180,19 @@ const Services: React.FC = () => {
     const getSubscriptionForService = (serviceId: string) => 
         subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
 
+    const handleAddService = async (service: Service) => {
+        await handleQuantityChange(service, 'increment');
+        setIsAddServiceModalOpen(false);
+    };
+
+    const availableServicesToAdd = useMemo(() => {
+        return services.filter(service => {
+            if (service.category === 'base_fee') return false;
+            const subscription = getSubscriptionForService(service.id);
+            return !subscription;
+        });
+    }, [services, subscriptions, selectedProperty]);
+
     const isTransferPending = selectedProperty?.transferStatus === 'pending';
     
     if (loading) {
@@ -185,7 +200,7 @@ const Services: React.FC = () => {
     }
 
     if (propertyStatus === 'new') {
-        const canServices = (serviceGroups.base_service || []).filter(s => s.id !== 'prod_TOvYnQt1VYbKie');
+        const canServices = (serviceGroups.base_service || []);
         const isSubscribing = Object.values(updatingIds).some(v => v);
 
         return (
@@ -195,7 +210,7 @@ const Services: React.FC = () => {
                         <div className="text-center mb-8">
                             <h1 className="text-4xl font-extrabold text-neutral tracking-tight">Setup Your Service</h1>
                             <p className="text-gray-600 mt-2 text-lg">
-                                Collection at <span className="font-bold text-neutral">{selectedProperty?.address}</span> includes a $35.00/mo base fee.
+                                Collection at <span className="font-bold text-neutral">{selectedProperty?.address}</span> includes a ${baseFeeService?.price.toFixed(2)}/mo base fee.
                             </p>
                         </div>
 
@@ -300,7 +315,7 @@ const Services: React.FC = () => {
         );
     }
 
-    const baseServices = (serviceGroups.base_service || []).filter(s => s.id !== 'prod_TOvYnQt1VYbKie');
+    const baseServices = (serviceGroups.base_service || []);
     const upgrades = (serviceGroups.upgrade || []);
 
     return (
@@ -368,7 +383,49 @@ const Services: React.FC = () => {
                         })}
                     </div>
                 </Card>
+
+                <Card className="bg-primary/5 border-2 border-dashed border-primary/20 hover:border-primary/50 hover:bg-primary/10 transition-all duration-300 cursor-pointer" onClick={() => setIsAddServiceModalOpen(true)}>
+                    <div className="flex flex-col items-center justify-center text-center p-8">
+                        <PlusCircleIcon className="w-12 h-12 text-primary mb-4" />
+                        <h3 className="text-xl font-black text-gray-900">Add New Service</h3>
+                        <p className="text-sm text-gray-500 mt-2 max-w-sm">Browse and add new services like recycling or premium options to your plan.</p>
+                    </div>
+                </Card>
             </div>
+             <Modal
+                isOpen={isAddServiceModalOpen}
+                onClose={() => setIsAddServiceModalOpen(false)}
+                title="Browse Available Services"
+            >
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    {availableServicesToAdd.length > 0 ? (
+                        availableServicesToAdd.map(service => (
+                            <div key={service.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-2 bg-white rounded-lg text-gray-500 shadow-sm">{service.icon}</div>
+                                    <div>
+                                        <h4 className="font-bold text-neutral">{service.name}</h4>
+                                        <p className="text-xs text-gray-500">${service.price.toFixed(2)} / mo</p>
+                                    </div>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    onClick={() => handleAddService(service)}
+                                    disabled={!!updatingIds[service.id]}
+                                    className="rounded-lg px-5 font-black uppercase text-xs tracking-widest"
+                                >
+                                    {!!updatingIds[service.id] ? 'Adding...' : 'Add'}
+                                </Button>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center py-10">
+                            <p className="font-bold text-gray-500">All services are active.</p>
+                            <p className="text-sm text-gray-400 mt-1">You are subscribed to all available services for this property.</p>
+                        </div>
+                    )}
+                </div>
+            </Modal>
         </div>
     );
 };
