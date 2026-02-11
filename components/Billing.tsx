@@ -4,6 +4,7 @@ import { Invoice, PaymentMethod } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
+import PayBalanceModal from './PayBalanceModal.tsx';
 import { ArrowDownTrayIcon, CheckCircleIcon, CreditCardIcon, BanknotesIcon, BuildingOffice2Icon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 
@@ -193,6 +194,7 @@ const Billing: React.FC = () => {
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
     const isAllMode = !selectedProperty && properties.length > 0;
@@ -213,6 +215,14 @@ const Billing: React.FC = () => {
     useEffect(() => {
         fetchAllData();
     }, []);
+
+    const outstandingInvoices = useMemo(() => 
+        allInvoices.filter(i => (i.status === 'Due' || i.status === 'Overdue') && (isAllMode || i.propertyId === selectedProperty?.id))
+    , [allInvoices, isAllMode, selectedProperty]);
+
+    const outstandingBalance = useMemo(() => 
+        outstandingInvoices.reduce((total, inv) => total + inv.amount, 0)
+    , [outstandingInvoices]);
 
     const singlePropertyInvoices = useMemo(() => {
         if (isAllMode || !selectedProperty) return [];
@@ -241,8 +251,9 @@ const Billing: React.FC = () => {
 
     const handlePaymentSuccess = () => {
         setIsPaymentModalOpen(false);
+        setIsPayBalanceModalOpen(false);
         setSelectedInvoice(null);
-        getInvoices().then(setAllInvoices); 
+        fetchAllData(); 
     };
 
     if (loading) {
@@ -251,6 +262,19 @@ const Billing: React.FC = () => {
 
     return (
         <div className="space-y-6">
+            {outstandingBalance > 0 && (
+                <Card className="bg-red-50 border-red-200 shadow-lg">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                        <div>
+                            <h3 className="font-black text-lg text-red-800 tracking-tight">Outstanding Balance</h3>
+                            <p className="text-3xl font-black text-red-900">${outstandingBalance.toFixed(2)}</p>
+                            <p className="text-xs text-red-700 font-bold">{outstandingInvoices.length} invoice(s) are past due.</p>
+                        </div>
+                        <Button onClick={() => setIsPayBalanceModalOpen(true)} className="bg-red-600 hover:bg-red-700 text-white rounded-xl font-black uppercase text-xs tracking-widest h-14 px-8">Pay Total Balance</Button>
+                    </div>
+                </Card>
+            )}
+
             {isAllMode ? (
                 <div className="space-y-8">
                     <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History by Property</h2>
@@ -306,6 +330,12 @@ const Billing: React.FC = () => {
                     paymentMethods={paymentMethods}
                 />
             )}
+
+            <PayBalanceModal
+                isOpen={isPayBalanceModalOpen}
+                onClose={() => setIsPayBalanceModalOpen(false)}
+                onSuccess={handlePaymentSuccess}
+            />
         </div>
     );
 };

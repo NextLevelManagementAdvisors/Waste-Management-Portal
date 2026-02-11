@@ -233,7 +233,7 @@ const Subscriptions: React.FC = () => {
             <Card className="text-center py-20">
                  <SparklesIcon className="mx-auto h-12 w-12 text-gray-400" />
                  <h3 className="mt-2 text-sm font-medium text-gray-900">No Active Subscriptions</h3>
-                 <p className="mt-1 text-sm text-gray-500">This property has no services. Go to the 'My Service' tab to get started.</p>
+                 <p className="mt-1 text-sm text-gray-500">This property has no services. Go to the 'Services' tab to get started.</p>
             </Card>
         );
     }

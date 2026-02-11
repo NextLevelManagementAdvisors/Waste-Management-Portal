@@ -1,12 +1,12 @@
 import React from 'react';
 
-export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'start-service';
+export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'start-service' | 'make-payment';
 
 export interface PostNavAction {
   targetView: View;
   targetTab?: string;
-  action: 'openTipModal';
-  targetDate: string;
+  action: 'openTipModal' | 'openTab';
+  targetDate?: string;
 }
 
 export interface NotificationPreferences {
@@ -43,6 +43,7 @@ export interface User {
   password?: string;
   memberSince: string;
   properties: Property[];
+  autopayEnabled: boolean;
 }
 
 export interface Service {
@@ -146,7 +147,7 @@ export interface UpdatePropertyInfo {
   notes?: string;
 }
 
-export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties'> {}
+export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties' | 'autopayEnabled'> {}
 
 export interface UpdateProfileInfo {
   firstName: string;

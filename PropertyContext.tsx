@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import { User, Property, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, PostNavAction } from './types.ts';
+import { User, Property, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, PostNavAction, View } from './types.ts';
 
 export interface PropertyContextType {
     user: User | null;
@@ -18,6 +18,7 @@ export interface PropertyContextType {
     startNewServiceFlow: () => void;
     postNavAction: PostNavAction | null;
     setPostNavAction: (action: PostNavAction | null) => void;
+    setCurrentView: (view: View) => void;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({
@@ -37,6 +38,7 @@ export const PropertyContext = createContext<PropertyContextType>({
     startNewServiceFlow: () => {},
     postNavAction: null,
     setPostNavAction: () => {},
+    setCurrentView: () => {},
 });
 
 export const useProperty = () => useContext(PropertyContext);

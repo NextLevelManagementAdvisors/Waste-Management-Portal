@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
 import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/mockApiService.ts';
@@ -15,50 +14,31 @@ const PortfolioHoldCard: React.FC<{
 }> = ({ property, subscriptions, onSelect }) => {
     const propSubs = subscriptions.filter(s => s.propertyId === property.id && s.status !== 'canceled');
     const isPaused = propSubs.some(s => s.status === 'paused');
-    const resumeDate = propSubs.find(s => s.status === 'paused')?.pausedUntil;
-
+    
     return (
-        <Card className="hover:shadow-xl transition-all duration-300 border-none ring-1 ring-base-200 group">
-            <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{property.serviceType}</p>
-                    <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors">{property.address}</h3>
+        <Card className="flex flex-col p-6">
+            <div className="flex justify-between items-center mb-2">
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <div className={`px-3 py-1 rounded-full ${isPaused ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-500'}`}>
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                        {isPaused ? 'On Hold' : 'Service Active'}
+                    </span>
                 </div>
-                {isPaused ? (
-                    <div className="px-3 py-1 bg-orange-50 text-orange-600 rounded-full flex items-center gap-2">
-                        <PauseCircleIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">On Hold</span>
-                    </div>
-                ) : (
-                    <div className="px-3 py-1 bg-teal-50 text-teal-600 rounded-full flex items-center gap-2">
-                        <CheckCircleIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Active</span>
-                    </div>
-                )}
             </div>
 
-            <div className="mb-6">
-                {isPaused ? (
-                    <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100">
-                        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Resuming On</p>
-                        <p className="text-lg font-black text-orange-700">{resumeDate || 'TBD'}</p>
-                    </div>
-                ) : (
-                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</p>
-                         <p className="text-sm font-bold text-gray-600 mt-1">Collecting weekly as scheduled.</p>
-                    </div>
-                )}
-            </div>
+            <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">
+                {property.address}
+            </h3>
 
-            <Button 
-                onClick={() => onSelect(property.id)} 
-                variant="primary" 
-                size="sm" 
-                className="w-full rounded-xl py-3 font-black uppercase text-[10px] tracking-widest"
-            >
-                {isPaused ? 'Modify Resume Date' : 'Request Hold'} <ArrowRightIcon className="w-4 h-4 ml-2" />
-            </Button>
+            <div className="flex items-end justify-end mt-4">
+                <Button 
+                    onClick={() => onSelect(property.id)} 
+                    variant="primary" 
+                    className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest"
+                >
+                    Manage Holds
+                </Button>
+            </div>
         </Card>
     );
 };
@@ -145,16 +125,14 @@ const VacationHolds: React.FC = () => {
 
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
-                <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
+                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
                         <h1 className="text-4xl font-black text-gray-900 tracking-tight">Hold Management</h1>
                         <p className="text-gray-500 font-medium mt-1 text-lg">Manage service availability across your entire property portfolio.</p>
                     </div>
-                    <div className="flex gap-4">
-                        <div className="bg-orange-50 px-6 py-4 rounded-2xl border border-orange-100">
-                            <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest leading-none">Locations On Hold</p>
-                            <p className="text-2xl font-black text-orange-700 mt-1">{holdsCount}</p>
-                        </div>
+                     <div className="bg-orange-50 px-6 py-4 rounded-2xl border border-orange-100">
+                        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest leading-none">Locations On Hold</p>
+                        <p className="text-2xl font-black text-orange-700 mt-1">{holdsCount}</p>
                     </div>
                 </div>
 
@@ -164,7 +142,7 @@ const VacationHolds: React.FC = () => {
                             key={prop.id} 
                             property={prop} 
                             subscriptions={allSubscriptions} 
-                            onSelect={setSelectedPropertyId} 
+                            onSelect={(id) => setSelectedPropertyId(id)}
                         />
                     ))}
                 </div>

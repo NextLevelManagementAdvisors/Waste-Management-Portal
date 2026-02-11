@@ -1,21 +1,20 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { View } from '../types.ts';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, Bars3Icon } from './Icons.tsx';
+import { Bars3Icon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 
 interface HeaderProps {
   currentView: View;
   setCurrentView: (view: View) => void;
   onAddPropertyClick: () => void;
-  onLogout: () => void;
   onToggleSidebar: () => void;
 }
 
 const viewTitles: Record<View, string> = {
     home: 'Overview',
-    myservice: 'My Service',
+    myservice: 'Manage Plan',
     wallet: 'Digital Wallet',
+    'make-payment': 'Make a Payment',
     requests: 'Requests',
     help: 'Help',
     'profile-settings': 'Profile Settings',
@@ -23,28 +22,9 @@ const viewTitles: Record<View, string> = {
     'start-service': 'Start New Service'
 };
 
-const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout, onToggleSidebar }) => {
-  const { user, properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
+const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onToggleSidebar }) => {
+  const { properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
   const title = viewTitles[currentView] || 'Overview';
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-  
-  const handleNavigation = (view: View) => {
-    setCurrentView(view);
-    setIsDropdownOpen(false);
-  };
 
   const handlePropertyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (e.target.value === 'add_new') {
@@ -100,35 +80,6 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                     </div>
                 </div>
             )}
-        </div>
-        <div className="flex items-center space-x-4">
-            <div className="relative hidden sm:block" ref={dropdownRef}>
-                <button onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-base-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
-                    <UserCircleIcon className="w-10 h-10 text-gray-400" />
-                    <div className="text-right">
-                        <p className="font-bold text-gray-900 text-sm">{user?.firstName} {user?.lastName}</p>
-                        <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Customer</p>
-                    </div>
-                </button>
-
-                {isDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none z-30">
-                        <div className="py-1">
-                            <div className="px-4 py-3 border-b border-base-200 bg-gray-50 rounded-t-xl">
-                                <p className="text-sm font-bold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                                <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-                            </div>
-                            <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-                                <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
-                            </a>
-                            <div className="border-t border-base-200 my-1"></div>
-                            <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">
-                                 <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-red-400" /> Logout
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
         </div>
       </div>
     </header>

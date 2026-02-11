@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
@@ -55,7 +54,7 @@ const QuantitySelector: React.FC<{
                 variant="secondary"
                 onClick={onDecrement}
                 disabled={isUpdating || quantity <= 0}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300"
+                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Decrease quantity"
             >
                 {quantity > 1 ? <span className="text-xl font-thin">-</span> : <TrashIcon className="w-4 h-4 text-red-500" /> }
@@ -71,7 +70,7 @@ const QuantitySelector: React.FC<{
                 variant="secondary"
                 onClick={onIncrement}
                 disabled={isUpdating}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300"
+                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Increase quantity"
             >
                 <span className="text-xl font-thin">+</span>
@@ -253,37 +252,53 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
 
     const renderStep1 = () => {
         const canProceed = !!(formData.street && formData.city && formData.state && formData.zip);
+        const inputClass = "w-full bg-gray-100 border border-gray-200 shadow-inner rounded-lg px-4 py-3 font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
 
         return (
-            <div className="space-y-4 animate-in fade-in duration-300">
+            <div className="space-y-6 animate-in fade-in duration-300">
                 <div>
                     <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Street Address</label>
-                    <input type="text" name="street" id="street" value={formData.street} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                    <input type="text" name="street" id="street" value={formData.street} onChange={handleChange} className={inputClass} required />
                 </div>
                 
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <label htmlFor="city" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">City</label>
-                        <input type="text" name="city" id="city" value={formData.city} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                        <input type="text" name="city" id="city" value={formData.city} onChange={handleChange} className={inputClass} required />
                     </div>
-                    <div className="w-28">
+                    <div className="w-24 sm:w-28">
                          <label htmlFor="state" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">State</label>
-                        <input type="text" name="state" id="state" value={formData.state} onChange={handleChange} maxLength={2} placeholder="CA" className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all uppercase" required />
+                        <input type="text" name="state" id="state" value={formData.state} onChange={handleChange} maxLength={2} placeholder="CA" className={`${inputClass} uppercase`} required />
                     </div>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1">
                         <label htmlFor="zip" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Zip Code</label>
-                        <input type="text" name="zip" id="zip" value={formData.zip} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                        <input type="text" name="zip" id="zip" value={formData.zip} onChange={handleChange} className={inputClass} required />
                     </div>
                     <div className="flex-1">
                         <label htmlFor="referralCode" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referral Code (Optional)</label>
-                        <input type="text" name="referralCode" id="referralCode" value={formData.referralCode} onChange={handleChange} placeholder="JANE-D-8432" className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" />
+                        <input type="text" name="referralCode" id="referralCode" value={formData.referralCode} onChange={handleChange} placeholder="JANE-D-8432" className={inputClass} />
                     </div>
                 </div>
-                <div className="mt-8 pt-6 border-t border-base-200 flex justify-end gap-3">
-                    <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={onCancel}>Cancel</Button>
-                    <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={!canProceed}>Next: Property Details</Button>
+                <div className="mt-8 pt-6 border-t border-base-200 flex justify-between items-stretch gap-3">
+                    <Button 
+                        type="button" 
+                        variant="secondary" 
+                        className="rounded-lg px-8 font-bold uppercase" 
+                        onClick={onCancel}>
+                        Cancel
+                    </Button>
+                    <Button 
+                        type="button" 
+                        className="flex-grow rounded-lg py-3 px-6 shadow-lg shadow-primary/30 text-center" 
+                        onClick={handleNext} 
+                        disabled={!canProceed}>
+                        <div className="leading-tight">
+                            <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
+                            <span className="font-bold text-sm tracking-wider block uppercase">Property Details</span>
+                        </div>
+                    </Button>
                 </div>
             </div>
         );
@@ -397,7 +412,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
                         {baseServices.map(service => {
                             const selection = selectedServices.find(s => s.serviceId === service.id);
                             return (
-                                <div key={service.id} className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <div key={service.id} className="p-6 flex flex-row justify-between items-center gap-4">
                                     <div className="flex items-center gap-4 flex-1">
                                         <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
                                         <div>
@@ -424,15 +439,12 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
                         <div className="divide-y divide-base-200">
                             {atHouseService && (
                                 <div className="p-6 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <HomeModernIcon className="w-6 h-6 text-primary"/>
-                                        <div>
-                                            <h4 className="font-bold">{atHouseService.name}</h4>
-                                            <p className="text-xs text-gray-500">{atHouseService.description}</p>
-                                        </div>
+                                    <div className="flex-1 pr-4">
+                                        <h4 className="font-bold">{atHouseService.name}</h4>
+                                        <p className="text-xs text-gray-500">{atHouseService.description}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary">+${atHouseService.price.toFixed(2)}/mo</p>
+                                        <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
                                         <ToggleSwitch 
                                             checked={isAtHouseSelected}
                                             onChange={handleCollectionMethodToggle}
@@ -443,15 +455,12 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
                             )}
                             {linerService && (
                                 <div className="p-6 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <SunIcon className="w-6 h-6 text-orange-400"/>
-                                        <div>
-                                            <h4 className="font-bold">{linerService.name}</h4>
-                                            <p className="text-xs text-gray-500">{linerService.description}</p>
-                                        </div>
+                                    <div className="flex-1 pr-4">
+                                        <h4 className="font-bold">{linerService.name}</h4>
+                                        <p className="text-xs text-gray-500">{linerService.description}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary" aria-live="polite">
+                                        <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
                                             +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
                                         </p>
                                         <ToggleSwitch 
@@ -492,16 +501,22 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
                     </Card>
                 )}
 
-                <div className="pt-6 border-t flex justify-end">
-                    <div className="text-right">
-                        <p className="text-sm font-bold text-gray-500">One-Time Setup Fees: <span className="text-gray-900">${setupTotal.toFixed(2)}</span></p>
-                        <p className="text-lg font-bold text-gray-500 mt-1">Total Monthly Bill: <span className="text-primary text-3xl font-black">${monthlyTotal.toFixed(2)}</span></p>
+                <div className="mt-8 pt-6 border-t border-base-200">
+                    <div className="space-y-3 mb-6">
+                        <div className="flex justify-between items-center">
+                            <p className="text-sm font-medium text-gray-500">One-Time Setup Fees</p>
+                            <p className="text-sm font-semibold text-gray-500">${setupTotal.toFixed(2)}</p>
+                        </div>
+                        <div className="flex justify-between items-baseline">
+                            <p className="text-lg font-bold text-gray-800">Total Monthly Bill</p>
+                            <p className="text-3xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
+                        </div>
                     </div>
-                </div>
 
-                <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
-                    <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                    <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
+                    <div className="flex justify-between gap-3">
+                        <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
+                        <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
+                    </div>
                 </div>
             </div>
         );
@@ -559,25 +574,18 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
         }
     };
 
-    const stepTitles: { [key: number]: string } = {
-        1: "Verify Service Address",
-        2: "Property Details",
-        3: "Choose Your Services",
-        4: "Set Up Billing"
-    };
-
     return (
         <div className="max-w-3xl mx-auto space-y-8 p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500">
             <div className="text-center">
-                <h1 className="text-4xl font-black text-gray-900 tracking-tight">{stepTitles[step]}</h1>
-                <p className="text-gray-500 font-medium mt-2 text-lg">
-                    {step === 4 ? "Final step! Let's get your billing sorted." : "Let's get your new service up and running."}
+                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Service Address</h1>
+                <p className="text-gray-500 font-medium mt-2">
+                    Let's get your new service up and running.
                 </p>
             </div>
 
             <StepIndicator currentStep={step} />
 
-            <Card className="shadow-2xl border-none">
+            <Card className="shadow-lg border-none">
                 <form onSubmit={handleSubmit} noValidate>
                     {renderContent()}
                 </form>

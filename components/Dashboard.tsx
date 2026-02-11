@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getDashboardState, PropertyState, AccountHealth, dismissTipPrompt } from '../services/mockApiService.ts';
 import { View } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-// FIX: Removed 'recharts' due to incompatibility with React 19, which caused a "Rendered more hooks than during the previous render" error. The chart is replaced with a simpler financial summary.
+import PayBalanceModal from './PayBalanceModal.tsx';
 import { 
     BanknotesIcon, ArrowRightIcon, CheckCircleIcon, SparklesIcon,
     TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon, CurrencyDollarIcon
@@ -29,8 +29,9 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     const [data, setData] = useState<{ states: PropertyState[]; health: AccountHealth } | null>(null);
     const [loading, setLoading] = useState(true);
     const [isTipPromptOpen, setIsTipPromptOpen] = useState(false);
+    const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
 
-    useEffect(() => {
+    const refreshDashboard = useCallback(() => {
         setLoading(true);
         getDashboardState(selectedPropertyId || 'all').then(res => {
             setData(res);
@@ -44,6 +45,10 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             setLoading(false);
         });
     }, [selectedPropertyId]);
+
+    useEffect(() => {
+        refreshDashboard();
+    }, [refreshDashboard]);
     
     const lastPickupState = data?.states.find(s => s.lastPickup)?.lastPickup;
 
@@ -63,6 +68,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         dismissTipPrompt(data.states[0].property.id, lastPickupState.date);
         setIsTipPromptOpen(false);
     };
+    
+    const handlePaymentSuccess = () => {
+        setIsPayBalanceModalOpen(false);
+        refreshDashboard();
+    };
 
     if (loading || !data) {
         return (
@@ -72,6 +82,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             </div>
         );
     }
+
+    const upcomingPickups = data.states.filter(s => s.nextPickup);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -87,78 +99,71 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 )}
             </div>
 
-            {/* Main Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column */}
-                <div className="lg:col-span-2 space-y-8">
-                    {/* Quick Actions */}
-                    <Card className="p-6">
-                         <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
-                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
-                            <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
-                            <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
-                            <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
-                         </div>
-                    </Card>
-                    
-                    {/* Financial Snapshot */}
-                    <Card className="p-6">
-                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Financials</h2>
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <div className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10">
-                                <p className="text-xs font-bold text-primary uppercase tracking-wider">Total Monthly Cost</p>
-                                <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
-                            </div>
-                            <div className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100">
-                                <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Outstanding Balance</p>
-                                <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
-                            </div>
-                        </div>
-                    </Card>
+            {/* Main Content */}
+            <div className="space-y-8">
+                 <Card className="p-6">
+                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-8 h-8"/>} onClick={() => setIsPayBalanceModalOpen(true)} />
+                        <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
+                        <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'requests', targetTab: 'missed', action: 'openTab' })} />
+                        <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
+                     </div>
+                </Card>
 
-                    {/* AI Concierge CTA */}
-                     <Card className="bg-gray-900 text-white border-none relative overflow-hidden p-8 flex items-center gap-8">
-                        <div className="relative z-10 flex-1">
-                            <h3 className="text-2xl font-black tracking-tight mb-2 leading-tight">Need help navigating?</h3>
-                            <p className="text-gray-400 text-sm font-medium mb-6 leading-relaxed">Ask about holiday schedules, extra pickups, or bill explanations.</p>
-                            <Button onClick={() => setCurrentView('help')} className="rounded-xl py-3 px-6 font-black uppercase text-xs shadow-lg shadow-primary/20">
-                                Chat with AI <ArrowRightIcon className="w-4 h-4 ml-2"/>
-                            </Button>
-                        </div>
-                         <SparklesIcon className="w-24 h-24 text-primary/30 shrink-0" />
-                    </Card>
-                </div>
-
-                {/* Right Column */}
-                <div className="space-y-8">
-                    <Card className="p-6">
-                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Upcoming Collections</h2>
-                        <div className="space-y-3">
-                            {data.states.length > 0 ? data.states.map(state => (
-                                <div key={state.property.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-base-200">
+                <div>
+                    <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 px-2">Upcoming Collections</h2>
+                    <div className="space-y-4">
+                        {upcomingPickups.length > 0 ? upcomingPickups.map(state => (
+                            <Card key={state.property.id} className="p-4 !rounded-xl shadow-md border-base-200">
+                                <div className="flex items-center justify-between">
                                     <div>
                                         <p className="font-bold text-gray-900 text-sm">{state.property.address}</p>
                                         <p className={`text-xs font-black uppercase tracking-widest mt-1 ${state.nextPickup?.isToday ? 'text-primary' : 'text-gray-500'}`}>
                                             {state.nextPickup?.label || 'Not Scheduled'}
                                         </p>
                                     </div>
-                                    {state.nextPickup?.isToday && (
+                                    {state.nextPickup?.isToday && state.nextPickup.status === 'in-progress' && (
                                         <div className="flex items-center gap-2">
-                                             <div className="w-2 h-2 rounded-full bg-primary animate-ping" />
+                                             <div className="w-2 h-2 rounded-full bg-primary" />
                                             <span className="text-[10px] font-black text-primary uppercase tracking-widest">In Progress</span>
                                         </div>
                                     )}
                                 </div>
-                            )) : (
-                                <div className="text-center py-12">
-                                    <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No scheduled pickups</p>
-                                    <p className="text-xs text-gray-400 mt-1">There are no upcoming collections for the selected properties.</p>
-                                </div>
-                            )}
-                        </div>
-                    </Card>
+                            </Card>
+                        )) : (
+                            <Card className="text-center py-12 !rounded-xl shadow-md border-base-200">
+                                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No scheduled pickups</p>
+                                <p className="text-xs text-gray-400 mt-1">There are no upcoming collections for the selected properties.</p>
+                            </Card>
+                        )}
+                    </div>
                 </div>
+
+                <Card className="p-6">
+                    <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Financials</h2>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                        <div className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10">
+                            <p className="text-xs font-bold text-primary uppercase tracking-wider">Total Monthly Cost</p>
+                            <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
+                        </div>
+                        <div className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100">
+                            <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Outstanding Balance</p>
+                            <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
+                        </div>
+                    </div>
+                </Card>
+
+                <Card className="bg-gray-900 text-white border-none relative overflow-hidden p-8 flex items-center gap-8">
+                    <div className="relative z-10 flex-1">
+                        <h3 className="text-2xl font-black tracking-tight mb-2 leading-tight">Need help navigating?</h3>
+                        <p className="text-gray-400 text-sm font-medium mb-6 leading-relaxed">Ask about holiday schedules, extra pickups, or bill explanations.</p>
+                        <Button onClick={() => setCurrentView('help')} className="rounded-xl py-3 px-6 font-black uppercase text-xs shadow-lg shadow-primary/20">
+                            Chat with AI <ArrowRightIcon className="w-4 h-4 ml-2"/>
+                        </Button>
+                    </div>
+                     <SparklesIcon className="w-24 h-24 text-primary/30 shrink-0" />
+                </Card>
             </div>
             
              <Modal isOpen={isTipPromptOpen} onClose={handleDismissTipPrompt} title="Great Service Today?">
@@ -174,6 +179,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     </div>
                 </div>
             </Modal>
+
+            <PayBalanceModal
+                isOpen={isPayBalanceModalOpen}
+                onClose={() => setIsPayBalanceModalOpen(false)}
+                onSuccess={handlePaymentSuccess}
+            />
         </div>
     );
 };

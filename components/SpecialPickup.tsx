@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
 import { getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup } from '../services/mockApiService.ts';
@@ -16,36 +15,31 @@ const PortfolioPickupCard: React.FC<{
     const upcomingCount = requests.filter(r => r.propertyId === property.id && r.status === 'Scheduled').length;
     
     return (
-        <Card className="hover:shadow-xl transition-all duration-300 border-none ring-1 ring-base-200 group">
-            <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{property.serviceType}</p>
-                    <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors">{property.address}</h3>
+        <Card className="flex flex-col p-6">
+            <div className="flex justify-between items-center mb-2">
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <div className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full">
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                        {upcomingCount > 0 ? `${upcomingCount} Active` : 'No Active Requests'}
+                    </span>
                 </div>
-                {upcomingCount > 0 ? (
-                    <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full flex items-center gap-2">
-                        <ClockIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">{upcomingCount} Scheduled</span>
-                    </div>
-                ) : (
-                    <div className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full">
-                        <span className="text-[10px] font-black uppercase tracking-widest">No Active Requests</span>
-                    </div>
-                )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-base-100 pt-4 mt-auto">
+            <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">
+                {property.address}
+            </h3>
+
+            <div className="flex items-end justify-between mt-4">
                 <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">History</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">History</p>
                     <p className="text-sm font-bold text-gray-600 mt-1">{requests.filter(r => r.propertyId === property.id).length} Total Pickups</p>
                 </div>
                 <Button 
                     onClick={() => onSelect(property.id)} 
                     variant="primary" 
-                    size="sm" 
-                    className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
+                    className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest"
                 >
-                    Manage Requests <ArrowRightIcon className="w-4 h-4 ml-2" />
+                    Manage Requests
                 </Button>
             </div>
         </Card>
@@ -117,7 +111,7 @@ const SpecialPickup: React.FC = () => {
 
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
-                <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
+                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
                         <h1 className="text-4xl font-black text-gray-900 tracking-tight">Special Requests Hub</h1>
                         <p className="text-gray-500 font-medium mt-1 text-lg">Portfolio-wide management for bulk and specialized collections.</p>
@@ -134,7 +128,7 @@ const SpecialPickup: React.FC = () => {
                             key={prop.id} 
                             property={prop} 
                             requests={allRequests} 
-                            onSelect={setSelectedPropertyId} 
+                            onSelect={(id) => setSelectedPropertyId(id)}
                         />
                     ))}
                 </div>

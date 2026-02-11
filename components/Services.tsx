@@ -298,48 +298,6 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                 isProcessing={!!(equipmentModal.service && updatingIds[equipmentModal.service.id])}
             />
              <div className="grid grid-cols-1 gap-6">
-                {(atHouseService || linerService) && (
-                    <Card className="p-0 overflow-hidden">
-                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
-                        <div className="divide-y divide-base-200">
-                            {atHouseService && (
-                                <div className="p-6 flex justify-between items-center">
-                                    <div className="flex-1 pr-4">
-                                        <h4 className="font-bold">{atHouseService.name}</h4>
-                                        <p className="text-xs text-gray-500">{atHouseService.description}</p>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
-                                        <ToggleSwitch 
-                                            checked={isAtHouseSubscribed}
-                                            onChange={() => handleSubscriptionChange(atHouseService, isAtHouseSubscribed ? 'decrement' : 'increment')}
-                                            disabled={totalBaseServiceCans === 0 || updatingIds[atHouseService.id]}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                            {linerService && (
-                                <div className="p-6 flex justify-between items-center">
-                                     <div className="flex-1 pr-4">
-                                        <h4 className="font-bold">{linerService.name}</h4>
-                                        <p className="text-xs text-gray-500">{linerService.description}</p>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
-                                            +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
-                                        </p>
-                                        <ToggleSwitch 
-                                            checked={isLinerSubscribed}
-                                            onChange={() => handleSubscriptionChange(linerService, isLinerSubscribed ? 'decrement' : 'increment')}
-                                            disabled={totalBaseServiceCans === 0 || updatingIds[linerService.id] || isSyncing}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </Card>
-                )}
-
                 <Card className="p-0 overflow-hidden">
                     <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Equipment & Frequency</h2>
                     <div className="divide-y divide-base-200">
@@ -377,6 +335,47 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                             );
                         })}
                     </div>
+                    {(atHouseService || linerService) && (
+                        <div className="border-t border-base-200">
+                            <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
+                            <div className="divide-y divide-base-200">
+                                {atHouseService && (
+                                    <div className="p-6 flex justify-between items-center">
+                                        <div className="flex-1 pr-4">
+                                            <h4 className="font-bold">{atHouseService.name}</h4>
+                                            <p className="text-xs text-gray-500">{atHouseService.description}</p>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
+                                            <ToggleSwitch
+                                                checked={isAtHouseSubscribed}
+                                                onChange={() => handleSubscriptionChange(atHouseService, isAtHouseSubscribed ? 'decrement' : 'increment')}
+                                                disabled={totalBaseServiceCans === 0 || updatingIds[atHouseService.id]}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                {linerService && (
+                                    <div className="p-6 flex justify-between items-center">
+                                        <div className="flex-1 pr-4">
+                                            <h4 className="font-bold">{linerService.name}</h4>
+                                            <p className="text-xs text-gray-500">{linerService.description}</p>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
+                                                +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
+                                            </p>
+                                            <ToggleSwitch
+                                                checked={isLinerSubscribed}
+                                                onChange={() => handleSubscriptionChange(linerService, isLinerSubscribed ? 'decrement' : 'increment')}
+                                                disabled={totalBaseServiceCans === 0 || updatingIds[linerService.id] || isSyncing}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div className="p-6 border-t border-base-200 flex justify-between items-center bg-gray-50/50">
                         <div>
                             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Monthly Bill</h3>

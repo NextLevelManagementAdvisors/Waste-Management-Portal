@@ -1,6 +1,6 @@
 import React from 'react';
 import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
-import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons.tsx';
+import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon, HomeModernIcon } from '../components/Icons.tsx';
 import * as stripeService from './stripeService.ts';
 import * as optimoRouteService from './optimoRouteService.ts';
 
@@ -59,6 +59,7 @@ let MOCK_USER: User = {
     password: 'password123',
     memberSince: '2022-01-15',
     properties: MOCK_PROPERTIES,
+    autopayEnabled: true,
 };
 
 const MOCK_SERVICE_ALERTS: ServiceAlert[] = [
@@ -205,7 +206,8 @@ export const register = (info: RegistrationInfo): Promise<User> => {
     const newUser: User = {
         ...info,
         memberSince: new Date().toISOString().split('T')[0],
-        properties: [] // New users start with no properties
+        properties: [], // New users start with no properties
+        autopayEnabled: true,
     };
     MOCK_USER = newUser; // Replace the mock user with the new registration
     return simulateApiCall(MOCK_USER);
@@ -249,6 +251,10 @@ export const updatePropertyDetails = (id: string, details: UpdatePropertyInfo) =
 };
 export const updateUserProfile = (info: UpdateProfileInfo) => simulateApiCall(MOCK_USER);
 export const updateUserPassword = (info: UpdatePasswordInfo) => simulateApiCall({ success: true });
+export const updateAutopayStatus = (enabled: boolean) => {
+    MOCK_USER.autopayEnabled = enabled;
+    return simulateApiCall({ success: true });
+};
 
 export const getServices = async (): Promise<Service[]> => {
     const prods = await stripeService.listProducts();
@@ -273,6 +279,7 @@ export const getServices = async (): Promise<Service[]> => {
 };
 
 export const payInvoice = stripeService.payInvoice;
+export const payOutstandingBalance = (paymentMethodId: string, propertyId?: string) => stripeService.payOutstandingBalance(paymentMethodId, propertyId);
 
 export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
     const property = MOCK_USER.properties.find(p => p.id === propertyId);
@@ -368,7 +375,7 @@ export const updateNotificationPreferences = (propertyId: string, prefs: Notific
 
 export const getSpecialPickupServices = (): Promise<SpecialPickupService[]> => simulateApiCall([
     { id: 'sp1', name: 'Bulk Trash Pick-up', description: 'Large items like furniture or mattresses.', price: 75.00, icon: React.createElement(ArchiveBoxIcon, { className: 'w-12 h-12 text-primary'}) },
-    { id: 'sp2', name: 'White Goods (Appliance)', description: 'Refrigerators, stoves, washers, dryers.', price: 50.00, icon: React.createElement(BuildingOffice2Icon, { className: 'w-12 h-12 text-primary'}) },
+    { id: 'sp2', name: 'White Goods (Appliance)', description: 'Refrigerators, stoves, washers, dryers.', price: 50.00, icon: React.createElement(HomeModernIcon, { className: 'w-12 h-12 text-primary'}) },
     { id: 'sp3', name: 'E-Waste', description: 'Computers, TVs, and other electronics.', price: 40.00, icon: React.createElement(SparklesIcon, { className: 'w-12 h-12 text-primary'}) },
 ]);
 

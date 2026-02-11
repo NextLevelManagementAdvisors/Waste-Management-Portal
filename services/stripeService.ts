@@ -362,6 +362,29 @@ export const payInvoice = async (invoiceId: string, paymentMethodId: string) => 
     throw new Error("Invoice not found.");
 };
 
+export const payOutstandingBalance = async (paymentMethodId: string, propertyId?: string): Promise<{ success: boolean }> => {
+    console.log(`(Stripe) Paying outstanding balance for ${propertyId || 'all properties'} with method ${paymentMethodId}`);
+    const today = new Date().toISOString().split('T')[0];
+    let paidSomething = false;
+
+    STRIPE_INVOICES.forEach(invoice => {
+        const isDue = invoice.status === 'Due' || invoice.status === 'Overdue';
+        const matchesProperty = !propertyId || invoice.propertyId === propertyId;
+
+        if (isDue && matchesProperty) {
+            invoice.status = 'Paid';
+            invoice.paymentDate = today;
+            paidSomething = true;
+        }
+    });
+
+    if (paidSomething) {
+        return simulateApiCall({ success: true });
+    } else {
+        return simulateApiCall({ success: true });
+    }
+};
+
 export const createInvoice = async(propertyId: string, amount: number, description: string) => {
      const newInvoice: Invoice = {
         id: `in_sp_${Date.now()}`,

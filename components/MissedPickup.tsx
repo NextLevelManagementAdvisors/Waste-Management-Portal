@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
 import { reportMissedPickup } from '../services/mockApiService.ts';
@@ -12,29 +11,27 @@ const PortfolioMissedCard: React.FC<{
     onSelect: (id: string) => void;
 }> = ({ property, onSelect }) => {
     return (
-        <Card className="hover:shadow-xl transition-all duration-300 border-none ring-1 ring-base-200 group hover:ring-red-200">
-            <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Service Incident</p>
-                    <h3 className="text-xl font-black text-gray-900 group-hover:text-red-600 transition-colors">{property.address}</h3>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
-                    <ExclamationTriangleIcon className="w-6 h-6" />
+        <Card className="flex flex-col p-6">
+            <div className="flex justify-between items-center mb-2">
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <div className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full">
+                    <span className="text-[10px] font-black uppercase tracking-widest">Ready to Report</span>
                 </div>
             </div>
 
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-6">
-                <p className="text-xs font-medium text-gray-500 leading-relaxed">Was your collection missed? File an incident report to dispatch a recovery truck.</p>
-            </div>
+            <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">
+                {property.address}
+            </h3>
 
-            <Button 
-                onClick={() => onSelect(property.id)} 
-                variant="primary" 
-                size="sm" 
-                className="w-full rounded-xl py-3 font-black uppercase text-[10px] tracking-widest bg-red-600 hover:bg-red-700 border-none shadow-lg shadow-red-900/10"
-            >
-                Report Missed Pickup <ArrowRightIcon className="w-4 h-4 ml-2" />
-            </Button>
+            <div className="flex items-end justify-end mt-4">
+                <Button 
+                    onClick={() => onSelect(property.id)} 
+                    variant="primary" 
+                    className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest bg-red-600 hover:bg-red-700"
+                >
+                    Report Issue
+                </Button>
+            </div>
         </Card>
     );
 };
@@ -68,7 +65,7 @@ const MissedPickup: React.FC = () => {
     if (!selectedProperty) {
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
-                <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
+                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
                         <h1 className="text-4xl font-black text-gray-900 tracking-tight">Missed Pickup Hub</h1>
                         <p className="text-gray-500 font-medium mt-1 text-lg">Report service failures across your property portfolio.</p>
@@ -80,16 +77,9 @@ const MissedPickup: React.FC = () => {
                         <PortfolioMissedCard 
                             key={prop.id} 
                             property={prop} 
-                            onSelect={setSelectedPropertyId} 
+                            onSelect={(id) => setSelectedPropertyId(id)}
                         />
                     ))}
-                    <Card className="bg-gray-50 border-dashed border-2 flex flex-col items-center justify-center text-center p-8 min-h-[250px]">
-                        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-gray-400 mb-4 shadow-sm">
-                            <CheckCircleIcon className="w-6 h-6" />
-                        </div>
-                        <h4 className="font-black text-gray-400 uppercase text-[10px] tracking-widest">Help Center</h4>
-                        <p className="text-sm font-bold text-gray-500 mt-2">Check your account alerts for planned holiday delays before reporting.</p>
-                    </Card>
                 </div>
             </div>
         );
