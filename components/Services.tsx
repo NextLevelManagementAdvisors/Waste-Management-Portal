@@ -21,7 +21,7 @@ const QuantitySelector: React.FC<{
                 variant="secondary"
                 onClick={onDecrement}
                 disabled={isUpdating || quantity <= 0}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300"
+                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Decrease quantity"
             >
                 {quantity > 1 ? <span className="text-xl font-thin">-</span> : <TrashIcon className="w-4 h-4 text-red-500" /> }
@@ -37,7 +37,7 @@ const QuantitySelector: React.FC<{
                 variant="secondary"
                 onClick={onIncrement}
                 disabled={isUpdating}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300"
+                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Increase quantity"
             >
                 <span className="text-xl font-thin">+</span>
@@ -304,15 +304,12 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                         <div className="divide-y divide-base-200">
                             {atHouseService && (
                                 <div className="p-6 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <HomeModernIcon className="w-6 h-6 text-primary"/>
-                                        <div>
-                                            <h4 className="font-bold">{atHouseService.name}</h4>
-                                            <p className="text-xs text-gray-500">{atHouseService.description}</p>
-                                        </div>
+                                    <div className="flex-1 pr-4">
+                                        <h4 className="font-bold">{atHouseService.name}</h4>
+                                        <p className="text-xs text-gray-500">{atHouseService.description}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary">+${atHouseService.price.toFixed(2)}/mo</p>
+                                        <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
                                         <ToggleSwitch 
                                             checked={isAtHouseSubscribed}
                                             onChange={() => handleSubscriptionChange(atHouseService, isAtHouseSubscribed ? 'decrement' : 'increment')}
@@ -323,15 +320,12 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                             )}
                             {linerService && (
                                 <div className="p-6 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <SunIcon className="w-6 h-6 text-orange-400"/>
-                                        <div>
-                                            <h4 className="font-bold">{linerService.name}</h4>
-                                            <p className="text-xs text-gray-500">{linerService.description}</p>
-                                        </div>
+                                     <div className="flex-1 pr-4">
+                                        <h4 className="font-bold">{linerService.name}</h4>
+                                        <p className="text-xs text-gray-500">{linerService.description}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary" aria-live="polite">
+                                        <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
                                             +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
                                         </p>
                                         <ToggleSwitch 
@@ -352,22 +346,16 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                         {baseServices.map(service => {
                             const subscription = getSubscriptionForService(service.id);
                             const quantity = subscription?.quantity || 0;
-                            const equipmentType = subscription?.equipmentType;
                             return (
-                                <div key={service.id} className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                    <div className="flex items-center gap-4 flex-1">
+                                <div key={service.id} className="p-6 flex justify-between items-center gap-4">
+                                    <div className="flex items-center gap-4">
                                         <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
                                         <div>
                                             <h3 className="font-bold text-gray-900">{service.name}</h3>
                                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Weekly Collection</p>
-                                            {equipmentType && (
-                                                <p className="text-[10px] font-bold text-teal-800 bg-teal-100 px-2 py-1 rounded-full inline-block mt-2">
-                                                    {equipmentType === 'rental' ? 'Rental Can' : 'Own Can'}
-                                                </p>
-                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-6 w-full sm:w-auto justify-end">
+                                    <div className="flex items-center gap-4">
                                         <div className="text-right">
                                             <p className="font-bold text-lg text-gray-900 leading-none">${service.price.toFixed(2)}</p>
                                             <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Per Can</p>

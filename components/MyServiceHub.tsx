@@ -19,7 +19,7 @@ const TABS = [
     { id: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
     { id: 'services', label: 'Services', icon: <TruckIcon className="w-5 h-5" /> },
     { id: 'history', label: 'History', icon: <ListBulletIcon className="w-5 h-5" /> },
-    { id: 'billing', label: 'Billing & Subs', icon: <BanknotesIcon className="w-5 h-5" /> },
+    { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
     { id: 'settings', label: 'Settings', icon: <WrenchScrewdriverIcon className="w-5 h-5" /> },
 ];
 
@@ -32,14 +32,15 @@ const Tab: React.FC<{
 }> = ({ id, label, icon, activeTab, onClick }) => (
     <button
         onClick={() => onClick(id)}
-        className={`group inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap py-4 px-4 border-b-2 font-medium transition-colors text-sm
+        className={`group inline-flex flex-shrink-0 items-center justify-center sm:justify-start gap-2 whitespace-nowrap py-4 px-3 sm:px-4 border-b-2 font-medium transition-colors text-sm
             ${activeTab === id
                 ? 'border-primary text-primary'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
+        aria-label={label}
     >
         {icon}
-        <span className="font-bold">{label}</span>
+        <span className="font-bold hidden sm:inline">{label}</span>
     </button>
 );
 
@@ -134,7 +135,7 @@ const MyServiceHub: React.FC = () => {
                 }
             `}</style>
             <div className="bg-white rounded-[1.5rem] shadow-lg">
-                <nav className="flex items-center gap-1 sm:gap-2 border-b border-base-200 px-2 sm:px-6 overflow-x-auto no-scrollbar">
+                <nav className="flex items-center justify-around sm:justify-start sm:gap-2 border-b border-base-200 px-2 sm:px-6 overflow-x-auto no-scrollbar">
                     {TABS.map(tab => (
                          <Tab
                             key={tab.id}
