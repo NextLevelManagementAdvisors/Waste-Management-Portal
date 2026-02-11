@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { View } from '../types.ts';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon } from './Icons.tsx';
+import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, Bars3Icon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 
 interface HeaderProps {
@@ -9,6 +9,7 @@ interface HeaderProps {
   setCurrentView: (view: View) => void;
   onAddPropertyClick: () => void;
   onLogout: () => void;
+  onToggleSidebar: () => void;
 }
 
 const viewTitles: Record<View, string> = {
@@ -22,7 +23,7 @@ const viewTitles: Record<View, string> = {
     'start-service': 'Start New Service'
 };
 
-const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onLogout, onToggleSidebar }) => {
   const { user, properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
   const title = viewTitles[currentView] || 'Overview';
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -59,12 +60,17 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
 
   return (
     <header className="flex-shrink-0 bg-white border-b border-base-300 z-20 sticky top-0">
-      <div className="flex items-center justify-between p-4 h-20">
-        <div className="flex items-center">
-            <h2 className="text-2xl font-black text-gray-900 tracking-tight pl-12 lg:pl-0">{title}</h2>
-        </div>
-        <div className="flex items-center space-x-4">
-            {loading ? (
+      <div className="flex items-center justify-between px-4 h-20">
+        <div className="flex items-center gap-4">
+            <button 
+                onClick={onToggleSidebar}
+                className="lg:hidden text-gray-500 hover:text-gray-900"
+                aria-label="Open menu"
+            >
+                <Bars3Icon className="w-6 h-6" />
+            </button>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight hidden sm:block">{title}</h2>
+             {loading ? (
                 <div className="w-48 h-8 bg-gray-200 rounded animate-pulse"></div>
             ) : (
                 <div className="relative min-w-[220px]">
@@ -94,7 +100,8 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                     </div>
                 </div>
             )}
-            <div className="w-px h-10 bg-base-300 hidden sm:block"></div>
+        </div>
+        <div className="flex items-center space-x-4">
             <div className="relative hidden sm:block" ref={dropdownRef}>
                 <button onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-base-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                     <UserCircleIcon className="w-10 h-10 text-gray-400" />

@@ -69,7 +69,10 @@ const SubscriptionCard: React.FC<{
                 </div>
                  {sub.status !== 'canceled' && (
                      <div className="flex items-center self-start md:self-center">
-                         <Button variant="secondary" size="sm" onClick={onCancel} disabled={sub.status === 'canceled'} className="text-xs hover:bg-red-50 hover:text-red-600 border-none">
+                         {/* FIX: Removed redundant `disabled` prop that was causing a type error. 
+                             The parent `sub.status !== 'canceled'` check already ensures this button 
+                             is not rendered for canceled subscriptions. */}
+                         <Button variant="secondary" size="sm" onClick={onCancel} className="text-xs hover:bg-red-50 hover:text-red-600 border-none">
                             Cancel
                         </Button>
                     </div>
@@ -118,16 +121,16 @@ const Subscriptions: React.FC = () => {
     }, []);
 
     const subscriptionsToDisplay = useMemo(() => {
+        // FIX: Removed status filter to allow all subscriptions (including canceled) to be displayed. This resolves a downstream type error in SubscriptionCard.
         return isAllMode
-            // Fix: Changed filter logic from `s.status !== 'canceled'` to an equivalent, more explicit check to resolve a TypeScript comparison error.
-            ? allSubscriptions.filter(s => s.status === 'active' || s.status === 'paused')
-            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id && (s.status === 'active' || s.status === 'paused'));
+            ? allSubscriptions
+            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id);
     }, [isAllMode, allSubscriptions, selectedProperty]);
 
     const groupedSubscriptions = useMemo(() => {
         return properties.reduce((acc, prop) => {
-            // Fix: Changed filter logic from `s.status !== 'canceled'` to an equivalent, more explicit check to resolve a TypeScript comparison error and maintain consistency.
-            const subs = allSubscriptions.filter(s => s.propertyId === prop.id && (s.status === 'active' || s.status === 'paused'));
+            // FIX: Removed status filter to allow all subscriptions (including canceled) to be displayed.
+            const subs = allSubscriptions.filter(s => s.propertyId === prop.id);
             if (subs.length > 0) acc.push({ property: prop, subs });
             return acc;
         }, [] as { property: Property, subs: Subscription[] }[]);

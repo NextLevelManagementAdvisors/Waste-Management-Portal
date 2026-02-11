@@ -132,10 +132,8 @@ export interface NewPropertyInfo {
 }
 
 export interface AddressSuggestion {
-    street: string;
-    city: string;
-    state: string;
-    zip: string;
+    description: string;
+    placeId: string;
 }
 
 export interface UpdatePropertyInfo {

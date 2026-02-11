@@ -1,15 +1,17 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { View } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { 
   HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon, 
-  CalendarDaysIcon, Bars3Icon, XMarkIcon, UserIcon, GiftIcon, PlusCircleIcon
+  CalendarDaysIcon, GiftIcon, PlusCircleIcon, UserIcon
 } from './Icons.tsx';
 
 interface SidebarProps {
   currentView: View;
   setCurrentView: (view: View) => void;
+  isOpen: boolean;
+  setIsOpen: (isOpen: boolean) => void;
 }
 
 interface NavItem {
@@ -84,8 +86,14 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
              </ul>
            </nav>
          </div>
-
-         <div className="p-8 border-t border-base-100 bg-gray-50/50">
+          <div 
+            className="p-8 border-t border-base-100 bg-gray-50/50 lg:hidden cursor-pointer hover:bg-gray-100 transition-colors"
+            onClick={() => onLinkClick('profile-settings')}
+            role="button"
+            tabIndex={0}
+            onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') onLinkClick('profile-settings'); }}
+            aria-label="Open profile settings"
+          >
            <div className="flex items-center gap-4">
                <div className="w-10 h-10 rounded-2xl bg-white shadow-sm border border-base-200 flex items-center justify-center">
                    <UserIcon className="w-5 h-5 text-gray-500" />
@@ -100,9 +108,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
     );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, isOpen, setIsOpen }) => {
   const handleLinkClick = (view: View) => {
     setCurrentView(view);
     setIsOpen(false);
@@ -110,14 +116,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
 
   return (
     <>
-      <button 
-        onClick={() => setIsOpen(!isOpen)} 
-        className="lg:hidden fixed top-6 left-6 z-50 p-3 rounded-2xl bg-white shadow-2xl border border-base-200 text-gray-900"
-        aria-label={isOpen ? "Close menu" : "Open menu"}
-      >
-        {isOpen ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
-      </button>
-
       <div className={`fixed inset-0 z-40 transform transition-transform duration-500 ease-out lg:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md" onClick={() => setIsOpen(false)}></div>
         <div className="relative w-80 h-full shadow-2xl">

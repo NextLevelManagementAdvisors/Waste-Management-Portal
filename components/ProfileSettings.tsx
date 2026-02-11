@@ -7,7 +7,7 @@ import { UpdateProfileInfo, UpdatePasswordInfo } from '../types.ts';
 
 const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
     <div className="flex flex-col sm:flex-row py-3">
-        <dt className="text-sm font-medium text-gray-500 sm:w-1/4">{label}</dt>
+        <dt className="text-sm font-medium text-gray-700 sm:w-1/4">{label}</dt>
         <dd className="mt-1 text-sm text-neutral sm:mt-0 sm:w-3/4">{value}</dd>
     </div>
 );
@@ -165,11 +165,15 @@ const ProfileSettings: React.FC = () => {
                     border: 1px solid #E5E7EB;
                     border-radius: 0.375rem;
                     box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+                    background-color: #F9FAFB;
+                    color: #1F2937;
+                    transition: all 0.2s ease-in-out;
                 }
                 .input-field:focus {
                      outline: none;
                      border-color: #0D9488;
                      box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.2);
+                     background-color: #ffffff;
                 }
             `}</style>
         </div>

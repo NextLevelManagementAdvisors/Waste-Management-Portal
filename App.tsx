@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [isApiKeyReady, setIsApiKeyReady] = useState(false);
   const [isCheckingApiKey, setIsCheckingApiKey] = useState(false);
   
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('home');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
@@ -313,9 +314,9 @@ const App: React.FC = () => {
   return (
     <PropertyContext.Provider value={contextValue}>
       <div className="flex h-screen bg-base-100 text-neutral">
-        <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+        <Sidebar currentView={currentView} setCurrentView={setCurrentView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onLogout={handleLogout} />
+          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onLogout={handleLogout} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
           <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto w-full">
               {renderView()}

@@ -33,7 +33,7 @@ const Tab: React.FC<{
 }> = ({ id, label, icon, activeTab, onClick }) => (
     <button
         onClick={() => onClick(id)}
-        className={`group inline-flex items-center gap-2 py-4 px-4 border-b-2 font-medium transition-colors text-sm
+        className={`group inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap py-4 px-4 border-b-2 font-medium transition-colors text-sm
             ${activeTab === id
                 ? 'border-primary text-primary'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -119,8 +119,17 @@ const MyServiceHub: React.FC = () => {
 
     return (
         <div className="animate-in fade-in duration-500">
+            <style>{`
+                .no-scrollbar::-webkit-scrollbar {
+                    display: none;
+                }
+                .no-scrollbar {
+                    -ms-overflow-style: none;
+                    scrollbar-width: none;
+                }
+            `}</style>
             <div className="bg-white rounded-[1.5rem] shadow-lg">
-                <nav className="flex items-center gap-1 sm:gap-2 border-b border-base-200 px-2 sm:px-6">
+                <nav className="flex items-center gap-1 sm:gap-2 border-b border-base-200 px-2 sm:px-6 overflow-x-auto no-scrollbar">
                     {TABS.map(tab => (
                          <Tab
                             key={tab.id}

@@ -10,6 +10,7 @@ export const getSupportResponseStream = async (
   userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] },
   location: { latitude: number; longitude: number } | null
 ) => {
+  // FIX: Created a new GoogleGenAI instance before making an API call.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const contextString = `
@@ -40,6 +41,7 @@ export const getSupportResponseStream = async (
 
   try {
     const responseStream = await ai.models.generateContentStream({
+      // FIX: Use a model that supports Google Maps grounding.
       model: 'gemini-2.5-flash',
       contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
       config: config,

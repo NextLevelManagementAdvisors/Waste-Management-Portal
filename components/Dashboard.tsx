@@ -8,28 +8,16 @@ import { useProperty } from '../PropertyContext.tsx';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { 
     BanknotesIcon, ArrowRightIcon, CheckCircleIcon, SparklesIcon,
-    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, MegaphoneIcon
+    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon
 } from './Icons.tsx';
 
 interface DashboardProps {
     setCurrentView: (view: View) => void;
 }
 
-const StatCard: React.FC<{ label: string; value: string; icon: React.ReactNode; }> = ({ label, value, icon }) => (
-    <div className="flex items-center gap-4 p-5 rounded-[1.5rem] bg-white border border-base-200 shadow-sm">
-        <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary">
-            {icon}
-        </div>
-        <div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.1em]">{label}</p>
-            <p className="text-xl font-black text-gray-900 leading-none mt-1.5">{value}</p>
-        </div>
-    </div>
-);
-
 const QuickActionButton: React.FC<{ label: string; icon: React.ReactNode; onClick: () => void; }> = ({ label, icon, onClick }) => (
-    <button onClick={onClick} className="flex flex-col items-center justify-center gap-2 p-4 bg-gray-50 hover:bg-primary/5 rounded-2xl transition-all duration-300 text-center group">
-        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-gray-400 group-hover:text-primary transition-colors shadow-sm border border-base-200">
+    <button onClick={onClick} className="flex flex-col items-center justify-center gap-3 p-6 bg-gray-50 hover:bg-primary/5 rounded-2xl transition-all duration-300 text-center group aspect-square">
+        <div className="text-gray-400 group-hover:text-primary transition-colors">
             {icon}
         </div>
         <p className="text-[10px] font-black text-gray-500 group-hover:text-primary uppercase tracking-widest transition-colors">{label}</p>
@@ -69,15 +57,15 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-                <div>
-                    <h1 className="text-4xl font-black text-gray-900 tracking-tight">Welcome, {user?.firstName}!</h1>
-                    <p className="text-gray-500 font-medium mt-1 text-lg">Here's a snapshot of your account today.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <MegaphoneIcon className="w-4 h-4 text-primary" />
-                    <p className="text-sm font-bold text-gray-600">{data.health.criticalAlerts[0]?.message || "All systems normal."}</p>
-                </div>
+            <div>
+                <h1 className="text-4xl font-black text-gray-900 tracking-tight">Welcome, {user?.firstName}!</h1>
+                <p className="text-gray-500 font-medium mt-1 text-lg mb-4">Here's a snapshot of your account today.</p>
+                {data.health.criticalAlerts.length > 0 && (
+                     <div className="flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-200">
+                        <ClockIcon className="w-5 h-5 text-primary" />
+                        <p className="text-sm font-bold text-teal-800">{data.health.criticalAlerts[0]?.message}</p>
+                    </div>
+                )}
             </div>
 
             {/* Main Grid */}
@@ -88,10 +76,10 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <Card className="p-6">
                          <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-6 h-6"/>} onClick={() => setCurrentView('myservice')} />
-                            <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-6 h-6"/>} onClick={() => setCurrentView('requests')} />
-                            <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-6 h-6"/>} onClick={() => setCurrentView('requests')} />
-                            <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-6 h-6"/>} onClick={() => setCurrentView('myservice')} />
+                            <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
+                            <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
+                            <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
+                            <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
                          </div>
                     </Card>
                     
