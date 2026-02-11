@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
 import { getInvoices, getPaymentMethods, payInvoice } from '../services/mockApiService.ts';
 import { Invoice, PaymentMethod } from '../types.ts';
@@ -84,17 +83,63 @@ const PayInvoiceModal: React.FC<{
     );
 };
 
+const statusColor = {
+    Paid: 'bg-green-100 text-green-800',
+    Due: 'bg-yellow-100 text-yellow-800',
+    Overdue: 'bg-red-100 text-red-800',
+};
+
+// Mobile-first Invoice List component
+const InvoiceList: React.FC<{ 
+    invoices: Invoice[];
+    onPay: (invoice: Invoice) => void;
+}> = ({ invoices, onPay }) => {
+    return (
+        <div className="space-y-3">
+            {invoices.map(invoice => (
+                <div key={invoice.id} className="p-4 flex flex-col gap-4 rounded-xl bg-gray-50 border border-base-200">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="font-bold text-neutral text-sm">{invoice.description || 'Monthly Service'}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">ID: {invoice.id}</p>
+                        </div>
+                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                    </div>
+
+                    <div className="flex justify-between items-end">
+                         <div>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</p>
+                            <p className="font-medium text-gray-600 text-sm">{invoice.date}</p>
+                        </div>
+                         <div>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</p>
+                            <p className="font-black text-neutral text-lg text-right">${invoice.amount.toFixed(2)}</p>
+                        </div>
+                    </div>
+
+                    {(invoice.status === 'Due' || invoice.status === 'Overdue' || invoice.status === 'Paid') && (
+                        <div className="border-t border-base-200 -mx-4 px-4 pt-3">
+                            {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
+                                <Button size="sm" onClick={() => onPay(invoice)} className="w-full rounded-lg">Pay Now</Button>
+                            ) : (
+                                <Button variant="ghost" size="sm" className="w-full rounded-lg">
+                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download
+                                </Button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+
+
 // Reusable table component for displaying invoices
 const InvoiceTable: React.FC<{ 
     invoices: Invoice[];
     onPay: (invoice: Invoice) => void;
 }> = ({ invoices, onPay }) => {
-    const statusColor = {
-        Paid: 'bg-green-100 text-green-800',
-        Due: 'bg-yellow-100 text-yellow-800',
-        Overdue: 'bg-red-100 text-red-800',
-    };
-
     return (
          <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -216,7 +261,12 @@ const Billing: React.FC = () => {
                                     <BuildingOffice2Icon className="w-5 h-5 text-primary" />
                                     <h3 className="text-lg font-bold text-gray-800 tracking-tight">{property.address}</h3>
                                 </div>
-                                <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} />
+                                 <div className="hidden sm:block">
+                                    <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} />
+                                </div>
+                                <div className="block sm:hidden p-4">
+                                    <InvoiceList invoices={invoices} onPay={handleOpenPayModal} />
+                                </div>
                             </Card>
                         ))
                     ) : (
@@ -231,7 +281,14 @@ const Billing: React.FC = () => {
                         <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History</h2>
                     </div>
                     {singlePropertyInvoices.length > 0 ? (
-                        <InvoiceTable invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                        <>
+                            <div className="hidden sm:block">
+                                <InvoiceTable invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                            </div>
+                             <div className="block sm:hidden p-4">
+                                <InvoiceList invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                            </div>
+                        </>
                     ) : (
                         <div className="text-center py-20 text-gray-400 font-medium italic">
                             No billing activity found for this property.
