@@ -5,45 +5,55 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { TruckIcon, ClockIcon, BellIcon, CheckCircleIcon, XCircleIcon } from './Icons.tsx';
 
-const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => (
-    <Card className="bg-primary/5 border-primary/20 relative overflow-hidden border-none ring-1 ring-primary/20 shadow-xl">
-        <div className="flex justify-between items-center mb-8">
-            <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-primary animate-ping" />
-                <span className="text-sm font-black text-primary uppercase tracking-widest">Live Collection Route</span>
-            </div>
-            <div className="bg-white px-4 py-2 rounded-xl shadow-sm border border-primary/10">
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2">Est. Arrival:</span>
-                <span className="text-lg font-black text-primary">{eta}</span>
-            </div>
-        </div>
-        
-        <div className="relative py-8 px-4">
-            <div className="absolute top-1/2 -mt-0.5 left-8 right-8 h-1 bg-gray-200 rounded-full" />
-            <div className="absolute top-1/2 -mt-0.5 left-8 h-1 bg-primary rounded-full transition-all duration-1000" style={{ width: '65%' }} />
-            
-            <div className="relative flex justify-between">
-                <div className="flex flex-col items-center">
-                    <div className="w-4 h-4 rounded-full bg-primary ring-4 ring-white" />
-                    <span className="text-[10px] font-black text-gray-400 uppercase mt-4">Depot</span>
-                </div>
-                <div className="absolute left-[65%] -mt-6 transform -translate-x-1/2 flex flex-col items-center">
-                    <div className="bg-white border-2 border-primary rounded-2xl p-2 shadow-xl mb-2">
-                        <TruckIcon className="w-6 h-6 text-primary" />
+const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => {
+    const [time, period] = eta.split(' ');
+
+    return (
+        <Card className="bg-white border-primary/20 shadow-xl p-6">
+            <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-primary animate-ping" />
+                    <div>
+                        <p className="text-sm font-black text-primary uppercase tracking-widest leading-none">Live</p>
+                        <p className="text-sm font-black text-primary uppercase tracking-widest">Collection Route</p>
                     </div>
-                    <span className="text-[10px] font-black text-primary uppercase">Truck</span>
                 </div>
-                <div className="flex flex-col items-center">
-                    <div className="w-4 h-4 rounded-full bg-gray-200 ring-4 ring-white" />
-                    <span className="text-[10px] font-black text-gray-400 uppercase mt-4">Destination</span>
+                <div className="bg-gray-100 px-4 py-2 rounded-lg text-center shadow-inner">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Est. Arrival</p>
+                    <div className="flex items-baseline justify-center gap-1">
+                        <span className="text-2xl font-black text-primary leading-none">{time}</span>
+                        <span className="text-sm font-black text-primary leading-none">{period}</span>
+                    </div>
                 </div>
             </div>
-        </div>
-        <p className="text-sm font-medium text-gray-600 mt-8 text-center bg-white/50 py-3 rounded-xl border border-white/50 mx-4 mb-4">
-            The collection crew is currently 4 stops away from your property.
-        </p>
-    </Card>
-);
+            
+            <div className="relative py-6">
+                <div className="absolute top-1/2 -mt-0.5 left-4 right-4 h-1.5 bg-gray-200 rounded-full" />
+                <div className="absolute top-1/2 -mt-0.5 left-4 h-1.5 bg-primary rounded-full transition-all duration-1000" style={{ width: '65%' }} />
+                
+                <div className="relative flex justify-between">
+                    <div className="flex flex-col items-center">
+                        <div className="w-3 h-3 rounded-full bg-primary" />
+                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Depot</span>
+                    </div>
+                    <div className="absolute left-[65%] -mt-6 transform -translate-x-1/2 flex flex-col items-center">
+                        <div className="bg-white border-2 border-primary rounded-lg p-2 shadow-lg mb-1">
+                            <TruckIcon className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="text-[10px] font-black text-primary uppercase">Truck</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                        <div className="w-3 h-3 rounded-full bg-gray-200" />
+                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Destination</span>
+                    </div>
+                </div>
+            </div>
+            <div className="text-sm font-medium text-gray-600 mt-6 text-center bg-gray-100 py-3 px-4 rounded-lg">
+                The collection crew is currently 4 stops away from your property.
+            </div>
+        </Card>
+    );
+};
 
 const ServiceStatusOverview: React.FC = () => {
     const { selectedPropertyId } = useProperty();
@@ -146,17 +156,15 @@ const ServiceStatusOverview: React.FC = () => {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="border-none ring-1 ring-base-200">
-                    <div className="flex items-center gap-4 mb-6">
-                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-                            <BellIcon className="w-5 h-5" />
-                        </div>
+                 <Card className="p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                        <BellIcon className="w-5 h-5 text-gray-400" />
                         <h3 className="font-black text-gray-900 uppercase text-xs tracking-widest">Route Notices</h3>
                     </div>
                     <div className="space-y-4">
-                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex gap-4">
-                            <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                            <p className="text-sm font-medium text-gray-600">Route is proceeding on schedule with no delays.</p>
+                        <div className="p-4 bg-gray-100 rounded-lg flex gap-3 items-start">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                            <p className="text-sm font-medium text-gray-700">Route is proceeding on schedule with no delays.</p>
                         </div>
                     </div>
                 </Card>
