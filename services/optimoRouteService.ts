@@ -1,4 +1,3 @@
-
 const API_KEY = '873c7f72f1c3a0635020aaf42a9919fd4MC9LwleDuU';
 const API_URL = 'https://api.optimoroute.com/v1/orders';
 
@@ -9,6 +8,7 @@ export interface PickupInfo {
         start: string; // e.g., "9:00 AM"
         end: string;   // e.g., "1:00 PM"
     };
+    driver?: string;
 }
 
 export type TaskType = 'DELIVERY' | 'PICKUP';
@@ -21,6 +21,13 @@ export interface Task {
         address: string;
     };
     notes: string;
+}
+
+export interface CollectionHistoryLog {
+    date: string;
+    event: string;
+    status: 'completed' | 'skipped' | 'missed';
+    driver: string;
 }
 
 // Store for created tasks
@@ -51,16 +58,32 @@ const MOCK_OPTIMO_ROUTES: Record<string, PickupInfo> = {
     '121 Elsia Dr': { 
         date: getISODateString(today),
         eta: '11:45 AM', // On pickup day, we have an ETA
+        driver: 'Mike L.',
     },
     '7258 Baldwin Ridge Rd': { 
         date: getISODateString(tomorrow),
-        timeWindow: { start: '9:00 AM', end: '1:00 PM' }
+        timeWindow: { start: '9:00 AM', end: '1:00 PM' },
+        driver: 'Sarah K.',
     },
     '804 W 13th St': { 
         date: getISODateString(dayAfter),
-        timeWindow: { start: '10:00 AM', end: '2:00 PM' }
+        timeWindow: { start: '10:00 AM', end: '2:00 PM' },
+        driver: 'Carlos R.',
     },
 };
+
+const MOCK_PAST_PICKUPS: CollectionHistoryLog[] = [
+    { date: '2025-07-18', event: 'Waste Collected', status: 'completed', driver: 'Mike L.' },
+    { date: '2025-07-11', event: 'Waste Collected', status: 'completed', driver: 'Sarah K.' },
+    { date: '2025-07-04', event: 'Holiday Skip (Independence Day)', status: 'skipped', driver: 'N/A' },
+    { date: '2025-06-27', event: 'Waste Collected', status: 'completed', driver: 'Mike L.' },
+    { date: '2025-06-20', event: 'Waste & Recycling Collected', status: 'completed', driver: 'Carlos R.' },
+    { date: '2025-06-13', event: 'Waste Collected', status: 'completed', driver: 'Sarah K.' },
+    { date: '2025-06-06', event: 'Waste Collected', status: 'completed', driver: 'Mike L.' },
+    { date: '2025-05-30', event: 'Waste Collected', status: 'completed', driver: 'Mike L.' },
+    { date: '2025-05-23', event: 'Holiday Skip (Memorial Day)', status: 'skipped', driver: 'N/A' },
+];
+
 
 /**
  * Simulates fetching the next pickup schedule for a given property address from OptimoRoute.
@@ -77,6 +100,22 @@ export const getNextPickupInfo = async (address: string): Promise<PickupInfo | n
             resolve(schedule || null); // Return null if no specific schedule is mocked for the address
         }, 700); // Simulate network latency
     });
+};
+
+/**
+ * Simulates fetching past pickup records for a given property address.
+ * @param address The property address to search for.
+ * @returns A promise that resolves to an array of past collection logs.
+ */
+export const getPastPickups = async(address: string): Promise<CollectionHistoryLog[]> => {
+     console.log(`[OptimoRoute MOCK] Fetching history for: ${address}`);
+     // This is a simulation. A real API might require pagination.
+     // The address isn't used here, as we have one set of mock history.
+     return new Promise(resolve => {
+         setTimeout(() => {
+             resolve(MOCK_PAST_PICKUPS);
+         }, 500);
+     });
 };
 
 /**

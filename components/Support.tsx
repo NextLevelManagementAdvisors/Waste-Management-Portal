@@ -11,11 +11,11 @@ import { useProperty } from '../PropertyContext.tsx';
 interface GroundingSource {
     title: string;
     uri: string;
-    type: 'web' | 'map';
+    type: 'web';
 }
 
 const Support: React.FC = () => {
-    const { user, selectedProperty, resetApiKey } = useProperty();
+    const { user, selectedProperty } = useProperty();
     const [messages, setMessages] = useState<(SupportMessage & { sources?: GroundingSource[] })[]>([
         { sender: 'gemini', text: "Welcome to your AI Concierge. I can help you with account billing, scheduling, or searching for holiday delays. How can I assist you?" }
     ]);
@@ -23,29 +23,12 @@ const Support: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [streamingText, setStreamingText] = useState('');
     const [streamingSources, setStreamingSources] = useState<GroundingSource[]>([]);
-    const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streamingText]);
-
-    useEffect(() => {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setLocation({
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                    });
-                },
-                (error) => {
-                    console.warn(`Geolocation error: ${error.message}`);
-                }
-            );
-        }
-    }, []);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -74,7 +57,7 @@ const Support: React.FC = () => {
                 user: { ...user, address: selectedProperty.address },
                 subscriptions: propertySubs,
                 invoices: propertyInvoices
-            }, location);
+            });
 
             let fullText = "";
             let finalSources: GroundingSource[] = [];
@@ -94,13 +77,6 @@ const Support: React.FC = () => {
                                 type: 'web',
                             });
                         }
-                        if (gChunk.maps?.uri && !finalSources.some(s => s.uri === gChunk.maps.uri)) {
-                            finalSources.push({
-                                title: gChunk.maps.title || 'View on Google Maps',
-                                uri: gChunk.maps.uri,
-                                type: 'map',
-                            });
-                        }
                     });
                     setStreamingSources([...finalSources]);
                 }
@@ -111,13 +87,7 @@ const Support: React.FC = () => {
             setStreamingSources([]);
         } catch (error) {
             console.error(error);
-            // Handle specific API key error as per guidelines
-            if (error instanceof Error && error.message.includes("Requested entity was not found.")) {
-                setMessages(prev => [...prev, { sender: 'gemini', text: "There was an issue with the API key. Please re-select a valid key to continue." }]);
-                resetApiKey(); // Signal to App.tsx to re-prompt for key
-            } else {
-                setMessages(prev => [...prev, { sender: 'gemini', text: "I'm having trouble connecting to my knowledge base. Please try again or call our support line." }]);
-            }
+            setMessages(prev => [...prev, { sender: 'gemini', text: "I'm having trouble connecting to my knowledge base. Please try again or call our support line." }]);
         } finally {
             setIsLoading(false);
         }
@@ -163,7 +133,7 @@ const Support: React.FC = () => {
                                         rel="noopener noreferrer"
                                         className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 hover:bg-primary/10 transition-colors flex items-center gap-1.5"
                                     >
-                                        {source.type === 'map' ? <MapPinIcon className="w-3 h-3" /> : <ArrowRightIcon className="w-3 h-3" />}
+                                        <ArrowRightIcon className="w-3 h-3" />
                                         {source.title}
                                     </a>
                                 ))}
@@ -187,7 +157,7 @@ const Support: React.FC = () => {
                                         rel="noopener noreferrer"
                                         className="text-[10px] font-bold text-primary bg-primary/5 px-3 py-1.5 rounded-full border border-primary/10 flex items-center gap-1.5"
                                     >
-                                        {source.type === 'map' ? <MapPinIcon className="w-3 h-3" /> : <ArrowRightIcon className="w-3 h-3" />}
+                                        <ArrowRightIcon className="w-3 h-3" />
                                         {source.title}
                                     </a>
                                 ))}

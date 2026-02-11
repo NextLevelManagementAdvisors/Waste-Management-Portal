@@ -1,7 +1,13 @@
-
 import React from 'react';
 
 export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'start-service';
+
+export interface PostNavAction {
+  targetView: View;
+  targetTab?: string;
+  action: 'openTipModal';
+  targetDate: string;
+}
 
 export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
@@ -129,11 +135,6 @@ export interface NewPropertyInfo {
   gateCode?: string;
   notes?: string;
   referralCode?: string;
-}
-
-export interface AddressSuggestion {
-    description: string;
-    placeId: string;
 }
 
 export interface UpdatePropertyInfo {

@@ -1,6 +1,5 @@
-
 import { createContext, useContext } from 'react';
-import { User, Property, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo } from './types.ts';
+import { User, Property, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, PostNavAction } from './types.ts';
 
 export interface PropertyContextType {
     user: User | null;
@@ -13,11 +12,12 @@ export interface PropertyContextType {
     updateProperty: (propertyId: string, details: UpdatePropertyInfo) => Promise<void>;
     updateProfile: (profileInfo: UpdateProfileInfo) => Promise<void>;
     updatePassword: (passwordInfo: UpdatePasswordInfo) => Promise<void>;
-    resetApiKey: () => void;
     cancelPropertyServices: (propertyId: string) => Promise<void>;
     restartPropertyServices: (propertyId: string) => Promise<void>;
     sendTransferReminder: (propertyId: string) => Promise<void>;
     startNewServiceFlow: () => void;
+    postNavAction: PostNavAction | null;
+    setPostNavAction: (action: PostNavAction | null) => void;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({
@@ -31,11 +31,12 @@ export const PropertyContext = createContext<PropertyContextType>({
     updateProperty: async () => {},
     updateProfile: async () => {},
     updatePassword: async () => {},
-    resetApiKey: () => {},
     cancelPropertyServices: async () => {},
     restartPropertyServices: async () => {},
     sendTransferReminder: async () => {},
     startNewServiceFlow: () => {},
+    postNavAction: null,
+    setPostNavAction: () => {},
 });
 
 export const useProperty = () => useContext(PropertyContext);

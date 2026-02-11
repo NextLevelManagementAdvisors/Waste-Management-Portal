@@ -1,14 +1,14 @@
-
 import React, { useEffect, useState } from 'react';
-import { getDashboardState, PropertyState, AccountHealth } from '../services/mockApiService.ts';
+import { getDashboardState, PropertyState, AccountHealth, dismissTipPrompt } from '../services/mockApiService.ts';
 import { View } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
+// FIX: Removed 'recharts' due to incompatibility with React 19, which caused a "Rendered more hooks than during the previous render" error. The chart is replaced with a simpler financial summary.
 import { 
     BanknotesIcon, ArrowRightIcon, CheckCircleIcon, SparklesIcon,
-    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon
+    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon, CurrencyDollarIcon
 } from './Icons.tsx';
 
 interface DashboardProps {
@@ -25,20 +25,44 @@ const QuickActionButton: React.FC<{ label: string; icon: React.ReactNode; onClic
 );
 
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
-    const { user, selectedPropertyId } = useProperty();
+    const { user, selectedPropertyId, setPostNavAction } = useProperty();
     const [data, setData] = useState<{ states: PropertyState[]; health: AccountHealth } | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isTipPromptOpen, setIsTipPromptOpen] = useState(false);
 
     useEffect(() => {
         setLoading(true);
         getDashboardState(selectedPropertyId || 'all').then(res => {
             setData(res);
             setLoading(false);
+            const lastPickup = res.states[0]?.lastPickup;
+            if (lastPickup?.showTipPrompt) {
+                setIsTipPromptOpen(true);
+            }
         }).catch(err => {
             console.error("Failed to load dashboard state", err);
             setLoading(false);
         });
     }, [selectedPropertyId]);
+    
+    const lastPickupState = data?.states.find(s => s.lastPickup)?.lastPickup;
+
+    const handleLeaveTipClick = () => {
+        if (!lastPickupState) return;
+        setPostNavAction({
+            targetView: 'myservice',
+            targetTab: 'history',
+            action: 'openTipModal',
+            targetDate: lastPickupState.date
+        });
+        setIsTipPromptOpen(false);
+    };
+
+    const handleDismissTipPrompt = () => {
+        if (!lastPickupState || !data?.states[0].property.id) return;
+        dismissTipPrompt(data.states[0].property.id, lastPickupState.date);
+        setIsTipPromptOpen(false);
+    };
 
     if (loading || !data) {
         return (
@@ -48,11 +72,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             </div>
         );
     }
-    
-    const chartData = [
-        { name: 'Monthly', value: data.health.totalMonthlyCost },
-        { name: 'Balance', value: data.health.outstandingBalance }
-    ];
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -86,14 +105,15 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     {/* Financial Snapshot */}
                     <Card className="p-6">
                         <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Financials</h2>
-                        <div className="h-48">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
-                                    <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#6B7280', fontSize: 12, fontWeight: 'bold' }} />
-                                    <Tooltip cursor={{ fill: 'rgba(243, 244, 246, 0.5)' }} contentStyle={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: '0.75rem' }} />
-                                    <Bar dataKey="value" fill="#0D9488" radius={[8, 8, 0, 0]} barSize={50} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10">
+                                <p className="text-xs font-bold text-primary uppercase tracking-wider">Total Monthly Cost</p>
+                                <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
+                            </div>
+                            <div className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100">
+                                <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Outstanding Balance</p>
+                                <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
+                            </div>
                         </div>
                     </Card>
 
@@ -140,6 +160,20 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     </Card>
                 </div>
             </div>
+            
+             <Modal isOpen={isTipPromptOpen} onClose={handleDismissTipPrompt} title="Great Service Today?">
+                <div className="text-center py-4">
+                    <CurrencyDollarIcon className="w-16 h-16 text-primary mx-auto mb-4" />
+                    <h3 className="text-xl font-black text-neutral">Appreciate your driver?</h3>
+                    <p className="text-gray-600 mt-2">
+                        Your collection was completed successfully. Would you like to leave a tip for your driver, <span className="font-bold">{lastPickupState?.driverName || 'the crew'}</span>?
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+                        <Button onClick={handleDismissTipPrompt} variant="secondary" className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Not Now</Button>
+                        <Button onClick={handleLeaveTipClick} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Leave a Tip</Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };

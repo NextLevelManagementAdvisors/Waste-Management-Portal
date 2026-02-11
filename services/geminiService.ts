@@ -7,8 +7,7 @@ import { User, Subscription, Invoice } from '../types.ts';
  */
 export const getSupportResponseStream = async (
   prompt: string,
-  userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] },
-  location: { latitude: number; longitude: number } | null
+  userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] }
 ) => {
   // FIX: Created a new GoogleGenAI instance before making an API call.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -23,26 +22,16 @@ export const getSupportResponseStream = async (
     - Outstanding Balance: $${userContext.invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => acc + inv.amount, 0).toFixed(2)}
   `;
 
-  const config: any = {
-    systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details, Google Search, and Google Maps for location-based info. Use search to verify any external events like holiday schedules, weather delays, or local traffic if relevant to the user's trash collection. Use Maps for queries about locations, directions, or nearby facilities. Always cite your sources if used.",
-    tools: [{ googleSearch: {} }, { googleMaps: {} }]
-  };
+  const tools: any[] = [{ googleSearch: {} }];
 
-  if (location) {
-    config.toolConfig = {
-      retrievalConfig: {
-        latLng: {
-          latitude: location.latitude,
-          longitude: location.longitude
-        }
-      }
-    };
-  }
+  const config: any = {
+    systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details and Google Search. Use search to verify any external events like holiday schedules, weather delays, or local traffic if relevant to the user's trash collection. Always cite your sources if used.",
+    tools: tools
+  };
 
   try {
     const responseStream = await ai.models.generateContentStream({
-      // FIX: Use a model that supports Google Maps grounding.
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
       config: config,
     });

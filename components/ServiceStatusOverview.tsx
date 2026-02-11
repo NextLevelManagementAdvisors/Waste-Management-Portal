@@ -1,11 +1,9 @@
-
 import React, { useEffect, useState } from 'react';
-import { getDashboardState, PropertyState, setCollectionIntent, leaveDriverTip, leaveDriverNote } from '../services/mockApiService.ts';
+import { getDashboardState, PropertyState, setCollectionIntent } from '../services/mockApiService.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import Modal from './Modal.tsx';
-import { TruckIcon, ClockIcon, BellIcon, CheckCircleIcon, XCircleIcon, CurrencyDollarIcon, PencilSquareIcon } from './Icons.tsx';
+import { TruckIcon, ClockIcon, BellIcon, CheckCircleIcon, XCircleIcon } from './Icons.tsx';
 
 const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => (
     <Card className="bg-primary/5 border-primary/20 relative overflow-hidden border-none ring-1 ring-primary/20 shadow-xl">
@@ -53,10 +51,6 @@ const ServiceStatusOverview: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [intent, setIntent] = useState<'out' | 'skip' | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
-    const [isTipModalOpen, setIsTipModalOpen] = useState(false);
-    const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
-    const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
     const fetchData = () => {
         if (!selectedPropertyId || selectedPropertyId === 'all') {
@@ -68,7 +62,6 @@ const ServiceStatusOverview: React.FC = () => {
             const currentState = res.states[0] || null;
             setState(currentState);
             setIntent(currentState?.collectionIntent || null);
-            setFeedbackSubmitted(currentState?.lastPickup?.feedbackSubmitted || false);
             setLoading(false);
         });
     }
@@ -90,34 +83,6 @@ const ServiceStatusOverview: React.FC = () => {
         }
     };
     
-    const handleLeaveTip = async (amount: number) => {
-        if (!selectedPropertyId || !state?.lastPickup) return;
-        setIsSubmitting(true);
-        try {
-            await leaveDriverTip(selectedPropertyId, amount, state.lastPickup.date);
-            setFeedbackSubmitted(true); // Assume success
-            setIsTipModalOpen(false);
-        } catch (e) {
-            console.error("Failed to leave tip", e);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const handleLeaveNote = async (note: string) => {
-        if (!selectedPropertyId || !state?.lastPickup) return;
-        setIsSubmitting(true);
-        try {
-            await leaveDriverNote(selectedPropertyId, note, state.lastPickup.date);
-            setFeedbackSubmitted(true); // Assume success
-            setIsNoteModalOpen(false);
-        } catch (e) {
-            console.error("Failed to leave note", e);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
     if (loading || !state) {
         return (
             <div className="flex flex-col justify-center items-center h-48 gap-4">
@@ -169,30 +134,13 @@ const ServiceStatusOverview: React.FC = () => {
             )}
 
             {state.lastPickup && (
-                <Card className="border-none ring-1 ring-base-200">
+                 <Card className="border-none ring-1 ring-base-200">
                     <div className="text-center">
                         <div className="w-16 h-16 bg-primary/5 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <CheckCircleIcon className="w-8 h-8" />
                         </div>
-                        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Collection Complete!</h2>
-                        <p className="text-gray-500 mt-1">Your waste was collected on {state.lastPickup.label}.</p>
-                    </div>
-                    
-                    <div className="mt-8 pt-8 border-t border-base-100">
-                        {feedbackSubmitted ? (
-                            <p className="text-center font-bold text-primary">Thank you for your feedback!</p>
-                        ) : (
-                            <div className="flex flex-col sm:flex-row gap-4">
-                                <Button onClick={() => setIsTipModalOpen(true)} variant="secondary" className="flex-1 h-16 rounded-2xl text-sm font-black uppercase tracking-widest">
-                                    <CurrencyDollarIcon className="w-5 h-5 mr-2" />
-                                    Leave a Tip
-                                </Button>
-                                <Button onClick={() => setIsNoteModalOpen(true)} variant="secondary" className="flex-1 h-16 rounded-2xl text-sm font-black uppercase tracking-widest">
-                                    <PencilSquareIcon className="w-5 h-5 mr-2"/>
-                                    Leave a Note
-                                </Button>
-                            </div>
-                        )}
+                        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Last Collection: {state.lastPickup.label}</h2>
+                        <p className="text-gray-500 mt-1">Want to leave feedback? You can now do so from the <span className="font-bold">History</span> tab.</p>
                     </div>
                 </Card>
             )}
@@ -229,39 +177,6 @@ const ServiceStatusOverview: React.FC = () => {
                     </div>
                 </Card>
             </div>
-            
-            {/* Tip Modal */}
-            <Modal isOpen={isTipModalOpen} onClose={() => setIsTipModalOpen(false)} title="Leave a Tip">
-                <div className="text-center space-y-6">
-                    <p className="text-gray-600">A small gesture goes a long way. 100% of your tip goes directly to the driver.</p>
-                    <div className="grid grid-cols-3 gap-3">
-                        {[2, 5, 10].map(amount => (
-                            <Button key={amount} onClick={() => handleLeaveTip(amount)} variant="secondary" className="h-16 text-xl font-black" disabled={isSubmitting}>
-                                ${amount}
-                            </Button>
-                        ))}
-                    </div>
-                     <p className="text-xs text-gray-400 font-bold uppercase">Or enter a custom amount</p>
-                    <input type="number" min="1" step="1" className="w-full text-center bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-black text-3xl text-gray-900 focus:outline-none focus:border-primary transition-colors" placeholder="$ 0.00" />
-                    <Button onClick={() => handleLeaveTip(5)} className="w-full h-14 rounded-xl uppercase tracking-widest font-black" disabled={isSubmitting}>
-                        {isSubmitting ? 'Sending...' : 'Send Tip'}
-                    </Button>
-                </div>
-            </Modal>
-            
-            {/* Note Modal */}
-            <Modal isOpen={isNoteModalOpen} onClose={() => setIsNoteModalOpen(false)} title="Leave a Note for the Driver">
-                <form onSubmit={(e) => { e.preventDefault(); handleLeaveNote(e.currentTarget.note.value); }}>
-                     <div className="space-y-6">
-                        <p className="text-gray-600">Your feedback is valuable. Let us know how we did or leave a thank you message.</p>
-                        <textarea name="note" rows={4} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors resize-none" placeholder="e.g., Thank you for always being so careful with the cans!" required />
-                        <div className="flex justify-end gap-3">
-                            <Button type="button" variant="secondary" onClick={() => setIsNoteModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Sending...' : 'Send Note'}</Button>
-                        </div>
-                    </div>
-                </form>
-            </Modal>
         </div>
     );
 };

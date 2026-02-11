@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Header from './components/Header.tsx';
@@ -13,20 +12,17 @@ import StartService from './components/StartService.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
-import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service } from './types.ts';
+import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
-import { KeyIcon } from './components/Icons.tsx';
+import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState<string | null>(null);
-  
-  const [isApiKeyReady, setIsApiKeyReady] = useState(false);
-  const [isCheckingApiKey, setIsCheckingApiKey] = useState(false);
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('home');
@@ -34,29 +30,12 @@ const App: React.FC = () => {
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
+  const [postNavAction, setPostNavAction] = useState<PostNavAction | null>(null);
 
   const properties = useMemo(() => user?.properties || [], [user]);
   const selectedProperty = useMemo(() => 
     selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null
   , [selectedPropertyId, properties]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      setIsCheckingApiKey(true);
-      const checkApiKey = async () => {
-        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-          const keySelected = await window.aistudio.hasSelectedApiKey();
-          setIsApiKeyReady(keySelected);
-        } else {
-          setIsApiKeyReady(true);
-        }
-        setIsCheckingApiKey(false);
-      };
-      checkApiKey();
-    } else {
-      setIsApiKeyReady(false);
-    }
-  }, [isAuthenticated]);
 
   const fetchUserAndSetState = useCallback((userData: User) => {
     setUser(userData);
@@ -82,6 +61,12 @@ const App: React.FC = () => {
         console.error("Failed to refresh user data:", error);
     }
   }, [fetchUserAndSetState]);
+  
+  useEffect(() => {
+    if (postNavAction) {
+        setCurrentView(postNavAction.targetView);
+    }
+  }, [postNavAction]);
 
   const handleLogin = useCallback(async (email: string, password: string): Promise<void> => {
     setAuthError(null);
@@ -120,17 +105,6 @@ const App: React.FC = () => {
     setSelectedPropertyId(null);
     setAuthView('login');
     setCurrentView('home');
-  }, []);
-  
-  const handleSelectKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-        await window.aistudio.openSelectKey();
-        setIsApiKeyReady(true);
-    }
-  };
-
-  const handleResetApiKey = useCallback(() => {
-    setIsApiKeyReady(false);
   }, []);
   
   const startNewServiceFlow = useCallback(() => {
@@ -241,12 +215,13 @@ const App: React.FC = () => {
     updateProperty: handleUpdateProperty,
     updateProfile: handleUpdateProfile,
     updatePassword: handleUpdatePassword,
-    resetApiKey: handleResetApiKey,
     cancelPropertyServices: handleCancelPropertyServices,
     restartPropertyServices: handleRestartPropertyServices,
     sendTransferReminder: handleSendTransferReminder,
     startNewServiceFlow,
-  }), [user, properties, selectedProperty, selectedPropertyId, loading, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleResetApiKey, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, startNewServiceFlow]);
+    postNavAction,
+    setPostNavAction,
+  }), [user, properties, selectedProperty, selectedPropertyId, loading, postNavAction, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, startNewServiceFlow]);
 
   const renderView = () => {
     switch (currentView) {
@@ -271,43 +246,6 @@ const App: React.FC = () => {
             <Registration onRegister={handleRegister} switchToLogin={() => setAuthView('login')} error={authError} />
         )}
       </AuthLayout>
-    );
-  }
-
-  if (isCheckingApiKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-base-100">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary/20 border-t-primary"></div>
-          <p className="mt-4 text-sm font-bold text-gray-500">Verifying AI Engine Access...</p>
-      </div>
-    );
-  }
-
-  if (!isApiKeyReady) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-base-100 p-4">
-          <Card className="max-w-lg text-center border-t-4 border-primary shadow-2xl animate-in fade-in duration-500">
-              <div className="w-16 h-16 bg-primary/5 text-primary rounded-2xl flex items-center justify-center mx-auto mb-6">
-                  <KeyIcon className="w-8 h-8" />
-              </div>
-              <h2 className="text-2xl font-black text-gray-900 tracking-tight">API Key Required</h2>
-              <p className="text-gray-500 mt-4 leading-relaxed">
-                  To activate advanced AI features, please select an API key associated with a paid Google Cloud project. This is a one-time setup.
-              </p>
-              <p className="text-xs text-gray-400 mt-4">
-                  For more details on billing, visit the{' '}
-                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                      official documentation
-                  </a>.
-              </p>
-              <Button
-                  onClick={handleSelectKey}
-                  className="w-full mt-8 rounded-2xl py-4 font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20"
-              >
-                  Select Your API Key
-              </Button>
-          </Card>
-      </div>
     );
   }
   

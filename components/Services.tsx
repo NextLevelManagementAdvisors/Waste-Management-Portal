@@ -1,12 +1,12 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
-import { getServices, getSubscriptions, changeServiceQuantity } from '../services/mockApiService.ts';
+import { getServices, getSubscriptions, changeServiceQuantity, cancelSubscription, subscribeToNewService, setServiceQuantity } from '../services/mockApiService.ts';
 import { Service, Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, HomeModernIcon, ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
+import { PlusIcon, TrashIcon, SparklesIcon, TruckIcon, HomeModernIcon, ExclamationTriangleIcon, PlayCircleIcon, SunIcon } from './Icons.tsx';
+import ToggleSwitch from './ToggleSwitch.tsx';
 
 const QuantitySelector: React.FC<{
     quantity: number;
@@ -106,9 +106,10 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
     
     const [equipmentModal, setEquipmentModal] = useState<{ isOpen: boolean; service: Service | null }>({ isOpen: false, service: null });
     const [isRestarting, setIsRestarting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     const fetchData = async () => {
-        setLoading(true);
+        // Don't set loading true here to avoid UI flicker during sync
         try {
             const [servicesData, subsData] = await Promise.all([getServices(), getSubscriptions()]);
             setServices(servicesData);
@@ -121,9 +122,49 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
     };
 
     useEffect(() => {
+        setLoading(true);
         fetchData();
     }, []);
     
+    const atHouseService = useMemo(() => services.find(s => s.id === 'prod_TOvyKnOx4KLBc2'), [services]);
+    const linerService = useMemo(() => services.find(s => s.id === 'prod_TOx5lSdv97AAGb'), [services]);
+
+    const totalBaseServiceCans = useMemo(() => {
+        if (!selectedProperty) return 0;
+        const baseServiceIds = services.filter(s => s.category === 'base_service').map(s => s.id);
+        return subscriptions
+            .filter(s => s.propertyId === selectedProperty.id && baseServiceIds.includes(s.serviceId) && s.status === 'active')
+            .reduce((total, sub) => total + sub.quantity, 0);
+    }, [subscriptions, services, selectedProperty]);
+    
+    const linerSubscription = useMemo(() => {
+        if (!linerService || !selectedProperty) return undefined;
+        return subscriptions.find(sub => sub.serviceId === linerService.id && sub.propertyId === selectedProperty.id && sub.status === 'active');
+    }, [subscriptions, linerService, selectedProperty]);
+
+    useEffect(() => {
+        if (loading || isSyncing || !linerSubscription || !linerService || updatingIds[linerService.id]) {
+            return;
+        }
+
+        if (totalBaseServiceCans > 0 && linerSubscription.quantity !== totalBaseServiceCans) {
+            const syncQuantity = async () => {
+                setIsSyncing(true);
+                setUpdatingIds(prev => ({ ...prev, [linerService!.id]: true }));
+                try {
+                    await setServiceQuantity(linerSubscription.id, totalBaseServiceCans);
+                    await fetchData();
+                } catch (error) {
+                    console.error("Failed to sync liner quantity:", error);
+                } finally {
+                    setUpdatingIds(prev => ({ ...prev, [linerService!.id]: false }));
+                    setIsSyncing(false);
+                }
+            };
+            syncQuantity();
+        }
+    }, [totalBaseServiceCans, linerSubscription, loading, isSyncing, updatingIds]);
+
     const propertyStatus = useMemo(() => {
         if (!selectedProperty || loading) return 'loading';
         const propSubs = subscriptions.filter(s => s.propertyId === selectedProperty.id);
@@ -137,6 +178,22 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
         setUpdatingIds(prev => ({...prev, [service.id]: true }));
         try {
             await changeServiceQuantity(service, selectedProperty.id, change, useSticker);
+
+            if (service.category === 'base_service') {
+                const currentSubs = await getSubscriptions();
+                const newTotalCans = currentSubs
+                    .filter(s => s.propertyId === selectedProperty!.id && services.find(srv => srv.id === s.serviceId)?.category === 'base_service' && s.status === 'active')
+                    .reduce((total, sub) => total + sub.quantity, 0);
+
+                if (newTotalCans === 0) {
+                    const linerSub = currentSubs.find(s => s.serviceId === linerService?.id && s.propertyId === selectedProperty!.id && s.status === 'active');
+                    if (linerSub) await cancelSubscription(linerSub.id);
+
+                    const atHouseSub = currentSubs.find(s => s.serviceId === atHouseService?.id && s.propertyId === selectedProperty!.id && s.status === 'active');
+                    if (atHouseSub) await cancelSubscription(atHouseSub.id);
+                }
+            }
+
             await fetchData();
         } catch (error) {
             console.error("Failed to update quantity:", error);
@@ -149,7 +206,6 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
     const handleAddService = (service: Service) => {
         const subscription = getSubscriptionForService(service.id);
         const quantity = subscription?.quantity || 0;
-
         if (quantity > 0) {
             handleSubscriptionChange(service, 'increment');
         } else {
@@ -159,16 +215,9 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
     
     const confirmAddService = async (useSticker: boolean) => {
         const service = equipmentModal.service;
-        if (!service || !selectedProperty) return;
-
-        setUpdatingIds(prev => ({...prev, [service.id]: true }));
-        if (baseFeeService && totalBaseServiceCans === 0) {
-            await handleSubscriptionChange(baseFeeService, 'increment');
-        }
+        if (!service) return;
         await handleSubscriptionChange(service, 'increment', useSticker);
-        
         setEquipmentModal({ isOpen: false, service: null });
-        setUpdatingIds(prev => ({...prev, [service.id]: false }));
     };
 
     const handleRestartServices = async () => {
@@ -184,30 +233,15 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
         }
     };
 
-    const serviceGroups = useMemo(() => services.reduce((acc, service) => {
-        if (!acc[service.category]) acc[service.category] = [];
-        acc[service.category].push(service);
-        return acc;
-    }, {} as Record<Service['category'], Service[]>), [services]);
-    
-    const baseFeeService = useMemo(() => services.find(s => s.category === 'base_fee'), [services]);
-    const atHouseService = useMemo(() => services.find(s => s.id === 'prod_TOvyKnOx4KLBc2'), [services]);
-
     const isAtHouseSubscribed = useMemo(() => {
         if (!atHouseService || !selectedProperty) return false;
         return subscriptions.some(sub => sub.serviceId === atHouseService.id && sub.propertyId === selectedProperty.id && sub.status === 'active');
     }, [subscriptions, atHouseService, selectedProperty]);
     
+    const isLinerSubscribed = useMemo(() => !!linerSubscription, [linerSubscription]);
+
     const getSubscriptionForService = (serviceId: string) => 
         subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
-
-    const totalBaseServiceCans = useMemo(() => {
-        if (!selectedProperty) return 0;
-        const baseServiceIds = services.filter(s => s.category === 'base_service').map(s => s.id);
-        return subscriptions
-            .filter(s => s.propertyId === selectedProperty.id && baseServiceIds.includes(s.serviceId) && s.status === 'active')
-            .reduce((total, sub) => total + sub.quantity, 0);
-    }, [subscriptions, services, selectedProperty]);
     
     const monthlyTotal = useMemo(() => {
         if (!selectedProperty) return 0;
@@ -218,7 +252,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
 
     const isTransferPending = selectedProperty?.transferStatus === 'pending';
     
-    if (loading || !baseFeeService || propertyStatus === 'loading') {
+    if (loading || propertyStatus === 'loading') {
         return <div className="flex justify-center items-center h-full p-12"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
@@ -252,7 +286,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
         );
     }
 
-    const baseServices = (serviceGroups.base_service || []);
+    const baseServices = services.filter(s => s.category === 'base_service');
 
     return (
         <div className="space-y-6">
@@ -263,66 +297,54 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                 onConfirm={confirmAddService}
                 isProcessing={!!(equipmentModal.service && updatingIds[equipmentModal.service.id])}
             />
-            <div className="grid grid-cols-1 gap-6">
-                <Card className="p-0 overflow-hidden">
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Collection Method</h2>
-                    <div className="p-6">
-                        {isAtHouseSubscribed && atHouseService ? (
-                            <div className="p-4 bg-teal-50 border border-primary rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <div className="flex items-center gap-4 flex-1">
-                                    <HomeModernIcon className="w-6 h-6 text-primary" />
-                                    <div>
-                                        <h3 className="font-bold text-gray-900">Premium At House</h3>
-                                        <p className="text-sm text-gray-600">We retrieve cans from your property for you.</p>
+             <div className="grid grid-cols-1 gap-6">
+                {(atHouseService || linerService) && (
+                    <Card className="p-0 overflow-hidden">
+                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
+                        <div className="divide-y divide-base-200">
+                            {atHouseService && (
+                                <div className="p-6 flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <HomeModernIcon className="w-6 h-6 text-primary"/>
+                                        <div>
+                                            <h4 className="font-bold">{atHouseService.name}</h4>
+                                            <p className="text-xs text-gray-500">{atHouseService.description}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <p className="text-sm font-bold text-primary">+${atHouseService.price.toFixed(2)}/mo</p>
+                                        <ToggleSwitch 
+                                            checked={isAtHouseSubscribed}
+                                            onChange={() => handleSubscriptionChange(atHouseService, isAtHouseSubscribed ? 'decrement' : 'increment')}
+                                            disabled={totalBaseServiceCans === 0 || updatingIds[atHouseService.id]}
+                                        />
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-6">
-                                    <div className="text-right">
-                                        <p className="font-bold text-2xl text-primary">${((totalBaseServiceCans > 0 ? baseFeeService.price : 0) + atHouseService.price).toFixed(2)}</p>
-                                        <p className="text-[10px] text-primary/70 font-bold uppercase tracking-widest">Total Fee</p>
+                            )}
+                            {linerService && (
+                                <div className="p-6 flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <SunIcon className="w-6 h-6 text-orange-400"/>
+                                        <div>
+                                            <h4 className="font-bold">{linerService.name}</h4>
+                                            <p className="text-xs text-gray-500">{linerService.description}</p>
+                                        </div>
                                     </div>
-                                    <Button 
-                                    onClick={() => handleSubscriptionChange(atHouseService, 'decrement')}
-                                    disabled={!!updatingIds[atHouseService.id]}
-                                    variant="secondary" 
-                                    size="sm"
-                                    className="rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-widest shrink-0"
-                                >
-                                    {!!updatingIds[atHouseService.id] ? 'Updating...' : 'Downgrade to Curbside'}
-                                </Button>
-                            </div>
-                            </div>
-                        ) : (
-                            <div className="p-4 bg-gray-100 border border-gray-200 rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <div className="flex items-center gap-4 flex-1">
-                                    <TruckIcon className="w-6 h-6 text-gray-500" />
-                                    <div>
-                                        <h3 className="font-bold text-gray-900">Standard Curbside</h3>
-                                        <p className="text-sm text-gray-600">Cans must be placed at the curb for collection.</p>
+                                    <div className="flex items-center gap-4">
+                                        <p className="text-sm font-bold text-primary" aria-live="polite">
+                                            +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
+                                        </p>
+                                        <ToggleSwitch 
+                                            checked={isLinerSubscribed}
+                                            onChange={() => handleSubscriptionChange(linerService, isLinerSubscribed ? 'decrement' : 'increment')}
+                                            disabled={totalBaseServiceCans === 0 || updatingIds[linerService.id] || isSyncing}
+                                        />
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-6">
-                                     <div className="text-right">
-                                        <p className="font-bold text-2xl text-gray-900">${(totalBaseServiceCans > 0 ? baseFeeService.price : 0).toFixed(2)}</p>
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Base Fee</p>
-                                    </div>
-                                    {atHouseService && (
-                                        <Button 
-                                            onClick={() => handleSubscriptionChange(atHouseService, 'increment')}
-                                            disabled={!!updatingIds[atHouseService.id] || totalBaseServiceCans === 0}
-                                            variant="secondary"
-                                            size="sm"
-                                            className="rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-widest shrink-0"
-                                            title={totalBaseServiceCans === 0 ? "Add a can to enable upgrades" : ""}
-                                        >
-                                            {!!updatingIds[atHouseService.id] ? 'Updating...' : `Upgrade (+$${atHouseService.price.toFixed(2)})`}
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </Card>
+                            )}
+                        </div>
+                    </Card>
+                )}
 
                 <Card className="p-0 overflow-hidden">
                     <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Equipment & Frequency</h2>

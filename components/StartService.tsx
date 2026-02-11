@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
-import { NewPropertyInfo, PaymentMethod, Service, AddressSuggestion } from '../types.ts';
+import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/mockApiService.ts';
-import { getAddressSuggestions, getPlaceDetails } from '../services/addressService.ts';
-import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon } from './Icons.tsx';
+import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon, HomeModernIcon, TruckIcon, SunIcon } from './Icons.tsx';
+import ToggleSwitch from './ToggleSwitch.tsx';
 
 interface ServiceSelection {
     serviceId: string;
@@ -86,19 +86,9 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // Step 1: Address Validation State
-    const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-    const [isAddressValidated, setIsAddressValidated] = useState(false);
-    const [isSearching, setIsSearching] = useState(false);
-    const addressInputRef = useRef<HTMLDivElement>(null);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [addressError, setAddressError] = useState<string | null>(null);
-
     // Step 3 state
     const [availableServices, setAvailableServices] = useState<Service[]>([]);
     const [selectedServices, setSelectedServices] = useState<ServiceSelection[]>([]);
-    const [updatingIds, setUpdatingIds] = useState<Record<string, boolean>>({});
-
 
     // Step 4 state
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -107,56 +97,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     const [selectedMethodId, setSelectedMethodId] = useState('');
     const [newPaymentType, setNewPaymentType] = useState<'card' | 'bank'>('card');
     const [autoPay, setAutoPay] = useState(true);
-
-    // Listener for Google Maps auth error
-    useEffect(() => {
-        const handleAuthError = () => {
-            setAddressError('Address auto-complete is unavailable. Please enter your address manually.');
-            setShowSuggestions(false);
-        };
-        window.addEventListener('google-maps-auth-error', handleAuthError);
-        return () => {
-            window.removeEventListener('google-maps-auth-error', handleAuthError);
-        };
-    }, []);
-
-    // Debounced address search
-     useEffect(() => {
-        const query = formData.street;
-        if (addressError || query.length < 3 || isAddressValidated) {
-            setAddressSuggestions([]);
-            setShowSuggestions(false);
-            return;
-        }
-
-        setIsSearching(true);
-        const handler = setTimeout(async () => {
-            try {
-                const results = await getAddressSuggestions(query);
-                setAddressSuggestions(results);
-                setShowSuggestions(results.length > 0);
-            } catch (error) {
-                console.error("Address suggestion service failed:", error);
-                setAddressError("Address lookup service is unavailable. Please enter your address manually.");
-            } finally {
-                setIsSearching(false);
-            }
-        }, 300);
-
-        return () => clearTimeout(handler);
-    }, [formData.street, isAddressValidated, addressError]);
     
-    // Click outside handler for address suggestions
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (addressInputRef.current && !addressInputRef.current.contains(event.target as Node)) {
-                setShowSuggestions(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
      useEffect(() => {
         if (step === 3 && availableServices.length === 0) {
             getServices().then(setAvailableServices);
@@ -182,42 +123,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const query = e.target.value;
-        setIsAddressValidated(false); // New typing invalidates previous selection
-
-        // When user types in the street field, also reset other address fields
-        // to prevent inconsistent data (e.g., old city with new street). This fixes the bug.
-        setFormData(prev => ({
-            ...prev,
-            street: query,
-            city: '',
-            state: '',
-            zip: '',
-        }));
-    };
-
-    const handleSuggestionClick = async (suggestion: AddressSuggestion) => {
-        setShowSuggestions(false);
-        const details = await getPlaceDetails(suggestion.placeId);
-        
-        if (details && details.street && details.city && details.state && details.zip) {
-            setFormData(prev => ({
-                ...prev,
-                street: details.street,
-                city: details.city,
-                state: details.state,
-                zip: details.zip,
-            }));
-            setIsAddressValidated(true);
-        } else {
-            // Fallback if details are incomplete or fail
-            setFormData(prev => ({ ...prev, street: suggestion.description, city: '', state: '', zip: '' }));
-            setIsAddressValidated(false);
-            alert("Could not retrieve full address details. Please check the address or enter it manually.");
-        }
-    };
-    
     const handleRadioChange = (name: keyof NewPropertyInfo, value: any) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
@@ -249,53 +154,127 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
             setIsProcessing(false);
         }
     };
+    
+    // --- Step 3 Service Selection Logic ---
+
+    const baseFeeService = useMemo(() => availableServices.find(s => s.category === 'base_fee'), [availableServices]);
+    const atHouseService = useMemo(() => availableServices.find(s => s.id === 'prod_TOvyKnOx4KLBc2'), [availableServices]);
+    const linerService = useMemo(() => availableServices.find(s => s.id === 'prod_TOx5lSdv97AAGb'), [availableServices]);
+
+    const totalBaseServiceCans = useMemo(() => {
+        if (!availableServices.length) return 0;
+        const baseServiceIds = availableServices.filter(s => s.category === 'base_service').map(s => s.id);
+        return selectedServices
+            .filter(s => baseServiceIds.includes(s.serviceId))
+            .reduce((total, sub) => total + sub.quantity, 0);
+    }, [selectedServices, availableServices]);
+
+    const isAtHouseSelected = useMemo(() => {
+        if (!atHouseService) return false;
+        return selectedServices.some(s => s.serviceId === atHouseService.id);
+    }, [selectedServices, atHouseService]);
+    
+     const { monthlyTotal, setupTotal } = useMemo(() => {
+        let monthly = 0;
+        let setup = 0;
+        selectedServices.forEach(sel => {
+            const service = availableServices.find(s => s.id === sel.serviceId);
+            if (!service) return;
+            monthly += service.price * sel.quantity;
+            const currentSetupFee = sel.useSticker ? (service.stickerFee || 0) : (service.setupFee || 0);
+            setup += currentSetupFee * sel.quantity;
+        });
+        return { monthlyTotal: monthly, setupTotal: setup };
+    }, [selectedServices, availableServices]);
+
+    // This effect manages adding/removing the base fee and syncing liner quantity
+    useEffect(() => {
+        if (!baseFeeService || !linerService) return;
+
+        setSelectedServices(prev => {
+            const hasBaseFee = prev.some(s => s.serviceId === baseFeeService.id);
+            const linerSub = prev.find(s => s.serviceId === linerService.id);
+            
+            let nextState = [...prev];
+            let hasChanged = false;
+    
+            // Manage base fee
+            if (totalBaseServiceCans > 0 && !hasBaseFee) {
+                nextState.push({ serviceId: baseFeeService.id, quantity: 1, useSticker: false });
+                hasChanged = true;
+            } else if (totalBaseServiceCans === 0) {
+                const initialLength = nextState.length;
+                nextState = nextState.filter(s => 
+                    s.serviceId !== baseFeeService.id && 
+                    s.serviceId !== atHouseService?.id &&
+                    s.serviceId !== linerService.id
+                );
+                if (nextState.length !== initialLength) hasChanged = true;
+            }
+    
+            // Sync or remove liner service
+            if (linerSub) {
+                if (totalBaseServiceCans > 0 && linerSub.quantity !== totalBaseServiceCans) {
+                    nextState = nextState.map(s => s.serviceId === linerService.id ? { ...s, quantity: totalBaseServiceCans } : s);
+                    hasChanged = true;
+                } else if (totalBaseServiceCans === 0) {
+                    nextState = nextState.filter(s => s.serviceId !== linerService.id);
+                    hasChanged = true;
+                }
+            }
+    
+            return hasChanged ? nextState : prev;
+        });
+    }, [totalBaseServiceCans, baseFeeService, atHouseService, linerService]);
+
+    const handleCollectionMethodToggle = () => {
+        if (!atHouseService) return;
+        if (isAtHouseSelected) {
+            setSelectedServices(prev => prev.filter(s => s.serviceId !== atHouseService.id));
+        } else {
+            setSelectedServices(prev => [...prev, { serviceId: atHouseService.id, quantity: 1, useSticker: false }]);
+        }
+    };
+    
+    const handleServiceQuantityChange = (serviceId: string, change: 'increment' | 'decrement') => {
+        const existing = selectedServices.find(s => s.serviceId === serviceId);
+        const currentQty = existing?.quantity || 0;
+        const newQty = change === 'increment' ? currentQty + 1 : currentQty - 1;
+
+        if (newQty <= 0) {
+            setSelectedServices(prev => prev.filter(s => s.serviceId !== serviceId));
+        } else if (existing) {
+            setSelectedServices(prev => prev.map(s => s.serviceId === serviceId ? { ...s, quantity: newQty } : s));
+        } else {
+            setSelectedServices(prev => [...prev, { serviceId: serviceId, quantity: 1, useSticker: false }]);
+        }
+    };
+
 
     const renderStep1 = () => {
-        const canProceed = isAddressValidated || !!(formData.street && formData.city && formData.state && formData.zip);
+        const canProceed = !!(formData.street && formData.city && formData.state && formData.zip);
 
         return (
             <div className="space-y-4 animate-in fade-in duration-300">
-                {addressError && (
-                    <div className="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50" role="alert">
-                        <span className="font-medium">Address Service Alert:</span> {addressError}
-                    </div>
-                )}
-                <div className="relative" ref={addressInputRef}>
+                <div>
                     <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Street Address</label>
-                    <div className="relative">
-                        <input type="text" name="street" id="street" value={formData.street} onChange={handleAddressChange} onFocus={() => !addressError && addressSuggestions.length > 0 && setShowSuggestions(true)} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all pr-10" required autoComplete="off" />
-                         {isAddressValidated && <CheckCircleIcon className="w-6 h-6 text-green-500 absolute right-3 top-1/2 -translate-y-1/2" />}
-                    </div>
-                     {showSuggestions && !addressError && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
-                            <ul>
-                                {isSearching ? (
-                                    <li className="px-4 py-3 text-sm text-gray-500">Searching...</li>
-                                ) : (
-                                    addressSuggestions.map((s) => (
-                                        <li key={s.placeId} onClick={() => handleSuggestionClick(s)} className="px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 cursor-pointer">
-                                            {s.description}
-                                        </li>
-                                    ))
-                                )}
-                            </ul>
-                        </div>
-                    )}
+                    <input type="text" name="street" id="street" value={formData.street} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
                 </div>
+                
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <label htmlFor="city" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">City</label>
-                        <input type="text" name="city" id="city" value={formData.city} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required readOnly={isAddressValidated} />
+                        <input type="text" name="city" id="city" value={formData.city} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
                     </div>
                     <div className="w-28">
                          <label htmlFor="state" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">State</label>
-                        <input type="text" name="state" id="state" value={formData.state} onChange={handleChange} maxLength={2} placeholder="CA" className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all uppercase" required readOnly={isAddressValidated} />
+                        <input type="text" name="state" id="state" value={formData.state} onChange={handleChange} maxLength={2} placeholder="CA" className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all uppercase" required />
                     </div>
                 </div>
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <label htmlFor="zip" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Zip Code</label>
-                        <input type="text" name="zip" id="zip" value={formData.zip} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required readOnly={isAddressValidated} />
+                        <input type="text" name="zip" id="zip" value={formData.zip} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
                     </div>
                     <div className="flex-1">
                         <label htmlFor="referralCode" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referral Code (Optional)</label>
@@ -396,90 +375,133 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
         </div>
     );
 
-    const handleServiceQuantityChange = (service: Service, change: 'increment' | 'decrement') => {
-        const existing = selectedServices.find(s => s.serviceId === service.id);
-        const currentQty = existing?.quantity || 0;
-        const newQty = change === 'increment' ? currentQty + 1 : currentQty - 1;
-
-        if (newQty <= 0) {
-            setSelectedServices(prev => prev.filter(s => s.serviceId !== service.id));
-        } else if (existing) {
-            setSelectedServices(prev => prev.map(s => s.serviceId === service.id ? { ...s, quantity: newQty } : s));
-        } else {
-            const useSticker = service.category === 'base_service' ? false : false; // Default to renting can
-            setSelectedServices(prev => [...prev, { serviceId: service.id, quantity: newQty, useSticker }]);
-        }
-    };
-
     const renderStep3 = () => {
         const baseServices = availableServices.filter(s => s.category === 'base_service');
-        const upgradeServices = availableServices.filter(s => s.category === 'upgrade');
+        const upgradeServices = availableServices.filter(s => s.category === 'upgrade' && s.id !== atHouseService?.id && s.id !== linerService?.id);
+        const isLinerSelected = selectedServices.some(s => s.serviceId === linerService?.id);
 
-        const total = selectedServices.reduce((acc, sel) => {
-            const service = availableServices.find(s => s.id === sel.serviceId);
-            if (!service) return acc;
-            const setupFee = sel.useSticker ? (service.stickerFee || 0) : (service.setupFee || 0);
-            return acc + (service.price * sel.quantity) + setupFee;
-        }, 0);
+        const handleLinerToggle = () => {
+            if (!linerService || totalBaseServiceCans === 0) return;
+            if (isLinerSelected) {
+                setSelectedServices(prev => prev.filter(s => s.serviceId !== linerService.id));
+            } else {
+                setSelectedServices(prev => [...prev, { serviceId: linerService.id, quantity: totalBaseServiceCans, useSticker: false }]);
+            }
+        };
 
         return (
-            <div className="space-y-6 animate-in fade-in duration-300">
-                <div>
-                    <h3 className="text-xl font-bold">Base Services</h3>
-                    <p className="text-sm text-gray-500">Choose your trash and recycling cans.</p>
-                </div>
-                <div className="space-y-3">
-                    {baseServices.map(service => {
-                        const selection = selectedServices.find(s => s.serviceId === service.id);
-                        return (
-                             <Card key={service.id} className="p-4 flex justify-between items-center">
-                                <div>
-                                    <h4 className="font-bold">{service.name}</h4>
-                                    <p className="text-xs text-gray-500">{service.description}</p>
-                                    <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
+            <div className="space-y-8 animate-in fade-in duration-300">
+                 <Card className="p-0 overflow-hidden">
+                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Equipment & Frequency</h2>
+                     <div className="divide-y divide-base-200">
+                        {baseServices.map(service => {
+                            const selection = selectedServices.find(s => s.serviceId === service.id);
+                            return (
+                                <div key={service.id} className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-900">{service.name}</h3>
+                                            <p className="text-xs text-gray-500">{service.description}</p>
+                                            <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
+                                        </div>
+                                    </div>
+                                    <QuantitySelector
+                                        quantity={selection?.quantity || 0}
+                                        onIncrement={() => handleServiceQuantityChange(service.id, 'increment')}
+                                        onDecrement={() => handleServiceQuantityChange(service.id, 'decrement')}
+                                        isUpdating={false}
+                                    />
                                 </div>
-                                <QuantitySelector
-                                    quantity={selection?.quantity || 0}
-                                    onIncrement={() => handleServiceQuantityChange(service, 'increment')}
-                                    onDecrement={() => handleServiceQuantityChange(service, 'decrement')}
-                                    isUpdating={false}
-                                />
-                            </Card>
-                        )
-                    })}
-                </div>
-                 <div>
-                    <h3 className="text-xl font-bold">Upgrades</h3>
-                    <p className="text-sm text-gray-500">Add premium services.</p>
-                </div>
-                 <div className="space-y-3">
-                    {upgradeServices.map(service => {
-                        const selection = selectedServices.find(s => s.serviceId === service.id);
-                        return (
-                             <Card key={service.id} className="p-4 flex justify-between items-center">
-                                <div>
-                                    <h4 className="font-bold">{service.name}</h4>
-                                    <p className="text-xs text-gray-500">{service.description}</p>
-                                     <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
-                                </div>
-                                <QuantitySelector
-                                    quantity={selection?.quantity || 0}
-                                    onIncrement={() => handleServiceQuantityChange(service, 'increment')}
-                                    onDecrement={() => handleServiceQuantityChange(service, 'decrement')}
-                                    isUpdating={false}
-                                />
-                            </Card>
-                        )
-                    })}
-                </div>
+                            )
+                        })}
+                    </div>
+                </Card>
 
-                <div className="pt-4 border-t">
-                    <p className="text-right">Monthly Total: <span className="font-bold text-xl">${total.toFixed(2)}</span></p>
+                 {(atHouseService || linerService) && (
+                    <Card className="p-0 overflow-hidden">
+                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
+                        <div className="divide-y divide-base-200">
+                            {atHouseService && (
+                                <div className="p-6 flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <HomeModernIcon className="w-6 h-6 text-primary"/>
+                                        <div>
+                                            <h4 className="font-bold">{atHouseService.name}</h4>
+                                            <p className="text-xs text-gray-500">{atHouseService.description}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <p className="text-sm font-bold text-primary">+${atHouseService.price.toFixed(2)}/mo</p>
+                                        <ToggleSwitch 
+                                            checked={isAtHouseSelected}
+                                            onChange={handleCollectionMethodToggle}
+                                            disabled={totalBaseServiceCans === 0}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                            {linerService && (
+                                <div className="p-6 flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <SunIcon className="w-6 h-6 text-orange-400"/>
+                                        <div>
+                                            <h4 className="font-bold">{linerService.name}</h4>
+                                            <p className="text-xs text-gray-500">{linerService.description}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <p className="text-sm font-bold text-primary" aria-live="polite">
+                                            +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
+                                        </p>
+                                        <ToggleSwitch 
+                                            checked={isLinerSelected}
+                                            onChange={handleLinerToggle}
+                                            disabled={totalBaseServiceCans === 0}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </Card>
+                )}
+
+                {upgradeServices.length > 0 && (
+                    <Card className="p-0 overflow-hidden">
+                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Other Available Services</h2>
+                        <div className="divide-y divide-base-200">
+                            {upgradeServices.map(service => {
+                                const selection = selectedServices.find(s => s.serviceId === service.id);
+                                return (
+                                    <div key={service.id} className="p-6 flex justify-between items-center">
+                                        <div>
+                                            <h4 className="font-bold">{service.name}</h4>
+                                            <p className="text-xs text-gray-500">{service.description}</p>
+                                            <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
+                                        </div>
+                                        <QuantitySelector
+                                            quantity={selection?.quantity || 0}
+                                            onIncrement={() => handleServiceQuantityChange(service.id, 'increment')}
+                                            onDecrement={() => handleServiceQuantityChange(service.id, 'decrement')}
+                                            isUpdating={false}
+                                        />
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </Card>
+                )}
+
+                <div className="pt-6 border-t flex justify-end">
+                    <div className="text-right">
+                        <p className="text-sm font-bold text-gray-500">One-Time Setup Fees: <span className="text-gray-900">${setupTotal.toFixed(2)}</span></p>
+                        <p className="text-lg font-bold text-gray-500 mt-1">Total Monthly Bill: <span className="text-primary text-3xl font-black">${monthlyTotal.toFixed(2)}</span></p>
+                    </div>
                 </div>
 
                 <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
                     <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                    <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0}>Next: Billing</Button>
+                    <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
                 </div>
             </div>
         );

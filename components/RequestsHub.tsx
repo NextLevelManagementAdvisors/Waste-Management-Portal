@@ -1,11 +1,9 @@
-
 import React, { useState } from 'react';
 import SpecialPickup from './SpecialPickup.tsx';
 import VacationHolds from './VacationHolds.tsx';
-import MissedPickup from './MissedPickup.tsx';
 import { CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon } from './Icons.tsx';
 
-type RequestView = 'extra' | 'hold' | 'missed';
+type RequestView = 'extra' | 'hold';
 
 const Tabs: React.FC<{
     activeTab: RequestView;
@@ -17,7 +15,6 @@ const Tabs: React.FC<{
     const tabs = [
         { id: 'extra', label: 'Extra Pickup', icon: <CalendarDaysIcon className="w-5 h-5" />, color: 'text-primary' },
         { id: 'hold', label: 'Vacation Hold', icon: <PauseCircleIcon className="w-5 h-5" />, color: 'text-orange-500' },
-        { id: 'missed', label: 'Missed Pickup', icon: <ExclamationTriangleIcon className="w-5 h-5" />, color: 'text-red-500' },
     ] as const;
 
     return (
@@ -50,7 +47,6 @@ const RequestsHub: React.FC = () => {
         switch (view) {
             case 'extra': return <SpecialPickup />;
             case 'hold': return <VacationHolds />;
-            case 'missed': return <MissedPickup />;
             default: return <SpecialPickup />;
         }
     };

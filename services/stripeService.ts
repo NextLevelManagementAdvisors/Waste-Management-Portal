@@ -1,4 +1,3 @@
-
 // services/stripeService.ts
 
 // This service simulates a backend client for the Stripe API.
@@ -63,7 +62,7 @@ const STRIPE_PRODUCTS = [
     name: 'Trash Can Liner Service', 
     description: 'Our crew installs a fresh, heavy-duty liner in your can after every weekly collection.', 
     metadata: { category: 'upgrade', icon_name: 'SunIcon' },
-    default_price: { id: 'price_1SS9BL03whKXLoReS4hCzQtz', unit_amount: 1000, recurring: { interval: 'month' } }
+    default_price: { id: 'price_1SS9BL03whKXLoReS4hCzQtz', unit_amount: 600, recurring: { interval: 'month' } }
   },
   { 
     id: 'prod_TlgxOhg8l2q1eZ', 
@@ -216,6 +215,39 @@ export const createSubscription = async (service: Service, propertyId: string, p
     return simulateApiCall(newSub);
 };
 
+export const setSubscriptionQuantity = async (subscriptionId: string, newQuantity: number) => {
+    const sub = STRIPE_SUBSCRIPTIONS.find(s => s.id === subscriptionId);
+    if (!sub) { throw new Error("Stripe subscription not found."); }
+    if (newQuantity < 0) { throw new Error("Quantity cannot be negative."); }
+    if (newQuantity === 0) { return cancelSubscription(subscriptionId); }
+
+    const product = STRIPE_PRODUCTS.find(p => p.id === sub.serviceId);
+    if (!product) { throw new Error("Associated product not found."); }
+    
+    const quantityChange = newQuantity - sub.quantity;
+
+    if (quantityChange > 0) {
+        const pricePerUnit = product.default_price.unit_amount / 100;
+        const today = new Date();
+        const cycleEndDate = new Date(sub.nextBillingDate);
+        const cycleStartDate = new Date(cycleEndDate.getFullYear(), cycleEndDate.getMonth(), cycleEndDate.getDate());
+        cycleStartDate.setMonth(cycleStartDate.getMonth() - 1);
+        const totalDaysInCycle = (cycleEndDate.getTime() - cycleStartDate.getTime()) / (1000 * 3600 * 24);
+        const daysRemaining = Math.max(0, (cycleEndDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+
+        if (daysRemaining > 0 && daysRemaining < totalDaysInCycle) {
+            const proratedPrice = (pricePerUnit / totalDaysInCycle) * daysRemaining * quantityChange;
+            const description = `Prorated charge for updating ${sub.serviceName} quantity by ${quantityChange}`;
+            await createInvoice(sub.propertyId, proratedPrice, description);
+        }
+    }
+    
+    sub.quantity = newQuantity;
+    sub.totalPrice = (product.default_price.unit_amount / 100) * newQuantity;
+
+    return simulateApiCall(sub);
+};
+
 export const changeSubscriptionQuantity = async (subscriptionId: string, newQuantity: number) => {
     const sub = STRIPE_SUBSCRIPTIONS.find(s => s.id === subscriptionId);
     if (!sub) { throw new Error("Stripe subscription not found."); }
@@ -233,13 +265,13 @@ export const changeSubscriptionQuantity = async (subscriptionId: string, newQuan
         if (product.metadata.category === 'base_service') {
             const useSticker = sub.equipmentType === 'own_can';
             const fee = useSticker 
-                ? ((product.metadata.sticker_fee || 0) / 100) 
-                : ((product.metadata.setup_fee || 0) / 100);
+                ? ((product.metadata.sticker_fee || 0)) 
+                : ((product.metadata.setup_fee || 0));
             
             if (fee > 0) {
                 const feeType = useSticker ? 'Sticker Fee' : 'Setup Fee';
                 const description = `One-Time ${feeType} for ${quantityChange}x additional ${sub.serviceName}`;
-                await createInvoice(sub.propertyId, fee * quantityChange, description);
+                await createInvoice(sub.propertyId, (fee / 100) * quantityChange, description);
             }
         }
 

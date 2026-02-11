@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import Services from './Services.tsx';
 import PropertySettings from './PropertySettings.tsx';
@@ -46,7 +45,7 @@ const Tab: React.FC<{
 
 
 const MyServiceHub: React.FC = () => {
-    const { selectedProperty } = useProperty();
+    const { selectedProperty, postNavAction } = useProperty();
     const [activeTab, setActiveTab] = useState('services');
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
@@ -56,6 +55,12 @@ const MyServiceHub: React.FC = () => {
             setActiveTab('services'); // Reset to services tab when property changes
         }
     }, [selectedProperty]);
+
+    useEffect(() => {
+        if (postNavAction && postNavAction.targetTab) {
+            setActiveTab(postNavAction.targetTab);
+        }
+    }, [postNavAction]);
 
     useEffect(() => {
         setLoadingSubs(true);

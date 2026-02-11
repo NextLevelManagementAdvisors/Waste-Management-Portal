@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
 import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon } from '../components/Icons.tsx';
@@ -20,6 +19,8 @@ export interface PropertyState {
         label: string;
         status: 'completed';
         feedbackSubmitted: boolean;
+        showTipPrompt?: boolean;
+        driverName?: string;
     } | null;
     collectionIntent: 'out' | 'skip' | null;
     monthlyTotal: number;
@@ -34,9 +35,14 @@ export interface AccountHealth {
     criticalAlerts: ServiceAlert[];
 }
 
+export interface CollectionHistoryLogWithFeedback extends optimoRouteService.CollectionHistoryLog {
+    feedbackSubmitted: boolean;
+}
+
 // --- MOCK DATA STORE ---
 let MOCK_COLLECTION_INTENTS: Record<string, { intent: 'out' | 'skip', date: string }> = {};
 let MOCK_DRIVER_FEEDBACK: { propertyId: string; pickupDate: string; tip?: number; note?: string }[] = [];
+let MOCK_DISMISSED_TIPS: { propertyId: string; pickupDate: string }[] = [];
 
 // --- MOCK DATA ---
 const MOCK_PROPERTIES: Property[] = [
@@ -102,7 +108,7 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         ? user.properties 
         : user.properties.filter(p => p.id === selectedPropertyId);
 
-    const states: PropertyState[] = targetProperties.map(prop => {
+    const states: PropertyState[] = await Promise.all(targetProperties.map(async (prop) => {
         const propSubs = subscriptions.filter(s => s.propertyId === prop.id && s.status === 'active');
         const isPaused = subscriptions.some(s => s.propertyId === prop.id && s.status === 'paused');
         
@@ -111,12 +117,8 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         const today = new Date();
         const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
 
-        // Define pickup dates for simulation
         const p1PickupDate = today.toISOString().split('T')[0];
-        const p2PickupDate = new Date(new Date().setDate(today.getDate() - 1)).toISOString().split('T')[0]; // Yesterday
         const p3PickupDate = tomorrow.toISOString().split('T')[0];
-        
-        const feedback = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === prop.id && f.pickupDate === p2PickupDate);
 
         switch (prop.id) {
             case 'P1': // In-progress pickup
@@ -127,11 +129,28 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
                 };
                 break;
             case 'P2': // Completed pickup
-                state = {
-                    nextPickup: null,
-                    lastPickup: { date: p2PickupDate, label: 'Yesterday', status: 'completed', feedbackSubmitted: !!feedback },
-                    collectionIntent: null
-                };
+                const history = await optimoRouteService.getPastPickups(prop.address);
+                const lastCompletedPickup = history.find(h => h.status === 'completed');
+
+                if (lastCompletedPickup) {
+                    const feedback = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === prop.id && f.pickupDate === lastCompletedPickup.date);
+                    const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
+                    
+                    state = {
+                        nextPickup: null,
+                        lastPickup: { 
+                            date: lastCompletedPickup.date, 
+                            label: 'Yesterday', 
+                            status: 'completed', 
+                            feedbackSubmitted: !!feedback,
+                            showTipPrompt: !feedback && !hasBeenDismissed,
+                            driverName: lastCompletedPickup.driver,
+                        },
+                        collectionIntent: null
+                    };
+                } else {
+                    state = { nextPickup: null, lastPickup: null, collectionIntent: null };
+                }
                 break;
             case 'P3': // Upcoming pickup
             default:
@@ -150,7 +169,7 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
             monthlyTotal: propSubs.reduce((acc, s) => acc + s.totalPrice, 0),
             activeServices: propSubs.map(s => s.serviceName)
         };
-    });
+    }));
 
     const health: AccountHealth = {
         totalMonthlyCost: subscriptions.filter(s => s.status === 'active').reduce((acc, s) => acc + s.totalPrice, 0),
@@ -161,6 +180,21 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
     };
 
     return { states, health };
+};
+
+export const getCollectionHistory = async (propertyId: string): Promise<CollectionHistoryLogWithFeedback[]> => {
+    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    if (!property) return [];
+
+    const history = await optimoRouteService.getPastPickups(property.address);
+
+    return history.map(log => {
+        const hasFeedback = MOCK_DRIVER_FEEDBACK.some(f => f.propertyId === propertyId && f.pickupDate === log.date);
+        return {
+            ...log,
+            feedbackSubmitted: hasFeedback
+        };
+    });
 };
 
 export const login = (email: string, password: string): Promise<User> => {
@@ -287,6 +321,8 @@ export const changeServiceQuantity = async (service: Service, propertyId: string
         return newSub;
     }
 };
+
+export const setServiceQuantity = stripeService.setSubscriptionQuantity;
 
 export const updateSubscriptionPaymentMethod = stripeService.updateSubscriptionPaymentMethod;
 
@@ -445,5 +481,12 @@ export const leaveDriverNote = (propertyId: string, note: string, pickupDate: st
         MOCK_DRIVER_FEEDBACK.push({ propertyId, pickupDate, note });
     }
     console.log(`[API MOCK] Note left for ${propertyId} for pickup on ${pickupDate}: "${note}"`);
+    return simulateApiCall({ success: true });
+};
+
+export const dismissTipPrompt = (propertyId: string, pickupDate: string) => {
+    if (!MOCK_DISMISSED_TIPS.some(d => d.propertyId === propertyId && d.pickupDate === pickupDate)) {
+        MOCK_DISMISSED_TIPS.push({ propertyId, pickupDate });
+    }
     return simulateApiCall({ success: true });
 };
