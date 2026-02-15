@@ -4,14 +4,27 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npx tsx server/index.ts & vite",
+    "dev:frontend": "vite",
+    "dev:backend": "npx tsx server/index.ts",
+    "seed": "npx tsx server/seed-products.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.29.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.16.0",
+    "cors": "^2.8.6",
+    "drizzle-kit": "^0.31.9",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5.2.1",
+    "pg": "^8.18.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@google/genai": "^1.29.0"
+    "stripe": "^20.3.1",
+    "stripe-replit-sync": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

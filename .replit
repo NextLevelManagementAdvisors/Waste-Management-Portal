@@ -1,6 +1,7 @@
-modules = ["nodejs-20", "web"]
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
 [agent]
 expertMode = true
+integrations = ["stripe:2.0.0"]
 
 [nix]
 channel = "stable-25_05"
@@ -30,10 +31,15 @@ waitForPort = 5000
 outputType = "webview"
 
 [[ports]]
+localPort = 3001
+externalPort = 3001
+
+[[ports]]
 localPort = 5000
 externalPort = 80
 
 [deployment]
-deploymentTarget = "static"
+deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 publicDir = "dist"
+run = ["bash", "-c", "NODE_ENV=production npx tsx server/index.ts"]
