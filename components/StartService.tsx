@@ -5,6 +5,8 @@ import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/mockApiService.ts';
 import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon, HomeModernIcon, TruckIcon, SunIcon } from './Icons.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
+import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { getCustomerId } from '../services/stripeService.ts';
 
 interface ServiceSelection {
     serviceId: string;
@@ -94,7 +96,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     const [loadingMethods, setLoadingMethods] = useState(false);
     const [billingChoice, setBillingChoice] = useState<'existing' | 'new'>('existing');
     const [selectedMethodId, setSelectedMethodId] = useState('');
-    const [newPaymentType, setNewPaymentType] = useState<'card' | 'bank'>('card');
     const [autoPay, setAutoPay] = useState(true);
     
      useEffect(() => {
@@ -129,18 +130,62 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     const handleNext = () => setStep(s => s + 1);
     const handleBack = () => setStep(s => s - 1);
 
+    const stripe = useStripe();
+    const elements = useElements();
+    const [setupError, setSetupError] = useState<string | null>(null);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (step !== 4) return;
         
         setIsProcessing(true);
+        setSetupError(null);
         try {
             if (billingChoice === 'new') {
-                await addPaymentMethod(
-                    newPaymentType === 'card' 
-                        ? { type: 'Card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2028 }
-                        : { type: 'Bank Account', last4: '6789' }
+                if (!stripe || !elements) {
+                    setSetupError('Payment system is still loading. Please wait.');
+                    setIsProcessing(false);
+                    return;
+                }
+                const customerId = getCustomerId();
+                if (!customerId) {
+                    setSetupError('No customer account found. Please log in again.');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                const setupRes = await fetch('/api/setup-intent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customerId }),
+                });
+                const { data: setupData } = await setupRes.json();
+
+                const cardElement = elements.getElement(CardElement);
+                if (!cardElement) {
+                    setSetupError('Card input not found. Please try again.');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(
+                    setupData.clientSecret,
+                    { payment_method: { card: cardElement as any } }
                 );
+
+                if (stripeError) {
+                    setSetupError(stripeError.message || 'Failed to add card.');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                if (setupIntent?.payment_method) {
+                    const pmId = typeof setupIntent.payment_method === 'string'
+                        ? setupIntent.payment_method
+                        : setupIntent.payment_method.id;
+                    await addPaymentMethod(pmId);
+                    setSelectedMethodId(pmId);
+                }
             } else if (billingChoice === 'existing' && selectedMethodId) {
                 await setPrimaryPaymentMethod(selectedMethodId);
             }
@@ -149,7 +194,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
 
         } catch (error) {
             console.error("Failed during service setup:", error);
-            alert("An error occurred during setup. Please check your details and try again.");
+            setSetupError("An error occurred during setup. Please check your details and try again.");
             setIsProcessing(false);
         }
     };
@@ -522,6 +567,18 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
         );
     };
 
+    const CARD_ELEMENT_OPTIONS = {
+        style: {
+            base: {
+                fontSize: '16px',
+                color: '#1f2937',
+                '::placeholder': { color: '#9ca3af' },
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+            },
+            invalid: { color: '#ef4444', iconColor: '#ef4444' },
+        },
+    };
+
     const renderStep4 = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
              {loadingMethods ? <p>Loading payment methods...</p> : (
@@ -543,21 +600,30 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
                     <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Add New Payment Method</label>
                         <div onClick={() => setBillingChoice('new')} className={`p-4 border rounded-lg cursor-pointer ${billingChoice === 'new' ? 'border-primary ring-1 ring-primary bg-teal-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
-                            <input type="radio" name="paymentMethod" value="new" checked={billingChoice === 'new'} readOnly className="h-4 w-4 text-primary focus:ring-primary border-gray-300 mb-2"/>
-                            {/* Simplified form for new payment method */}
-                            <div className="flex border-b my-2">
-                                <button type="button" onClick={() => setNewPaymentType('card')} className={`flex-1 py-2 text-center font-medium ${newPaymentType === 'card' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Credit Card</button>
-                                <button type="button" onClick={() => setNewPaymentType('bank')} className={`flex-1 py-2 text-center font-medium ${newPaymentType === 'bank' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Bank Account</button>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2 text-center">Your payment information is securely stored.</p>
+                            <input type="radio" name="paymentMethod" value="new" checked={billingChoice === 'new'} readOnly className="h-4 w-4 text-primary focus:ring-primary border-gray-300 mb-3"/>
+                            {billingChoice === 'new' && (
+                                <div className="mt-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Card Details</label>
+                                    <div className="border border-gray-300 rounded-md p-3 bg-white focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all">
+                                        <CardElement options={CARD_ELEMENT_OPTIONS} />
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-2 text-center">Securely processed by Stripe.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </>
              )}
+
+            {setupError && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                    {setupError}
+                </div>
+            )}
             
             <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
                 <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing}>
+                <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing || (billingChoice === 'new' && !stripe)}>
                     {isProcessing ? 'Processing...' : 'Complete Setup'}
                 </Button>
             </div>

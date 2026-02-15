@@ -7,6 +7,8 @@ import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
+import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { getCustomerId } from '../services/stripeService.ts';
 
 const isMethodExpired = (method: PaymentMethod): boolean => {
     if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
@@ -14,7 +16,7 @@ const isMethodExpired = (method: PaymentMethod): boolean => {
     }
     const now = new Date();
     const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-indexed month
+    const currentMonth = now.getMonth() + 1;
 
     if (method.expiryYear < currentYear) {
         return true;
@@ -62,24 +64,87 @@ const PaymentMethodCard: React.FC<{
     );
 };
 
+const CARD_ELEMENT_OPTIONS = {
+    style: {
+        base: {
+            fontSize: '16px',
+            color: '#1f2937',
+            '::placeholder': { color: '#9ca3af' },
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+        },
+        invalid: {
+            color: '#ef4444',
+            iconColor: '#ef4444',
+        },
+    },
+};
+
 const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void, onClose: () => void}> = ({ onAdd, onClose }) => {
-    const [type, setType] = useState<'card' | 'bank'>('card');
+    const stripe = useStripe();
+    const elements = useElements();
     const [isAdding, setIsAdding] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!stripe || !elements) {
+            setError('Payment system is still loading. Please wait a moment.');
+            return;
+        }
+
+        const customerId = getCustomerId();
+        if (!customerId) {
+            setError('No customer account found. Please log in again.');
+            return;
+        }
+
         setIsAdding(true);
+        setError(null);
+
         try {
-            let newMethod;
-            if (type === 'card') {
-                newMethod = await addPaymentMethod({ type: 'Card', brand: 'Visa', last4: '1234', expiryMonth: 12, expiryYear: 2028 });
-            } else {
-                newMethod = await addPaymentMethod({ type: 'Bank Account', last4: '5678' });
+            const setupRes = await fetch('/api/setup-intent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ customerId }),
+            });
+            const { data: setupData } = await setupRes.json();
+
+            const cardElement = elements.getElement(CardElement);
+            if (!cardElement) {
+                setError('Card input not found. Please try again.');
+                setIsAdding(false);
+                return;
             }
-            onAdd(newMethod);
-        } catch (error) {
-            console.error("Failed to add payment method:", error);
-            alert("Could not add payment method. Please try again.");
+
+            const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(
+                setupData.clientSecret,
+                { payment_method: { card: cardElement as any } }
+            );
+
+            if (stripeError) {
+                setError(stripeError.message || 'Failed to add card. Please try again.');
+                setIsAdding(false);
+                return;
+            }
+
+            if (setupIntent?.payment_method) {
+                const pmId = typeof setupIntent.payment_method === 'string'
+                    ? setupIntent.payment_method
+                    : setupIntent.payment_method.id;
+
+                await addPaymentMethod(pmId);
+
+                const methods = await getPaymentMethods();
+                const added = methods.find((m: PaymentMethod) => m.id === pmId);
+                if (added) {
+                    onAdd(added);
+                } else {
+                    onAdd({ id: pmId, type: 'Card', last4: '****', isPrimary: false });
+                }
+            }
+        } catch (err: any) {
+            console.error('Failed to add payment method:', err);
+            setError(err.message || 'Could not add payment method. Please try again.');
         } finally {
             setIsAdding(false);
         }
@@ -87,49 +152,25 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
 
     return (
         <form onSubmit={handleSubmit}>
-            <div className="mb-4">
-                 <div className="flex border-b">
-                    <button type="button" onClick={() => setType('card')} className={`flex-1 py-2 text-center font-medium ${type === 'card' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Credit Card</button>
-                    <button type="button" onClick={() => setType('bank')} className={`flex-1 py-2 text-center font-medium ${type === 'bank' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Bank Account</button>
+            <div className="mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Card Details</label>
+                <div className="border border-gray-300 rounded-md p-3 bg-white focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all">
+                    <CardElement options={CARD_ELEMENT_OPTIONS} />
                 </div>
             </div>
 
-            {type === 'card' ? (
-                <div className="space-y-4">
-                    <div>
-                        <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700">Card Number</label>
-                        <input type="text" id="cardNumber" placeholder="•••• •••• •••• 1234" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" required />
-                    </div>
-                     <div className="flex gap-4">
-                        <div className="flex-1">
-                            <label htmlFor="expiry" className="block text-sm font-medium text-gray-700">Expiry Date</label>
-                            <input type="text" id="expiry" placeholder="MM / YY" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" required />
-                        </div>
-                        <div className="flex-1">
-                            <label htmlFor="cvc" className="block text-sm font-medium text-gray-700">CVC</label>
-                            <input type="text" id="cvc" placeholder="•••" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" required />
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                 <div className="space-y-4">
-                     <div>
-                        <label htmlFor="routingNumber" className="block text-sm font-medium text-gray-700">Routing Number</label>
-                        <input type="text" id="routingNumber" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" required />
-                    </div>
-                     <div>
-                        <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700">Account Number</label>
-                        <input type="text" id="accountNumber" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" required />
-                    </div>
+            {error && (
+                <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                    {error}
                 </div>
             )}
-            
-            <p className="text-xs text-gray-500 mt-4 text-center">Your payment information is securely stored.</p>
+
+            <p className="text-xs text-gray-500 mt-4 text-center">Your payment information is securely processed by Stripe.</p>
 
             <div className="mt-6 flex justify-end gap-3">
                  <Button type="button" variant="secondary" onClick={onClose} disabled={isAdding}>Cancel</Button>
-                 <Button type="submit" disabled={isAdding}>
-                    {isAdding ? 'Adding...' : `Add ${type === 'card' ? 'Card' : 'Account'}`}
+                 <Button type="submit" disabled={isAdding || !stripe}>
+                    {isAdding ? 'Adding...' : 'Add Card'}
                  </Button>
             </div>
         </form>
