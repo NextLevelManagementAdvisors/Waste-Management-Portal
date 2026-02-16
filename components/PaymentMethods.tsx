@@ -32,8 +32,9 @@ const PaymentMethodCard: React.FC<{
     method: PaymentMethod;
     onDelete: (id: string) => void;
     onSetPrimary: (id: string) => void;
+    onAssignToPlans: (method: PaymentMethod) => void;
     isExpired: boolean;
-}> = ({ method, onDelete, onSetPrimary, isExpired }) => {
+}> = ({ method, onDelete, onSetPrimary, onAssignToPlans, isExpired }) => {
     
     return (
         <Card className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${isExpired ? 'bg-red-50 border-red-300' : 'bg-white'}`}>
@@ -55,6 +56,7 @@ const PaymentMethodCard: React.FC<{
                 </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                {!isExpired && <Button variant="ghost" size="sm" onClick={() => onAssignToPlans(method)}>Assign to Plans</Button>}
                 {!method.isPrimary && !isExpired && <Button variant="ghost" size="sm" onClick={() => onSetPrimary(method.id)}>Set Primary</Button>}
                 <Button variant="ghost" size="sm" onClick={() => onDelete(method.id)} aria-label={`Delete ${method.brand} ending in ${method.last4}`}>
                     <TrashIcon className="w-5 h-5 text-red-500" />
@@ -210,6 +212,9 @@ const PaymentMethods: React.FC = () => {
     const [modalStep, setModalStep] = useState<'add' | 'prompt'>('add');
     const [newlyAddedMethod, setNewlyAddedMethod] = useState<PaymentMethod | null>(null);
     const [isDeleteErrorModalOpen, setIsDeleteErrorModalOpen] = useState(false);
+    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [assignMethod, setAssignMethod] = useState<PaymentMethod | null>(null);
+    const [isAssigning, setIsAssigning] = useState(false);
 
     const fetchMethods = async () => {
         try {
@@ -278,6 +283,32 @@ const PaymentMethods: React.FC = () => {
             closeModal();
         }
     };
+
+    const handleAssignToPlans = (method: PaymentMethod) => {
+        setAssignMethod(method);
+        setIsAssignModalOpen(true);
+    };
+
+    const handleConfirmAssign = async (scope: 'property' | 'all') => {
+        if (!assignMethod) return;
+        setIsAssigning(true);
+        try {
+            if (scope === 'property' && selectedProperty) {
+                await updateSubscriptionsForProperty(selectedProperty.id, assignMethod.id);
+                alert(`Subscriptions for ${selectedProperty.address} have been updated to use ${assignMethod.brand || 'payment method'} ending in ${assignMethod.last4}.`);
+            } else {
+                await updateAllUserSubscriptions(assignMethod.id);
+                alert(`All subscriptions have been updated to use ${assignMethod.brand || 'payment method'} ending in ${assignMethod.last4}.`);
+            }
+        } catch (error) {
+            console.error("Failed to assign payment method to plans:", error);
+            alert("Could not update subscriptions. Please try again.");
+        } finally {
+            setIsAssigning(false);
+            setIsAssignModalOpen(false);
+            setAssignMethod(null);
+        }
+    };
     
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
@@ -305,6 +336,7 @@ const PaymentMethods: React.FC = () => {
                                 method={method}
                                 onDelete={handleDelete}
                                 onSetPrimary={handleSetPrimary}
+                                onAssignToPlans={handleAssignToPlans}
                                 isExpired={isMethodExpired(method)}
                             />
                         ))
@@ -350,6 +382,33 @@ const PaymentMethods: React.FC = () => {
                         Okay
                     </Button>
                 </div>
+            </Modal>
+
+            <Modal
+                isOpen={isAssignModalOpen}
+                onClose={() => { setIsAssignModalOpen(false); setAssignMethod(null); }}
+                title="Assign Payment Method to Plans"
+            >
+                {assignMethod && (
+                    <>
+                        <p className="text-gray-600 mb-6">
+                            Assign <span className="font-bold">{assignMethod.brand || 'payment method'} ending in {assignMethod.last4}</span> to your active subscriptions?
+                        </p>
+                        <div className="space-y-3">
+                            {selectedProperty && (
+                                <Button className="w-full" onClick={() => handleConfirmAssign('property')} disabled={isAssigning}>
+                                    {isAssigning ? 'Updating...' : `Update Plans for ${selectedProperty.address}`}
+                                </Button>
+                            )}
+                            <Button className="w-full" variant="secondary" onClick={() => handleConfirmAssign('all')} disabled={isAssigning}>
+                                {isAssigning ? 'Updating...' : 'Update Plans for All Properties'}
+                            </Button>
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                            <Button type="button" variant="ghost" onClick={() => { setIsAssignModalOpen(false); setAssignMethod(null); }} disabled={isAssigning}>Cancel</Button>
+                        </div>
+                    </>
+                )}
             </Modal>
         </div>
     );
