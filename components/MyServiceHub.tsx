@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import Services from './Services.tsx';
 import PropertySettings from './PropertySettings.tsx';
 import Notifications from './Notifications.tsx';
@@ -59,11 +59,25 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
 
     const hasNoProperties = properties.length === 0;
 
-    const serviceFlowType = useMemo(() => {
+    const [serviceFlowType, setServiceFlowType] = useState<'recurring' | 'request' | undefined>(() => {
         const params = new URLSearchParams(window.location.search);
         const type = params.get('type');
         if (type === 'recurring' || type === 'request') return type;
         return undefined;
+    });
+
+    useEffect(() => {
+        const handlePopState = () => {
+            const params = new URLSearchParams(window.location.search);
+            const type = params.get('type');
+            if (type === 'recurring' || type === 'request') {
+                setServiceFlowType(type);
+            } else {
+                setServiceFlowType(undefined);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
     }, []);
 
     useEffect(() => {

@@ -5,7 +5,11 @@ A React + Vite frontend with an Express backend for a waste management client po
 
 ## Recent Changes
 - 2026-02-16: Implemented deep linking / URL-based routing for all views
-- 2026-02-16: View-to-path mappings: / (home), /manage-plan, /wallet, /pay, /requests, /referrals, /help, /settings, /start-service
+- 2026-02-16: Removed Start Service as standalone view; onboarding now handled inline within Manage Plan (MyServiceHub)
+- 2026-02-16: Deep link query params: /manage-plan?type=recurring (recurring plan setup) vs /manage-plan?type=request (one-time service request)
+- 2026-02-16: Query params preserved through auth flows (login, register, Google OAuth) via pendingDeepLinkQuery state
+- 2026-02-16: StartService component branches Step 3 based on serviceFlowType: 'request' shows standalone services only, default shows full recurring plan flow
+- 2026-02-16: View-to-path mappings: / (home), /manage-plan, /wallet, /pay, /requests, /referrals, /help, /settings
 - 2026-02-16: Auth routes: /login, /register, /forgot-password, /reset-password?token=...
 - 2026-02-16: Browser back/forward navigation syncs view state via popstate listener
 - 2026-02-16: Deep link preservation: unauthenticated users visiting protected URLs are redirected to login, then navigated to intended page after successful login

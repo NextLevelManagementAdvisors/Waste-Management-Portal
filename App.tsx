@@ -69,6 +69,9 @@ const App: React.FC = () => {
     if (AUTH_PATHS[path] || path === '/reset-password' || path === '/login') return null;
     return getViewFromPath(path);
   });
+  const [pendingDeepLinkQuery, setPendingDeepLinkQuery] = useState<string>(() => {
+    return window.location.search ? window.location.search.slice(1) : '';
+  });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   const [user, setUser] = useState<User | null>(null);
@@ -77,11 +80,12 @@ const App: React.FC = () => {
 
   const [initialLoading, setInitialLoading] = useState(true);
 
-  const setCurrentView = useCallback((view: View) => {
+  const setCurrentView = useCallback((view: View, queryString?: string) => {
     setCurrentViewRaw(view);
     const targetPath = VIEW_TO_PATH[view] || '/';
-    if (window.location.pathname !== targetPath) {
-      window.history.pushState({ view }, '', targetPath);
+    const fullPath = queryString ? `${targetPath}?${queryString}` : targetPath;
+    if (window.location.pathname !== targetPath || queryString) {
+      window.history.pushState({ view }, '', fullPath);
     }
   }, []);
 
@@ -170,12 +174,14 @@ const App: React.FC = () => {
         setIsAuthenticated(true);
         const pathname = normalizePath(window.location.pathname);
         const deepLinkedView = getViewFromPath(pathname);
+        const search = window.location.search;
         if (userData.properties && userData.properties.length === 0) {
           setCurrentViewRaw('myservice');
-          window.history.replaceState({ view: 'myservice' }, '', VIEW_TO_PATH['myservice']);
+          const managePlanPath = VIEW_TO_PATH['myservice'] + (search || '');
+          window.history.replaceState({ view: 'myservice' }, '', managePlanPath);
         } else if (deepLinkedView && deepLinkedView !== 'home') {
           setCurrentViewRaw(deepLinkedView);
-          window.history.replaceState({ view: deepLinkedView }, '', pathname);
+          window.history.replaceState({ view: deepLinkedView }, '', pathname + search);
         } else {
           setCurrentViewRaw('home');
           window.history.replaceState({ view: 'home' }, '', '/');
@@ -205,17 +211,18 @@ const App: React.FC = () => {
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
       if (userData.properties && userData.properties.length === 0) {
-        setCurrentView('myservice');
+        setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
-        setCurrentView(pendingDeepLink);
+        setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
         setPendingDeepLink(null);
       } else {
         setCurrentView('home');
       }
+      setPendingDeepLinkQuery('');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery]);
 
   const handleRegister = useCallback(async (registrationInfo: RegistrationInfo): Promise<void> => {
      setAuthError(null);
@@ -223,12 +230,13 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      setCurrentView('myservice'); 
+      setCurrentView('myservice', pendingDeepLinkQuery || undefined); 
+      setPendingDeepLinkQuery('');
     } catch (error)
     {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState, setCurrentView]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLinkQuery]);
 
   const handleLogout = useCallback(async (): Promise<void> => {
     await logout();

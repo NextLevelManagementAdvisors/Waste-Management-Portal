@@ -18,7 +18,7 @@ export interface PropertyContextType {
     startNewServiceFlow: () => void;
     postNavAction: PostNavAction | null;
     setPostNavAction: (action: PostNavAction | null) => void;
-    setCurrentView: (view: View) => void;
+    setCurrentView: (view: View, queryString?: string) => void;
 }
 
 export const PropertyContext = createContext<PropertyContextType>({

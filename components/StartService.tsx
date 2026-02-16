@@ -247,9 +247,8 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         return { monthlyTotal: monthly, setupTotal: setup };
     }, [selectedServices, availableServices]);
 
-    // This effect manages adding/removing the base fee and syncing liner quantity
     useEffect(() => {
-        if (!baseFeeService || !linerService) return;
+        if (!baseFeeService || !linerService || serviceFlowType === 'request') return;
 
         setSelectedServices(prev => {
             const hasBaseFee = prev.some(s => s.serviceId === baseFeeService.id);
@@ -460,6 +459,47 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     );
 
     const renderStep3 = () => {
+        if (serviceFlowType === 'request') {
+            const standaloneServices = availableServices.filter(s => s.category === 'standalone');
+            return (
+                <div className="space-y-8 animate-in fade-in duration-300">
+                    <Card className="p-0 overflow-hidden">
+                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Available Services</h2>
+                        <div className="divide-y divide-base-200">
+                            {standaloneServices.length === 0 && (
+                                <p className="p-6 text-gray-500 text-sm">No one-time services are currently available.</p>
+                            )}
+                            {standaloneServices.map(service => {
+                                const selection = selectedServices.find(s => s.serviceId === service.id);
+                                return (
+                                    <div key={service.id} className="p-6 flex flex-row justify-between items-center gap-4">
+                                        <div className="flex items-center gap-4 flex-1">
+                                            <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900">{service.name}</h3>
+                                                <p className="text-xs text-gray-500">{service.description}</p>
+                                                <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                        <QuantitySelector
+                                            quantity={selection?.quantity || 0}
+                                            onIncrement={() => handleServiceQuantityChange(service.id, 'increment')}
+                                            onDecrement={() => handleServiceQuantityChange(service.id, 'decrement')}
+                                            isUpdating={false}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </Card>
+                    <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
+                        <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
+                        <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0}>Next: Billing</Button>
+                    </div>
+                </div>
+            );
+        }
+
         const baseServices = availableServices.filter(s => s.category === 'base_service');
         const upgradeServices = availableServices.filter(s => s.category === 'upgrade' && s.id !== atHouseService?.id && s.id !== linerService?.id);
         const isLinerSelected = selectedServices.some(s => s.serviceId === linerService?.id);
