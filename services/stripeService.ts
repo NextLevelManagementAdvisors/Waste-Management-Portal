@@ -70,23 +70,27 @@ export const updateCustomerDefaultPaymentMethod = async (id: string) => {
   return res.data;
 };
 
-export const createSubscription = async (service: Service, propertyId: string, paymentMethodId: string, quantity: number, _useSticker: boolean) => {
+export const createSubscription = async (service: Service, propertyId: string, paymentMethodId: string | undefined, quantity: number, _useSticker: boolean) => {
   if (!_customerId) throw new Error('No customer ID set');
 
   const products = await listProducts();
   const product = products.find((p: any) => p.id === service.id || p.name === service.name);
   if (!product || !product.default_price) throw new Error(`Product "${service.name}" not found in Stripe`);
 
-  const res = await apiRequest('POST', '/subscriptions', {
+  const body: any = {
     customerId: _customerId,
     priceId: product.default_price.id,
     quantity,
-    paymentMethodId,
     metadata: {
       propertyId,
       equipmentType: _useSticker ? 'own_can' : 'rental',
     },
-  });
+  };
+  if (paymentMethodId) {
+    body.paymentMethodId = paymentMethodId;
+  }
+
+  const res = await apiRequest('POST', '/subscriptions', body);
 
   const sub = res.data;
   return mapStripeSubscription(sub, product);

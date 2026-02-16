@@ -397,7 +397,10 @@ export const subscribeToNewService = async (service: Service, propertyId: string
     const property = MOCK_USER.properties.find(p => p.id === propertyId);
     if (!property) throw new Error("Property not found for creating subscription.");
 
-    const newSub = await stripeService.createSubscription(service, propertyId, 'pm_1', quantity, useSticker);
+    const paymentMethods = await stripeService.listPaymentMethods();
+    const paymentMethodId = paymentMethods.length > 0 ? paymentMethods[0].id : undefined;
+
+    const newSub = await stripeService.createSubscription(service, propertyId, paymentMethodId, quantity, useSticker);
 
     // If a new physical can is being rented, create a delivery task.
     if (service.category === 'base_service' && !useSticker) {
@@ -432,7 +435,9 @@ export const changeServiceQuantity = async (service: Service, propertyId: string
 
     } else if (change === 'increment') {
         // This is creating a new subscription
-        const newSub = await stripeService.createSubscription(service, propertyId, 'pm_1', 1, useSticker ?? false);
+        const pms = await stripeService.listPaymentMethods();
+        const pmId = pms.length > 0 ? pms[0].id : undefined;
+        const newSub = await stripeService.createSubscription(service, propertyId, pmId, 1, useSticker ?? false);
         // If a new physical can is being rented, create a delivery task.
         if (service.category === 'base_service' && !(useSticker ?? false)) {
             await optimoRouteService.createDeliveryTask(property.address, service.name, 1);

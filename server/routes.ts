@@ -184,14 +184,17 @@ export function registerRoutes(app: Express) {
       const stripe = await getUncachableStripeClient();
       const { customerId, priceId, quantity, paymentMethodId, metadata } = req.body;
 
-      const subscription = await stripe.subscriptions.create({
+      const createParams: any = {
         customer: customerId,
         items: [{ price: priceId, quantity: quantity || 1 }],
-        default_payment_method: paymentMethodId,
         metadata: metadata || {},
         payment_behavior: 'default_incomplete',
         expand: ['latest_invoice.payment_intent'],
-      });
+      };
+      if (paymentMethodId) {
+        createParams.default_payment_method = paymentMethodId;
+      }
+      const subscription = await stripe.subscriptions.create(createParams);
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error creating subscription:', error);
