@@ -58,7 +58,12 @@ const NavLink: React.FC<{
 );
 
 const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) => void, onLogout: () => void }> = ({ currentView, onLinkClick, onLogout }) => {
-    const { user } = useProperty();
+    const { user, properties } = useProperty();
+    const hasProperties = properties.length > 0;
+
+    const visibleNavItems = hasProperties
+      ? navItems
+      : navItems.filter(item => !['myservice', 'make-payment', 'requests'].includes(item.id));
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +99,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
          <div className="flex-1 overflow-y-auto py-8 px-5">
            <nav>
              <ul className="space-y-2">
-               {navItems.map((item) => (
+               {visibleNavItems.map((item) => (
                  <NavLink
                    key={item.id}
                    item={item}
