@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response } from 'express';
 import { storage } from './storage';
 import { getUncachableStripeClient, getStripePublishableKey } from './stripeClient';
+import * as optimoRoute from './optimoRouteClient';
+import { requireAuth } from './authRoutes';
 
 function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
@@ -345,6 +347,86 @@ export function registerRoutes(app: Express) {
       res.json({ data: { url: session.url } });
     } catch (error: any) {
       console.error('Error creating portal session:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  async function verifyUserOwnsAddress(req: Request, res: Response, address: string): Promise<boolean> {
+    const userId = req.session?.userId;
+    if (!userId) return false;
+    const properties = await storage.getPropertiesForUser(userId);
+    return properties.some(p => p.address.toLowerCase().trim() === address.toLowerCase().trim());
+  }
+
+  app.get('/api/optimoroute/next-pickup', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const address = req.query.address as string;
+      if (!address) return res.status(400).json({ error: 'address is required' });
+      if (!(await verifyUserOwnsAddress(req, res, address))) {
+        return res.status(403).json({ error: 'Address not found in your properties' });
+      }
+      const result = await optimoRoute.getNextPickupForAddress(address);
+      res.json({ data: result });
+    } catch (error: any) {
+      console.error('OptimoRoute next-pickup error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/optimoroute/history', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const address = req.query.address as string;
+      const weeks = parseInt(req.query.weeks as string) || 12;
+      if (!address) return res.status(400).json({ error: 'address is required' });
+      if (!(await verifyUserOwnsAddress(req, res, address))) {
+        return res.status(403).json({ error: 'Address not found in your properties' });
+      }
+      const result = await optimoRoute.getCompletionHistoryForAddress(address, weeks);
+      res.json({ data: result });
+    } catch (error: any) {
+      console.error('OptimoRoute history error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/optimoroute/routes', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const date = req.query.date as string;
+      if (!date) return res.status(400).json({ error: 'date is required' });
+      const result = await optimoRoute.getRoutes(date);
+      res.json({ data: result });
+    } catch (error: any) {
+      console.error('OptimoRoute routes error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/optimoroute/search', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const from = req.query.from as string;
+      const to = req.query.to as string;
+      if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+      const result = await optimoRoute.searchOrders(from, to);
+      res.json({ data: result });
+    } catch (error: any) {
+      console.error('OptimoRoute search error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/optimoroute/create-order', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { orderNo, type, date, address, locationName, duration, notes } = req.body;
+      if (!orderNo || !type || !date || !address) {
+        return res.status(400).json({ error: 'orderNo, type, date, and address are required' });
+      }
+      if (!(await verifyUserOwnsAddress(req, res, address))) {
+        return res.status(403).json({ error: 'Address not found in your properties' });
+      }
+      const result = await optimoRoute.createOrder({ orderNo, type, date, address, locationName, duration, notes });
+      res.json({ data: result });
+    } catch (error: any) {
+      console.error('OptimoRoute create-order error:', error);
       res.status(500).json({ error: error.message });
     }
   });

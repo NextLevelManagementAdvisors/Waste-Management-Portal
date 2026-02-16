@@ -135,60 +135,75 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         let state: Omit<PropertyState, 'property' | 'monthlyTotal' | 'activeServices'>;
         
         const today = new Date();
-        const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+        const todayStr = today.toISOString().split('T')[0];
 
-        const p1PickupDate = today.toISOString().split('T')[0];
-        const p3PickupDate = tomorrow.toISOString().split('T')[0];
+        const [nextPickupInfo, pastPickups] = await Promise.all([
+            optimoRouteService.getNextPickupInfo(prop.address),
+            optimoRouteService.getPastPickups(prop.address),
+        ]);
 
-        switch (prop.id) {
-            case 'P1': // In-progress pickup
-                state = {
-                    nextPickup: { date: p1PickupDate, label: 'TODAY', isToday: true, status: isPaused ? 'paused' : 'in-progress', eta: '11:30 AM' },
-                    lastPickup: null,
-                    collectionIntent: null
-                };
-                break;
-            case 'P2': // Completed pickup
-                const history = await optimoRouteService.getPastPickups(prop.address);
-                const lastCompletedPickup = history.find(h => h.status === 'completed');
+        const lastCompletedPickup = pastPickups.find(h => h.status === 'completed');
 
-                if (lastCompletedPickup) {
-                    let feedback: any = null;
-                    try {
-                        const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
-                        if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
-                    } catch {}
-                    const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
-                    
-                    state = {
-                        nextPickup: null,
-                        lastPickup: { 
-                            date: lastCompletedPickup.date, 
-                            label: 'Yesterday', 
-                            status: 'completed', 
-                            feedbackSubmitted: !!feedback,
-                            showTipPrompt: !feedback && !hasBeenDismissed,
-                            driverName: lastCompletedPickup.driver,
-                        },
-                        collectionIntent: null
-                    };
-                } else {
-                    state = { nextPickup: null, lastPickup: null, collectionIntent: null };
-                }
-                break;
-            case 'P3': // Upcoming pickup
-            default:
-                let intent: string | null = null;
+        if (nextPickupInfo) {
+            const pickupDate = nextPickupInfo.date;
+            const isToday = pickupDate === todayStr;
+            const pickupDateObj = new Date(pickupDate + 'T00:00:00');
+            const diffDays = Math.round((pickupDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            let label = isToday ? 'TODAY' : diffDays === 1 ? 'Tomorrow' : pickupDate;
+            let pickupStatus: string = isPaused ? 'paused' : isToday ? 'in-progress' : 'upcoming';
+
+            let intent: string | null = null;
+            if (!isToday) {
                 try {
-                    const ciRes = await fetch(`/api/collection-intent/${prop.id}/${p3PickupDate}`, { credentials: 'include' });
+                    const ciRes = await fetch(`/api/collection-intent/${prop.id}/${pickupDate}`, { credentials: 'include' });
                     if (ciRes.ok) { const ciJson = await ciRes.json(); intent = ciJson.data?.intent || null; }
                 } catch {}
-                state = {
-                    nextPickup: { date: p3PickupDate, label: 'Tomorrow', isToday: false, status: isPaused ? 'paused' : 'upcoming' },
-                    lastPickup: null,
-                    collectionIntent: intent
+            }
+
+            let lastPickup = null;
+            if (lastCompletedPickup) {
+                let feedback: any = null;
+                try {
+                    const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
+                    if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
+                } catch {}
+                const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
+                lastPickup = {
+                    date: lastCompletedPickup.date,
+                    label: 'Last Pickup',
+                    status: 'completed' as const,
+                    feedbackSubmitted: !!feedback,
+                    showTipPrompt: !feedback && !hasBeenDismissed,
+                    driverName: lastCompletedPickup.driver,
                 };
-                break;
+            }
+
+            state = {
+                nextPickup: { date: pickupDate, label, isToday, status: pickupStatus, eta: nextPickupInfo.eta },
+                lastPickup,
+                collectionIntent: intent
+            };
+        } else if (lastCompletedPickup) {
+            let feedback: any = null;
+            try {
+                const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
+                if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
+            } catch {}
+            const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
+            state = {
+                nextPickup: null,
+                lastPickup: {
+                    date: lastCompletedPickup.date,
+                    label: 'Last Pickup',
+                    status: 'completed',
+                    feedbackSubmitted: !!feedback,
+                    showTipPrompt: !feedback && !hasBeenDismissed,
+                    driverName: lastCompletedPickup.driver,
+                },
+                collectionIntent: null
+            };
+        } else {
+            state = { nextPickup: null, lastPickup: null, collectionIntent: null };
         }
 
         return {
