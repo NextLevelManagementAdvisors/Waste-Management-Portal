@@ -99,7 +99,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const [loadingMethods, setLoadingMethods] = useState(false);
     const [billingChoice, setBillingChoice] = useState<'existing' | 'new'>('existing');
     const [selectedMethodId, setSelectedMethodId] = useState('');
-    const [autoPay, setAutoPay] = useState(true);
     
      useEffect(() => {
         if (step === 3 && availableServices.length === 0) {
