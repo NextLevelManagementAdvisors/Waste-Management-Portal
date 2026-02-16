@@ -170,8 +170,15 @@ export const createInvoice = async (propertyId: string, amount: number, descript
   return { id: `pending_${Date.now()}`, propertyId, amount, description };
 };
 
-export const restartAllSubscriptionsForProperty = async (_propertyId: string) => {
-  console.log(`[Stripe] Restart subscriptions not yet implemented for real Stripe`);
+export const restartAllSubscriptionsForProperty = async (propertyId: string) => {
+  if (!_customerId) throw new Error('No customer ID set');
+  const subs = await listSubscriptions();
+  const paused = subs.filter((s: Subscription) =>
+    s.propertyId === propertyId && s.status === 'paused'
+  );
+  for (const sub of paused) {
+    await apiRequest('POST', `/subscriptions/${sub.id}/resume`);
+  }
   return { success: true };
 };
 
