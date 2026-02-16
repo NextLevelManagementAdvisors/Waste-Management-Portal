@@ -87,7 +87,11 @@ const QuantitySelector: React.FC<{
 
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
     const [step, setStep] = useState(1);
-    const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
+    const [formData, setFormData] = useState<NewPropertyInfo>(() => {
+        const params = new URLSearchParams(window.location.search);
+        const ref = params.get('ref');
+        return ref ? { ...initialFormState, referralCode: ref } : initialFormState;
+    });
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Step 3 state
