@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './Button.tsx';
 
 interface LoginProps {
@@ -8,10 +8,15 @@ interface LoginProps {
     switchToForgotPassword: () => void;
     error: string | null;
     pendingQueryString?: string;
+    prefillEmail?: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgotPassword, error, pendingQueryString }) => {
-    const [email, setEmail] = useState('');
+const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgotPassword, error, pendingQueryString, prefillEmail }) => {
+    const [email, setEmail] = useState(prefillEmail || '');
+
+    useEffect(() => {
+        if (prefillEmail) setEmail(prefillEmail);
+    }, [prefillEmail]);
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 

@@ -14,6 +14,7 @@ import Registration from './components/Registration.tsx';
 import ForgotPassword from './components/ForgotPassword.tsx';
 import ResetPassword from './components/ResetPassword.tsx';
 import MakePaymentHub from './components/MakePaymentHub.tsx';
+import AcceptTransfer from './components/AcceptTransfer.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
@@ -61,6 +62,15 @@ const App: React.FC = () => {
   });
   const [authError, setAuthError] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
+  const [pendingTransferToken, setPendingTransferToken] = useState<string | null>(() => {
+    const path = normalizePath(window.location.pathname);
+    if (path === '/accept-transfer') {
+      return new URLSearchParams(window.location.search).get('token');
+    }
+    return new URLSearchParams(window.location.search).get('transfer') || null;
+  });
+  const [registrationPrefill, setRegistrationPrefill] = useState<{firstName?: string; lastName?: string; email?: string} | null>(null);
+  const [loginPrefillEmail, setLoginPrefillEmail] = useState<string>('');
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentViewRaw] = useState<View>(() => getViewFromPath(window.location.pathname) || 'home');
@@ -173,6 +183,10 @@ const App: React.FC = () => {
         fetchUserAndSetState(userData);
         setIsAuthenticated(true);
         const pathname = normalizePath(window.location.pathname);
+        if (pathname === '/accept-transfer') {
+          setPendingDeepLink(null);
+          return;
+        }
         const deepLinkedView = getViewFromPath(pathname);
         const search = window.location.search;
         if (userData.properties && userData.properties.length === 0) {
@@ -190,7 +204,7 @@ const App: React.FC = () => {
       })
       .catch(() => {
         const pathname = normalizePath(window.location.pathname);
-        if (pathname !== '/reset-password' && !AUTH_PATHS[pathname]) {
+        if (pathname !== '/reset-password' && pathname !== '/accept-transfer' && !AUTH_PATHS[pathname]) {
           setAuthView('login');
           window.history.replaceState({}, '', '/login');
         }
@@ -210,6 +224,9 @@ const App: React.FC = () => {
       const userData = await login(email, password);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
+      if (pendingTransferToken) {
+        return;
+      }
       if (userData.properties && userData.properties.length === 0) {
         setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
@@ -222,7 +239,7 @@ const App: React.FC = () => {
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery, pendingTransferToken]);
 
   const handleRegister = useCallback(async (registrationInfo: RegistrationInfo): Promise<void> => {
      setAuthError(null);
@@ -230,13 +247,16 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
+      if (pendingTransferToken) {
+        return;
+      }
       setCurrentView('myservice', pendingDeepLinkQuery || undefined); 
       setPendingDeepLinkQuery('');
     } catch (error)
     {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState, setCurrentView, pendingDeepLinkQuery]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLinkQuery, pendingTransferToken]);
 
   const handleLogout = useCallback(async (): Promise<void> => {
     await logout();
@@ -388,6 +408,72 @@ const App: React.FC = () => {
           <p className="text-gray-500">Loading...</p>
         </div>
       </div>
+    );
+  }
+
+  if (pendingTransferToken) {
+    const handleTransferAccepted = async () => {
+      setPendingTransferToken(null);
+      try {
+        const userData = await getUser();
+        fetchUserAndSetState(userData);
+      } catch {}
+      setCurrentView('home');
+      window.history.replaceState({}, '', '/');
+    };
+
+    if (!isAuthenticated) {
+      if (authView === 'register' || authView === 'login') {
+        const switchToLogin = () => {
+          setAuthView('login');
+          setAuthError(null);
+        };
+        const switchToRegister = () => {
+          setAuthView('register');
+          setAuthError(null);
+        };
+        const switchToForgotPassword = () => {
+          setAuthView('forgot-password');
+          setAuthError(null);
+        };
+        return (
+          <AuthLayout>
+            {authView === 'register' ? (
+              <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} prefill={registrationPrefill || undefined} />
+            ) : (
+              <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} prefillEmail={loginPrefillEmail} />
+            )}
+          </AuthLayout>
+        );
+      }
+
+      return (
+        <AcceptTransfer
+          token={pendingTransferToken}
+          isAuthenticated={false}
+          onAccepted={handleTransferAccepted}
+          onSwitchToLogin={(prefill) => {
+            setLoginPrefillEmail(prefill?.email || '');
+            setAuthView('login');
+            setAuthError(null);
+          }}
+          onSwitchToRegister={(prefill) => {
+            setRegistrationPrefill(prefill || null);
+            setAuthView('register');
+            setAuthError(null);
+          }}
+        />
+      );
+    }
+
+    return (
+      <AcceptTransfer
+        token={pendingTransferToken}
+        isAuthenticated={true}
+        onAccepted={handleTransferAccepted}
+        onSwitchToLogin={() => {}}
+        onSwitchToRegister={() => {}}
+      />
     );
   }
 

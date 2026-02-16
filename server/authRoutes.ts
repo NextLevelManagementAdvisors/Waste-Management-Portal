@@ -860,7 +860,7 @@ export function registerAuthRoutes(app: Express) {
       const senderName = user ? `${user.first_name} ${user.last_name}` : 'A customer';
       const host = req.headers.host || 'localhost:5000';
       const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const acceptUrl = `${protocol}://${host}/register?transfer=${token}`;
+      const acceptUrl = `${protocol}://${host}/accept-transfer?token=${token}`;
 
       try {
         await sendEmail(email, `${senderName} wants to transfer waste service to you`, `
@@ -937,6 +937,13 @@ export function registerAuthRoutes(app: Express) {
     try {
       const property = await storage.getPropertyByTransferToken(req.params.token);
       if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
+      
+      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      const user = await storage.getUserById(req.session.userId!);
+      if (pendingOwner?.email && user && user.email.toLowerCase() !== pendingOwner.email.toLowerCase()) {
+        return res.status(403).json({ error: `This transfer was sent to ${pendingOwner.email}. Please sign in with that email address to accept it.` });
+      }
+
       const newUserId = req.session.userId!;
       await storage.completeTransfer(property.id, newUserId);
       res.json({ data: { success: true, message: 'Transfer completed successfully' } });

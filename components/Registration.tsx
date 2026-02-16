@@ -8,6 +8,7 @@ interface RegistrationProps {
     switchToLogin: () => void;
     error: string | null;
     pendingQueryString?: string;
+    prefill?: { firstName?: string; lastName?: string; email?: string };
 }
 
 function getInitialReferralCode(pendingQueryString?: string): string {
@@ -20,12 +21,12 @@ function getInitialReferralCode(pendingQueryString?: string): string {
     return '';
 }
 
-const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error, pendingQueryString }) => {
+const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error, pendingQueryString, prefill }) => {
     const [formData, setFormData] = useState<RegistrationInfo>(() => ({
-        firstName: '',
-        lastName: '',
+        firstName: prefill?.firstName || '',
+        lastName: prefill?.lastName || '',
         phone: '',
-        email: '',
+        email: prefill?.email || '',
         password: '',
         referralCode: getInitialReferralCode(pendingQueryString),
     }));
