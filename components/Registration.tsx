@@ -10,25 +10,25 @@ interface RegistrationProps {
     pendingQueryString?: string;
 }
 
+function getInitialReferralCode(pendingQueryString?: string): string {
+    const urlRef = new URLSearchParams(window.location.search).get('ref');
+    if (urlRef) return urlRef;
+    if (pendingQueryString) {
+        const pendingRef = new URLSearchParams(pendingQueryString).get('ref');
+        if (pendingRef) return pendingRef;
+    }
+    return '';
+}
+
 const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error, pendingQueryString }) => {
-    const [formData, setFormData] = useState<RegistrationInfo>({
+    const [formData, setFormData] = useState<RegistrationInfo>(() => ({
         firstName: '',
         lastName: '',
         phone: '',
         email: '',
         password: '',
-        referralCode: '',
-    });
-
-    useEffect(() => {
-        let ref = new URLSearchParams(window.location.search).get('ref');
-        if (!ref && pendingQueryString) {
-            ref = new URLSearchParams(pendingQueryString).get('ref');
-        }
-        if (ref) {
-            setFormData(prev => ({ ...prev, referralCode: ref! }));
-        }
-    }, [pendingQueryString]);
+        referralCode: getInitialReferralCode(pendingQueryString),
+    }));
     const [isLoading, setIsLoading] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
