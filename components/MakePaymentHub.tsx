@@ -37,9 +37,13 @@ const MakePaymentHub: React.FC = () => {
         fetchData();
     }, []);
 
+    const dueInvoices = useMemo(() => 
+        allInvoices.filter(inv => inv.status === 'Due' || inv.status === 'Overdue'), 
+    [allInvoices]);
+
     const dueInvoicesByProperty = useMemo(() => {
-        const dueInvoices = allInvoices.filter(inv => inv.status === 'Due' || inv.status === 'Overdue');
         const grouped = new Map<string, PropertyDueInfo>();
+        const propertyIds = new Set(properties.map(p => p.id));
 
         properties.forEach(prop => {
             const propInvoices = dueInvoices.filter(inv => inv.propertyId === prop.id);
@@ -57,8 +61,22 @@ const MakePaymentHub: React.FC = () => {
             }
         });
 
+        const unassigned = dueInvoices.filter(inv => !inv.propertyId || !propertyIds.has(inv.propertyId));
+        if (unassigned.length > 0) {
+            const totalDue = unassigned.reduce((sum, inv) => sum + inv.amount, 0);
+            const earliestDueDate = unassigned.reduce((earliest, inv) => 
+                new Date(inv.date) < new Date(earliest) ? inv.date : earliest, 
+                unassigned[0].date
+            );
+            grouped.set('__account__', {
+                property: { id: '__account__', address: 'Account-Level Charges', serviceType: 'personal' } as Property,
+                totalDue,
+                earliestDueDate,
+            });
+        }
+
         return Array.from(grouped.values());
-    }, [allInvoices, properties]);
+    }, [dueInvoices, properties]);
 
     const totalOutstandingBalance = useMemo(() => 
         dueInvoicesByProperty.reduce((sum, propInfo) => sum + propInfo.totalDue, 0)
