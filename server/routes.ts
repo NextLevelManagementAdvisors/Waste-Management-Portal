@@ -8,6 +8,35 @@ function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
 }
 
+const REFERRAL_CREDIT_AMOUNT = 1000;
+
+async function processReferralCredits(userId: string, stripe: any) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const referral = await storage.getPendingReferralForEmail(user.email);
+  if (!referral) return;
+
+  const referrer = await storage.getUserById(referral.referrer_user_id);
+  if (!referrer) return;
+
+  if (user.stripe_customer_id) {
+    await stripe.customers.update(user.stripe_customer_id, {
+      balance: -REFERRAL_CREDIT_AMOUNT,
+    });
+  }
+
+  if (referrer.stripe_customer_id) {
+    const referrerCustomer = await stripe.customers.retrieve(referrer.stripe_customer_id);
+    const currentBalance = referrerCustomer.balance || 0;
+    await stripe.customers.update(referrer.stripe_customer_id, {
+      balance: currentBalance - REFERRAL_CREDIT_AMOUNT,
+    });
+  }
+
+  await storage.completeReferral(referral.referrer_user_id, user.email, REFERRAL_CREDIT_AMOUNT / 100);
+}
+
 export function registerRoutes(app: Express) {
 
   app.get('/api/google-maps-key', (_req: Request, res: Response) => {
@@ -195,6 +224,13 @@ export function registerRoutes(app: Express) {
         createParams.default_payment_method = paymentMethodId;
       }
       const subscription = await stripe.subscriptions.create(createParams);
+
+      if (req.session?.userId) {
+        processReferralCredits(req.session.userId, stripe).catch(err =>
+          console.error('Referral credit processing failed (non-blocking):', err)
+        );
+      }
+
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error creating subscription:', error);

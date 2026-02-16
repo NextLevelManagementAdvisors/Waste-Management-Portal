@@ -412,11 +412,19 @@ export class Storage {
     return result.rows[0]?.user_id || null;
   }
 
-  async completeReferral(referrerUserId: string, referredEmail: string) {
+  async completeReferral(referrerUserId: string, referredEmail: string, rewardAmount: number = 10) {
     await this.query(
-      "UPDATE referrals SET status = 'completed', completed_at = NOW() WHERE referrer_user_id = $1 AND referred_email = $2 AND status = 'pending'",
-      [referrerUserId, referredEmail]
+      "UPDATE referrals SET status = 'completed', completed_at = NOW(), reward_amount = $3 WHERE referrer_user_id = $1 AND referred_email = $2 AND status = 'pending'",
+      [referrerUserId, referredEmail, rewardAmount]
     );
+  }
+
+  async getPendingReferralForEmail(email: string) {
+    const result = await this.query(
+      "SELECT r.*, rc.user_id as referrer_user_id FROM referrals r JOIN referral_codes rc ON r.referrer_user_id = rc.user_id WHERE r.referred_email = $1 AND r.status = 'pending' LIMIT 1",
+      [email]
+    );
+    return result.rows[0] || null;
   }
 
   async initiateTransfer(propertyId: string, newOwner: { firstName: string; lastName: string; email: string }, token: string, expiresAt: Date) {
