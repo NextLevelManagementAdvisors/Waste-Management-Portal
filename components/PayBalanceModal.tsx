@@ -27,7 +27,9 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
             Promise.all([getInvoices(), getPaymentMethods()]).then(([invs, methods]) => {
                 const dueInvoices = invs.filter(i => i.status === 'Due' || i.status === 'Overdue');
                 const relevantInvoices = propertyId
-                    ? dueInvoices.filter(i => i.propertyId === propertyId)
+                    ? propertyId === '__account__'
+                        ? dueInvoices.filter(i => !i.propertyId)
+                        : dueInvoices.filter(i => i.propertyId === propertyId)
                     : dueInvoices;
                 setInvoices(relevantInvoices);
                 setPaymentMethods(methods);

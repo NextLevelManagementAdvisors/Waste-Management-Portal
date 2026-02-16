@@ -155,7 +155,8 @@ export const payOutstandingBalance = async (paymentMethodId: string, propertyId?
   const invoices = await listInvoices();
   const unpaid = invoices.filter(inv => {
     const isDue = inv.status === 'Due' || inv.status === 'Overdue';
-    const matchesProperty = !propertyId || inv.propertyId === propertyId;
+    const matchesProperty = !propertyId || 
+      (propertyId === '__account__' ? !inv.propertyId : inv.propertyId === propertyId);
     return isDue && matchesProperty;
   });
 
