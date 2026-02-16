@@ -4,6 +4,17 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Admin Dashboard with back-office views: Overview stats, Customer management with Stripe details, Properties list, Activity feed
+- 2026-02-16: Admin routes (server/adminRoutes.ts) protected by is_admin flag on users table
+- 2026-02-16: Admin notification API (POST /api/admin/notify) for sending pickup reminders, billing alerts, service updates
+- 2026-02-16: Email notification service (server/notificationService.ts) with HTML templates for pickup reminders, billing alerts, payment confirmations, service updates, missed pickup confirmations
+- 2026-02-16: Notifications auto-sent on missed pickup reports and special pickup scheduling
+- 2026-02-16: SettingsHub with tabbed interface (Profile/Notifications/Security) replacing old single-page settings
+- 2026-02-16: Notification preferences expanded: pickup (email/sms per property), billing (invoiceDue, paymentConfirmation, autopayReminder), account (serviceUpdates, promotions, referralUpdates)
+- 2026-02-16: All notification preferences persisted to DB via property notification_preferences JSONB
+- 2026-02-16: Invoice PDF download links and hosted invoice URLs from Stripe data
+- 2026-02-16: Invoice numbers displayed instead of IDs (where available from Stripe)
+- 2026-02-16: Admin sidebar nav link visible only to admin users
 - 2026-02-16: Registration now searches Stripe for existing customer by email before creating new (links existing customer if found)
 - 2026-02-16: Google OAuth signup also checks for existing Stripe customer by email
 - 2026-02-16: ensureStripeCustomer() helper auto-links Stripe customer on login/session restore if portal user has no stripe_customer_id

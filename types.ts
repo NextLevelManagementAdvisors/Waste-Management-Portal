@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'make-payment';
+export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'make-payment' | 'admin';
 
 export interface PostNavAction {
   targetView: View;
@@ -13,6 +13,12 @@ export interface NotificationPreferences {
   pickupReminders: { email: boolean; sms: boolean };
   scheduleChanges: { email: boolean; sms: boolean };
   driverUpdates: { email: boolean; sms: boolean };
+  invoiceDue?: boolean;
+  paymentConfirmation?: boolean;
+  autopayReminder?: boolean;
+  serviceUpdates?: boolean;
+  promotions?: boolean;
+  referralUpdates?: boolean;
 }
 
 export type ServiceType = 'personal' | 'commercial' | 'short-term' | 'rental' | 'other';
@@ -46,6 +52,7 @@ export interface User {
   properties: Property[];
   autopayEnabled: boolean;
   stripeCustomerId?: string;
+  isAdmin?: boolean;
 }
 
 export interface Service {

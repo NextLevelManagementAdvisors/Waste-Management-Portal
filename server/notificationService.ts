@@ -1,0 +1,155 @@
+import { sendEmail } from './gmailClient';
+import { storage } from './storage';
+
+const APP_NAME = 'Zip-A-Dee Services';
+
+function baseTemplate(title: string, body: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
+    <div style="background:#0d9488;padding:24px 32px;border-radius:16px 16px 0 0;text-align:center;">
+      <h1 style="color:#fff;margin:0;font-size:20px;font-weight:900;letter-spacing:-0.5px;">${APP_NAME}</h1>
+    </div>
+    <div style="background:#fff;padding:32px;border-radius:0 0 16px 16px;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
+      <h2 style="color:#1f2937;font-size:18px;font-weight:800;margin:0 0 16px 0;">${title}</h2>
+      ${body}
+    </div>
+    <p style="color:#9ca3af;font-size:11px;text-align:center;margin-top:16px;">
+      You received this email from ${APP_NAME}. Manage your notification preferences in your account settings.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendPickupReminder(userId: string, propertyAddress: string, pickupDate: string, pickupType: string = 'Regular') {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const properties = await storage.getPropertiesByUserId(userId);
+  const property = properties.find(p => p.address === propertyAddress);
+  const prefs = property?.notification_preferences;
+  if (prefs && prefs.pickupReminders && prefs.pickupReminders.email === false) return;
+
+  const subject = `Pickup Reminder - ${pickupDate}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">This is a reminder that your <strong>${pickupType}</strong> pickup is scheduled for:</p>
+    <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;color:#0d9488;font-weight:700;font-size:16px;">${pickupDate}</p>
+      <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${propertyAddress}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Please ensure your bins are placed curbside by 6:00 AM.</p>
+  `;
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Pickup Reminder', body));
+  } catch (e) {
+    console.error('Failed to send pickup reminder:', e);
+  }
+}
+
+export async function sendBillingAlert(userId: string, invoiceNumber: string, amount: number, dueDate: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const properties = await storage.getPropertiesByUserId(userId);
+  const prefs = properties[0]?.notification_preferences;
+  if (prefs && prefs.invoiceDue === false) return;
+
+  const subject = `Invoice #${invoiceNumber} - $${amount.toFixed(2)} Due`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">You have a new invoice that requires your attention.</p>
+    <div style="background:#fefce8;border-left:4px solid #eab308;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;font-weight:700;color:#854d0e;">Invoice #${invoiceNumber}</p>
+      <p style="margin:4px 0 0;color:#854d0e;font-size:24px;font-weight:900;">$${amount.toFixed(2)}</p>
+      <p style="margin:4px 0 0;color:#a16207;font-size:14px;">Due by ${dueDate}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Log in to your account to make a payment.</p>
+  `;
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Invoice Due', body));
+  } catch (e) {
+    console.error('Failed to send billing alert:', e);
+  }
+}
+
+export async function sendPaymentConfirmation(userId: string, amount: number, invoiceNumber: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const properties = await storage.getPropertiesByUserId(userId);
+  const prefs = properties[0]?.notification_preferences;
+  if (prefs && prefs.paymentConfirmation === false) return;
+
+  const subject = `Payment Confirmed - $${amount.toFixed(2)}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your payment has been successfully processed.</p>
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;font-weight:700;color:#166534;">Payment Received</p>
+      <p style="margin:4px 0 0;color:#166534;font-size:24px;font-weight:900;">$${amount.toFixed(2)}</p>
+      <p style="margin:4px 0 0;color:#15803d;font-size:14px;">Invoice #${invoiceNumber}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Thank you for your payment!</p>
+  `;
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Payment Confirmed', body));
+  } catch (e) {
+    console.error('Failed to send payment confirmation:', e);
+  }
+}
+
+export async function sendServiceUpdate(userId: string, updateType: string, details: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const properties = await storage.getPropertiesByUserId(userId);
+  const prefs = properties[0]?.notification_preferences;
+  if (prefs && prefs.serviceUpdates === false) return;
+
+  const subject = `Service Update - ${updateType}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">There's been an update to your service:</p>
+    <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;font-weight:700;color:#1e40af;">${updateType}</p>
+      <p style="margin:8px 0 0;color:#1e3a5f;font-size:14px;line-height:1.5;">${details}</p>
+    </div>
+  `;
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Service Update', body));
+  } catch (e) {
+    console.error('Failed to send service update:', e);
+  }
+}
+
+export async function sendMissedPickupConfirmation(userId: string, propertyAddress: string, pickupDate: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const subject = `Missed Pickup Report Received`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">We've received your missed pickup report and will investigate:</p>
+    <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;font-weight:700;color:#991b1b;">Missed Pickup Report</p>
+      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">${propertyAddress}</p>
+      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">Date: ${pickupDate}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Our team will follow up within 24 hours.</p>
+  `;
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Missed Pickup Report', body));
+  } catch (e) {
+    console.error('Failed to send missed pickup confirmation:', e);
+  }
+}

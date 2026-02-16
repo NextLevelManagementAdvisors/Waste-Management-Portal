@@ -82,6 +82,9 @@ registerAuthRoutes(app);
 const { registerRoutes } = await import('./routes');
 registerRoutes(app);
 
+const { registerAdminRoutes } = await import('./adminRoutes');
+registerAdminRoutes(app);
+
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));

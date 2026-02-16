@@ -6,6 +6,7 @@ import { storage, type DbUser, type DbProperty } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
+import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -30,6 +31,7 @@ function formatUserForClient(user: DbUser, properties: DbProperty[]) {
     memberSince: user.member_since,
     autopayEnabled: user.autopay_enabled,
     stripeCustomerId: user.stripe_customer_id,
+    isAdmin: user.is_admin || false,
     properties: properties.map(formatPropertyForClient),
   };
 }
@@ -644,6 +646,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
       const report = await storage.createMissedPickupReport({ userId, propertyId, pickupDate: date, notes: notes || '' });
+      sendMissedPickupConfirmation(userId, property.address, date).catch(() => {});
       res.json({ data: report, success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to submit report' });
@@ -706,6 +709,8 @@ export function registerAuthRoutes(app: Express) {
       } catch (stripeErr: any) {
         console.error('Stripe invoice creation failed (non-blocking):', stripeErr.message);
       }
+
+      sendServiceUpdate(userId, 'Special Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${property.address}.`).catch(() => {});
 
       res.json({ data: request });
     } catch (error: any) {

@@ -186,7 +186,18 @@ const NotificationsTab: React.FC = () => {
 
   useEffect(() => {
     if (selectedProperty) {
-      setPrefs(JSON.parse(JSON.stringify(selectedProperty.notificationPreferences)));
+      const np = selectedProperty.notificationPreferences;
+      setPrefs(JSON.parse(JSON.stringify(np)));
+      setBillingAlerts({
+        invoiceDue: np.invoiceDue !== false,
+        paymentConfirmation: np.paymentConfirmation !== false,
+        autopayReminder: np.autopayReminder !== false,
+      });
+      setAccountAlerts({
+        serviceUpdates: np.serviceUpdates !== false,
+        promotions: np.promotions === true,
+        referralUpdates: np.referralUpdates !== false,
+      });
       setHasChanges(false);
     } else {
       setPrefs(null);
@@ -218,7 +229,16 @@ const NotificationsTab: React.FC = () => {
     setIsSaving(true);
     setNotification('');
     try {
-      await updateNotificationPreferences(selectedProperty.id, prefs);
+      const fullPrefs: NotificationPreferences = {
+        ...prefs,
+        invoiceDue: billingAlerts.invoiceDue,
+        paymentConfirmation: billingAlerts.paymentConfirmation,
+        autopayReminder: billingAlerts.autopayReminder,
+        serviceUpdates: accountAlerts.serviceUpdates,
+        promotions: accountAlerts.promotions,
+        referralUpdates: accountAlerts.referralUpdates,
+      };
+      await updateNotificationPreferences(selectedProperty.id, fullPrefs);
       await refreshUser();
       setHasChanges(false);
       setNotification('Preferences saved successfully!');

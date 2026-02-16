@@ -19,6 +19,7 @@ const viewTitles: Record<View, string> = {
     help: 'Help',
     'profile-settings': 'Profile Settings',
     referrals: 'Referrals',
+    admin: 'Admin Dashboard',
 };
 
 const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onToggleSidebar }) => {

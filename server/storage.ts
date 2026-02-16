@@ -16,6 +16,7 @@ export interface DbUser {
   member_since: string;
   autopay_enabled: boolean;
   stripe_customer_id: string | null;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -454,6 +455,63 @@ export class Storage {
       `UPDATE properties SET transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $1`,
       [propertyId]
     );
+  }
+
+  async getAllUsers(): Promise<DbUser[]> {
+    const result = await this.query(
+      `SELECT * FROM users ORDER BY created_at DESC`
+    );
+    return result.rows;
+  }
+
+  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string })[]> {
+    const result = await this.query(
+      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
+       FROM properties p LEFT JOIN users u ON p.user_id = u.id
+       ORDER BY p.created_at DESC`
+    );
+    return result.rows;
+  }
+
+  async getAdminStats(): Promise<{
+    totalUsers: number;
+    totalProperties: number;
+    recentUsers: number;
+    activeTransfers: number;
+    totalReferrals: number;
+    pendingReferrals: number;
+  }> {
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs] = await Promise.all([
+      this.query('SELECT COUNT(*) as count FROM users'),
+      this.query('SELECT COUNT(*) as count FROM properties'),
+      this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
+      this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
+      this.query('SELECT COUNT(*) as count FROM referrals'),
+      this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
+    ]);
+    return {
+      totalUsers: parseInt(users.rows[0].count),
+      totalProperties: parseInt(properties.rows[0].count),
+      recentUsers: parseInt(recentUsers.rows[0].count),
+      activeTransfers: parseInt(transfers.rows[0].count),
+      totalReferrals: parseInt(referrals.rows[0].count),
+      pendingReferrals: parseInt(pendingRefs.rows[0].count),
+    };
+  }
+
+  async setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
+    await this.query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, userId]);
+  }
+
+  async searchUsers(query: string): Promise<DbUser[]> {
+    const result = await this.query(
+      `SELECT * FROM users WHERE 
+       LOWER(email) LIKE LOWER($1) OR 
+       LOWER(first_name || ' ' || last_name) LIKE LOWER($1)
+       ORDER BY created_at DESC LIMIT 50`,
+      [`%${query}%`]
+    );
+    return result.rows;
   }
 }
 

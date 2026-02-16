@@ -3,7 +3,7 @@ import { View } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { 
   HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon, 
-  CalendarDaysIcon, GiftIcon, PlusCircleIcon, UserIcon, CreditCardIcon, ArrowRightOnRectangleIcon, ClipboardDocumentIcon
+  CalendarDaysIcon, GiftIcon, PlusCircleIcon, UserIcon, CreditCardIcon, ArrowRightOnRectangleIcon, ClipboardDocumentIcon, ShieldCheckIcon
 } from './Icons.tsx';
 
 interface SidebarProps {
@@ -38,6 +38,7 @@ const VIEW_TO_PATH: Record<string, string> = {
   'referrals': '/referrals',
   'help': '/help',
   'profile-settings': '/settings',
+  'admin': '/admin',
 };
 
 const NavLink: React.FC<{
@@ -71,9 +72,12 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
     const { user, properties } = useProperty();
     const hasProperties = properties.length > 0;
 
-    const visibleNavItems = hasProperties
+    const baseItems = hasProperties
       ? navItems
       : navItems.filter(item => !['myservice', 'make-payment'].includes(item.id));
+    const visibleNavItems = user?.isAdmin
+      ? [...baseItems, { id: 'admin' as View, label: 'Admin', icon: <ShieldCheckIcon className="w-5 h-5" /> }]
+      : baseItems;
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
