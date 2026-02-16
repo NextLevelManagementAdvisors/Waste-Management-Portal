@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
 import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
+import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/mockApiService.ts';
 import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon, HomeModernIcon, TruckIcon, SunIcon } from './Icons.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
@@ -126,6 +127,16 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     const handleRadioChange = (name: keyof NewPropertyInfo, value: any) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
+
+    const handleAddressSelect = useCallback((components: { street: string; city: string; state: string; zip: string }) => {
+        setFormData(prev => ({
+            ...prev,
+            street: components.street,
+            city: components.city,
+            state: components.state,
+            zip: components.zip,
+        }));
+    }, []);
 
     const handleNext = () => setStep(s => s + 1);
     const handleBack = () => setStep(s => s - 1);
@@ -303,7 +314,15 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
             <div className="space-y-6 animate-in fade-in duration-300">
                 <div>
                     <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Street Address</label>
-                    <input type="text" name="street" id="street" value={formData.street} onChange={handleChange} className={inputClass} required />
+                    <AddressAutocomplete
+                        id="street"
+                        name="street"
+                        value={formData.street}
+                        onChange={(val) => setFormData(prev => ({ ...prev, street: val }))}
+                        onAddressSelect={handleAddressSelect}
+                        className={inputClass}
+                        required
+                    />
                 </div>
                 
                 <div className="flex gap-4">

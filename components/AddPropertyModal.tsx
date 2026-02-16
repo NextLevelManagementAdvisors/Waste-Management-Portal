@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Modal from './Modal.tsx';
 import { Button } from './Button.tsx';
 import { NewPropertyInfo, ServiceType } from '../types.ts';
+import AddressAutocomplete from './AddressAutocomplete.tsx';
 
 interface AddPropertyModalProps {
     isOpen: boolean;
@@ -41,6 +42,16 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
+    const handleAddressSelect = useCallback((components: { street: string; city: string; state: string; zip: string }) => {
+        setFormData(prev => ({
+            ...prev,
+            street: components.street,
+            city: components.city,
+            state: components.state,
+            zip: components.zip,
+        }));
+    }, []);
+
     const handleNext = () => setStep(2);
     const handleBack = () => setStep(1);
 
@@ -58,7 +69,15 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
         <div className="space-y-4 animate-in fade-in duration-300">
             <div>
                 <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Street Address</label>
-                <input type="text" name="street" id="street" value={formData.street} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                <AddressAutocomplete
+                    id="street"
+                    name="street"
+                    value={formData.street}
+                    onChange={(val) => setFormData(prev => ({ ...prev, street: val }))}
+                    onAddressSelect={handleAddressSelect}
+                    className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all"
+                    required
+                />
             </div>
             <div className="flex gap-4">
                 <div className="flex-1">

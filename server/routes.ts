@@ -8,6 +8,14 @@ function paramStr(val: string | string[]): string {
 
 export function registerRoutes(app: Express) {
 
+  app.get('/api/google-maps-key', (_req: Request, res: Response) => {
+    const key = process.env.GOOGLE_MAPS_API_KEY;
+    if (!key) {
+      return res.status(500).json({ error: 'Google Maps API key not configured' });
+    }
+    res.json({ apiKey: key });
+  });
+
   app.get('/api/stripe/publishable-key', async (_req: Request, res: Response) => {
     try {
       const key = await getStripePublishableKey();
