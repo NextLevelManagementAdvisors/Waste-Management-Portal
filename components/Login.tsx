@@ -9,8 +9,8 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, error }) => {
-    const [email, setEmail] = useState('jane.doe@example.com');
-    const [password, setPassword] = useState('password123');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {

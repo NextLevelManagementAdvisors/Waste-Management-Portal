@@ -33,6 +33,8 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [postNavAction, setPostNavAction] = useState<PostNavAction | null>(null);
 
+  const [initialLoading, setInitialLoading] = useState(true);
+
   const properties = useMemo(() => user?.properties || [], [user]);
   const selectedProperty = useMemo(() => 
     selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null
@@ -63,6 +65,19 @@ const App: React.FC = () => {
     }
   }, [fetchUserAndSetState]);
   
+  useEffect(() => {
+    getUser()
+      .then((userData) => {
+        fetchUserAndSetState(userData);
+        setIsAuthenticated(true);
+        if (userData.properties && userData.properties.length === 0) {
+          setCurrentView('start-service');
+        }
+      })
+      .catch(() => {})
+      .finally(() => setInitialLoading(false));
+  }, [fetchUserAndSetState]);
+
   useEffect(() => {
     if (postNavAction) {
         setCurrentView(postNavAction.targetView);
@@ -239,6 +254,17 @@ const App: React.FC = () => {
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };
+
+  if (initialLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-base-200">
+        <div className="text-center">
+          <div className="loading loading-spinner loading-lg text-primary mb-4"></div>
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

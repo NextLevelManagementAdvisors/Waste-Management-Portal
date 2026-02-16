@@ -1,11 +1,16 @@
 import express from 'express';
 import cors from 'cors';
+import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations } from 'stripe-replit-sync';
 import { registerRoutes } from './routes';
+import { registerAuthRoutes } from './authRoutes';
 import { getStripeSync } from './stripeClient';
 import { WebhookHandlers } from './webhookHandlers';
+import { pool } from './storage';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +19,37 @@ const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = isProduction ? 5000 : 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
+
+const PgSession = connectPgSimple(session);
+
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
+if (isProduction && !process.env.SESSION_SECRET) {
+  console.warn('WARNING: SESSION_SECRET not set in production. Sessions will not persist across restarts.');
+}
+
+app.set('trust proxy', 1);
+
+app.use(session({
+  store: new PgSession({
+    pool: pool as any,
+    tableName: 'session',
+    createTableIfMissing: false,
+  }),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+  },
+}));
 
 async function initStripe() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -82,6 +117,7 @@ app.post(
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+registerAuthRoutes(app);
 registerRoutes(app);
 
 if (isProduction) {

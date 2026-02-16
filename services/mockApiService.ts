@@ -87,7 +87,16 @@ function simulateApiCall<T>(data: T, delay: number = 300): Promise<T> {
   return new Promise(resolve => setTimeout(() => resolve(data), delay));
 }
 
-export const getUser = () => simulateApiCall(JSON.parse(JSON.stringify(MOCK_USER)));
+export const getUser = async (): Promise<User> => {
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Not authenticated');
+    MOCK_USER = json.data;
+    if (json.data.stripeCustomerId) {
+        stripeService.setCustomerId(json.data.stripeCustomerId);
+    }
+    return json.data;
+};
 
 export const getInvoices = () => stripeService.listInvoices();
 export const getSubscriptions = () => stripeService.listSubscriptions();
@@ -198,59 +207,106 @@ export const getCollectionHistory = async (propertyId: string): Promise<Collecti
     });
 };
 
-export const login = (email: string, password: string): Promise<User> => {
-    return simulateApiCall(MOCK_USER);
+export const login = async (email: string, password: string): Promise<User> => {
+    const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Login failed');
+    MOCK_USER = json.data;
+    if (json.data.stripeCustomerId) {
+        stripeService.setCustomerId(json.data.stripeCustomerId);
+    }
+    return json.data;
 };
-export const logout = () => simulateApiCall({ success: true });
-export const register = (info: RegistrationInfo): Promise<User> => {
-    const newUser: User = {
-        ...info,
-        memberSince: new Date().toISOString().split('T')[0],
-        properties: [], // New users start with no properties
-        autopayEnabled: true,
-    };
-    MOCK_USER = newUser; // Replace the mock user with the new registration
-    return simulateApiCall(MOCK_USER);
+export const logout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    return { success: true };
 };
-export const addProperty = (info: NewPropertyInfo) => {
-    // Simulate applying referral code
+export const register = async (info: RegistrationInfo): Promise<User> => {
+    const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(info),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Registration failed');
+    MOCK_USER = json.data;
+    if (json.data.stripeCustomerId) {
+        stripeService.setCustomerId(json.data.stripeCustomerId);
+    }
+    return json.data;
+};
+export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
     if (info.referralCode) {
-        console.log(`[API MOCK] Referral code '${info.referralCode}' applied successfully! A $10 credit will be added to the account.`);
+        console.log(`Referral code '${info.referralCode}' applied successfully!`);
     }
 
-    const newP: Property = { 
-        id: `P${Date.now()}`, 
-        address: `${info.street}, ${info.city}, ${info.state} ${info.zip}`,
-        serviceType: info.serviceType,
-        inHOA: info.inHOA === 'yes',
-        communityName: info.communityName,
-        hasGateCode: info.hasGateCode === 'yes',
-        gateCode: info.gateCode,
-        notes: info.notes,
-        notificationPreferences: {
-            pickupReminders: { email: true, sms: true },
-            scheduleChanges: { email: true, sms: true },
-            driverUpdates: { email: true, sms: true }
-        }
-    };
+    const res = await fetch('/api/properties', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+            address: `${info.street}, ${info.city}, ${info.state} ${info.zip}`,
+            serviceType: info.serviceType,
+            inHOA: info.inHOA === 'yes',
+            communityName: info.communityName,
+            hasGateCode: info.hasGateCode === 'yes',
+            gateCode: info.gateCode,
+            notes: info.notes,
+        }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to add property');
+    const newP = json.data;
     MOCK_USER.properties.push(newP);
-    return simulateApiCall(newP);
+    return newP;
 };
-export const updatePropertyDetails = (id: string, details: UpdatePropertyInfo) => {
-    const p = MOCK_USER.properties.find(prop => prop.id === id);
-    if (p) {
-        p.serviceType = details.serviceType;
-        p.inHOA = details.inHOA === 'yes';
-        p.communityName = details.communityName;
-        p.hasGateCode = details.hasGateCode === 'yes';
-        p.gateCode = details.gateCode;
-        p.notes = details.notes;
-        return simulateApiCall(p);
-    }
-    throw new Error("Property not found");
+export const updatePropertyDetails = async (id: string, details: UpdatePropertyInfo): Promise<Property> => {
+    const res = await fetch(`/api/properties/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+            serviceType: details.serviceType,
+            inHOA: details.inHOA === 'yes',
+            communityName: details.communityName,
+            hasGateCode: details.hasGateCode === 'yes',
+            gateCode: details.gateCode,
+            notes: details.notes,
+        }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to update property');
+    return json.data;
 };
-export const updateUserProfile = (info: UpdateProfileInfo) => simulateApiCall(MOCK_USER);
-export const updateUserPassword = (info: UpdatePasswordInfo) => simulateApiCall({ success: true });
+export const updateUserProfile = async (info: UpdateProfileInfo): Promise<User> => {
+    const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(info),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to update profile');
+    MOCK_USER = json.data;
+    return json.data;
+};
+export const updateUserPassword = async (info: UpdatePasswordInfo): Promise<any> => {
+    const res = await fetch('/api/auth/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(info),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to update password');
+    return json;
+};
 export const updateAutopayStatus = (enabled: boolean) => {
     MOCK_USER.autopayEnabled = enabled;
     return simulateApiCall({ success: true });

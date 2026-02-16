@@ -36,6 +36,7 @@ export interface Property {
 }
 
 export interface User {
+  id?: string;
   firstName: string;
   lastName: string;
   phone: string;
@@ -44,6 +45,7 @@ export interface User {
   memberSince: string;
   properties: Property[];
   autopayEnabled: boolean;
+  stripeCustomerId?: string;
 }
 
 export interface Service {
