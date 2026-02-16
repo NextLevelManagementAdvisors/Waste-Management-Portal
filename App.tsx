@@ -420,7 +420,7 @@ const App: React.FC = () => {
         ) : authView === 'register' ? (
             <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} />
         ) : (
-            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} />
+            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} />
         )}
       </AuthLayout>
     );

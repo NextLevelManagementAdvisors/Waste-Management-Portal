@@ -16,6 +16,7 @@ declare module 'express-session' {
     userId: string;
     googleOAuthState?: string;
     googleOAuthReferralCode?: string;
+    googleOAuthRedirect?: string;
   }
 }
 
@@ -440,6 +441,11 @@ export function registerAuthRoutes(app: Express) {
         req.session.googleOAuthReferralCode = referralCode;
       }
 
+      const redirectPath = req.query.redirect as string | undefined;
+      if (redirectPath) {
+        req.session.googleOAuthRedirect = redirectPath;
+      }
+
       const host = req.get('host') || 'localhost:5000';
       const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
       const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
@@ -574,7 +580,6 @@ export function registerAuthRoutes(app: Express) {
         });
 
         const savedReferralCode = req.session.googleOAuthReferralCode;
-        delete req.session.googleOAuthReferralCode;
         if (savedReferralCode) {
           try {
             const referrerId = await storage.findReferrerByCode(savedReferralCode);
@@ -587,8 +592,20 @@ export function registerAuthRoutes(app: Express) {
         }
       }
 
+      const oauthRefCode = req.session.googleOAuthReferralCode;
+      delete req.session.googleOAuthReferralCode;
+
       req.session.userId = user.id;
-      res.redirect('/');
+
+      let redirectUrl = req.session.googleOAuthRedirect || '/';
+      delete req.session.googleOAuthRedirect;
+
+      if (oauthRefCode && redirectUrl.indexOf('ref=') === -1) {
+        const separator = redirectUrl.includes('?') ? '&' : '?';
+        redirectUrl = `${redirectUrl}${separator}ref=${encodeURIComponent(oauthRefCode)}`;
+      }
+
+      res.redirect(redirectUrl);
     } catch (error: any) {
       console.error('Google OAuth callback error:', error);
       res.redirect('/?error=google_auth_failed');

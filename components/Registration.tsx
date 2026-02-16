@@ -48,7 +48,16 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
             <p className="text-center text-gray-500 font-medium mb-6">Let's get you started with our service.</p>
             <div className="mb-6">
                 <a
-                    href={formData.referralCode ? `/api/auth/google?ref=${encodeURIComponent(formData.referralCode)}` : '/api/auth/google'}
+                    href={(() => {
+                        const params = new URLSearchParams();
+                        if (formData.referralCode) params.set('ref', formData.referralCode);
+                        if (pendingQueryString) {
+                            const pending = new URLSearchParams(pendingQueryString);
+                            pending.forEach((v, k) => { if (k !== 'ref') params.set(k, v); });
+                        }
+                        const qs = params.toString();
+                        return `/api/auth/google${qs ? `?${qs}` : ''}`;
+                    })()}
                     className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border-2 border-base-200 rounded-xl shadow-sm bg-white hover:bg-gray-50 transition-colors font-bold text-gray-700"
                 >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
