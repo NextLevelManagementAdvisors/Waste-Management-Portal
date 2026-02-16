@@ -23,14 +23,54 @@ import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
 import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
 
+const VIEW_TO_PATH: Record<View, string> = {
+  'home': '/',
+  'myservice': '/manage-plan',
+  'wallet': '/wallet',
+  'make-payment': '/pay',
+  'requests': '/requests',
+  'referrals': '/referrals',
+  'help': '/help',
+  'profile-settings': '/settings',
+  'start-service': '/start-service',
+};
+
+const PATH_TO_VIEW: Record<string, View> = Object.fromEntries(
+  Object.entries(VIEW_TO_PATH).map(([view, path]) => [path, view as View])
+) as Record<string, View>;
+
+const AUTH_PATHS: Record<string, 'login' | 'register' | 'forgot-password'> = {
+  '/login': 'login',
+  '/register': 'register',
+  '/forgot-password': 'forgot-password',
+};
+
+function normalizePath(pathname: string): string {
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+function getViewFromPath(pathname: string): View | null {
+  const normalized = normalizePath(pathname);
+  return PATH_TO_VIEW[normalized] ?? null;
+}
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authView, setAuthView] = useState<'login' | 'register' | 'forgot-password' | 'reset-password'>('login');
+  const [authView, setAuthView] = useState<'login' | 'register' | 'forgot-password' | 'reset-password'>(() => {
+    const path = normalizePath(window.location.pathname);
+    if (path === '/reset-password') return 'reset-password';
+    return AUTH_PATHS[path] || 'login';
+  });
   const [authError, setAuthError] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<View>('home');
+  const [currentView, setCurrentViewRaw] = useState<View>(() => getViewFromPath(window.location.pathname) || 'home');
+  const [pendingDeepLink, setPendingDeepLink] = useState<View | null>(() => {
+    const path = normalizePath(window.location.pathname);
+    if (AUTH_PATHS[path] || path === '/reset-password' || path === '/login') return null;
+    return getViewFromPath(path);
+  });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   const [user, setUser] = useState<User | null>(null);
@@ -38,6 +78,41 @@ const App: React.FC = () => {
   const [postNavAction, setPostNavAction] = useState<PostNavAction | null>(null);
 
   const [initialLoading, setInitialLoading] = useState(true);
+
+  const setCurrentView = useCallback((view: View) => {
+    setCurrentViewRaw(view);
+    const targetPath = VIEW_TO_PATH[view] || '/';
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({ view }, '', targetPath);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathname = normalizePath(window.location.pathname);
+      if (!isAuthenticated) {
+        if (pathname === '/reset-password') {
+          const token = new URLSearchParams(window.location.search).get('token');
+          if (token) {
+            setResetToken(token);
+            setAuthView('reset-password');
+          }
+        } else {
+          setAuthView(AUTH_PATHS[pathname] || 'login');
+        }
+      } else {
+        const view = getViewFromPath(pathname);
+        if (view) {
+          setCurrentViewRaw(view);
+        } else {
+          setCurrentViewRaw('home');
+          window.history.replaceState({ view: 'home' }, '', '/');
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isAuthenticated]);
 
   const properties = useMemo(() => user?.properties || [], [user]);
   const selectedProperty = useMemo(() => 
@@ -88,18 +163,34 @@ const App: React.FC = () => {
         google_not_configured: 'Google sign-in is not available right now.',
       };
       setAuthError(errorMessages[googleError] || 'Sign-in failed. Please try again.');
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', '/login');
     }
 
     getUser()
       .then((userData) => {
         fetchUserAndSetState(userData);
         setIsAuthenticated(true);
+        const pathname = normalizePath(window.location.pathname);
+        const deepLinkedView = getViewFromPath(pathname);
         if (userData.properties && userData.properties.length === 0) {
-          setCurrentView('start-service');
+          setCurrentViewRaw('start-service');
+          window.history.replaceState({ view: 'start-service' }, '', VIEW_TO_PATH['start-service']);
+        } else if (deepLinkedView && deepLinkedView !== 'home') {
+          setCurrentViewRaw(deepLinkedView);
+          window.history.replaceState({ view: deepLinkedView }, '', pathname);
+        } else {
+          setCurrentViewRaw('home');
+          window.history.replaceState({ view: 'home' }, '', '/');
+        }
+        setPendingDeepLink(null);
+      })
+      .catch(() => {
+        const pathname = normalizePath(window.location.pathname);
+        if (pathname !== '/reset-password' && !AUTH_PATHS[pathname]) {
+          setAuthView('login');
+          window.history.replaceState({}, '', '/login');
         }
       })
-      .catch(() => {})
       .finally(() => setInitialLoading(false));
   }, [fetchUserAndSetState]);
 
@@ -107,7 +198,7 @@ const App: React.FC = () => {
     if (postNavAction) {
         setCurrentView(postNavAction.targetView);
     }
-  }, [postNavAction]);
+  }, [postNavAction, setCurrentView]);
 
   const handleLogin = useCallback(async (email: string, password: string): Promise<void> => {
     setAuthError(null);
@@ -117,13 +208,16 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       if (userData.properties && userData.properties.length === 0) {
         setCurrentView('start-service');
+      } else if (pendingDeepLink && pendingDeepLink !== 'home') {
+        setCurrentView(pendingDeepLink);
+        setPendingDeepLink(null);
       } else {
         setCurrentView('home');
       }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink]);
 
   const handleRegister = useCallback(async (registrationInfo: RegistrationInfo): Promise<void> => {
      setAuthError(null);
@@ -137,7 +231,7 @@ const App: React.FC = () => {
     {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState]);
+  }, [fetchUserAndSetState, setCurrentView]);
 
   const handleLogout = useCallback(async (): Promise<void> => {
     await logout();
@@ -145,12 +239,13 @@ const App: React.FC = () => {
     setUser(null);
     setSelectedPropertyId(null);
     setAuthView('login');
-    setCurrentView('home');
+    setCurrentViewRaw('home');
+    window.history.replaceState({}, '', '/login');
   }, []);
   
   const startNewServiceFlow = useCallback(() => {
     setCurrentView('start-service');
-  }, []);
+  }, [setCurrentView]);
 
   const handleCompleteSetup = useCallback(async (
     propertyInfo: NewPropertyInfo, 
@@ -179,7 +274,7 @@ const App: React.FC = () => {
       console.error("Failed to complete setup:", error);
       throw error;
     }
-  }, [refreshUser]);
+  }, [refreshUser, setCurrentView]);
 
   const handleUpdateProperty = useCallback(async (propertyId: string, details: UpdatePropertyInfo) => {
     try {
@@ -293,9 +388,21 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     const switchToLogin = () => {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', '/login');
       setResetToken(null);
       setAuthView('login');
+      setAuthError(null);
+    };
+
+    const switchToRegister = () => {
+      window.history.pushState({}, '', '/register');
+      setAuthView('register');
+      setAuthError(null);
+    };
+
+    const switchToForgotPassword = () => {
+      window.history.pushState({}, '', '/forgot-password');
+      setAuthView('forgot-password');
       setAuthError(null);
     };
 
@@ -308,7 +415,7 @@ const App: React.FC = () => {
         ) : authView === 'register' ? (
             <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} />
         ) : (
-            <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} switchToForgotPassword={() => setAuthView('forgot-password')} error={authError} />
+            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} />
         )}
       </AuthLayout>
     );

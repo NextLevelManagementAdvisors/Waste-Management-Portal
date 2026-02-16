@@ -4,6 +4,12 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Implemented deep linking / URL-based routing for all views
+- 2026-02-16: View-to-path mappings: / (home), /manage-plan, /wallet, /pay, /requests, /referrals, /help, /settings, /start-service
+- 2026-02-16: Auth routes: /login, /register, /forgot-password, /reset-password?token=...
+- 2026-02-16: Browser back/forward navigation syncs view state via popstate listener
+- 2026-02-16: Deep link preservation: unauthenticated users visiting protected URLs are redirected to login, then navigated to intended page after successful login
+- 2026-02-16: Sidebar nav links use semantic href attributes for accessibility
 - 2026-02-16: Integrated real OptimoRoute API for pickup tracking, route scheduling, and order creation
 - 2026-02-16: Backend OptimoRoute client (server/optimoRouteClient.ts) handles search_orders, get_routes, get_scheduling_info, get_completion_details, create_order
 - 2026-02-16: Backend API routes proxy OptimoRoute calls (next-pickup, history, routes, search, create-order)

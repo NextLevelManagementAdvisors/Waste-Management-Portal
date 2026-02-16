@@ -30,6 +30,18 @@ const navItems: NavItem[] = [
   { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" /> },
 ];
 
+const VIEW_TO_PATH: Record<string, string> = {
+  'home': '/',
+  'myservice': '/manage-plan',
+  'wallet': '/wallet',
+  'make-payment': '/pay',
+  'requests': '/requests',
+  'referrals': '/referrals',
+  'help': '/help',
+  'profile-settings': '/settings',
+  'start-service': '/start-service',
+};
+
 const NavLink: React.FC<{
   item: NavItem;
   isActive: boolean;
@@ -37,7 +49,7 @@ const NavLink: React.FC<{
 }> = ({ item, isActive, onClick }) => (
   <li>
     <a
-      href="#"
+      href={VIEW_TO_PATH[item.id] || '/'}
       onClick={(e) => {
         e.preventDefault();
         onClick();
@@ -119,10 +131,10 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                             <p className="text-sm font-bold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
                             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                         </div>
-                        <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+                        <a href="/settings" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
                             <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
                         </a>
-                        <a href="#" onClick={(e) => { e.preventDefault(); handleNavigation('wallet'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+                        <a href="/wallet" onClick={(e) => { e.preventDefault(); handleNavigation('wallet'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
                             <BanknotesIcon className="w-5 h-5 mr-3 text-gray-400" /> Digital Wallet
                         </a>
                         <div className="border-t border-base-200 my-1"></div>
