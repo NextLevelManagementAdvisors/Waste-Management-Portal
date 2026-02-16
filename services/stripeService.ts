@@ -304,5 +304,8 @@ function mapStripeInvoice(inv: any): Invoice {
       ? new Date(inv.status_transitions.paid_at * 1000).toISOString().split('T')[0]
       : undefined,
     description: inv.description || `Invoice ${inv.number || inv.id}`,
+    pdfUrl: inv.invoice_pdf || undefined,
+    hostedUrl: inv.hosted_invoice_url || undefined,
+    invoiceNumber: inv.number || undefined,
   };
 }

@@ -102,7 +102,7 @@ const InvoiceList: React.FC<{
                     <div className="flex justify-between items-start">
                         <div>
                             <p className="font-bold text-neutral text-sm">{invoice.description || 'Monthly Service'}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">ID: {invoice.id}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : invoice.id}</p>
                         </div>
                         <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
                     </div>
@@ -122,11 +122,15 @@ const InvoiceList: React.FC<{
                         <div className="border-t border-base-200 -mx-4 px-4 pt-3">
                             {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
                                 <Button size="sm" onClick={() => onPay(invoice)} className="w-full rounded-lg">Pay Now</Button>
-                            ) : (
-                                <Button variant="ghost" size="sm" className="w-full rounded-lg">
-                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download
-                                </Button>
-                            )}
+                            ) : invoice.pdfUrl ? (
+                                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
+                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download PDF
+                                </a>
+                            ) : invoice.hostedUrl ? (
+                                <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
+                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View Invoice
+                                </a>
+                            ) : null}
                         </div>
                     )}
                 </div>
@@ -158,7 +162,7 @@ const InvoiceTable: React.FC<{
                         <tr key={invoice.id} className="hover:bg-gray-50/50 transition-colors group">
                             <td className="px-6 py-5 whitespace-nowrap max-w-sm">
                                 <p className="text-sm font-bold text-neutral truncate">{invoice.description || 'Monthly Service'}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">ID: {invoice.id}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">{invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : invoice.id}</p>
                             </td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-600">{invoice.date}</td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${invoice.amount.toFixed(2)}</td>
@@ -174,11 +178,15 @@ const InvoiceTable: React.FC<{
                             <td className="px-6 py-5 whitespace-nowrap text-right text-sm font-medium">
                                 {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
                                     <Button size="sm" onClick={() => onPay(invoice)} className="shadow-sm">Pay Now</Button>
-                                ) : (
-                                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download
-                                    </Button>
-                                )}
+                                ) : invoice.pdfUrl ? (
+                                    <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> PDF
+                                    </a>
+                                ) : invoice.hostedUrl ? (
+                                    <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View
+                                    </a>
+                                ) : null}
                             </td>
                         </tr>
                     ))}

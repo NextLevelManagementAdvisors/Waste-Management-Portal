@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard.tsx';
 import MyServiceHub from './components/MyServiceHub.tsx';
 import RequestsHub from './components/RequestsHub.tsx';
 import Support from './components/Support.tsx';
-import ProfileSettings from './components/ProfileSettings.tsx';
+import SettingsHub from './components/SettingsHub.tsx';
 import ReferralsHub from './components/ReferralsHub.tsx';
 import WalletHub from './components/WalletHub.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
@@ -395,7 +395,7 @@ const App: React.FC = () => {
       case 'requests': return <RequestsHub />;
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
-      case 'profile-settings': return <ProfileSettings />;
+      case 'profile-settings': return <SettingsHub />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };

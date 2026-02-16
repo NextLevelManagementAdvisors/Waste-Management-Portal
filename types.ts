@@ -103,6 +103,9 @@ export interface Invoice {
   status: 'Paid' | 'Due' | 'Overdue';
   paymentDate?: string;
   description?: string;
+  pdfUrl?: string;
+  hostedUrl?: string;
+  invoiceNumber?: string;
 }
 
 export interface SupportMessage {
