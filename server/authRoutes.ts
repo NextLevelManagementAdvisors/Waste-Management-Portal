@@ -517,4 +517,182 @@ export function registerAuthRoutes(app: Express) {
       res.redirect('/?error=google_auth_failed');
     }
   });
+
+  app.put('/api/auth/autopay', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { enabled } = req.body;
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'enabled must be a boolean' });
+      }
+      await storage.updateUser(userId, { autopay_enabled: enabled });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to update autopay setting' });
+    }
+  });
+
+  app.get('/api/service-alerts', async (_req: Request, res: Response) => {
+    try {
+      const alerts = await storage.getActiveServiceAlerts();
+      res.json({ data: alerts.map(a => ({ id: a.id, message: a.message, type: a.type })) });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch service alerts' });
+    }
+  });
+
+  app.post('/api/missed-pickup', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, date, notes } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const report = await storage.createMissedPickupReport({ userId, propertyId, pickupDate: date, notes: notes || '' });
+      res.json({ data: report, success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to submit report' });
+    }
+  });
+
+  app.get('/api/missed-pickups', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const reports = await storage.getMissedPickupReports(userId);
+      res.json({ data: reports });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+  });
+
+  app.post('/api/special-pickup', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, serviceName, servicePrice, date } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const request = await storage.createSpecialPickupRequest({ userId, propertyId, serviceName, servicePrice, pickupDate: date });
+      res.json({ data: request });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to create special pickup request' });
+    }
+  });
+
+  app.get('/api/special-pickups', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const requests = await storage.getSpecialPickupRequests(userId);
+      res.json({ data: requests });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch special pickup requests' });
+    }
+  });
+
+  app.post('/api/collection-intent', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, intent, date } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const result = await storage.upsertCollectionIntent({ userId, propertyId, intent, pickupDate: date });
+      res.json({ data: result });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to save collection intent' });
+    }
+  });
+
+  app.delete('/api/collection-intent', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, date } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      await storage.deleteCollectionIntent(propertyId, date);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to remove collection intent' });
+    }
+  });
+
+  app.get('/api/collection-intent/:propertyId/:date', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, date } = req.params;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const intent = await storage.getCollectionIntent(propertyId, date);
+      res.json({ data: intent });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch collection intent' });
+    }
+  });
+
+  app.post('/api/driver-feedback', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, pickupDate, rating, tipAmount, note } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const feedback = await storage.upsertDriverFeedback({ userId, propertyId, pickupDate, rating, tipAmount, note });
+      res.json({ data: feedback });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to save feedback' });
+    }
+  });
+
+  app.get('/api/driver-feedback/:propertyId/list', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId } = req.params;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const feedbackList = await storage.getDriverFeedbackForProperty(propertyId);
+      res.json({ data: feedbackList });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch feedback list' });
+    }
+  });
+
+  app.get('/api/driver-feedback/:propertyId/:pickupDate', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, pickupDate } = req.params;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const feedback = await storage.getDriverFeedback(propertyId, pickupDate);
+      res.json({ data: feedback });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch feedback' });
+    }
+  });
+
+  app.put('/api/properties/:id/notifications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const propertyId = req.params.id;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const updated = await storage.updateProperty(propertyId, { notification_preferences: req.body });
+      res.json({ data: updated });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to update notification preferences' });
+    }
+  });
 }

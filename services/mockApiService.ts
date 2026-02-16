@@ -39,9 +39,6 @@ export interface CollectionHistoryLogWithFeedback extends optimoRouteService.Col
     feedbackSubmitted: boolean;
 }
 
-// --- MOCK DATA STORE ---
-let MOCK_COLLECTION_INTENTS: Record<string, { intent: 'out' | 'skip', date: string }> = {};
-let MOCK_DRIVER_FEEDBACK: { propertyId: string; pickupDate: string; tip?: number; note?: string }[] = [];
 let MOCK_DISMISSED_TIPS: { propertyId: string; pickupDate: string }[] = [];
 
 // --- MOCK DATA ---
@@ -107,7 +104,14 @@ export const getUser = async (): Promise<User> => {
 export const getInvoices = () => stripeService.listInvoices();
 export const getSubscriptions = () => stripeService.listSubscriptions();
 export const getPaymentMethods = () => stripeService.listPaymentMethods();
-export const getServiceAlerts = () => simulateApiCall(MOCK_SERVICE_ALERTS);
+export const getServiceAlerts = async () => {
+    try {
+        const res = await fetch('/api/service-alerts', { credentials: 'include' });
+        const json = await res.json();
+        if (res.ok && json.data) return json.data;
+    } catch {}
+    return MOCK_SERVICE_ALERTS;
+};
 
 /**
  * The "Better Way": A single call that prepares the entire dashboard state.
@@ -149,7 +153,11 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
                 const lastCompletedPickup = history.find(h => h.status === 'completed');
 
                 if (lastCompletedPickup) {
-                    const feedback = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === prop.id && f.pickupDate === lastCompletedPickup.date);
+                    let feedback: any = null;
+                    try {
+                        const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
+                        if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
+                    } catch {}
                     const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
                     
                     state = {
@@ -170,7 +178,11 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
                 break;
             case 'P3': // Upcoming pickup
             default:
-                const intent = MOCK_COLLECTION_INTENTS[prop.id]?.date === p3PickupDate ? MOCK_COLLECTION_INTENTS[prop.id].intent : null;
+                let intent: string | null = null;
+                try {
+                    const ciRes = await fetch(`/api/collection-intent/${prop.id}/${p3PickupDate}`, { credentials: 'include' });
+                    if (ciRes.ok) { const ciJson = await ciRes.json(); intent = ciJson.data?.intent || null; }
+                } catch {}
                 state = {
                     nextPickup: { date: p3PickupDate, label: 'Tomorrow', isToday: false, status: isPaused ? 'paused' : 'upcoming' },
                     lastPickup: null,
@@ -204,8 +216,14 @@ export const getCollectionHistory = async (propertyId: string): Promise<Collecti
 
     const history = await optimoRouteService.getPastPickups(property.address);
 
+    let feedbackList: any[] = [];
+    try {
+        const res = await fetch(`/api/driver-feedback/${propertyId}/list`, { credentials: 'include' });
+        if (res.ok) { const json = await res.json(); feedbackList = json.data || []; }
+    } catch {}
+
     return history.map(log => {
-        const hasFeedback = MOCK_DRIVER_FEEDBACK.some(f => f.propertyId === propertyId && f.pickupDate === log.date);
+        const hasFeedback = feedbackList.some((f: any) => f.pickup_date === log.date);
         return {
             ...log,
             feedbackSubmitted: hasFeedback
@@ -313,9 +331,17 @@ export const updateUserPassword = async (info: UpdatePasswordInfo): Promise<any>
     if (!res.ok) throw new Error(json.error || 'Failed to update password');
     return json;
 };
-export const updateAutopayStatus = (enabled: boolean) => {
+export const updateAutopayStatus = async (enabled: boolean) => {
+    const res = await fetch('/api/auth/autopay', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to update autopay');
     MOCK_USER.autopayEnabled = enabled;
-    return simulateApiCall({ success: true });
+    return { success: true };
 };
 
 export const getServices = async (): Promise<Service[]> => {
@@ -429,10 +455,18 @@ export const updateAllUserSubscriptions = async (paymentMethodId: string) => {
     await Promise.all(targets.map(t => stripeService.updateSubscriptionPaymentMethod(t.id, paymentMethodId)));
 };
 
-export const updateNotificationPreferences = (propertyId: string, prefs: NotificationPreferences) => {
+export const updateNotificationPreferences = async (propertyId: string, prefs: NotificationPreferences) => {
+    const res = await fetch(`/api/properties/${propertyId}/notifications`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(prefs),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to update notification preferences');
     const p = MOCK_USER.properties.find(prop => prop.id === propertyId);
     if (p) p.notificationPreferences = prefs;
-    return simulateApiCall({ success: true });
+    return { success: true };
 };
 
 export const getSpecialPickupServices = (): Promise<SpecialPickupService[]> => simulateApiCall([
@@ -441,24 +475,46 @@ export const getSpecialPickupServices = (): Promise<SpecialPickupService[]> => s
     { id: 'sp3', name: 'E-Waste', description: 'Computers, TVs, and other electronics.', price: 40.00, icon: React.createElement(SparklesIcon, { className: 'w-12 h-12 text-primary'}) },
 ]);
 
-let MOCK_SPECIAL_REQUESTS: SpecialPickupRequest[] = [];
-export const getSpecialPickupRequests = () => simulateApiCall(MOCK_SPECIAL_REQUESTS);
+export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]> => {
+    try {
+        const res = await fetch('/api/special-pickups', { credentials: 'include' });
+        const json = await res.json();
+        if (res.ok && json.data) {
+            return json.data.map((r: any) => ({
+                id: r.id,
+                propertyId: r.property_id,
+                serviceId: r.id,
+                serviceName: r.service_name,
+                date: r.pickup_date,
+                status: r.status,
+                price: Number(r.service_price),
+            }));
+        }
+    } catch {}
+    return [];
+};
 export const requestSpecialPickup = async (serviceId: string, propertyId: string, date: string) => {
     const services = await getSpecialPickupServices();
     const service = services.find(s => s.id === serviceId);
     if (!service) throw new Error("Service not found");
-    const newReq: SpecialPickupRequest = {
-        id: `sr_${Date.now()}`,
+    const res = await fetch('/api/special-pickup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, serviceName: service.name, servicePrice: service.price, date }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to create special pickup request');
+    await stripeService.createInvoice(propertyId, service.price, `Special Pickup: ${service.name}`);
+    return {
+        id: json.data.id,
         propertyId,
         serviceId,
         serviceName: service.name,
         date,
         status: 'Scheduled',
-        price: service.price
+        price: service.price,
     };
-    MOCK_SPECIAL_REQUESTS.push(newReq);
-    await stripeService.createInvoice(propertyId, service.price, `Special Pickup: ${service.name}`);
-    return simulateApiCall(newReq);
 };
 
 export const pauseSubscriptionsForProperty = async (propertyId: string, until: string) => {
@@ -469,7 +525,17 @@ export const resumeSubscriptionsForProperty = async (propertyId: string) => {
     return stripeService.resumeSubscriptionsForProperty(propertyId);
 };
 
-export const reportMissedPickup = (propertyId: string, date: string, notes: string) => simulateApiCall({ success: true });
+export const reportMissedPickup = async (propertyId: string, date: string, notes: string) => {
+    const res = await fetch('/api/missed-pickup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, date, notes }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to report missed pickup');
+    return json;
+};
 
 export const transferPropertyOwnership = (propertyId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
     console.log(`[API MOCK] Initiating transfer for property ${propertyId}`);
@@ -523,34 +589,42 @@ export const getReferralInfo = (): Promise<ReferralInfo> => {
     return simulateApiCall(JSON.parse(JSON.stringify(MOCK_REFERRAL_INFO)), 500);
 };
 
-// --- NEW DRIVER COMMUNICATION FUNCTIONS ---
+// --- DRIVER COMMUNICATION FUNCTIONS (DB-BACKED) ---
 
-export const setCollectionIntent = (propertyId: string, intent: 'out' | 'skip', date: string) => {
-    MOCK_COLLECTION_INTENTS[propertyId] = { intent, date };
-    console.log(`[API MOCK] Intent for ${propertyId} on ${date} set to: ${intent}`);
-    return simulateApiCall({ success: true });
+export const setCollectionIntent = async (propertyId: string, intent: 'out' | 'skip', date: string) => {
+    const res = await fetch('/api/collection-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, intent, date }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to save collection intent');
+    return { success: true };
 };
 
-export const leaveDriverTip = (propertyId: string, amount: number, pickupDate: string) => {
-    const existing = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === propertyId && f.pickupDate === pickupDate);
-    if (existing) {
-        existing.tip = (existing.tip || 0) + amount;
-    } else {
-        MOCK_DRIVER_FEEDBACK.push({ propertyId, pickupDate, tip: amount });
-    }
-    console.log(`[API MOCK] Tip of $${amount} left for ${propertyId} for pickup on ${pickupDate}.`);
-    return simulateApiCall({ success: true });
+export const leaveDriverTip = async (propertyId: string, amount: number, pickupDate: string) => {
+    const res = await fetch('/api/driver-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, pickupDate, tipAmount: amount, rating: null, note: null }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to save tip');
+    return { success: true };
 };
 
-export const leaveDriverNote = (propertyId: string, note: string, pickupDate: string) => {
-    const existing = MOCK_DRIVER_FEEDBACK.find(f => f.propertyId === propertyId && f.pickupDate === pickupDate);
-    if (existing) {
-        existing.note = note;
-    } else {
-        MOCK_DRIVER_FEEDBACK.push({ propertyId, pickupDate, note });
-    }
-    console.log(`[API MOCK] Note left for ${propertyId} for pickup on ${pickupDate}: "${note}"`);
-    return simulateApiCall({ success: true });
+export const leaveDriverNote = async (propertyId: string, note: string, pickupDate: string) => {
+    const res = await fetch('/api/driver-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, pickupDate, tipAmount: null, rating: null, note }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to save note');
+    return { success: true };
 };
 
 export const dismissTipPrompt = (propertyId: string, pickupDate: string) => {

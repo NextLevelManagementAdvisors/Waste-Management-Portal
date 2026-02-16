@@ -4,6 +4,9 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Wired all user interactions to real database-backed APIs (autopay, notifications, missed pickups, special pickups, collection intents, driver feedback/tips)
+- 2026-02-16: Added 13 new API endpoints for persisting user data with auth + property ownership checks
+- 2026-02-16: Frontend mockApiService now calls real APIs with graceful fallbacks
 - 2026-02-16: Added Google Places address autocomplete to AddPropertyModal and StartService
 - 2026-02-16: Created reusable AddressAutocomplete component (lazy-loads Google Maps JS)
 - 2026-02-16: Backend /api/google-maps-key endpoint serves API key for Places autocomplete

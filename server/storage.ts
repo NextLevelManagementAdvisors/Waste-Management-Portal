@@ -275,6 +275,100 @@ export class Storage {
     );
     return result.rows;
   }
+
+  async getActiveServiceAlerts() {
+    const result = await this.query(
+      'SELECT * FROM service_alerts WHERE active = true ORDER BY created_at DESC'
+    );
+    return result.rows;
+  }
+
+  async createMissedPickupReport(data: { userId: string; propertyId: string; pickupDate: string; notes: string }) {
+    const result = await this.query(
+      `INSERT INTO missed_pickup_reports (user_id, property_id, pickup_date, notes)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [data.userId, data.propertyId, data.pickupDate, data.notes]
+    );
+    return result.rows[0];
+  }
+
+  async getMissedPickupReports(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM missed_pickup_reports WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async createSpecialPickupRequest(data: { userId: string; propertyId: string; serviceName: string; servicePrice: number; pickupDate: string }) {
+    const result = await this.query(
+      `INSERT INTO special_pickup_requests (user_id, property_id, service_name, service_price, pickup_date)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.userId, data.propertyId, data.serviceName, data.servicePrice, data.pickupDate]
+    );
+    return result.rows[0];
+  }
+
+  async getSpecialPickupRequests(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM special_pickup_requests WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async upsertCollectionIntent(data: { userId: string; propertyId: string; intent: string; pickupDate: string }) {
+    const result = await this.query(
+      `INSERT INTO collection_intents (user_id, property_id, intent, pickup_date)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (property_id, pickup_date) DO UPDATE SET intent = $3
+       RETURNING *`,
+      [data.userId, data.propertyId, data.intent, data.pickupDate]
+    );
+    return result.rows[0];
+  }
+
+  async deleteCollectionIntent(propertyId: string, pickupDate: string) {
+    await this.query(
+      'DELETE FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+  }
+
+  async getCollectionIntent(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async upsertDriverFeedback(data: { userId: string; propertyId: string; pickupDate: string; rating?: number; tipAmount?: number; note?: string }) {
+    const result = await this.query(
+      `INSERT INTO driver_feedback (user_id, property_id, pickup_date, rating, tip_amount, note)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (property_id, pickup_date) DO UPDATE SET rating = $4, tip_amount = $5, note = $6
+       RETURNING *`,
+      [data.userId, data.propertyId, data.pickupDate, data.rating || null, data.tipAmount || null, data.note || null]
+    );
+    return result.rows[0];
+  }
+
+  async getDriverFeedback(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM driver_feedback WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getDriverFeedbackForProperty(propertyId: string) {
+    const result = await this.query(
+      'SELECT * FROM driver_feedback WHERE property_id = $1 ORDER BY pickup_date DESC',
+      [propertyId]
+    );
+    return result.rows;
+  }
 }
 
 export const storage = new Storage();
