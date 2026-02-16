@@ -4,6 +4,15 @@ import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesI
 import * as stripeService from './stripeService.ts';
 import * as optimoRouteService from './optimoRouteService.ts';
 
+const safeJson = async (res: Response, fallbackError = 'Request failed') => {
+    const text = await res.text();
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error(res.ok ? fallbackError : `Server error (${res.status})`);
+    }
+};
+
 // --- TYPES FOR CONSOLIDATED DATA ---
 export interface PropertyState {
     property: Property;
@@ -107,7 +116,7 @@ export const getPaymentMethods = () => stripeService.listPaymentMethods();
 export const getServiceAlerts = async () => {
     try {
         const res = await fetch('/api/service-alerts', { credentials: 'include' });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data) return json.data;
     } catch {}
     return MOCK_SERVICE_ALERTS;
@@ -234,7 +243,7 @@ export const getCollectionHistory = async (propertyId: string): Promise<Collecti
     let feedbackList: any[] = [];
     try {
         const res = await fetch(`/api/driver-feedback/${propertyId}/list`, { credentials: 'include' });
-        if (res.ok) { const json = await res.json(); feedbackList = json.data || []; }
+        if (res.ok) { const json = await safeJson(res); feedbackList = json.data || []; }
     } catch {}
 
     return history.map(log => {
@@ -253,7 +262,7 @@ export const login = async (email: string, password: string): Promise<User> => {
         credentials: 'include',
         body: JSON.stringify({ email, password }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Login failed');
     if (!res.ok) throw new Error(json.error || 'Login failed');
     MOCK_USER = json.data;
     if (json.data.stripeCustomerId) {
@@ -272,7 +281,7 @@ export const register = async (info: RegistrationInfo): Promise<User> => {
         credentials: 'include',
         body: JSON.stringify(info),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Registration failed');
     if (!res.ok) throw new Error(json.error || 'Registration failed');
     MOCK_USER = json.data;
     if (json.data.stripeCustomerId) {
@@ -299,7 +308,7 @@ export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
             notes: info.notes,
         }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to add property');
     if (!res.ok) throw new Error(json.error || 'Failed to add property');
     const newP = json.data;
     MOCK_USER.properties.push(newP);
@@ -319,7 +328,7 @@ export const updatePropertyDetails = async (id: string, details: UpdatePropertyI
             notes: details.notes,
         }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to update property');
     if (!res.ok) throw new Error(json.error || 'Failed to update property');
     return json.data;
 };
@@ -330,7 +339,7 @@ export const updateUserProfile = async (info: UpdateProfileInfo): Promise<User> 
         credentials: 'include',
         body: JSON.stringify(info),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to update profile');
     if (!res.ok) throw new Error(json.error || 'Failed to update profile');
     MOCK_USER = json.data;
     return json.data;
@@ -342,7 +351,7 @@ export const updateUserPassword = async (info: UpdatePasswordInfo): Promise<any>
         credentials: 'include',
         body: JSON.stringify(info),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to update password');
     if (!res.ok) throw new Error(json.error || 'Failed to update password');
     return json;
 };
@@ -353,7 +362,7 @@ export const updateAutopayStatus = async (enabled: boolean) => {
         credentials: 'include',
         body: JSON.stringify({ enabled }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to update autopay');
     if (!res.ok) throw new Error(json.error || 'Failed to update autopay');
     MOCK_USER.autopayEnabled = enabled;
     return { success: true };
@@ -477,7 +486,7 @@ export const updateNotificationPreferences = async (propertyId: string, prefs: N
         credentials: 'include',
         body: JSON.stringify(prefs),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to update notification preferences');
     if (!res.ok) throw new Error(json.error || 'Failed to update notification preferences');
     const p = MOCK_USER.properties.find(prop => prop.id === propertyId);
     if (p) p.notificationPreferences = prefs;
@@ -493,7 +502,7 @@ export const getSpecialPickupServices = (): Promise<SpecialPickupService[]> => s
 export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]> => {
     try {
         const res = await fetch('/api/special-pickups', { credentials: 'include' });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data) {
             return json.data.map((r: any) => ({
                 id: r.id,
@@ -518,7 +527,7 @@ export const requestSpecialPickup = async (serviceId: string, propertyId: string
         credentials: 'include',
         body: JSON.stringify({ propertyId, serviceName: service.name, servicePrice: service.price, date }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to create special pickup request');
     if (!res.ok) throw new Error(json.error || 'Failed to create special pickup request');
     await stripeService.createInvoice(propertyId, service.price, `Special Pickup: ${service.name}`);
     return {
@@ -547,7 +556,7 @@ export const reportMissedPickup = async (propertyId: string, date: string, notes
         credentials: 'include',
         body: JSON.stringify({ propertyId, date, notes }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to report missed pickup');
     if (!res.ok) throw new Error(json.error || 'Failed to report missed pickup');
     return json;
 };
@@ -613,7 +622,7 @@ export const setCollectionIntent = async (propertyId: string, intent: 'out' | 's
         credentials: 'include',
         body: JSON.stringify({ propertyId, intent, date }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to save collection intent');
     if (!res.ok) throw new Error(json.error || 'Failed to save collection intent');
     return { success: true };
 };
@@ -625,7 +634,7 @@ export const leaveDriverTip = async (propertyId: string, amount: number, pickupD
         credentials: 'include',
         body: JSON.stringify({ propertyId, pickupDate, tipAmount: amount, rating: null, note: null }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to save tip');
     if (!res.ok) throw new Error(json.error || 'Failed to save tip');
     return { success: true };
 };
@@ -637,7 +646,7 @@ export const leaveDriverNote = async (propertyId: string, note: string, pickupDa
         credentials: 'include',
         body: JSON.stringify({ propertyId, pickupDate, tipAmount: null, rating: null, note }),
     });
-    const json = await res.json();
+    const json = await safeJson(res, 'Failed to save note');
     if (!res.ok) throw new Error(json.error || 'Failed to save note');
     return { success: true };
 };

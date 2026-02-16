@@ -26,8 +26,13 @@ function loadGoogleMaps(): Promise<void> {
   if (googleMapsPromise) return googleMapsPromise;
 
   googleMapsPromise = fetch('/api/google-maps-key')
-    .then(res => res.json())
-    .then(({ apiKey }) => {
+    .then(res => res.text())
+    .then(text => {
+      let apiKey: string | undefined;
+      try { apiKey = JSON.parse(text).apiKey; } catch { throw new Error('Failed to load maps'); }
+      return apiKey;
+    })
+    .then((apiKey) => {
       return new Promise<void>((resolve, reject) => {
         if (!apiKey) {
           reject(new Error('No API key'));

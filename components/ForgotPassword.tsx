@@ -21,7 +21,9 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ switchToLogin }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email }),
             });
-            const json = await res.json();
+            const text = await res.text();
+            let json;
+            try { json = JSON.parse(text); } catch { throw new Error(`Server error (${res.status})`); }
             if (!res.ok) throw new Error(json.error || 'Request failed');
             setSubmitted(true);
         } catch (err: any) {

@@ -171,7 +171,10 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ customerId }),
                 });
-                const { data: setupData } = await setupRes.json();
+                const setupText = await setupRes.text();
+                let setupJson;
+                try { setupJson = JSON.parse(setupText); } catch { throw new Error('Server error while setting up payment'); }
+                const { data: setupData } = setupJson;
 
                 const cardElement = elements.getElement(CardElement);
                 if (!cardElement) {

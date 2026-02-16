@@ -11,11 +11,13 @@ async function apiRequest(method: string, path: string, body?: any) {
     options.body = JSON.stringify(body);
   }
   const res = await fetch(`${API_BASE}${path}`, options);
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(`Server error (${res.status})`); }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `API error: ${res.status}`);
+    throw new Error(json.error || `API error: ${res.status}`);
   }
-  return res.json();
+  return json;
 }
 
 let _customerId: string | null = null;

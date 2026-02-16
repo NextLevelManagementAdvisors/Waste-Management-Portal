@@ -17,9 +17,9 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
 
     useEffect(() => {
         fetch(`/api/auth/verify-reset-token?token=${encodeURIComponent(token)}`)
-            .then(res => res.json())
-            .then(json => {
-                setTokenValid(json.valid === true);
+            .then(res => res.text())
+            .then(text => {
+                try { const json = JSON.parse(text); setTokenValid(json.valid === true); } catch { setTokenValid(false); }
                 setVerifying(false);
             })
             .catch(() => {
@@ -49,7 +49,9 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, newPassword }),
             });
-            const json = await res.json();
+            const text = await res.text();
+            let json;
+            try { json = JSON.parse(text); } catch { throw new Error(`Server error (${res.status})`); }
             if (!res.ok) throw new Error(json.error || 'Reset failed');
             setSuccess(true);
         } catch (err: any) {

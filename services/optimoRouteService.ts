@@ -27,6 +27,11 @@ export interface CollectionHistoryLog {
     driver: string;
 }
 
+const safeJson = async (res: Response) => {
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return null; }
+};
+
 function formatTime(time24: string): string {
     if (!time24) return '';
     const [h, m] = time24.split(':').map(Number);
@@ -38,7 +43,7 @@ function formatTime(time24: string): string {
 export const getNextPickupInfo = async (address: string): Promise<PickupInfo | null> => {
     try {
         const res = await fetch(`/api/optimoroute/next-pickup?address=${encodeURIComponent(address)}`);
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data) {
             const d = json.data;
             return {
@@ -60,7 +65,7 @@ export const getNextPickupInfo = async (address: string): Promise<PickupInfo | n
 export const getPastPickups = async (address: string): Promise<CollectionHistoryLog[]> => {
     try {
         const res = await fetch(`/api/optimoroute/history?address=${encodeURIComponent(address)}`);
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data && json.data.length > 0) {
             return json.data.map((item: any) => ({
                 date: item.date,
@@ -93,7 +98,7 @@ export const createDeliveryTask = async (address: string, serviceName: string, q
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ orderNo, type: 'D', date, address, notes, duration: 15 }),
         });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data?.success) {
             return {
                 success: true,
@@ -119,7 +124,7 @@ export const createPickupTask = async (address: string, serviceName: string, qua
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ orderNo, type: 'P', date, address, notes, duration: 15 }),
         });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (res.ok && json.data?.success) {
             return {
                 success: true,
