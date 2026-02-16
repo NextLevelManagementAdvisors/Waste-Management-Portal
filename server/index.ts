@@ -90,7 +90,7 @@ if (isProduction) {
   });
 }
 
-const host = isProduction ? '0.0.0.0' : 'localhost';
+const host = isProduction ? '0.0.0.0' : '127.0.0.1';
 app.listen(PORT, host, () => {
   console.log(`Backend server running on http://${host}:${PORT}`);
 });
