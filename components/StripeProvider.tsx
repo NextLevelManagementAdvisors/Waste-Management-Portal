@@ -3,14 +3,41 @@ import { loadStripe, Stripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 
 let stripePromise: Promise<Stripe | null> | null = null;
+let stripeResolved = false;
+
+async function fetchPublishableKeyWithRetry(retries = 10, delay = 3000): Promise<string | null> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch('/api/stripe/publishable-key');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      if (!text) throw new Error('Empty response');
+      const data = JSON.parse(text);
+      if (data.publishableKey) return data.publishableKey;
+      throw new Error('No publishable key in response');
+    } catch {
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  return null;
+}
 
 function getStripePromise() {
   if (!stripePromise) {
-    stripePromise = fetch('/api/stripe/publishable-key')
-      .then(res => res.json())
-      .then(data => loadStripe(data.publishableKey))
+    stripePromise = fetchPublishableKeyWithRetry()
+      .then(key => {
+        if (key) {
+          stripeResolved = true;
+          return loadStripe(key);
+        }
+        stripePromise = null;
+        return null;
+      })
       .catch(err => {
         console.error('Failed to load Stripe:', err);
+        stripePromise = null;
         return null;
       });
   }
@@ -22,16 +49,19 @@ const StripeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     getStripePromise().then(s => {
-      setStripe(s);
-      setLoading(false);
+      if (!cancelled) {
+        setStripe(s);
+        setLoading(false);
+      }
     });
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <>{children}</>;
 
   if (!stripe) {
-    console.warn('Stripe failed to load, rendering children without Elements');
     return <>{children}</>;
   }
 

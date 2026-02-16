@@ -89,7 +89,13 @@ function simulateApiCall<T>(data: T, delay: number = 300): Promise<T> {
 
 export const getUser = async (): Promise<User> => {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
-    const json = await res.json();
+    const text = await res.text();
+    let json;
+    try {
+        json = JSON.parse(text);
+    } catch {
+        throw new Error('Not authenticated');
+    }
     if (!res.ok) throw new Error(json.error || 'Not authenticated');
     MOCK_USER = json.data;
     if (json.data.stripeCustomerId) {

@@ -18,6 +18,7 @@ import MakePaymentHub from './components/MakePaymentHub.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
+import StripeProvider from './components/StripeProvider.tsx';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
 import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
@@ -302,19 +303,21 @@ const App: React.FC = () => {
   }
   
   return (
-    <PropertyContext.Provider value={contextValue}>
-      <div className="flex h-screen bg-base-100 text-neutral">
-        <Sidebar currentView={currentView} setCurrentView={setCurrentView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onLogout={handleLogout} />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
-          <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
-            <div className="max-w-7xl mx-auto w-full">
-              {renderView()}
-            </div>
-          </main>
+    <StripeProvider>
+      <PropertyContext.Provider value={contextValue}>
+        <div className="flex h-screen bg-base-100 text-neutral">
+          <Sidebar currentView={currentView} setCurrentView={setCurrentView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onLogout={handleLogout} />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
+            <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
+              <div className="max-w-7xl mx-auto w-full">
+                {renderView()}
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
-    </PropertyContext.Provider>
+      </PropertyContext.Provider>
+    </StripeProvider>
   );
 };
 

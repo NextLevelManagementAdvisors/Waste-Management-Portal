@@ -4,11 +4,7 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { runMigrations } from 'stripe-replit-sync';
-import { registerRoutes } from './routes';
 import { registerAuthRoutes } from './authRoutes';
-import { getStripeSync } from './stripeClient';
-import { WebhookHandlers } from './webhookHandlers';
 import { pool } from './storage';
 import crypto from 'crypto';
 
@@ -51,17 +47,68 @@ app.use(session({
   },
 }));
 
+app.post(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const signature = req.headers['stripe-signature'];
+    if (!signature) {
+      return res.status(400).json({ error: 'Missing stripe-signature' });
+    }
+
+    try {
+      const sig = Array.isArray(signature) ? signature[0] : signature;
+
+      if (!Buffer.isBuffer(req.body)) {
+        console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer.');
+        return res.status(500).json({ error: 'Webhook processing error' });
+      }
+
+      const { WebhookHandlers } = await import('./webhookHandlers');
+      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+      res.status(200).json({ received: true });
+    } catch (error: any) {
+      console.error('Webhook error:', error.message);
+      res.status(400).json({ error: 'Webhook processing error' });
+    }
+  }
+);
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+registerAuthRoutes(app);
+
+const { registerRoutes } = await import('./routes');
+registerRoutes(app);
+
+if (isProduction) {
+  const distPath = path.resolve(__dirname, '..', 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+const host = isProduction ? '0.0.0.0' : 'localhost';
+app.listen(PORT, host, () => {
+  console.log(`Backend server running on http://${host}:${PORT}`);
+});
+
 async function initStripe() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is required for Stripe integration.');
+    console.error('DATABASE_URL environment variable is required for Stripe integration.');
+    return;
   }
 
   try {
     console.log('Initializing Stripe schema...');
+    const { runMigrations } = await import('stripe-replit-sync');
     await runMigrations({ databaseUrl } as any);
     console.log('Stripe schema ready');
 
+    const { getStripeSync } = await import('./stripeClient');
     const stripeSync = await getStripeSync();
 
     console.log('Setting up managed webhook...');
@@ -82,53 +129,7 @@ async function initStripe() {
       .catch((err: Error) => console.error('Error syncing Stripe data:', err));
   } catch (error) {
     console.error('Failed to initialize Stripe:', error);
-    throw error;
   }
 }
 
-await initStripe();
-
-app.post(
-  '/api/stripe/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const signature = req.headers['stripe-signature'];
-    if (!signature) {
-      return res.status(400).json({ error: 'Missing stripe-signature' });
-    }
-
-    try {
-      const sig = Array.isArray(signature) ? signature[0] : signature;
-
-      if (!Buffer.isBuffer(req.body)) {
-        console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer.');
-        return res.status(500).json({ error: 'Webhook processing error' });
-      }
-
-      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      res.status(200).json({ received: true });
-    } catch (error: any) {
-      console.error('Webhook error:', error.message);
-      res.status(400).json({ error: 'Webhook processing error' });
-    }
-  }
-);
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
-registerAuthRoutes(app);
-registerRoutes(app);
-
-if (isProduction) {
-  const distPath = path.resolve(__dirname, '..', 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
-
-const host = isProduction ? '0.0.0.0' : 'localhost';
-app.listen(PORT, host, () => {
-  console.log(`Backend server running on http://${host}:${PORT}`);
-});
+initStripe();
