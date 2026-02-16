@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 
 interface AddressComponents {
   street: string;
@@ -89,22 +89,18 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const onChangeRef = useRef(onChange);
+  const onAddressSelectRef = useRef(onAddressSelect);
   const [loaded, setLoaded] = useState(googleMapsLoaded);
+
+  onChangeRef.current = onChange;
+  onAddressSelectRef.current = onAddressSelect;
 
   useEffect(() => {
     if (!loaded) {
       loadGoogleMaps().then(() => setLoaded(true)).catch(console.error);
     }
   }, [loaded]);
-
-  const handlePlaceSelect = useCallback(() => {
-    const place = autocompleteRef.current?.getPlace();
-    if (!place?.address_components) return;
-
-    const components = parseAddressComponents(place);
-    onChange(components.street);
-    onAddressSelect(components);
-  }, [onChange, onAddressSelect]);
 
   useEffect(() => {
     if (!loaded || !inputRef.current || autocompleteRef.current) return;
@@ -115,14 +111,22 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       fields: ['address_components', 'formatted_address'],
     });
 
-    autocomplete.addListener('place_changed', handlePlaceSelect);
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place?.address_components) return;
+
+      const components = parseAddressComponents(place);
+      onChangeRef.current(components.street);
+      onAddressSelectRef.current(components);
+    });
+
     autocompleteRef.current = autocomplete;
 
     return () => {
       google.maps.event.clearInstanceListeners(autocomplete);
       autocompleteRef.current = null;
     };
-  }, [loaded, handlePlaceSelect]);
+  }, [loaded]);
 
   return (
     <input
