@@ -448,6 +448,13 @@ export class Storage {
       [newUserId, propertyId]
     );
   }
+
+  async cancelTransfer(propertyId: string) {
+    await this.query(
+      `UPDATE properties SET transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $1`,
+      [propertyId]
+    );
+  }
 }
 
 export const storage = new Storage();

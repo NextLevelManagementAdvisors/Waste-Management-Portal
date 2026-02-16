@@ -14,6 +14,7 @@ const AccountTransfer: React.FC = () => {
     const [isTransferring, setIsTransferring] = useState(false);
     const [transferSuccess, setTransferSuccess] = useState(false);
     const [reminderSent, setReminderSent] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string} | null>(null);
 
     const showNotification = (type: 'success' | 'error', message: string) => {
@@ -37,6 +38,26 @@ const AccountTransfer: React.FC = () => {
             showNotification('error', 'Account transfer failed. Please try again.');
         } finally {
             setIsTransferring(false);
+        }
+    };
+
+    const handleCancelTransfer = async () => {
+        if (!selectedProperty) return;
+        setIsCancelling(true);
+        try {
+            const res = await fetch('/api/account-transfer/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ propertyId: selectedProperty.id }),
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error);
+            await refreshUser();
+            showNotification('success', 'Transfer cancelled successfully.');
+        } catch (e: any) {
+            showNotification('error', e.message || 'Could not cancel transfer.');
+        } finally {
+            setIsCancelling(false);
         }
     };
 
@@ -68,9 +89,12 @@ const AccountTransfer: React.FC = () => {
                     <p className="text-gray-600 mt-2">
                         An invitation to take over the service at <span className="font-semibold">{selectedProperty.address}</span> has been sent to <span className="font-semibold">{selectedProperty.pendingOwner?.email}</span>.
                     </p>
-                    <div className="mt-8">
+                    <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
                         <Button onClick={handleSendReminder} disabled={reminderSent} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
                             {reminderSent ? <><CheckCircleIcon className="w-5 h-5 mr-2" /> Reminder Sent!</> : <><PaperAirplaneIcon className="w-5 h-5 mr-2" /> Send Reminder</>}
+                        </Button>
+                        <Button onClick={handleCancelTransfer} disabled={isCancelling} className="bg-red-500 hover:bg-red-600 focus:ring-red-500 rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
+                            {isCancelling ? 'Cancelling...' : 'Cancel Transfer'}
                         </Button>
                     </div>
                 </div>
@@ -100,7 +124,7 @@ const AccountTransfer: React.FC = () => {
 
                     <div className="!mt-6 pt-6 border-t border-base-200">
                             <label className="block text-sm font-medium text-gray-700">Confirm Transfer</label>
-                            <p className="text-xs text-gray-500 mb-2">This action is irreversible. To confirm, please type "TRANSFER" in the box below.</p>
+                            <p className="text-xs text-gray-500 mb-2">You can cancel this transfer before the new resident accepts. To confirm, please type "TRANSFER" in the box below.</p>
                             <input type="text" value={transferConfirmation} onChange={(e) => setTransferConfirmation(e.target.value.toUpperCase())} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all uppercase tracking-widest" placeholder="TRANSFER" />
                     </div>
                     

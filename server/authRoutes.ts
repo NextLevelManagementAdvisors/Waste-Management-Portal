@@ -915,6 +915,22 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  app.post('/api/account-transfer/cancel', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId || property.transfer_status !== 'pending') {
+        return res.status(400).json({ error: 'No pending transfer found for this property' });
+      }
+      await storage.cancelTransfer(propertyId);
+      res.json({ data: { success: true, message: 'Transfer cancelled successfully' } });
+    } catch (error: any) {
+      console.error('Error cancelling transfer:', error);
+      res.status(500).json({ error: 'Failed to cancel transfer' });
+    }
+  });
+
   app.get('/api/account-transfer/:token', async (req: Request, res: Response) => {
     try {
       const property = await storage.getPropertyByTransferToken(req.params.token);
