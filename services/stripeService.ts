@@ -173,12 +173,45 @@ export const createInvoice = async (propertyId: string, amount: number, descript
 export const restartAllSubscriptionsForProperty = async (propertyId: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
+
   const paused = subs.filter((s: Subscription) =>
     s.propertyId === propertyId && s.status === 'paused'
   );
   for (const sub of paused) {
     await apiRequest('POST', `/subscriptions/${sub.id}/resume`);
   }
+
+  const canceled = subs.filter((s: Subscription) =>
+    s.propertyId === propertyId && s.status === 'canceled'
+  );
+  if (canceled.length > 0) {
+    const products = await listProducts();
+    const methods = await listPaymentMethods();
+    const defaultPm = methods.find((m: any) => m.isPrimary) || methods[0];
+
+    for (const sub of canceled) {
+      const product = products.find((p: any) => p.id === sub.serviceId);
+      if (!product || !product.default_price) continue;
+
+      const body: any = {
+        customerId: _customerId,
+        priceId: product.default_price.id,
+        quantity: sub.quantity || 1,
+        metadata: {
+          propertyId,
+          equipmentType: sub.equipmentType || 'own_can',
+        },
+      };
+      if (sub.paymentMethodId) {
+        body.paymentMethodId = sub.paymentMethodId;
+      } else if (defaultPm) {
+        body.paymentMethodId = defaultPm.id;
+      }
+
+      await apiRequest('POST', '/subscriptions', body);
+    }
+  }
+
   return { success: true };
 };
 
