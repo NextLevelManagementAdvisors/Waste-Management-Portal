@@ -72,10 +72,10 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/customers/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const user = await storage.getUserById(req.params.id);
+      const user = await storage.getUserById(req.params.id as string);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
-      const properties = await storage.getPropertiesByUserId(user.id);
+      const properties = await storage.getPropertiesForUser(user.id);
 
       let stripeData = null;
       if (user.stripe_customer_id) {

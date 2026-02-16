@@ -664,7 +664,7 @@ export function registerAuthRoutes(app: Express) {
   app.get('/api/tip-dismissals/:propertyId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.propertyId;
+      const propertyId = req.params.propertyId as string;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
@@ -800,7 +800,8 @@ export function registerAuthRoutes(app: Express) {
   app.get('/api/collection-intent/:propertyId/:date', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, date } = req.params;
+      const propertyId = req.params.propertyId as string;
+      const date = req.params.date as string;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
@@ -830,7 +831,7 @@ export function registerAuthRoutes(app: Express) {
   app.get('/api/driver-feedback/:propertyId/list', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId } = req.params;
+      const propertyId = req.params.propertyId as string;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
@@ -845,7 +846,8 @@ export function registerAuthRoutes(app: Express) {
   app.get('/api/driver-feedback/:propertyId/:pickupDate', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, pickupDate } = req.params;
+      const propertyId = req.params.propertyId as string;
+      const pickupDate = req.params.pickupDate as string;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
@@ -977,7 +979,7 @@ export function registerAuthRoutes(app: Express) {
 
   app.get('/api/account-transfer/:token', async (req: Request, res: Response) => {
     try {
-      const property = await storage.getPropertyByTransferToken(req.params.token);
+      const property = await storage.getPropertyByTransferToken(req.params.token as string);
       if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
       const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
       res.json({
@@ -995,7 +997,7 @@ export function registerAuthRoutes(app: Express) {
 
   app.post('/api/account-transfer/:token/accept', requireAuth, async (req: Request, res: Response) => {
     try {
-      const property = await storage.getPropertyByTransferToken(req.params.token);
+      const property = await storage.getPropertyByTransferToken(req.params.token as string);
       if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
       
       const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
@@ -1016,7 +1018,7 @@ export function registerAuthRoutes(app: Express) {
   app.put('/api/properties/:id/notifications', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.id;
+      const propertyId = req.params.id as string;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });

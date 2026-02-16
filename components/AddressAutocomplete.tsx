@@ -1,5 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
 
+declare global {
+  interface Window {
+    google: any;
+  }
+}
+
 interface AddressComponents {
   street: string;
   city: string;
@@ -54,7 +60,7 @@ function loadGoogleMaps(): Promise<void> {
   return googleMapsPromise;
 }
 
-function parseAddressComponents(place: google.maps.places.PlaceResult): AddressComponents {
+function parseAddressComponents(place: any): AddressComponents {
   const components: AddressComponents = { street: '', city: '', state: '', zip: '' };
   let streetNumber = '';
   let route = '';
@@ -93,7 +99,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   placeholder,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const autocompleteRef = useRef<any>(null);
   const onChangeRef = useRef(onChange);
   const onAddressSelectRef = useRef(onAddressSelect);
   const [loaded, setLoaded] = useState(googleMapsLoaded);
@@ -110,7 +116,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   useEffect(() => {
     if (!loaded || !inputRef.current || autocompleteRef.current) return;
 
-    const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+    const autocomplete = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
       types: ['address'],
       componentRestrictions: { country: 'us' },
       fields: ['address_components', 'formatted_address'],
@@ -128,7 +134,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     autocompleteRef.current = autocomplete;
 
     return () => {
-      google.maps.event.clearInstanceListeners(autocomplete);
+      (window as any).google.maps.event.clearInstanceListeners(autocomplete);
       autocompleteRef.current = null;
     };
   }, [loaded]);

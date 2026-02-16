@@ -145,9 +145,9 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
             }
 
             state = {
-                nextPickup: { date: pickupDate, label, isToday, status: pickupStatus, eta: nextPickupInfo.eta },
+                nextPickup: { date: pickupDate, label, isToday, status: pickupStatus as any, eta: nextPickupInfo.eta },
                 lastPickup,
-                collectionIntent: intent
+                collectionIntent: intent as any
             };
         } else if (lastCompletedPickup) {
             let feedback: any = null;

@@ -29,8 +29,8 @@ export async function sendPickupReminder(userId: string, propertyAddress: string
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesByUserId(userId);
-  const property = properties.find(p => p.address === propertyAddress);
+  const properties = await storage.getPropertiesForUser(userId);
+  const property = properties.find((p: any) => p.address === propertyAddress);
   const prefs = property?.notification_preferences;
   if (prefs && prefs.pickupReminders && prefs.pickupReminders.email === false) return;
 
@@ -56,7 +56,7 @@ export async function sendBillingAlert(userId: string, invoiceNumber: string, am
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesByUserId(userId);
+  const properties = await storage.getPropertiesForUser(userId);
   const prefs = properties[0]?.notification_preferences;
   if (prefs && prefs.invoiceDue === false) return;
 
@@ -83,7 +83,7 @@ export async function sendPaymentConfirmation(userId: string, amount: number, in
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesByUserId(userId);
+  const properties = await storage.getPropertiesForUser(userId);
   const prefs = properties[0]?.notification_preferences;
   if (prefs && prefs.paymentConfirmation === false) return;
 
@@ -110,7 +110,7 @@ export async function sendServiceUpdate(userId: string, updateType: string, deta
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesByUserId(userId);
+  const properties = await storage.getPropertiesForUser(userId);
   const prefs = properties[0]?.notification_preferences;
   if (prefs && prefs.serviceUpdates === false) return;
 
