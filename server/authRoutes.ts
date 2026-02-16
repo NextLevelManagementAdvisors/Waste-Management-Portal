@@ -15,6 +15,7 @@ declare module 'express-session' {
   interface SessionData {
     userId: string;
     googleOAuthState?: string;
+    googleOAuthReferralCode?: string;
   }
 }
 
@@ -396,6 +397,11 @@ export function registerAuthRoutes(app: Express) {
       const state = crypto.randomBytes(32).toString('hex');
       req.session.googleOAuthState = state;
 
+      const referralCode = req.query.ref as string | undefined;
+      if (referralCode) {
+        req.session.googleOAuthReferralCode = referralCode;
+      }
+
       const host = req.get('host') || 'localhost:5000';
       const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
       const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
@@ -520,6 +526,19 @@ export function registerAuthRoutes(app: Express) {
           passwordHash,
           stripeCustomerId,
         });
+
+        const savedReferralCode = req.session.googleOAuthReferralCode;
+        delete req.session.googleOAuthReferralCode;
+        if (savedReferralCode) {
+          try {
+            const referrerId = await storage.findReferrerByCode(savedReferralCode);
+            if (referrerId) {
+              await storage.createReferral(referrerId, email, `${firstName} ${lastName}`);
+            }
+          } catch (refErr: any) {
+            console.error('Referral processing failed during Google signup (non-blocking):', refErr.message);
+          }
+        }
       }
 
       req.session.userId = user.id;
