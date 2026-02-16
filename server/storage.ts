@@ -369,6 +369,77 @@ export class Storage {
     );
     return result.rows;
   }
+
+  async getOrCreateReferralCode(userId: string, userName: string): Promise<string> {
+    const existing = await this.query('SELECT code FROM referral_codes WHERE user_id = $1', [userId]);
+    if (existing.rows.length > 0) return existing.rows[0].code;
+    const namePart = userName.replace(/[^A-Z]/gi, '').substring(0, 6).toUpperCase() || 'USER';
+    const randPart = Math.floor(1000 + Math.random() * 9000);
+    const code = `${namePart}-${randPart}`;
+    await this.query(
+      'INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING',
+      [userId, code]
+    );
+    return code;
+  }
+
+  async getReferralsByUser(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getReferralTotalRewards(userId: string): Promise<number> {
+    const result = await this.query(
+      "SELECT COALESCE(SUM(reward_amount), 0) as total FROM referrals WHERE referrer_user_id = $1 AND status = 'completed'",
+      [userId]
+    );
+    return parseFloat(result.rows[0].total);
+  }
+
+  async createReferral(referrerUserId: string, referredEmail: string, referredName: string) {
+    const result = await this.query(
+      'INSERT INTO referrals (referrer_user_id, referred_email, referred_name) VALUES ($1, $2, $3) RETURNING *',
+      [referrerUserId, referredEmail, referredName]
+    );
+    return result.rows[0];
+  }
+
+  async findReferrerByCode(code: string): Promise<string | null> {
+    const result = await this.query('SELECT user_id FROM referral_codes WHERE code = $1', [code]);
+    return result.rows[0]?.user_id || null;
+  }
+
+  async completeReferral(referrerUserId: string, referredEmail: string) {
+    await this.query(
+      "UPDATE referrals SET status = 'completed', completed_at = NOW() WHERE referrer_user_id = $1 AND referred_email = $2 AND status = 'pending'",
+      [referrerUserId, referredEmail]
+    );
+  }
+
+  async initiateTransfer(propertyId: string, newOwner: { firstName: string; lastName: string; email: string }, token: string, expiresAt: Date) {
+    await this.query(
+      `UPDATE properties SET transfer_status = 'pending', pending_owner = $1, transfer_token = $2, transfer_token_expires = $3 WHERE id = $4`,
+      [JSON.stringify(newOwner), token, expiresAt, propertyId]
+    );
+  }
+
+  async getPropertyByTransferToken(token: string): Promise<DbProperty | null> {
+    const result = await this.query(
+      "SELECT * FROM properties WHERE transfer_token = $1 AND transfer_status = 'pending' AND transfer_token_expires > NOW()",
+      [token]
+    );
+    return result.rows[0] || null;
+  }
+
+  async completeTransfer(propertyId: string, newUserId: string) {
+    await this.query(
+      `UPDATE properties SET user_id = $1, transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $2`,
+      [newUserId, propertyId]
+    );
+  }
 }
 
 export const storage = new Storage();

@@ -4,6 +4,16 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Replaced Tailwind CDN with proper @tailwindcss/vite build plugin and app.css with @theme tokens
+- 2026-02-16: Implemented real Stripe invoice creation (POST /api/invoices) - replaces console.log stub
+- 2026-02-16: Special pickup scheduling now creates OptimoRoute orders and real Stripe invoices server-side
+- 2026-02-16: Built referral system with DB tables (referral_codes, referrals), API route (GET /api/referrals), auto-generated unique codes per user
+- 2026-02-16: Referral code processing during registration - creates pending referral linked to referrer
+- 2026-02-16: Registration form includes optional referral code field, auto-fills from ?ref= URL param
+- 2026-02-16: Built account transfer backend with tokenized invitations, Gmail email sending, and accept flow
+- 2026-02-16: Account transfer API routes: POST /api/account-transfer, POST /api/account-transfer/remind, GET /api/account-transfer/:token, POST /api/account-transfer/:token/accept
+- 2026-02-16: Wired frontend transferPropertyOwnership() and sendTransferReminder() to real API endpoints
+- 2026-02-16: Security fix: /api/invoices derives customerId from session user (no arbitrary customer access)
 - 2026-02-16: Implemented deep linking / URL-based routing for all views
 - 2026-02-16: Removed Start Service as standalone view; onboarding now handled inline within Manage Plan (MyServiceHub)
 - 2026-02-16: Deep link query params: /manage-plan?type=recurring (recurring plan setup) vs /manage-plan?type=request (one-time service request)
@@ -51,18 +61,24 @@ A React + Vite frontend with an Express backend for a waste management client po
 - **Frontend**: React 19 with TypeScript, Vite 6
 - **Backend**: Express server (`server/index.ts`, `server/routes.ts`, `server/authRoutes.ts`)
 - **Auth**: Session-based auth with bcrypt password hashing, express-session + connect-pg-simple, Google OAuth login
-- **Gmail**: `server/gmailClient.ts` (Google Workspace integration for password reset emails)
+- **Gmail**: `server/gmailClient.ts` (Google Workspace integration for password reset emails + account transfer invitations)
 - **Stripe Client**: `server/stripeClient.ts` (uses Replit Stripe connector for secure key management)
-- **Styling**: Tailwind CSS (loaded via CDN in index.html)
+- **Styling**: Tailwind CSS v4 via @tailwindcss/vite plugin (app.css with @theme tokens)
 - **Entry Point**: `index.tsx` -> `App.tsx`
 - **Components**: `components/` directory
 - **Services**: `services/` directory (Gemini AI, Stripe frontend service, address lookup, etc.)
 - **Config**: `vite.config.ts`, `tsconfig.json`
 - **Database**: PostgreSQL (Replit built-in)
   - `users` table: id (uuid), first_name, last_name, phone, email, password_hash, member_since, autopay_enabled, stripe_customer_id
-  - `properties` table: id (uuid), user_id (fk), address, service_type, notification_preferences (jsonb), etc.
+  - `properties` table: id (uuid), user_id (fk), address, service_type, notification_preferences (jsonb), transfer_status, pending_owner (jsonb), transfer_token, transfer_token_expires
   - `session` table: connect-pg-simple session store
   - `password_reset_tokens` table: id (uuid), user_id (fk), token (varchar unique), expires_at (timestamp), used (boolean)
+  - `referral_codes` table: id (uuid), user_id (fk unique), code (varchar unique)
+  - `referrals` table: id (uuid), referrer_user_id (fk), referred_email, referred_name, status (pending/completed), reward_amount, completed_at
+  - `missed_pickup_reports` table: user_id, property_id, pickup_date, notes
+  - `special_pickup_requests` table: user_id, property_id, service_name, service_price, pickup_date, status
+  - `collection_intents` table: user_id, property_id, intent, pickup_date
+  - `driver_feedback` table: user_id, property_id, pickup_date, rating, tip_amount, note
   - `stripe.*` schema: managed by stripe-replit-sync for webhook/sync data
 
 ## Key Design Decisions
@@ -73,9 +89,12 @@ A React + Vite frontend with an Express backend for a waste management client po
 - Session-based auth (not JWT) - sessions stored in PostgreSQL via connect-pg-simple
 - Registration auto-creates Stripe customer; stripe_customer_id stored in users table and set in frontend stripeService on login/register/session restore
 - App checks for existing session on load via GET /api/auth/me
+- Special pickup scheduling creates both OptimoRoute orders AND Stripe invoices server-side (non-blocking)
+- Account transfers use tokenized email invitations with 7-day expiry
+- Referral codes are auto-generated per user and tracked in DB; referrals created during registration with ?ref= param
 
 ## Auth Routes
-- POST `/api/auth/register` - Create account (auto-creates Stripe customer)
+- POST `/api/auth/register` - Create account (auto-creates Stripe customer, processes referral code)
 - POST `/api/auth/login` - Login with email/password
 - POST `/api/auth/logout` - Destroy session
 - GET `/api/auth/me` - Get current user from session
@@ -88,6 +107,14 @@ A React + Vite frontend with an Express backend for a waste management client po
 - GET `/api/auth/google/callback` - Handle Google OAuth callback (creates account if new, logs in if existing)
 - POST `/api/properties` - Add property (requires auth)
 - PUT `/api/properties/:id` - Update property (requires auth + ownership)
+
+## Additional API Routes
+- POST `/api/invoices` - Create real Stripe invoice (derives customer from session, requires auth)
+- GET `/api/referrals` - Get user's referral code, share link, referral list, and total rewards
+- POST `/api/account-transfer` - Initiate property transfer (sends email invitation via Gmail)
+- POST `/api/account-transfer/remind` - Send reminder email for pending transfer
+- GET `/api/account-transfer/:token` - Fetch transfer invitation details (public)
+- POST `/api/account-transfer/:token/accept` - Accept transfer (requires auth)
 
 ## Running
 - Dev: `npm run dev` (Vite on port 5000, backend on port 3001, Vite proxies /api)

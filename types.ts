@@ -149,7 +149,9 @@ export interface UpdatePropertyInfo {
   notes?: string;
 }
 
-export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties' | 'autopayEnabled'> {}
+export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties' | 'autopayEnabled'> {
+  referralCode?: string;
+}
 
 export interface UpdateProfileInfo {
   firstName: string;

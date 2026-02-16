@@ -360,6 +360,39 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.post('/api/invoices', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const stripe = await getUncachableStripeClient();
+      const userId = req.session.userId!;
+      const user = await storage.getUserById(userId);
+      if (!user?.stripe_customer_id) {
+        return res.status(400).json({ error: 'No Stripe customer associated with your account' });
+      }
+      const customerId = user.stripe_customer_id;
+      const { amount, description, metadata } = req.body;
+      if (!amount || !description) {
+        return res.status(400).json({ error: 'amount and description are required' });
+      }
+      const invoice = await stripe.invoices.create({
+        customer: customerId,
+        auto_advance: true,
+        metadata: metadata || {},
+      });
+      await stripe.invoiceItems.create({
+        customer: customerId,
+        invoice: invoice.id,
+        amount: amount,
+        currency: 'usd',
+        description: description,
+      });
+      const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
+      res.json({ data: finalizedInvoice });
+    } catch (error: any) {
+      console.error('Error creating invoice:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/customer-portal', async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();

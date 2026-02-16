@@ -166,8 +166,12 @@ export const payOutstandingBalance = async (paymentMethodId: string, propertyId?
 };
 
 export const createInvoice = async (propertyId: string, amount: number, description: string) => {
-  console.log(`[Stripe] Would create invoice: ${description} for $${amount} on property ${propertyId}`);
-  return { id: `pending_${Date.now()}`, propertyId, amount, description };
+  const res = await apiRequest('POST', '/invoices', {
+    amount: Math.round(amount * 100),
+    description,
+    metadata: { propertyId },
+  });
+  return res.data;
 };
 
 export const restartAllSubscriptionsForProperty = async (propertyId: string) => {

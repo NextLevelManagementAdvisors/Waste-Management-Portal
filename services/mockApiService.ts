@@ -534,7 +534,6 @@ export const requestSpecialPickup = async (serviceId: string, propertyId: string
     });
     const json = await safeJson(res, 'Failed to create special pickup request');
     if (!res.ok) throw new Error(json.error || 'Failed to create special pickup request');
-    await stripeService.createInvoice(propertyId, service.price, `Special Pickup: ${service.name}`);
     return {
         id: json.data.id,
         propertyId,
@@ -566,25 +565,28 @@ export const reportMissedPickup = async (propertyId: string, date: string, notes
     return json;
 };
 
-export const transferPropertyOwnership = (propertyId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
-    console.log(`[API MOCK] Initiating transfer for property ${propertyId}`);
-    
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
-    if (property) {
-        property.transferStatus = 'pending';
-        property.pendingOwner = newOwner;
-    }
-    
-    return simulateApiCall({ success: true, message: 'Transfer invitation sent.' }, 1000);
+export const transferPropertyOwnership = async (propertyId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
+    const res = await fetch('/api/account-transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId, firstName: newOwner.firstName, lastName: newOwner.lastName, email: newOwner.email }),
+    });
+    const json = await safeJson(res, 'Failed to initiate transfer');
+    if (!res.ok) throw new Error(json.error || 'Failed to initiate transfer');
+    return json.data;
 };
 
-export const sendTransferReminder = (propertyId: string) => {
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
-    if (property && property.transferStatus === 'pending' && property.pendingOwner) {
-        console.log(`[API MOCK] Reminder sent to ${property.pendingOwner.email} for property ${property.address}.`);
-        return simulateApiCall({ success: true });
-    }
-    return simulateApiCall({ success: false }, 400);
+export const sendTransferReminder = async (propertyId: string) => {
+    const res = await fetch('/api/account-transfer/remind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyId }),
+    });
+    const json = await safeJson(res, 'Failed to send reminder');
+    if (!res.ok) throw new Error(json.error || 'Failed to send reminder');
+    return json.data;
 };
 
 export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
@@ -614,8 +616,15 @@ export const restartAllSubscriptionsForProperty = (propertyId: string) => {
     return stripeService.restartAllSubscriptionsForProperty(propertyId);
 };
 
-export const getReferralInfo = (): Promise<ReferralInfo> => {
-    return simulateApiCall(JSON.parse(JSON.stringify(MOCK_REFERRAL_INFO)), 500);
+export const getReferralInfo = async (): Promise<ReferralInfo> => {
+    try {
+        const res = await fetch('/api/referrals', { credentials: 'include' });
+        const json = await safeJson(res);
+        if (res.ok && json.data) {
+            return json.data as ReferralInfo;
+        }
+    } catch {}
+    return { referralCode: '', shareLink: '', totalRewards: 0, referrals: [] };
 };
 
 // --- DRIVER COMMUNICATION FUNCTIONS (DB-BACKED) ---

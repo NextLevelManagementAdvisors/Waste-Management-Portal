@@ -5,11 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Waste Management Client Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      /**
-       * SAFE PROCESS SHIM & ERROR HANDLING
-       */
       (function() {
         if (typeof window.process === 'undefined') {
           window.process = { env: {} };
@@ -17,11 +13,7 @@
         if (typeof window.process.env === 'undefined') {
           window.process.env = {};
         }
-        
-        // Ensure process is available globally
         Object.assign(globalThis, { process: window.process });
-
-        // Catch silent module errors
         window.addEventListener('error', function(e) {
           console.error('Captured Global Error:', e.message, 'at', e.filename, 'line', e.lineno);
         });
@@ -29,29 +21,7 @@
           console.error('Unhandled Promise Rejection:', e.reason);
         });
       })();
-
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              primary: '#0D9488', // Teal 600
-              'primary-focus': '#0F766E', // Teal 700
-              'primary-content': '#ffffff',
-              secondary: '#F0FDF4', // Green 50
-              'secondary-content': '#14532D', // Green 900
-              accent: '#3B82F6', // Blue 500
-              neutral: '#374151', // Gray 700
-              'base-100': '#F9FAFB', // Gray 50
-              'base-200': '#F3F4F6', // Gray 100
-              'base-300': '#E5E7EB', // Gray 200
-            },
-          },
-        },
-      }
     </script>
-    <style>
-      .pac-container { z-index: 10000 !important; }
-    </style>
 </head>
   <body>
     <div id="root"></div>

@@ -5,6 +5,7 @@ import session from 'express-session';
 import { storage, type DbUser, type DbProperty } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
+import * as optimoRoute from './optimoRouteClient';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -58,7 +59,7 @@ export function registerAuthRoutes(app: Express) {
 
   app.post('/api/auth/register', async (req: Request, res: Response) => {
     try {
-      const { firstName, lastName, phone, email, password } = req.body;
+      const { firstName, lastName, phone, email, password, referralCode } = req.body;
 
       if (!firstName || !lastName || !email || !password) {
         return res.status(400).json({ error: 'First name, last name, email, and password are required' });
@@ -92,6 +93,17 @@ export function registerAuthRoutes(app: Express) {
         passwordHash,
         stripeCustomerId,
       });
+
+      if (referralCode) {
+        try {
+          const referrerId = await storage.findReferrerByCode(referralCode);
+          if (referrerId) {
+            await storage.createReferral(referrerId, email.toLowerCase(), `${firstName} ${lastName}`);
+          }
+        } catch (refErr: any) {
+          console.error('Referral processing failed (non-blocking):', refErr.message);
+        }
+      }
 
       req.session.userId = user.id;
 
@@ -575,6 +587,44 @@ export function registerAuthRoutes(app: Express) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
       const request = await storage.createSpecialPickupRequest({ userId, propertyId, serviceName, servicePrice, pickupDate: date });
+
+      try {
+        const orderNo = `SP-${request.id.substring(0, 8).toUpperCase()}`;
+        await optimoRoute.createOrder({
+          orderNo,
+          type: 'D',
+          date,
+          address: property.address,
+          locationName: `Special Pickup - ${serviceName}`,
+          duration: 20,
+          notes: `Special pickup: ${serviceName}`,
+        });
+      } catch (optimoErr: any) {
+        console.error('OptimoRoute order creation failed (non-blocking):', optimoErr.message);
+      }
+
+      try {
+        const user = await storage.getUserById(userId);
+        if (user?.stripe_customer_id) {
+          const stripe = await getUncachableStripeClient();
+          const invoice = await stripe.invoices.create({
+            customer: user.stripe_customer_id,
+            auto_advance: true,
+            metadata: { propertyId, specialPickupId: request.id },
+          });
+          await stripe.invoiceItems.create({
+            customer: user.stripe_customer_id,
+            invoice: invoice.id,
+            amount: Math.round(servicePrice * 100),
+            currency: 'usd',
+            description: `Special Pickup: ${serviceName}`,
+          });
+          await stripe.invoices.finalizeInvoice(invoice.id);
+        }
+      } catch (stripeErr: any) {
+        console.error('Stripe invoice creation failed (non-blocking):', stripeErr.message);
+      }
+
       res.json({ data: request });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to create special pickup request' });
@@ -678,6 +728,139 @@ export function registerAuthRoutes(app: Express) {
       res.json({ data: feedback });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch feedback' });
+    }
+  });
+
+  app.get('/api/referrals', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUserById(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      const userName = `${user.first_name}${user.last_name}`.replace(/\s/g, '');
+      const code = await storage.getOrCreateReferralCode(userId, userName);
+      const referrals = await storage.getReferralsByUser(userId);
+      const totalRewards = await storage.getReferralTotalRewards(userId);
+      const host = req.headers.host || 'localhost:5000';
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const shareLink = `${protocol}://${host}/register?ref=${code}`;
+      res.json({
+        data: {
+          referralCode: code,
+          shareLink,
+          totalRewards,
+          referrals: referrals.map((r: any) => ({
+            id: r.id,
+            name: r.referred_name || r.referred_email,
+            status: r.status,
+            date: r.created_at,
+          })),
+        }
+      });
+    } catch (error: any) {
+      console.error('Error fetching referrals:', error);
+      res.status(500).json({ error: 'Failed to fetch referral info' });
+    }
+  });
+
+  app.post('/api/account-transfer', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, firstName, lastName, email } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await storage.initiateTransfer(propertyId, { firstName, lastName, email }, token, expiresAt);
+
+      const user = await storage.getUserById(userId);
+      const senderName = user ? `${user.first_name} ${user.last_name}` : 'A customer';
+      const host = req.headers.host || 'localhost:5000';
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const acceptUrl = `${protocol}://${host}/register?transfer=${token}`;
+
+      try {
+        await sendEmail(email, `${senderName} wants to transfer waste service to you`, `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Service Transfer Invitation</h2>
+            <p><strong>${senderName}</strong> is transferring their waste management service at <strong>${property.address}</strong> to you.</p>
+            <p>Click the link below to accept the transfer and set up your account:</p>
+            <a href="${acceptUrl}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">Accept Transfer</a>
+            <p style="margin-top: 20px; color: #666;">This invitation expires in 7 days.</p>
+          </div>
+        `);
+      } catch (emailErr: any) {
+        console.error('Failed to send transfer email (non-blocking):', emailErr.message);
+      }
+
+      res.json({ data: { success: true, message: 'Transfer invitation sent.' } });
+    } catch (error: any) {
+      console.error('Error initiating transfer:', error);
+      res.status(500).json({ error: 'Failed to initiate transfer' });
+    }
+  });
+
+  app.post('/api/account-transfer/remind', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId || property.transfer_status !== 'pending') {
+        return res.status(400).json({ error: 'No pending transfer found' });
+      }
+      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      if (!pendingOwner?.email) return res.status(400).json({ error: 'No pending owner email' });
+
+      const user = await storage.getUserById(userId);
+      const senderName = user ? `${user.first_name} ${user.last_name}` : 'A customer';
+
+      try {
+        await sendEmail(pendingOwner.email, `Reminder: ${senderName} wants to transfer waste service to you`, `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Friendly Reminder</h2>
+            <p><strong>${senderName}</strong> has invited you to take over the waste management service at <strong>${property.address}</strong>.</p>
+            <p>Please log in or register to accept the transfer.</p>
+          </div>
+        `);
+      } catch (emailErr: any) {
+        console.error('Failed to send reminder email:', emailErr.message);
+      }
+
+      res.json({ data: { success: true } });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to send reminder' });
+    }
+  });
+
+  app.get('/api/account-transfer/:token', async (req: Request, res: Response) => {
+    try {
+      const property = await storage.getPropertyByTransferToken(req.params.token);
+      if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
+      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      res.json({
+        data: {
+          propertyId: property.id,
+          address: property.address,
+          serviceType: property.service_type,
+          newOwner: pendingOwner,
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch transfer details' });
+    }
+  });
+
+  app.post('/api/account-transfer/:token/accept', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const property = await storage.getPropertyByTransferToken(req.params.token);
+      if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
+      const newUserId = req.session.userId!;
+      await storage.completeTransfer(property.id, newUserId);
+      res.json({ data: { success: true, message: 'Transfer completed successfully' } });
+    } catch (error: any) {
+      console.error('Error accepting transfer:', error);
+      res.status(500).json({ error: 'Failed to accept transfer' });
     }
   });
 

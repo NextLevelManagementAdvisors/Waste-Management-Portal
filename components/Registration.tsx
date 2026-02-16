@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './Button.tsx';
 import { RegistrationInfo } from '../types.ts';
 
@@ -9,16 +9,23 @@ interface RegistrationProps {
     error: string | null;
 }
 
-const initialFormData: RegistrationInfo = {
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: '',
-    password: '',
-};
-
 const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error }) => {
-    const [formData, setFormData] = useState<RegistrationInfo>(initialFormData);
+    const [formData, setFormData] = useState<RegistrationInfo>({
+        firstName: '',
+        lastName: '',
+        phone: '',
+        email: '',
+        password: '',
+        referralCode: '',
+    });
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const ref = params.get('ref');
+        if (ref) {
+            setFormData(prev => ({ ...prev, referralCode: ref }));
+        }
+    }, []);
     const [isLoading, setIsLoading] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,6 +87,10 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
                 <div>
                     <label htmlFor="passwordReg" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password</label>
                     <input type="password" name="password" id="passwordReg" value={formData.password} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                </div>
+                <div>
+                    <label htmlFor="referralCode" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referral Code (Optional)</label>
+                    <input type="text" name="referralCode" id="referralCode" value={formData.referralCode || ''} onChange={handleChange} placeholder="e.g. JANE-1234" className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" />
                 </div>
                  {error && <p className="text-sm font-bold text-red-600 text-center">{error}</p>}
                 <Button type="submit" disabled={isLoading} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs mt-4 shadow-xl shadow-primary/20">

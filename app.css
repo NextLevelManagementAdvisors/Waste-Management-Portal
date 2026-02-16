@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0D9488;
+  --color-primary-focus: #0F766E;
+  --color-primary-content: #ffffff;
+  --color-secondary: #F0FDF4;
+  --color-secondary-content: #14532D;
+  --color-accent: #3B82F6;
+  --color-neutral: #374151;
+  --color-base-100: #F9FAFB;
+  --color-base-200: #F3F4F6;
+  --color-base-300: #E5E7EB;
+}
+
+.pac-container { z-index: 10000 !important; }
