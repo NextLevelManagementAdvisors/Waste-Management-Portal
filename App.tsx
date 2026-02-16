@@ -12,6 +12,8 @@ import StartService from './components/StartService.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
+import ForgotPassword from './components/ForgotPassword.tsx';
+import ResetPassword from './components/ResetPassword.tsx';
 import MakePaymentHub from './components/MakePaymentHub.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
@@ -22,8 +24,9 @@ import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authView, setAuthView] = useState<'login' | 'register'>('login');
+  const [authView, setAuthView] = useState<'login' | 'register' | 'forgot-password' | 'reset-password'>('login');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(null);
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('home');
@@ -66,6 +69,15 @@ const App: React.FC = () => {
   }, [fetchUserAndSetState]);
   
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (window.location.pathname === '/reset-password' && token) {
+      setResetToken(token);
+      setAuthView('reset-password');
+      setInitialLoading(false);
+      return;
+    }
+
     getUser()
       .then((userData) => {
         fetchUserAndSetState(userData);
@@ -267,12 +279,23 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
+    const switchToLogin = () => {
+      window.history.replaceState({}, '', '/');
+      setResetToken(null);
+      setAuthView('login');
+      setAuthError(null);
+    };
+
     return (
       <AuthLayout>
-        {authView === 'login' ? (
-            <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} error={authError} />
+        {authView === 'reset-password' && resetToken ? (
+            <ResetPassword token={resetToken} switchToLogin={switchToLogin} />
+        ) : authView === 'forgot-password' ? (
+            <ForgotPassword switchToLogin={switchToLogin} />
+        ) : authView === 'register' ? (
+            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} />
         ) : (
-            <Registration onRegister={handleRegister} switchToLogin={() => setAuthView('login')} error={authError} />
+            <Login onLogin={handleLogin} switchToRegister={() => setAuthView('register')} switchToForgotPassword={() => setAuthView('forgot-password')} error={authError} />
         )}
       </AuthLayout>
     );

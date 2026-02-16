@@ -1,8 +1,10 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import session from 'express-session';
 import { storage, type DbUser, type DbProperty } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
+import { sendEmail } from './gmailClient';
 
 declare module 'express-session' {
   interface SessionData {
@@ -265,6 +267,100 @@ export function registerAuthRoutes(app: Express) {
     } catch (error: any) {
       console.error('Update password error:', error);
       res.status(500).json({ error: 'Failed to update password' });
+    }
+  });
+
+  app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const user = await storage.getUserByEmail(email.toLowerCase());
+
+      res.json({ success: true, message: 'If an account with that email exists, a reset link has been sent.' });
+
+      if (!user) return;
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      await storage.createPasswordResetToken(user.id, token, expiresAt);
+
+      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const resetUrl = `${protocol}://${domain}/reset-password?token=${token}`;
+
+      const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #2d3748;">Password Reset Request</h2>
+          <p style="color: #4a5568;">Hi ${user.first_name},</p>
+          <p style="color: #4a5568;">We received a request to reset your password for your Waste Management Portal account. Click the button below to set a new password:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" style="background-color: #0d9488; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+          </div>
+          <p style="color: #718096; font-size: 14px;">This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="color: #a0aec0; font-size: 12px;">Waste Management Portal</p>
+        </div>
+      `;
+
+      try {
+        await sendEmail(email.toLowerCase(), 'Reset Your Password - Waste Management Portal', htmlBody);
+        console.log(`Password reset email sent to ${email}`);
+      } catch (emailErr) {
+        console.error('Failed to send password reset email:', emailErr);
+      }
+    } catch (error: any) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ error: 'Failed to process reset request' });
+    }
+  });
+
+  app.get('/api/auth/verify-reset-token', async (req: Request, res: Response) => {
+    try {
+      const token = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'Token is required' });
+      }
+
+      const resetToken = await storage.getValidResetToken(token);
+      if (!resetToken) {
+        return res.status(400).json({ error: 'Invalid or expired reset link' });
+      }
+
+      res.json({ valid: true });
+    } catch (error: any) {
+      console.error('Verify reset token error:', error);
+      res.status(500).json({ error: 'Failed to verify token' });
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: 'Token and new password are required' });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+
+      const resetToken = await storage.getValidResetToken(token);
+      if (!resetToken) {
+        return res.status(400).json({ error: 'Invalid or expired reset link' });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 12);
+      await storage.updateUser(resetToken.user_id, { password_hash: newHash });
+      await storage.markResetTokenUsed(token);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Failed to reset password' });
     }
   });
 }

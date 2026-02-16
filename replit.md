@@ -4,6 +4,10 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Added forgot password / reset password flow with Gmail integration (Google Workspace)
+- 2026-02-16: password_reset_tokens table for secure, single-use, 1-hour expiry tokens
+- 2026-02-16: ForgotPassword and ResetPassword UI components with full state handling
+- 2026-02-16: Gmail sends reset emails via googleapis OAuth2 client (server/gmailClient.ts)
 - 2026-02-16: Implemented real user authentication with PostgreSQL-backed users/properties tables
 - 2026-02-16: Session-based auth using express-session + connect-pg-simple (sessions stored in DB)
 - 2026-02-16: Registration auto-creates Stripe customer and stores stripe_customer_id
@@ -21,6 +25,7 @@ A React + Vite frontend with an Express backend for a waste management client po
 - **Frontend**: React 19 with TypeScript, Vite 6
 - **Backend**: Express server (`server/index.ts`, `server/routes.ts`, `server/authRoutes.ts`)
 - **Auth**: Session-based auth with bcrypt password hashing, express-session + connect-pg-simple
+- **Gmail**: `server/gmailClient.ts` (Google Workspace integration for password reset emails)
 - **Stripe Client**: `server/stripeClient.ts` (uses Replit Stripe connector for secure key management)
 - **Styling**: Tailwind CSS (loaded via CDN in index.html)
 - **Entry Point**: `index.tsx` -> `App.tsx`
@@ -31,6 +36,7 @@ A React + Vite frontend with an Express backend for a waste management client po
   - `users` table: id (uuid), first_name, last_name, phone, email, password_hash, member_since, autopay_enabled, stripe_customer_id
   - `properties` table: id (uuid), user_id (fk), address, service_type, notification_preferences (jsonb), etc.
   - `session` table: connect-pg-simple session store
+  - `password_reset_tokens` table: id (uuid), user_id (fk), token (varchar unique), expires_at (timestamp), used (boolean)
   - `stripe.*` schema: managed by stripe-replit-sync for webhook/sync data
 
 ## Key Design Decisions
@@ -49,6 +55,9 @@ A React + Vite frontend with an Express backend for a waste management client po
 - GET `/api/auth/me` - Get current user from session
 - PUT `/api/auth/profile` - Update profile (with email uniqueness check)
 - PUT `/api/auth/password` - Change password (verifies current password)
+- POST `/api/auth/forgot-password` - Send password reset email via Gmail
+- GET `/api/auth/verify-reset-token` - Check if reset token is valid
+- POST `/api/auth/reset-password` - Reset password with valid token
 - POST `/api/properties` - Add property (requires auth)
 - PUT `/api/properties/:id` - Update property (requires auth + ownership)
 

@@ -5,10 +5,11 @@ import { Button } from './Button.tsx';
 interface LoginProps {
     onLogin: (email: string, password: string) => Promise<void>;
     switchToRegister: () => void;
+    switchToForgotPassword: () => void;
     error: string | null;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, error }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgotPassword, error }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -38,7 +39,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, error }) => {
                     />
                 </div>
                 <div>
-                    <label htmlFor="password"className="block text-sm font-medium text-gray-700">Password</label>
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
                     <input
                         type="password"
                         id="password"
@@ -48,6 +49,11 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, error }) => {
                         required
                         autoComplete="current-password"
                     />
+                </div>
+                <div className="flex justify-end">
+                    <button type="button" onClick={switchToForgotPassword} className="text-sm font-medium text-primary hover:text-primary-focus">
+                        Forgot password?
+                    </button>
                 </div>
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
                 <Button type="submit" className="w-full" disabled={isLoading}>

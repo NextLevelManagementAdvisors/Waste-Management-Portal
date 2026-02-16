@@ -135,6 +135,34 @@ export class Storage {
     await this.query('DELETE FROM properties WHERE id = $1', [propertyId]);
   }
 
+  async createPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
+    await this.query(
+      'UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false',
+      [userId]
+    );
+    await this.query(
+      `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userId, token, expiresAt]
+    );
+  }
+
+  async getValidResetToken(token: string): Promise<{ id: string; user_id: string; token: string; expires_at: string } | null> {
+    const result = await this.query(
+      `SELECT * FROM password_reset_tokens
+       WHERE token = $1 AND used = false AND expires_at > NOW()`,
+      [token]
+    );
+    return result.rows[0] || null;
+  }
+
+  async markResetTokenUsed(token: string): Promise<void> {
+    await this.query(
+      'UPDATE password_reset_tokens SET used = true WHERE token = $1',
+      [token]
+    );
+  }
+
   async getProduct(productId: string) {
     const result = await this.query(
       'SELECT * FROM stripe.products WHERE id = $1',
