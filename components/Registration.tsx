@@ -7,9 +7,10 @@ interface RegistrationProps {
     onRegister: (info: RegistrationInfo) => Promise<void>;
     switchToLogin: () => void;
     error: string | null;
+    pendingQueryString?: string;
 }
 
-const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error }) => {
+const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error, pendingQueryString }) => {
     const [formData, setFormData] = useState<RegistrationInfo>({
         firstName: '',
         lastName: '',
@@ -20,12 +21,14 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
     });
 
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const ref = params.get('ref');
-        if (ref) {
-            setFormData(prev => ({ ...prev, referralCode: ref }));
+        let ref = new URLSearchParams(window.location.search).get('ref');
+        if (!ref && pendingQueryString) {
+            ref = new URLSearchParams(pendingQueryString).get('ref');
         }
-    }, []);
+        if (ref) {
+            setFormData(prev => ({ ...prev, referralCode: ref! }));
+        }
+    }, [pendingQueryString]);
     const [isLoading, setIsLoading] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -418,7 +418,7 @@ const App: React.FC = () => {
         ) : authView === 'forgot-password' ? (
             <ForgotPassword switchToLogin={switchToLogin} />
         ) : authView === 'register' ? (
-            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} />
+            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} />
         ) : (
             <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} />
         )}
