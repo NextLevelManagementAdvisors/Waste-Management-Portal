@@ -59,6 +59,13 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
 
     const hasNoProperties = properties.length === 0;
 
+    const serviceFlowType = useMemo(() => {
+        const params = new URLSearchParams(window.location.search);
+        const type = params.get('type');
+        if (type === 'recurring' || type === 'request') return type;
+        return undefined;
+    }, []);
+
     useEffect(() => {
         if (selectedProperty) {
             setActiveTab('services');
@@ -95,6 +102,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                         }
                     }}
                     isOnboarding={hasNoProperties}
+                    serviceFlowType={serviceFlowType}
                 />
             </div>
         );
