@@ -45,28 +45,21 @@ function getStripePromise() {
 }
 
 const StripeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [stripe, setStripe] = useState<Stripe | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stripeInstance, setStripeInstance] = useState<Promise<Stripe | null>>(Promise.resolve(null));
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getStripePromise().then(s => {
-      if (!cancelled) {
-        setStripe(s);
-        setLoading(false);
-      }
+    const promise = getStripePromise();
+    setStripeInstance(promise);
+    promise.then(() => {
+      if (!cancelled) setReady(true);
     });
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) return <>{children}</>;
-
-  if (!stripe) {
-    return <>{children}</>;
-  }
-
   return (
-    <Elements stripe={stripe} options={{ appearance: { theme: 'stripe' } }}>
+    <Elements stripe={stripeInstance} options={{ appearance: { theme: 'stripe' } }}>
       {children}
     </Elements>
   );
