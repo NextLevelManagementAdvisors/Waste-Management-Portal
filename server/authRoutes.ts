@@ -6,9 +6,14 @@ import { storage, type DbUser, type DbProperty } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
+
 declare module 'express-session' {
   interface SessionData {
     userId: string;
+    googleOAuthState?: string;
   }
 }
 
@@ -361,6 +366,155 @@ export function registerAuthRoutes(app: Express) {
     } catch (error: any) {
       console.error('Reset password error:', error);
       res.status(500).json({ error: 'Failed to reset password' });
+    }
+  });
+
+  app.get('/api/auth/google', async (req: Request, res: Response) => {
+    try {
+      if (!GOOGLE_CLIENT_ID) {
+        return res.status(500).json({ error: 'Google OAuth not configured' });
+      }
+
+      const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
+      if (!discoveryRes.ok) {
+        return res.status(500).json({ error: 'Failed to reach Google services' });
+      }
+      const discovery = await discoveryRes.json() as { authorization_endpoint: string };
+
+      const state = crypto.randomBytes(32).toString('hex');
+      req.session.googleOAuthState = state;
+
+      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const redirectUri = `${protocol}://${domain}/api/auth/google/callback`;
+
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        access_type: 'offline',
+        prompt: 'select_account',
+        state,
+      });
+
+      res.redirect(`${discovery.authorization_endpoint}?${params.toString()}`);
+    } catch (error: any) {
+      console.error('Google OAuth initiation error:', error);
+      res.status(500).json({ error: 'Failed to start Google login' });
+    }
+  });
+
+  app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
+    try {
+      const code = req.query.code as string;
+      const state = req.query.state as string;
+
+      if (!code || !state) {
+        return res.redirect('/?error=google_auth_failed');
+      }
+
+      const expectedState = req.session.googleOAuthState;
+      delete req.session.googleOAuthState;
+
+      if (!expectedState || state !== expectedState) {
+        return res.redirect('/?error=google_auth_failed');
+      }
+
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        return res.redirect('/?error=google_not_configured');
+      }
+
+      const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
+      if (!discoveryRes.ok) {
+        return res.redirect('/?error=google_auth_failed');
+      }
+      const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
+
+      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const redirectUri = `${protocol}://${domain}/api/auth/google/callback`;
+
+      const tokenRes = await fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        console.error('Token exchange HTTP error:', tokenRes.status);
+        return res.redirect('/?error=google_token_failed');
+      }
+
+      const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+      if (!tokenData.access_token) {
+        console.error('Token exchange failed:', tokenData);
+        return res.redirect('/?error=google_token_failed');
+      }
+
+      const userInfoRes = await fetch(discovery.userinfo_endpoint, {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+
+      if (!userInfoRes.ok) {
+        console.error('Userinfo fetch HTTP error:', userInfoRes.status);
+        return res.redirect('/?error=google_auth_failed');
+      }
+
+      const userInfo = await userInfoRes.json() as {
+        email?: string;
+        email_verified?: boolean;
+        given_name?: string;
+        family_name?: string;
+        name?: string;
+      };
+
+      if (!userInfo.email || !userInfo.email_verified) {
+        return res.redirect('/?error=google_email_not_verified');
+      }
+
+      const email = userInfo.email.toLowerCase();
+      let user = await storage.getUserByEmail(email);
+
+      if (!user) {
+        const firstName = userInfo.given_name || userInfo.name || 'User';
+        const lastName = userInfo.family_name || '';
+        const randomPassword = crypto.randomBytes(32).toString('hex');
+        const passwordHash = await bcrypt.hash(randomPassword, 12);
+
+        let stripeCustomerId: string | undefined;
+        try {
+          const stripe = await getUncachableStripeClient();
+          const customer = await stripe.customers.create({
+            email,
+            name: `${firstName} ${lastName}`.trim(),
+          });
+          stripeCustomerId = customer.id;
+        } catch (err) {
+          console.error('Warning: Failed to create Stripe customer during Google signup:', err);
+        }
+
+        user = await storage.createUser({
+          firstName,
+          lastName,
+          phone: '',
+          email,
+          passwordHash,
+          stripeCustomerId,
+        });
+      }
+
+      req.session.userId = user.id;
+      res.redirect('/');
+    } catch (error: any) {
+      console.error('Google OAuth callback error:', error);
+      res.redirect('/?error=google_auth_failed');
     }
   });
 }

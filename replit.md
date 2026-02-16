@@ -4,6 +4,11 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Added Google OAuth login ("Sign in with Google") on Login and Registration pages
+- 2026-02-16: Google OAuth routes: GET /api/auth/google (initiate) and GET /api/auth/google/callback (handle callback)
+- 2026-02-16: Google OAuth auto-creates user account + Stripe customer if new, or logs in existing user by email
+- 2026-02-16: Fixed StripeProvider to always wrap children in Elements (prevents useStripe crash)
+- 2026-02-16: Fixed catch-all route for production (app.use middleware instead of app.get('*'))
 - 2026-02-16: Added forgot password / reset password flow with Gmail integration (Google Workspace)
 - 2026-02-16: password_reset_tokens table for secure, single-use, 1-hour expiry tokens
 - 2026-02-16: ForgotPassword and ResetPassword UI components with full state handling
@@ -24,7 +29,7 @@ A React + Vite frontend with an Express backend for a waste management client po
 ## Project Architecture
 - **Frontend**: React 19 with TypeScript, Vite 6
 - **Backend**: Express server (`server/index.ts`, `server/routes.ts`, `server/authRoutes.ts`)
-- **Auth**: Session-based auth with bcrypt password hashing, express-session + connect-pg-simple
+- **Auth**: Session-based auth with bcrypt password hashing, express-session + connect-pg-simple, Google OAuth login
 - **Gmail**: `server/gmailClient.ts` (Google Workspace integration for password reset emails)
 - **Stripe Client**: `server/stripeClient.ts` (uses Replit Stripe connector for secure key management)
 - **Styling**: Tailwind CSS (loaded via CDN in index.html)
@@ -58,6 +63,8 @@ A React + Vite frontend with an Express backend for a waste management client po
 - POST `/api/auth/forgot-password` - Send password reset email via Gmail
 - GET `/api/auth/verify-reset-token` - Check if reset token is valid
 - POST `/api/auth/reset-password` - Reset password with valid token
+- GET `/api/auth/google` - Initiate Google OAuth login flow
+- GET `/api/auth/google/callback` - Handle Google OAuth callback (creates account if new, logs in if existing)
 - POST `/api/properties` - Add property (requires auth)
 - PUT `/api/properties/:id` - Update property (requires auth + ownership)
 

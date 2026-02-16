@@ -79,6 +79,18 @@ const App: React.FC = () => {
       return;
     }
 
+    const googleError = urlParams.get('error');
+    if (googleError) {
+      const errorMessages: Record<string, string> = {
+        google_auth_failed: 'Google sign-in failed. Please try again.',
+        google_token_failed: 'Google authentication error. Please try again.',
+        google_email_not_verified: 'Your Google email is not verified.',
+        google_not_configured: 'Google sign-in is not available right now.',
+      };
+      setAuthError(errorMessages[googleError] || 'Sign-in failed. Please try again.');
+      window.history.replaceState({}, '', '/');
+    }
+
     getUser()
       .then((userData) => {
         fetchUserAndSetState(userData);
