@@ -36,8 +36,13 @@ const FilterButton: React.FC<{
     </button>
 );
 
-const PropertyManagement: React.FC = () => {
+interface PropertyManagementProps {
+    onAddProperty?: () => void;
+}
+
+const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }) => {
     const { properties, startNewServiceFlow } = useProperty();
+    const handleAddProperty = onAddProperty || startNewServiceFlow;
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
@@ -111,7 +116,7 @@ const PropertyManagement: React.FC = () => {
                 {/* Always show this card in portfolio view, adapting text if it's the first one */}
                 {(activeFilter === 'all' || properties.length === 0) && (
                     <Card 
-                        onClick={startNewServiceFlow}
+                        onClick={handleAddProperty}
                         className="bg-gray-50 border-2 border-dashed border-gray-300 hover:border-primary hover:bg-primary/5 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center text-center p-8 group min-h-[300px] sm:min-h-[370px]"
                     >
                         <PlusCircleIcon className="w-12 h-12 text-gray-400 group-hover:text-primary transition-colors mb-4" />

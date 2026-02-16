@@ -8,7 +8,6 @@ import Support from './components/Support.tsx';
 import ProfileSettings from './components/ProfileSettings.tsx';
 import ReferralsHub from './components/ReferralsHub.tsx';
 import WalletHub from './components/WalletHub.tsx';
-import StartService from './components/StartService.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
@@ -32,7 +31,6 @@ const VIEW_TO_PATH: Record<View, string> = {
   'referrals': '/referrals',
   'help': '/help',
   'profile-settings': '/settings',
-  'start-service': '/start-service',
 };
 
 const PATH_TO_VIEW: Record<string, View> = Object.fromEntries(
@@ -173,8 +171,8 @@ const App: React.FC = () => {
         const pathname = normalizePath(window.location.pathname);
         const deepLinkedView = getViewFromPath(pathname);
         if (userData.properties && userData.properties.length === 0) {
-          setCurrentViewRaw('start-service');
-          window.history.replaceState({ view: 'start-service' }, '', VIEW_TO_PATH['start-service']);
+          setCurrentViewRaw('myservice');
+          window.history.replaceState({ view: 'myservice' }, '', VIEW_TO_PATH['myservice']);
         } else if (deepLinkedView && deepLinkedView !== 'home') {
           setCurrentViewRaw(deepLinkedView);
           window.history.replaceState({ view: deepLinkedView }, '', pathname);
@@ -207,7 +205,7 @@ const App: React.FC = () => {
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
       if (userData.properties && userData.properties.length === 0) {
-        setCurrentView('start-service');
+        setCurrentView('myservice');
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
         setCurrentView(pendingDeepLink);
         setPendingDeepLink(null);
@@ -225,8 +223,7 @@ const App: React.FC = () => {
       const userData = await register(registrationInfo);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      // Direct all new users to start service flow.
-      setCurrentView('start-service'); 
+      setCurrentView('myservice'); 
     } catch (error)
     {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
@@ -244,7 +241,8 @@ const App: React.FC = () => {
   }, []);
   
   const startNewServiceFlow = useCallback(() => {
-    setCurrentView('start-service');
+    setSelectedPropertyId(null);
+    setCurrentView('myservice');
   }, [setCurrentView]);
 
   const handleCompleteSetup = useCallback(async (
@@ -363,14 +361,13 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'home': return <Dashboard setCurrentView={setCurrentView} />;
-      case 'myservice': return <MyServiceHub />;
+      case 'myservice': return <MyServiceHub onCompleteSetup={handleCompleteSetup} />;
       case 'wallet': return <WalletHub />;
       case 'make-payment': return <MakePaymentHub />;
       case 'requests': return <RequestsHub />;
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
       case 'profile-settings': return <ProfileSettings />;
-      case 'start-service': return <StartService onCompleteSetup={handleCompleteSetup} onCancel={() => setCurrentView(properties.length > 0 ? 'myservice' : 'home')} />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };

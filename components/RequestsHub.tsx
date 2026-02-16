@@ -67,7 +67,7 @@ const RequestsHub: React.FC = () => {
                         To submit requests like extra pickups, vacation holds, or report issues, you'll need to add a service address first.
                     </p>
                     <Button
-                        onClick={() => setCurrentView('start-service')}
+                        onClick={() => setCurrentView('myservice')}
                         className="rounded-xl px-8 py-3 font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20 inline-flex items-center gap-2"
                     >
                         <PlusCircleIcon className="w-5 h-5" />

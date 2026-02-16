@@ -22,7 +22,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
-  { id: 'start-service', label: 'Start New Service', icon: <PlusCircleIcon className="w-5 h-5" /> },
   { id: 'myservice', label: 'Manage Plan', icon: <TruckIcon className="w-5 h-5" /> },
   { id: 'make-payment', label: 'Make a Payment', icon: <CreditCardIcon className="w-5 h-5" /> },
   { id: 'requests', label: 'Requests', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
@@ -39,7 +38,6 @@ const VIEW_TO_PATH: Record<string, string> = {
   'referrals': '/referrals',
   'help': '/help',
   'profile-settings': '/settings',
-  'start-service': '/start-service',
 };
 
 const NavLink: React.FC<{

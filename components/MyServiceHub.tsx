@@ -4,9 +4,10 @@ import PropertySettings from './PropertySettings.tsx';
 import Notifications from './Notifications.tsx';
 import ServiceStatusOverview from './ServiceStatusOverview.tsx';
 import PropertyManagement from './PropertyManagement.tsx';
+import StartService from './StartService.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 import { getSubscriptions } from '../services/mockApiService.ts';
-import { Subscription } from '../types.ts';
+import { Subscription, NewPropertyInfo } from '../types.ts';
 import { 
     ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon
 } from './Icons.tsx';
@@ -14,6 +15,10 @@ import AccountTransfer from './AccountTransfer.tsx';
 import DangerZone from './DangerZone.tsx';
 import CollectionHistory from './CollectionHistory.tsx';
 import BillingHub from './BillingHub.tsx';
+
+interface MyServiceHubProps {
+    onCompleteSetup: (propertyInfo: NewPropertyInfo, services: { serviceId: string; useSticker: boolean; quantity: number }[]) => Promise<void>;
+}
 
 const TABS = [
     { id: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
@@ -45,15 +50,18 @@ const Tab: React.FC<{
 );
 
 
-const MyServiceHub: React.FC = () => {
-    const { selectedProperty, postNavAction } = useProperty();
+const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
+    const { properties, selectedProperty, postNavAction, setCurrentView } = useProperty();
     const [activeTab, setActiveTab] = useState('services');
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
+    const [showSetupWizard, setShowSetupWizard] = useState(false);
+
+    const hasNoProperties = properties.length === 0;
 
     useEffect(() => {
         if (selectedProperty) {
-            setActiveTab('services'); // Reset to services tab when property changes
+            setActiveTab('services');
         }
     }, [selectedProperty]);
 
@@ -71,10 +79,31 @@ const MyServiceHub: React.FC = () => {
         });
     }, []);
 
+    if (hasNoProperties || showSetupWizard) {
+        return (
+            <div className="animate-in fade-in duration-500">
+                <StartService
+                    onCompleteSetup={async (propertyInfo, services) => {
+                        await onCompleteSetup(propertyInfo, services);
+                        setShowSetupWizard(false);
+                    }}
+                    onCancel={() => {
+                        if (hasNoProperties) {
+                            setCurrentView('home');
+                        } else {
+                            setShowSetupWizard(false);
+                        }
+                    }}
+                    isOnboarding={hasNoProperties}
+                />
+            </div>
+        );
+    }
+
     if (!selectedProperty) {
         return (
             <div className="animate-in fade-in duration-500">
-                <PropertyManagement />
+                <PropertyManagement onAddProperty={() => setShowSetupWizard(true)} />
             </div>
         );
     }

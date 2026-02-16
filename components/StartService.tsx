@@ -18,6 +18,7 @@ interface ServiceSelection {
 interface StartServiceProps {
     onCompleteSetup: (propertyInfo: NewPropertyInfo, services: ServiceSelection[]) => Promise<void>;
     onCancel: () => void;
+    isOnboarding?: boolean;
 }
 
 const initialFormState: NewPropertyInfo = {
@@ -83,7 +84,7 @@ const QuantitySelector: React.FC<{
 };
 
 
-const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }) => {
+const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false }) => {
     const [step, setStep] = useState(1);
     const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -662,9 +663,13 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel }
     return (
         <div className="max-w-3xl mx-auto space-y-8 p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500">
             <div className="text-center">
-                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Service Address</h1>
+                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">
+                    {isOnboarding ? 'Welcome! Let\'s Get You Set Up' : 'Add Service Address'}
+                </h1>
                 <p className="text-gray-500 font-medium mt-2">
-                    Let's get your new service up and running.
+                    {isOnboarding
+                        ? 'Follow these steps to add your address and choose your services.'
+                        : 'Add a new property and select your services.'}
                 </p>
             </div>
 
