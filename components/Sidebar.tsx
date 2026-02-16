@@ -63,7 +63,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
 
     const visibleNavItems = hasProperties
       ? navItems
-      : navItems.filter(item => !['myservice', 'make-payment', 'requests'].includes(item.id));
+      : navItems.filter(item => !['myservice', 'make-payment'].includes(item.id));
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 

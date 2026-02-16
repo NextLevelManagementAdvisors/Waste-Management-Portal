@@ -3,7 +3,8 @@ import SpecialPickup from './SpecialPickup.tsx';
 import VacationHolds from './VacationHolds.tsx';
 import MissedPickup from './MissedPickup.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon } from './Icons.tsx';
+import { CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, HomeIcon, PlusCircleIcon } from './Icons.tsx';
+import { Button } from './Button.tsx';
 
 type RequestView = 'extra' | 'hold' | 'missed';
 
@@ -44,7 +45,7 @@ const Tabs: React.FC<{
 };
 
 const RequestsHub: React.FC = () => {
-    const { postNavAction, setPostNavAction } = useProperty();
+    const { postNavAction, setPostNavAction, properties, setCurrentView } = useProperty();
     const [view, setView] = useState<RequestView>('extra');
     
     useEffect(() => {
@@ -54,6 +55,28 @@ const RequestsHub: React.FC = () => {
         }
     }, [postNavAction, setPostNavAction]);
 
+    if (properties.length === 0) {
+        return (
+            <div className="animate-in fade-in duration-500 flex items-center justify-center min-h-[400px]">
+                <div className="text-center max-w-md mx-auto p-8">
+                    <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                        <HomeIcon className="w-8 h-8 text-primary" />
+                    </div>
+                    <h2 className="text-xl font-black text-gray-900 mb-2">No Service Address Yet</h2>
+                    <p className="text-gray-500 mb-8">
+                        To submit requests like extra pickups, vacation holds, or report issues, you'll need to add a service address first.
+                    </p>
+                    <Button
+                        onClick={() => setCurrentView('start-service')}
+                        className="rounded-xl px-8 py-3 font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20 inline-flex items-center gap-2"
+                    >
+                        <PlusCircleIcon className="w-5 h-5" />
+                        Add Your Address
+                    </Button>
+                </div>
+            </div>
+        );
+    }
 
     const renderContent = () => {
         switch (view) {
