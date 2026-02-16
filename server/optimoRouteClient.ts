@@ -179,7 +179,7 @@ export async function getNextPickupForAddress(address: string): Promise<{
     const orders = await findOrdersForAddress(address, fromStr, toStr);
     if (orders.length === 0) return null;
 
-    orders.sort((a, b) => a.date.localeCompare(b.date));
+    orders.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     const nextOrder = orders[0];
 
     let schedInfo: ScheduleInfo | undefined;
