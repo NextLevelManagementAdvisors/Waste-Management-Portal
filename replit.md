@@ -4,6 +4,12 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Registration now searches Stripe for existing customer by email before creating new (links existing customer if found)
+- 2026-02-16: Google OAuth signup also checks for existing Stripe customer by email
+- 2026-02-16: ensureStripeCustomer() helper auto-links Stripe customer on login/session restore if portal user has no stripe_customer_id
+- 2026-02-16: Multi-customer handling: when multiple Stripe customers share an email, selects the one with active subscriptions
+- 2026-02-16: MyServiceHub shows "Welcome Back" view for users with existing Stripe subscriptions but no portal properties
+- 2026-02-16: Loading state guard prevents flashing setup wizard while subscription check is in progress
 - 2026-02-16: Replaced Tailwind CDN with proper @tailwindcss/vite build plugin and app.css with @theme tokens
 - 2026-02-16: Implemented real Stripe invoice creation (POST /api/invoices) - replaces console.log stub
 - 2026-02-16: Special pickup scheduling now creates OptimoRoute orders and real Stripe invoices server-side
