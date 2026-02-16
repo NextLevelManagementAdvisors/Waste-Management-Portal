@@ -206,9 +206,30 @@ export function registerRoutes(app: Express) {
       const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
         status: 'all',
-        expand: ['data.items.data.price.product'],
+        expand: ['data.items.data.price'],
       });
-      res.json({ data: subscriptions.data });
+
+      const subsWithProducts = await Promise.all(
+        subscriptions.data.map(async (sub: any) => {
+          const items = await Promise.all(
+            sub.items.data.map(async (item: any) => {
+              const price = item.price;
+              if (price && typeof price.product === 'string') {
+                try {
+                  const product = await stripe.products.retrieve(price.product);
+                  return { ...item, price: { ...price, product } };
+                } catch {
+                  return item;
+                }
+              }
+              return item;
+            })
+          );
+          return { ...sub, items: { ...sub.items, data: items } };
+        })
+      );
+
+      res.json({ data: subsWithProducts });
     } catch (error: any) {
       console.error('Error listing subscriptions:', error);
       res.status(500).json({ error: error.message });
