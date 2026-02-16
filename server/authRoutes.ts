@@ -56,6 +56,31 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function ensureStripeCustomer(user: DbUser): Promise<DbUser> {
+  if (user.stripe_customer_id) return user;
+  try {
+    const stripe = await getUncachableStripeClient();
+    const existing = await stripe.customers.list({ email: user.email, limit: 10 });
+    if (existing.data.length > 0) {
+      let bestCustomer = existing.data[0];
+      if (existing.data.length > 1) {
+        for (const cust of existing.data) {
+          const subs = await stripe.subscriptions.list({ customer: cust.id, status: 'active', limit: 1 });
+          if (subs.data.length > 0) {
+            bestCustomer = cust;
+            break;
+          }
+        }
+      }
+      const stripeCustomerId = bestCustomer.id;
+      return await storage.updateUser(user.id, { stripe_customer_id: stripeCustomerId });
+    }
+  } catch (err) {
+    console.error('Warning: Failed to lookup Stripe customer for existing user:', err);
+  }
+  return user;
+}
+
 export function registerAuthRoutes(app: Express) {
 
   app.post('/api/auth/register', async (req: Request, res: Response) => {
@@ -76,14 +101,23 @@ export function registerAuthRoutes(app: Express) {
       let stripeCustomerId: string | undefined;
       try {
         const stripe = await getUncachableStripeClient();
-        const customer = await stripe.customers.create({
-          email: email.toLowerCase(),
-          name: `${firstName} ${lastName}`,
-          phone: phone || undefined,
-        });
-        stripeCustomerId = customer.id;
+        const existing = await stripe.customers.list({ email: email.toLowerCase(), limit: 1 });
+        if (existing.data.length > 0) {
+          stripeCustomerId = existing.data[0].id;
+          await stripe.customers.update(stripeCustomerId, {
+            name: `${firstName} ${lastName}`,
+            phone: phone || undefined,
+          });
+        } else {
+          const customer = await stripe.customers.create({
+            email: email.toLowerCase(),
+            name: `${firstName} ${lastName}`,
+            phone: phone || undefined,
+          });
+          stripeCustomerId = customer.id;
+        }
       } catch (err) {
-        console.error('Warning: Failed to create Stripe customer during registration:', err);
+        console.error('Warning: Failed to find/create Stripe customer during registration:', err);
       }
 
       const user = await storage.createUser({
@@ -123,7 +157,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      const user = await storage.getUserByEmail(email.toLowerCase());
+      let user = await storage.getUserByEmail(email.toLowerCase());
       if (!user) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
@@ -132,6 +166,8 @@ export function registerAuthRoutes(app: Express) {
       if (!valid) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
+
+      user = await ensureStripeCustomer(user);
 
       const properties = await storage.getPropertiesForUser(user.id);
 
@@ -161,10 +197,12 @@ export function registerAuthRoutes(app: Express) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const user = await storage.getUserById(req.session.userId);
+      let user = await storage.getUserById(req.session.userId);
       if (!user) {
         return res.status(401).json({ error: 'User not found' });
       }
+
+      user = await ensureStripeCustomer(user);
 
       const properties = await storage.getPropertiesForUser(user.id);
 
@@ -509,13 +547,21 @@ export function registerAuthRoutes(app: Express) {
         let stripeCustomerId: string | undefined;
         try {
           const stripe = await getUncachableStripeClient();
-          const customer = await stripe.customers.create({
-            email,
-            name: `${firstName} ${lastName}`.trim(),
-          });
-          stripeCustomerId = customer.id;
+          const existing = await stripe.customers.list({ email, limit: 1 });
+          if (existing.data.length > 0) {
+            stripeCustomerId = existing.data[0].id;
+            await stripe.customers.update(stripeCustomerId, {
+              name: `${firstName} ${lastName}`.trim(),
+            });
+          } else {
+            const customer = await stripe.customers.create({
+              email,
+              name: `${firstName} ${lastName}`.trim(),
+            });
+            stripeCustomerId = customer.id;
+          }
         } catch (err) {
-          console.error('Warning: Failed to create Stripe customer during Google signup:', err);
+          console.error('Warning: Failed to find/create Stripe customer during Google signup:', err);
         }
 
         user = await storage.createUser({

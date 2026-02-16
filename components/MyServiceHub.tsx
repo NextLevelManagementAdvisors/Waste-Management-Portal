@@ -100,7 +100,21 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
         });
     }, []);
 
-    if (hasNoProperties || showSetupWizard) {
+    const activeOrPausedSubs = allSubscriptions.filter(s => s.status === 'active' || s.status === 'paused');
+    const hasExistingSubscriptions = !loadingSubs && activeOrPausedSubs.length > 0;
+
+    if (hasNoProperties && loadingSubs) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                    <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-500 font-medium">Checking your account...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (showSetupWizard || (hasNoProperties && !hasExistingSubscriptions && !loadingSubs)) {
         return (
             <div className="animate-in fade-in duration-500">
                 <StartService
@@ -118,6 +132,38 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                     isOnboarding={hasNoProperties}
                     serviceFlowType={serviceFlowType}
                 />
+            </div>
+        );
+    }
+
+    if (hasNoProperties && hasExistingSubscriptions) {
+        return (
+            <div className="animate-in fade-in duration-500 max-w-3xl mx-auto">
+                <div className="bg-white rounded-2xl shadow-lg border border-base-200 p-8 mb-6">
+                    <h2 className="text-2xl font-black text-gray-900 mb-2">Welcome Back!</h2>
+                    <p className="text-gray-600 mb-6">We found your existing plan. Add your property address to manage everything from the portal.</p>
+                    <div className="space-y-3 mb-6">
+                        {activeOrPausedSubs.map(sub => (
+                            <div key={sub.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-base-200">
+                                <div>
+                                    <p className="font-bold text-gray-900">{sub.serviceName}</p>
+                                    <p className="text-sm text-gray-500">
+                                        {sub.status === 'active' ? 'Active' : 'Paused'} &bull; ${sub.totalPrice?.toFixed(2) || sub.price?.toFixed(2)}/mo
+                                    </p>
+                                </div>
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${sub.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                    {sub.status === 'active' ? 'Active' : 'Paused'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => setShowSetupWizard(true)}
+                        className="w-full bg-primary text-white font-black uppercase tracking-widest text-xs py-4 rounded-2xl shadow-xl shadow-primary/20 hover:bg-primary-focus transition-colors"
+                    >
+                        Add Your Property
+                    </button>
+                </div>
             </div>
         );
     }
