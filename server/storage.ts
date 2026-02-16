@@ -503,6 +503,36 @@ export class Storage {
     await this.query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, userId]);
   }
 
+  async getSpecialPickupServices() {
+    const result = await this.query(
+      'SELECT * FROM special_pickup_services WHERE active = true ORDER BY name'
+    );
+    return result.rows;
+  }
+
+  async getTipDismissal(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM tip_dismissals WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async createTipDismissal(userId: string, propertyId: string, pickupDate: string) {
+    await this.query(
+      'INSERT INTO tip_dismissals (user_id, property_id, pickup_date) VALUES ($1, $2, $3) ON CONFLICT (property_id, pickup_date) DO NOTHING',
+      [userId, propertyId, pickupDate]
+    );
+  }
+
+  async getTipDismissalsForProperty(propertyId: string) {
+    const result = await this.query(
+      'SELECT pickup_date FROM tip_dismissals WHERE property_id = $1',
+      [propertyId]
+    );
+    return result.rows.map(r => r.pickup_date);
+  }
+
   async searchUsers(query: string): Promise<DbUser[]> {
     const result = await this.query(
       `SELECT * FROM users WHERE 

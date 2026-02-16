@@ -4,6 +4,12 @@
 A React + Vite frontend with an Express backend for a waste management client portal. Provides login/registration, dashboard, billing, service management, pickup tracking, and more. Stripe integration handles subscriptions, invoices, and payment processing with real Stripe API calls. Real user authentication with database-backed accounts and session management.
 
 ## Recent Changes
+- 2026-02-16: Replaced all dummy/mock data with real database-backed APIs
+- 2026-02-16: Special pickup services now stored in special_pickup_services DB table (not hardcoded)
+- 2026-02-16: Tip dismissals persisted to tip_dismissals DB table (not in-memory)
+- 2026-02-16: Service alerts fallback returns empty array (DB table was already wired)
+- 2026-02-16: Removed all MOCK_USER/MOCK_PROPERTIES/MOCK_REFERRAL_INFO/MOCK_SERVICE_ALERTS constants
+- 2026-02-16: Renamed internal cache variable from MOCK_USER to cachedUser for clarity
 - 2026-02-16: Admin Dashboard with back-office views: Overview stats, Customer management with Stripe details, Properties list, Activity feed
 - 2026-02-16: Admin routes (server/adminRoutes.ts) protected by is_admin flag on users table
 - 2026-02-16: Admin notification API (POST /api/admin/notify) for sending pickup reminders, billing alerts, service updates

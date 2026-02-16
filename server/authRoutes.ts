@@ -637,6 +637,45 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  app.get('/api/special-pickup-services', async (_req: Request, res: Response) => {
+    try {
+      const services = await storage.getSpecialPickupServices();
+      res.json({ data: services.map(s => ({ id: s.id, name: s.name, description: s.description, price: parseFloat(s.price), iconName: s.icon_name })) });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch special pickup services' });
+    }
+  });
+
+  app.post('/api/tip-dismissal', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { propertyId, pickupDate } = req.body;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      await storage.createTipDismissal(userId, propertyId, pickupDate);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to dismiss tip prompt' });
+    }
+  });
+
+  app.get('/api/tip-dismissals/:propertyId', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const propertyId = req.params.propertyId;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(403).json({ error: 'Property not found or access denied' });
+      }
+      const dates = await storage.getTipDismissalsForProperty(propertyId);
+      res.json({ data: dates });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to fetch tip dismissals' });
+    }
+  });
+
   app.post('/api/missed-pickup', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;

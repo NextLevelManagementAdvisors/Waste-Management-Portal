@@ -13,7 +13,6 @@ const safeJson = async (res: Response, fallbackError = 'Request failed') => {
     }
 };
 
-// --- TYPES FOR CONSOLIDATED DATA ---
 export interface PropertyState {
     property: Property;
     nextPickup: {
@@ -48,50 +47,7 @@ export interface CollectionHistoryLogWithFeedback extends optimoRouteService.Col
     feedbackSubmitted: boolean;
 }
 
-let MOCK_DISMISSED_TIPS: { propertyId: string; pickupDate: string }[] = [];
-
-// --- MOCK DATA ---
-const MOCK_PROPERTIES: Property[] = [
-    { id: 'P1', address: '121 Elsia Dr', serviceType: 'personal', inHOA: false, hasGateCode: false, notes: 'Beware of dog in the backyard. Cans are located on the left side of the garage.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: true }, driverUpdates: { email: false, sms: true } } },
-    { id: 'P2', address: '7258 Baldwin Ridge Rd', serviceType: 'short-term', inHOA: true, communityName: 'Lake View Estates', hasGateCode: true, gateCode: '54321', notes: 'Short-term rental. Please ensure lids are fully closed.', notificationPreferences: { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
-    { id: 'P3', address: '804 W 13th St', serviceType: 'personal', inHOA: false, hasGateCode: false, notes: 'Cans on curb.', notificationPreferences: { pickupReminders: { email: true, sms: true }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } } },
-];
-
-let MOCK_USER: User = {
-    firstName: 'Jane',
-    lastName: 'Doe',
-    phone: '(555) 123-4567',
-    email: 'jane.doe@example.com',
-    password: 'password123',
-    memberSince: '2022-01-15',
-    properties: MOCK_PROPERTIES,
-    autopayEnabled: true,
-};
-
-const MOCK_SERVICE_ALERTS: ServiceAlert[] = [
-    { id: 'alert1', message: "Holiday Schedule: All pickups delayed by one day.", type: 'info' }
-];
-
-const MOCK_REFERRAL_INFO: ReferralInfo = {
-    referralCode: 'JANE-D-8432',
-    shareLink: 'https://zipadee.com/join?ref=JANE-D-8432',
-    totalRewards: 20,
-    referrals: [
-        { id: 'ref1', name: 'John Smith', status: 'completed', date: '2025-06-20' },
-        { id: 'ref2', name: 'Emily White', status: 'completed', date: '2025-05-15' },
-        { id: 'ref3', name: 'Michael Brown', status: 'pending', date: '2025-07-02' },
-        { id: 'ref4', name: 'Sarah Wilson', status: 'pending', date: '2025-07-10' },
-    ]
-};
-
-// --- API FACADE ---
-
-/**
- * Safer API simulation that avoids serialization issues.
- */
-function simulateApiCall<T>(data: T, delay: number = 300): Promise<T> {
-  return new Promise(resolve => setTimeout(() => resolve(data), delay));
-}
+let cachedUser: User | null = null;
 
 export const getUser = async (): Promise<User> => {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
@@ -103,7 +59,7 @@ export const getUser = async (): Promise<User> => {
         throw new Error('Not authenticated');
     }
     if (!res.ok) throw new Error(json.error || 'Not authenticated');
-    MOCK_USER = json.data;
+    cachedUser = json.data;
     if (json.data.stripeCustomerId) {
         stripeService.setCustomerId(json.data.stripeCustomerId);
     }
@@ -119,7 +75,7 @@ export const getServiceAlerts = async () => {
         const json = await safeJson(res);
         if (res.ok && json.data) return json.data;
     } catch {}
-    return MOCK_SERVICE_ALERTS;
+    return [];
 };
 
 /**
@@ -146,9 +102,10 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
 
-        const [nextPickupInfo, pastPickups] = await Promise.all([
+        const [nextPickupInfo, pastPickups, dismissedDates] = await Promise.all([
             optimoRouteService.getNextPickupInfo(prop.address),
             optimoRouteService.getPastPickups(prop.address),
+            fetchTipDismissals(prop.id),
         ]);
 
         const lastCompletedPickup = pastPickups.find(h => h.status === 'completed');
@@ -176,7 +133,7 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
                     const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
                     if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
                 } catch {}
-                const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
+                const hasBeenDismissed = dismissedDates.includes(lastCompletedPickup.date);
                 lastPickup = {
                     date: lastCompletedPickup.date,
                     label: 'Last Pickup',
@@ -198,7 +155,7 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
                 const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
                 if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
             } catch {}
-            const hasBeenDismissed = MOCK_DISMISSED_TIPS.some(d => d.propertyId === prop.id && d.pickupDate === lastCompletedPickup.date);
+            const hasBeenDismissed = dismissedDates.includes(lastCompletedPickup.date);
             state = {
                 nextPickup: null,
                 lastPickup: {
@@ -234,8 +191,16 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
     return { states, health };
 };
 
+const fetchTipDismissals = async (propertyId: string): Promise<string[]> => {
+    try {
+        const res = await fetch(`/api/tip-dismissals/${propertyId}`, { credentials: 'include' });
+        if (res.ok) { const json = await res.json(); return json.data || []; }
+    } catch {}
+    return [];
+};
+
 export const getCollectionHistory = async (propertyId: string): Promise<CollectionHistoryLogWithFeedback[]> => {
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    const property = cachedUser?.properties.find(p => p.id === propertyId);
     if (!property) return [];
 
     const history = await optimoRouteService.getPastPickups(property.address);
@@ -264,7 +229,7 @@ export const login = async (email: string, password: string): Promise<User> => {
     });
     const json = await safeJson(res, 'Login failed');
     if (!res.ok) throw new Error(json.error || 'Login failed');
-    MOCK_USER = json.data;
+    cachedUser = json.data;
     if (json.data.stripeCustomerId) {
         stripeService.setCustomerId(json.data.stripeCustomerId);
     }
@@ -283,7 +248,7 @@ export const register = async (info: RegistrationInfo): Promise<User> => {
     });
     const json = await safeJson(res, 'Registration failed');
     if (!res.ok) throw new Error(json.error || 'Registration failed');
-    MOCK_USER = json.data;
+    cachedUser = json.data;
     if (json.data.stripeCustomerId) {
         stripeService.setCustomerId(json.data.stripeCustomerId);
     }
@@ -311,7 +276,7 @@ export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
     const json = await safeJson(res, 'Failed to add property');
     if (!res.ok) throw new Error(json.error || 'Failed to add property');
     const newP = json.data;
-    MOCK_USER.properties.push(newP);
+    if (cachedUser) cachedUser.properties.push(newP);
     return newP;
 };
 export const updatePropertyDetails = async (id: string, details: UpdatePropertyInfo): Promise<Property> => {
@@ -341,7 +306,7 @@ export const updateUserProfile = async (info: UpdateProfileInfo): Promise<User> 
     });
     const json = await safeJson(res, 'Failed to update profile');
     if (!res.ok) throw new Error(json.error || 'Failed to update profile');
-    MOCK_USER = json.data;
+    cachedUser = json.data;
     return json.data;
 };
 export const updateUserPassword = async (info: UpdatePasswordInfo): Promise<any> => {
@@ -364,7 +329,7 @@ export const updateAutopayStatus = async (enabled: boolean) => {
     });
     const json = await safeJson(res, 'Failed to update autopay');
     if (!res.ok) throw new Error(json.error || 'Failed to update autopay');
-    MOCK_USER.autopayEnabled = enabled;
+    if (cachedUser) cachedUser.autopayEnabled = enabled;
     return { success: true };
 };
 
@@ -394,7 +359,7 @@ export const payInvoice = stripeService.payInvoice;
 export const payOutstandingBalance = (paymentMethodId: string, propertyId?: string) => stripeService.payOutstandingBalance(paymentMethodId, propertyId);
 
 export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    const property = cachedUser?.properties.find(p => p.id === propertyId);
     if (!property) throw new Error("Property not found for creating subscription.");
 
     const paymentMethods = await stripeService.listPaymentMethods();
@@ -411,7 +376,7 @@ export const subscribeToNewService = async (service: Service, propertyId: string
 };
 
 export const changeServiceQuantity = async (service: Service, propertyId: string, change: 'increment' | 'decrement', useSticker?: boolean) => {
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    const property = cachedUser?.properties.find(p => p.id === propertyId);
     if (!property) throw new Error("Property not found for changing quantity.");
 
     const subs = await stripeService.listSubscriptions();
@@ -457,7 +422,7 @@ export const cancelSubscription = async (subscriptionId: string) => {
     if (!subToCancel) throw new Error("Subscription to cancel not found.");
 
     const service = (await getServices()).find(s => s.id === subToCancel.serviceId);
-    const property = MOCK_USER.properties.find(p => p.id === subToCancel.propertyId);
+    const property = cachedUser?.properties.find(p => p.id === subToCancel.propertyId);
 
     const result = await stripeService.cancelSubscription(subscriptionId);
 
@@ -493,16 +458,34 @@ export const updateNotificationPreferences = async (propertyId: string, prefs: N
     });
     const json = await safeJson(res, 'Failed to update notification preferences');
     if (!res.ok) throw new Error(json.error || 'Failed to update notification preferences');
-    const p = MOCK_USER.properties.find(prop => prop.id === propertyId);
+    const p = cachedUser?.properties.find(prop => prop.id === propertyId);
     if (p) p.notificationPreferences = prefs;
     return { success: true };
 };
 
-export const getSpecialPickupServices = (): Promise<SpecialPickupService[]> => simulateApiCall([
-    { id: 'sp1', name: 'Bulk Trash Pick-up', description: 'Large items like furniture or mattresses.', price: 75.00, icon: React.createElement(ArchiveBoxIcon, { className: 'w-12 h-12 text-primary'}) },
-    { id: 'sp2', name: 'White Goods (Appliance)', description: 'Refrigerators, stoves, washers, dryers.', price: 50.00, icon: React.createElement(HomeModernIcon, { className: 'w-12 h-12 text-primary'}) },
-    { id: 'sp3', name: 'E-Waste', description: 'Computers, TVs, and other electronics.', price: 40.00, icon: React.createElement(SparklesIcon, { className: 'w-12 h-12 text-primary'}) },
-]);
+const iconMap: Record<string, React.FC<any>> = {
+    ArchiveBoxIcon, HomeModernIcon, SparklesIcon, TruckIcon, WrenchScrewdriverIcon, BuildingOffice2Icon, TrashIcon,
+};
+
+export const getSpecialPickupServices = async (): Promise<SpecialPickupService[]> => {
+    try {
+        const res = await fetch('/api/special-pickup-services', { credentials: 'include' });
+        const json = await safeJson(res);
+        if (res.ok && json.data) {
+            return json.data.map((s: any) => {
+                const IconComponent = iconMap[s.iconName] || ArchiveBoxIcon;
+                return {
+                    id: s.id,
+                    name: s.name,
+                    description: s.description,
+                    price: s.price,
+                    icon: React.createElement(IconComponent, { className: 'w-12 h-12 text-primary' }),
+                };
+            });
+        }
+    } catch {}
+    return [];
+};
 
 export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]> => {
     try {
@@ -590,7 +573,7 @@ export const sendTransferReminder = async (propertyId: string) => {
 };
 
 export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
-    const property = MOCK_USER.properties.find(p => p.id === propertyId);
+    const property = cachedUser?.properties.find(p => p.id === propertyId);
     if (!property) throw new Error("Property not found for cancellation.");
 
     const allSubs = await stripeService.listSubscriptions();
@@ -598,7 +581,6 @@ export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
     
     const subsToCancel = allSubs.filter(s => s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused'));
     
-    // Perform the cancellation in the mock DB
     const result = await stripeService.cancelAllSubscriptionsForProperty(propertyId);
 
     // After cancellation, create pickup tasks for each rental can
@@ -665,9 +647,14 @@ export const leaveDriverNote = async (propertyId: string, note: string, pickupDa
     return { success: true };
 };
 
-export const dismissTipPrompt = (propertyId: string, pickupDate: string) => {
-    if (!MOCK_DISMISSED_TIPS.some(d => d.propertyId === propertyId && d.pickupDate === pickupDate)) {
-        MOCK_DISMISSED_TIPS.push({ propertyId, pickupDate });
-    }
-    return simulateApiCall({ success: true });
+export const dismissTipPrompt = async (propertyId: string, pickupDate: string) => {
+    try {
+        await fetch('/api/tip-dismissal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ propertyId, pickupDate }),
+        });
+    } catch {}
+    return { success: true };
 };
