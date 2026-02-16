@@ -384,9 +384,9 @@ export function registerAuthRoutes(app: Express) {
       const state = crypto.randomBytes(32).toString('hex');
       req.session.googleOAuthState = state;
 
-      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
-      const protocol = domain.includes('localhost') ? 'http' : 'https';
-      const redirectUri = `${protocol}://${domain}/api/auth/google/callback`;
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
 
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
@@ -431,9 +431,9 @@ export function registerAuthRoutes(app: Express) {
       }
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
-      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
-      const protocol = domain.includes('localhost') ? 'http' : 'https';
-      const redirectUri = `${protocol}://${domain}/api/auth/google/callback`;
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
 
       const tokenRes = await fetch(discovery.token_endpoint, {
         method: 'POST',
