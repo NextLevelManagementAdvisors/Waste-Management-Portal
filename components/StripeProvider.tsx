@@ -1,9 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { loadStripe, Stripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
-
-let stripePromise: Promise<Stripe | null> | null = null;
-let stripeResolved = false;
 
 async function fetchPublishableKeyWithRetry(retries = 10, delay = 3000): Promise<string | null> {
   for (let i = 0; i < retries; i++) {
@@ -24,42 +21,25 @@ async function fetchPublishableKeyWithRetry(retries = 10, delay = 3000): Promise
   return null;
 }
 
-function getStripePromise() {
-  if (!stripePromise) {
-    stripePromise = fetchPublishableKeyWithRetry()
-      .then(key => {
-        if (key) {
-          stripeResolved = true;
-          return loadStripe(key);
-        }
-        stripePromise = null;
-        return null;
-      })
+let cachedPromise: Promise<Stripe | null> | null = null;
+
+function getStripePromise(): Promise<Stripe | null> {
+  if (!cachedPromise) {
+    cachedPromise = fetchPublishableKeyWithRetry()
+      .then(key => key ? loadStripe(key) : null)
       .catch(err => {
         console.error('Failed to load Stripe:', err);
-        stripePromise = null;
         return null;
       });
   }
-  return stripePromise;
+  return cachedPromise;
 }
 
 const StripeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [stripeInstance, setStripeInstance] = useState<Promise<Stripe | null>>(Promise.resolve(null));
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const promise = getStripePromise();
-    setStripeInstance(promise);
-    promise.then(() => {
-      if (!cancelled) setReady(true);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  const stripePromise = useMemo(() => getStripePromise(), []);
 
   return (
-    <Elements stripe={stripeInstance} options={{ appearance: { theme: 'stripe' } }}>
+    <Elements stripe={stripePromise} options={{ appearance: { theme: 'stripe' } }}>
       {children}
     </Elements>
   );
