@@ -57,9 +57,11 @@ const formatDate = (dateStr: string) => {
   }
 };
 
-const truncateJson = (jsonStr: string, maxLength: number = 100) => {
-  if (jsonStr.length <= maxLength) return jsonStr;
-  return jsonStr.substring(0, maxLength) + '...';
+const truncateJson = (jsonStr: any, maxLength: number = 100) => {
+  if (!jsonStr) return '';
+  const str = typeof jsonStr === 'string' ? jsonStr : JSON.stringify(jsonStr);
+  if (str.length <= maxLength) return str;
+  return str.substring(0, maxLength) + '...';
 };
 
 const SystemView: React.FC = () => {

@@ -106,17 +106,24 @@ export function registerAdminRoutes(app: Express) {
             type: 'card',
           });
 
+          const safeDate = (ts: any) => {
+            try {
+              if (!ts || typeof ts !== 'number') return null;
+              return new Date(ts * 1000).toISOString();
+            } catch { return null; }
+          };
+
           stripeData = {
             balance: typeof (customer as any).balance === 'number' ? (customer as any).balance / 100 : 0,
             subscriptions: subscriptions.data.map((s: any) => ({
               id: s.id,
               status: s.status,
-              currentPeriodEnd: new Date(s.current_period_end * 1000).toISOString(),
-              items: s.items.data.map((i: any) => ({
-                priceId: i.price.id,
-                productName: i.price.nickname || i.price.id,
-                amount: i.price.unit_amount / 100,
-                interval: i.price.recurring?.interval,
+              currentPeriodEnd: safeDate(s.current_period_end),
+              items: (s.items?.data || []).map((i: any) => ({
+                priceId: i.price?.id,
+                productName: i.price?.nickname || i.price?.id,
+                amount: (i.price?.unit_amount || 0) / 100,
+                interval: i.price?.recurring?.interval,
               })),
             })),
             invoices: invoices.data.map((inv: any) => ({
@@ -124,7 +131,7 @@ export function registerAdminRoutes(app: Express) {
               number: inv.number,
               amount: (inv.amount_due || inv.total || 0) / 100,
               status: inv.status,
-              created: new Date(inv.created * 1000).toISOString(),
+              created: safeDate(inv.created),
             })),
             paymentMethods: paymentMethods.data.map((pm: any) => ({
               id: pm.id,
