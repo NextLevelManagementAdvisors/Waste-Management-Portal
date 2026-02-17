@@ -57,11 +57,39 @@ const formatDate = (dateStr: string) => {
   }
 };
 
-const truncateJson = (jsonStr: any, maxLength: number = 100) => {
-  if (!jsonStr) return '';
-  const str = typeof jsonStr === 'string' ? jsonStr : JSON.stringify(jsonStr);
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength) + '...';
+const parseDetails = (details: any): Record<string, any> | null => {
+  if (!details) return null;
+  if (typeof details === 'object') return details;
+  try { return JSON.parse(details); } catch { return null; }
+};
+
+const DetailsPill: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 rounded-md px-2 py-0.5 text-xs mr-1 mb-1">
+    <span className="text-gray-400 font-medium">{label}:</span>
+    <span className="font-semibold truncate max-w-[140px]" title={value}>{value}</span>
+  </span>
+);
+
+const DetailsCell: React.FC<{ details: any }> = ({ details }) => {
+  const parsed = parseDetails(details);
+  if (!parsed || Object.keys(parsed).length === 0) return <span className="text-gray-300">—</span>;
+
+  const formatKey = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim();
+  const formatValue = (v: any): string => {
+    if (v === null || v === undefined) return '—';
+    if (typeof v === 'number') return v.toLocaleString();
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
+
+  return (
+    <div className="flex flex-wrap max-w-xs">
+      {Object.entries(parsed).map(([key, val]) => (
+        <DetailsPill key={key} label={formatKey(key)} value={formatValue(val)} />
+      ))}
+    </div>
+  );
 };
 
 const SystemView: React.FC = () => {
@@ -290,7 +318,7 @@ const SystemView: React.FC = () => {
                           <td className="px-6 py-3 text-sm text-gray-900 font-medium">{log.action}</td>
                           <td className="px-6 py-3 text-sm text-gray-700">{log.entityType}</td>
                           <td className="px-6 py-3 text-sm text-gray-700">{log.entityId}</td>
-                          <td className="px-6 py-3 text-sm text-gray-500 font-mono text-xs">{truncateJson(log.details)}</td>
+                          <td className="px-6 py-3"><DetailsCell details={log.details} /></td>
                         </tr>
                       ))}
                     </tbody>
