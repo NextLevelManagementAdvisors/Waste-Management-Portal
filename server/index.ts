@@ -3,6 +3,7 @@ import cors from 'cors';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
+import http from 'http';
 import { fileURLToPath } from 'url';
 import { registerAuthRoutes } from './authRoutes';
 import { pool } from './storage';
@@ -30,7 +31,7 @@ if (isProduction && !process.env.SESSION_SECRET) {
 
 app.set('trust proxy', 1);
 
-app.use(session({
+const sessionMiddleware = session({
   store: new PgSession({
     pool: pool as any,
     tableName: 'session',
@@ -45,7 +46,9 @@ app.use(session({
     secure: true,
     sameSite: 'none',
   },
-}));
+});
+
+app.use(sessionMiddleware);
 
 app.post(
   '/api/stripe/webhook',
@@ -85,6 +88,9 @@ registerRoutes(app);
 const { registerAdminRoutes } = await import('./adminRoutes');
 registerAdminRoutes(app);
 
+const { registerCommunicationRoutes } = await import('./communicationRoutes');
+registerCommunicationRoutes(app);
+
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));
@@ -97,8 +103,13 @@ if (isProduction) {
   });
 }
 
+const httpServer = http.createServer(app);
+
+const { setupWebSocket } = await import('./websocket');
+setupWebSocket(httpServer, sessionMiddleware);
+
 const host = isProduction ? '0.0.0.0' : '127.0.0.1';
-app.listen(PORT, host, () => {
+httpServer.listen(PORT, host, () => {
   console.log(`Backend server running on http://${host}:${PORT}`);
 });
 

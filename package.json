@@ -23,6 +23,7 @@
     "@types/express-session": "^1.18.2",
     "@types/google.maps": "^3.58.1",
     "@types/pg": "^8.16.0",
+    "@types/ws": "^8.18.1",
     "bcrypt": "^6.0.0",
     "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.6",
@@ -36,7 +37,8 @@
     "react-dom": "^19.2.0",
     "stripe": "^20.3.1",
     "stripe-replit-sync": "^1.0.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

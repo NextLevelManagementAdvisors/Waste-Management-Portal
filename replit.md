@@ -13,6 +13,7 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 
 **Key Features:**
 - **Admin Dashboard:** A comprehensive admin portal at `/admin/` with analytics, customer management, billing tools, operations views, audit logging, global search, and customer impersonation.
+- **Unified Communications:** Real-time messaging system with WebSocket support. Admins can chat with customers and drivers (1-on-1 or 3-way). Customer-side floating chat widget. All message history stored in PostgreSQL.
 - **User Authentication & Management:** Secure login, registration (auto-creates Stripe customer and links existing ones), password reset flows via Gmail, and Google OAuth. User and property data are stored in PostgreSQL.
 - **Service Management:** Users can add properties, manage service types, and track special pickup requests.
 - **Billing & Payments:** Real Stripe integration for invoices, subscriptions, and payment processing. Invoice PDFs and hosted URLs are available.
@@ -29,15 +30,18 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - `session`, `password_reset_tokens`, `referral_codes`, `referrals`, `missed_pickup_reports`, `special_pickup_requests`, `collection_intents`, `driver_feedback`: Tables for specific feature data.
 - `audit_log`: Tracks all admin actions (who did what, when, to which entity).
 - `admin_notes`: Internal notes/tags on customers, linked to admin who created them.
+- `conversations`, `conversation_participants`, `messages`: Unified communications system for admin-customer-driver messaging.
+- `drivers`: Driver profiles for communication and routing.
 - `stripe.*`: Schema managed by `stripe-replit-sync` for webhook and sync data.
 
-**Admin Portal Structure (admin/) — 5-Section Relational Navigation:**
-- `admin/App.tsx`: Main admin app with 5-item sidebar (Dashboard, Customers, Billing, Operations, System), global search, view routing
+**Admin Portal Structure (admin/) — 6-Section Relational Navigation:**
+- `admin/App.tsx`: Main admin app with 6-item sidebar (Dashboard, Customers, Billing, Operations, Communications, System), global search, view routing
 - `admin/components/shared.tsx`: Shared components (LoadingSpinner, StatCard, Pagination, StatusBadge, EmptyState, FilterBar, ConfirmDialog)
 - `admin/components/DashboardView.tsx`: Unified dashboard merging overview stats cards with analytics charts (signup trends, revenue, service breakdown)
 - `admin/components/CustomersView.tsx`: Central relational hub — customer list with search/filter/CSV export/bulk actions; detail panel with tabs: Overview (contact + notes), Properties, Billing (Stripe subscriptions/invoices/payment methods), Activity (audit log filtered by customer)
 - `admin/components/BillingView.tsx`: Global billing view — invoice creation, credit application, subscription management, payment history
 - `admin/components/OperationsView.tsx`: Tabbed operations center — Missed Pickups (with resolution tracking), Pickup Schedule, Recent Activity (signups/pickups/referrals), Notifications (send to customers)
+- `admin/components/CommunicationsView.tsx`: Unified inbox for all conversations — thread view with real-time WebSocket chat, new conversation modal with customer/driver selection, 3-way chat support
 - `admin/components/SystemView.tsx`: Audit log viewer, global search, settings/roles placeholder
 
 ## External Dependencies

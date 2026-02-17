@@ -15,6 +15,7 @@ import ForgotPassword from './components/ForgotPassword.tsx';
 import ResetPassword from './components/ResetPassword.tsx';
 import MakePaymentHub from './components/MakePaymentHub.tsx';
 import AcceptTransfer from './components/AcceptTransfer.tsx';
+import ChatWidget from './components/ChatWidget.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
@@ -584,6 +585,7 @@ const App: React.FC = () => {
             </main>
           </div>
         </div>
+        {user && <ChatWidget userId={user.id} />}
       </PropertyContext.Provider>
     </StripeProvider>
   );
