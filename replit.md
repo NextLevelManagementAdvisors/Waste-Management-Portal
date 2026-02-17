@@ -10,7 +10,10 @@ A React + Vite frontend with an Express backend for a waste management client po
 - 2026-02-16: Service alerts fallback returns empty array (DB table was already wired)
 - 2026-02-16: Removed all MOCK_USER/MOCK_PROPERTIES/MOCK_REFERRAL_INFO/MOCK_SERVICE_ALERTS constants
 - 2026-02-16: Renamed internal cache variable from MOCK_USER to cachedUser for clarity
-- 2026-02-16: Admin Dashboard with back-office views: Overview stats, Customer management with Stripe details, Properties list, Activity feed
+- 2026-02-17: Admin Dashboard separated into standalone app at /admin/ with its own entry point (admin/index.html, admin/main.tsx, admin/App.tsx)
+- 2026-02-17: Vite config updated for multi-page build (main + admin entry points)
+- 2026-02-17: Express serves admin/index.html for /admin/* routes in production
+- 2026-02-17: Admin removed from client portal (no more admin view in sidebar, types, or routing)
 - 2026-02-16: Admin routes (server/adminRoutes.ts) protected by is_admin flag on users table
 - 2026-02-16: Admin notification API (POST /api/admin/notify) for sending pickup reminders, billing alerts, service updates
 - 2026-02-16: Email notification service (server/notificationService.ts) with HTML templates for pickup reminders, billing alerts, payment confirmations, service updates, missed pickup confirmations

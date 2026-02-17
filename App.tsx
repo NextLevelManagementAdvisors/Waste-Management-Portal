@@ -15,7 +15,6 @@ import ForgotPassword from './components/ForgotPassword.tsx';
 import ResetPassword from './components/ResetPassword.tsx';
 import MakePaymentHub from './components/MakePaymentHub.tsx';
 import AcceptTransfer from './components/AcceptTransfer.tsx';
-import AdminDashboard from './components/AdminDashboard.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
@@ -33,7 +32,6 @@ const VIEW_TO_PATH: Record<View, string> = {
   'referrals': '/referrals',
   'help': '/help',
   'profile-settings': '/settings',
-  'admin': '/admin',
 };
 
 const PATH_TO_VIEW: Record<string, View> = Object.fromEntries(
@@ -398,7 +396,6 @@ const App: React.FC = () => {
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
       case 'profile-settings': return <SettingsHub />;
-      case 'admin': return user?.isAdmin ? <AdminDashboard /> : <Dashboard setCurrentView={setCurrentView} />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
   };

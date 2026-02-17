@@ -88,8 +88,12 @@ registerAdminRoutes(app);
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));
-  app.use((_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
+  app.use((req, res) => {
+    if (req.path.startsWith('/admin')) {
+      res.sendFile(path.join(distPath, 'admin', 'index.html'));
+    } else {
+      res.sendFile(path.join(distPath, 'index.html'));
+    }
   });
 }
 
