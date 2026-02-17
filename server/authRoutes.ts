@@ -18,6 +18,7 @@ declare module 'express-session' {
     googleOAuthState?: string;
     googleOAuthReferralCode?: string;
     googleOAuthRedirect?: string;
+    googleOAuthPopup?: boolean;
   }
 }
 
@@ -448,6 +449,11 @@ export function registerAuthRoutes(app: Express) {
         req.session.googleOAuthRedirect = redirectPath;
       }
 
+      const popupMode = req.query.popup as string | undefined;
+      if (popupMode === '1') {
+        req.session.googleOAuthPopup = true;
+      }
+
       const host = req.get('host') || 'localhost:5000';
       const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
       const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
@@ -607,10 +613,36 @@ export function registerAuthRoutes(app: Express) {
         redirectUrl = `${redirectUrl}${separator}ref=${encodeURIComponent(oauthRefCode)}`;
       }
 
-      res.redirect(redirectUrl);
+      const popupMode = req.session.googleOAuthPopup;
+      delete req.session.googleOAuthPopup;
+
+      if (popupMode) {
+        res.send(`<!DOCTYPE html><html><body><script>
+          if (window.opener) {
+            window.opener.postMessage({ type: 'google-oauth-success', redirect: ${JSON.stringify(redirectUrl)} }, '*');
+            window.close();
+          } else {
+            window.location.href = ${JSON.stringify(redirectUrl)};
+          }
+        </script></body></html>`);
+      } else {
+        res.redirect(redirectUrl);
+      }
     } catch (error: any) {
       console.error('Google OAuth callback error:', error);
-      res.redirect('/?error=google_auth_failed');
+      const popupMode = req.session?.googleOAuthPopup;
+      if (popupMode) {
+        res.send(`<!DOCTYPE html><html><body><script>
+          if (window.opener) {
+            window.opener.postMessage({ type: 'google-oauth-error' }, '*');
+            window.close();
+          } else {
+            window.location.href = '/?error=google_auth_failed';
+          }
+        </script></body></html>`);
+      } else {
+        res.redirect('/?error=google_auth_failed');
+      }
     }
   });
 

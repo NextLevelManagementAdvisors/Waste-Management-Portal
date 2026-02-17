@@ -268,6 +268,25 @@ const App: React.FC = () => {
     window.history.replaceState({}, '', '/login');
   }, []);
   
+  const handleGoogleAuthSuccess = useCallback(async () => {
+    try {
+      const userData = await getUser();
+      fetchUserAndSetState(userData);
+      setIsAuthenticated(true);
+      if (userData.properties && userData.properties.length === 0) {
+        setCurrentView('myservice', pendingDeepLinkQuery || undefined);
+      } else if (pendingDeepLink && pendingDeepLink !== 'home') {
+        setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
+        setPendingDeepLink(null);
+      } else {
+        setCurrentView('home');
+      }
+      setPendingDeepLinkQuery('');
+    } catch (error) {
+      setAuthError('Google sign-in completed but session check failed. Please try logging in.');
+    }
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery]);
+
   const startNewServiceFlow = useCallback(() => {
     setSelectedPropertyId(null);
     setCurrentView('myservice');
@@ -439,9 +458,9 @@ const App: React.FC = () => {
         return (
           <AuthLayout>
             {authView === 'register' ? (
-              <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} prefill={registrationPrefill || undefined} />
+              <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} prefill={registrationPrefill || undefined} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
             ) : (
-              <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} prefillEmail={loginPrefillEmail} />
+              <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} prefillEmail={loginPrefillEmail} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
             )}
           </AuthLayout>
         );
@@ -504,9 +523,9 @@ const App: React.FC = () => {
         ) : authView === 'forgot-password' ? (
             <ForgotPassword switchToLogin={switchToLogin} />
         ) : authView === 'register' ? (
-            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} />
+            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
         ) : (
-            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} />
+            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
         )}
       </AuthLayout>
     );
