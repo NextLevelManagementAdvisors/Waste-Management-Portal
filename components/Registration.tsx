@@ -59,6 +59,7 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
                         const qs = params.toString();
                         return `/api/auth/google${qs ? `?${qs}` : ''}`;
                     })()}
+                    target="_top"
                     className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border-2 border-base-200 rounded-xl shadow-sm bg-white hover:bg-gray-50 transition-colors font-bold text-gray-700"
                 >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
