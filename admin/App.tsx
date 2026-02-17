@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../components/Card.tsx';
 import { Button } from '../components/Button.tsx';
 import {
@@ -11,6 +11,12 @@ import {
   ShieldCheckIcon,
   BellAlertIcon,
 } from '../components/Icons.tsx';
+import { LoadingSpinner, StatCard } from './components/shared.tsx';
+import AnalyticsView from './components/AnalyticsView.tsx';
+import CustomersView from './components/CustomersView.tsx';
+import BillingView from './components/BillingView.tsx';
+import OperationsView from './components/OperationsView.tsx';
+import SystemView from './components/SystemView.tsx';
 
 interface AdminUser {
   id: string;
@@ -32,44 +38,13 @@ interface AdminStats {
   openInvoices: number;
 }
 
-interface CustomerListItem {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  memberSince: string;
-  stripeCustomerId: string | null;
-  isAdmin: boolean;
-  createdAt: string;
-}
-
-interface CustomerDetail {
-  id: string;
-  name: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  memberSince: string;
-  stripeCustomerId: string | null;
-  isAdmin: boolean;
-  createdAt: string;
-  properties: { id: string; address: string; serviceType: string; transferStatus: string | null }[];
-  stripe: {
-    balance: number;
-    subscriptions: { id: string; status: string; currentPeriodEnd: string; items: { productName: string; amount: number; interval: string }[] }[];
-    invoices: { id: string; number: string; amount: number; status: string; created: string }[];
-    paymentMethods: { id: string; brand: string; last4: string; expMonth: number; expYear: number }[];
-  } | null;
-}
-
 interface ActivityData {
   recentSignups: { id: string; name: string; email: string; date: string }[];
   recentPickups: { id: string; userName: string; serviceName: string; pickupDate: string; status: string; date: string }[];
   recentReferrals: { id: string; referrerName: string; referredEmail: string; status: string; date: string }[];
 }
 
-type AdminView = 'overview' | 'customers' | 'properties' | 'activity' | 'notifications';
+type AdminView = 'overview' | 'customers' | 'analytics' | 'billing' | 'operations' | 'properties' | 'activity' | 'notifications' | 'system';
 
 const formatDate = (dateStr: string) => {
   try {
@@ -79,16 +54,23 @@ const formatDate = (dateStr: string) => {
   }
 };
 
-const StatCard: React.FC<{ label: string; value: string | number; icon: React.ReactNode; accent?: string }> = ({ label, value, icon, accent = 'text-teal-700' }) => (
-  <Card className="p-5">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-xs font-black uppercase tracking-widest text-gray-400">{label}</p>
-        <p className={`text-2xl font-black mt-1 ${accent}`}>{value}</p>
-      </div>
-      <div className="text-gray-300">{icon}</div>
-    </div>
-  </Card>
+const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+);
+
+const TruckIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+  </svg>
+);
+
+const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </svg>
 );
 
 const AdminApp: React.FC = () => {
@@ -96,6 +78,9 @@ const AdminApp: React.FC = () => {
   const [authChecked, setAuthChecked] = useState(false);
   const [currentView, setCurrentView] = useState<AdminView>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any>(null);
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -110,6 +95,15 @@ const AdminApp: React.FC = () => {
       })
       .catch(() => {})
       .finally(() => setAuthChecked(true));
+  }, []);
+
+  const handleGlobalSearch = useCallback(async (q: string) => {
+    setSearchQuery(q);
+    if (q.length < 2) { setSearchResults(null); return; }
+    try {
+      const res = await fetch(`/api/admin/search?q=${encodeURIComponent(q)}`, { credentials: 'include' });
+      if (res.ok) setSearchResults(await res.json());
+    } catch {}
   }, []);
 
   if (!authChecked) {
@@ -138,9 +132,13 @@ const AdminApp: React.FC = () => {
   const navItems: { view: AdminView; label: string; icon: React.ReactNode }[] = [
     { view: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
+    { view: 'analytics', label: 'Analytics', icon: <ChartPieIcon className="w-5 h-5" /> },
+    { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
+    { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
     { view: 'properties', label: 'Properties', icon: <BuildingOffice2Icon className="w-5 h-5" /> },
     { view: 'activity', label: 'Activity', icon: <ClockIcon className="w-5 h-5" /> },
     { view: 'notifications', label: 'Notify', icon: <BellAlertIcon className="w-5 h-5" /> },
+    { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
 
   return (
@@ -156,7 +154,7 @@ const AdminApp: React.FC = () => {
           </div>
         </div>
 
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
           {navItems.map(item => (
             <button
               key={item.view}
@@ -201,14 +199,67 @@ const AdminApp: React.FC = () => {
           <h2 className="text-lg font-black text-gray-900">
             {navItems.find(n => n.view === currentView)?.label || 'Admin'}
           </h2>
+          <div className="ml-auto relative">
+            <button
+              onClick={() => setSearchOpen(!searchOpen)}
+              className="text-gray-400 hover:text-gray-600 transition-colors p-2 rounded-lg hover:bg-gray-100"
+            >
+              <MagnifyingGlassIcon className="w-5 h-5" />
+            </button>
+            {searchOpen && (
+              <div className="absolute right-0 top-12 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => handleGlobalSearch(e.target.value)}
+                  placeholder="Search customers, properties..."
+                  className="w-full px-4 py-3 text-sm border-b border-gray-100 rounded-t-xl focus:outline-none"
+                  autoFocus
+                />
+                {searchResults && (
+                  <div className="max-h-80 overflow-y-auto p-2">
+                    {searchResults.users?.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Customers</p>
+                        {searchResults.users.map((u: any) => (
+                          <button key={u.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                            <p className="font-bold text-gray-900">{u.first_name} {u.last_name}</p>
+                            <p className="text-xs text-gray-400">{u.email}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {searchResults.properties?.length > 0 && (
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
+                        {searchResults.properties.map((p: any) => (
+                          <button key={p.id} onClick={() => { setCurrentView('properties'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                            <p className="font-bold text-gray-900">{p.address}</p>
+                            <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {(!searchResults.users?.length && !searchResults.properties?.length) && (
+                      <p className="text-sm text-gray-400 text-center py-4">No results found</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'overview' && <OverviewView />}
           {currentView === 'customers' && <CustomersView />}
+          {currentView === 'analytics' && <AnalyticsView />}
+          {currentView === 'billing' && <BillingView />}
+          {currentView === 'operations' && <OperationsView />}
           {currentView === 'properties' && <PropertiesView />}
           {currentView === 'activity' && <ActivityView />}
           {currentView === 'notifications' && <NotificationsView />}
+          {currentView === 'system' && <SystemView />}
         </div>
       </main>
     </div>
@@ -246,252 +297,6 @@ const OverviewView: React.FC = () => {
         <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" />
       </div>
     </div>
-  );
-};
-
-const CustomersView: React.FC = () => {
-  const [customers, setCustomers] = useState<CustomerListItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  const loadCustomers = async (search = '') => {
-    setLoading(true);
-    try {
-      const url = search ? `/api/admin/customers?search=${encodeURIComponent(search)}` : '/api/admin/customers';
-      const res = await fetch(url, { credentials: 'include' });
-      if (res.ok) setCustomers(await res.json());
-    } catch (e) {
-      console.error('Failed to load customers:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadCustomerDetail = async (id: string) => {
-    setDetailLoading(true);
-    try {
-      const res = await fetch(`/api/admin/customers/${id}`, { credentials: 'include' });
-      if (res.ok) setSelectedCustomer(await res.json());
-    } catch (e) {
-      console.error('Failed to load customer detail:', e);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  useEffect(() => { loadCustomers(); }, []);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    loadCustomers(searchQuery);
-  };
-
-  if (selectedCustomer) {
-    return (
-      <div className="space-y-6">
-        <Button variant="ghost" size="sm" onClick={() => setSelectedCustomer(null)} className="text-sm">
-          ← Back to customer list
-        </Button>
-        {detailLoading ? <LoadingSpinner /> : <CustomerDetailView customer={selectedCustomer} />}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-          />
-        </div>
-        <Button type="submit">Search</Button>
-      </form>
-
-      {loading ? <LoadingSpinner /> : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400">Customer</th>
-                  <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400">Email</th>
-                  <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400 hidden md:table-cell">Phone</th>
-                  <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400 hidden lg:table-cell">Joined</th>
-                  <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400">Stripe</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {customers.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => loadCustomerDetail(c.id)}>
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-bold text-gray-900">{c.name}</p>
-                      {c.isAdmin && <span className="text-[9px] font-black uppercase tracking-widest text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full">Admin</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{c.email}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{c.phone || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">{formatDate(c.createdAt)}</td>
-                    <td className="px-4 py-3">
-                      {c.stripeCustomerId ? (
-                        <span className="text-[9px] font-black uppercase tracking-widest text-green-700 bg-green-100 px-2 py-1 rounded-full">Linked</span>
-                      ) : (
-                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 bg-gray-100 px-2 py-1 rounded-full">None</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <ArrowRightIcon className="w-4 h-4 text-gray-400" />
-                    </td>
-                  </tr>
-                ))}
-                {customers.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400 text-sm">No customers found</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-};
-
-const CustomerDetailView: React.FC<{ customer: CustomerDetail }> = ({ customer }) => {
-  const [impersonating, setImpersonating] = useState(false);
-
-  const handleImpersonate = async () => {
-    setImpersonating(true);
-    try {
-      const res = await fetch(`/api/admin/impersonate/${customer.id}`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (res.ok) {
-        window.location.href = '/';
-      } else {
-        const json = await res.json();
-        alert(json.error || 'Failed to impersonate');
-      }
-    } catch {
-      alert('Failed to impersonate customer');
-    } finally {
-      setImpersonating(false);
-    }
-  };
-
-  return (
-  <>
-    <Card className="p-6">
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-black text-gray-900">{customer.name}</h2>
-          <p className="text-sm text-gray-500 mt-1">{customer.email}</p>
-          <p className="text-sm text-gray-400">{customer.phone || 'No phone'}</p>
-        </div>
-        <div className="text-sm text-gray-500 space-y-1">
-          <p>Member since: <span className="font-bold text-gray-700">{formatDate(customer.memberSince || customer.createdAt)}</span></p>
-          {customer.stripeCustomerId && (
-            <p>Stripe: <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{customer.stripeCustomerId}</span></p>
-          )}
-          {customer.isAdmin && <span className="inline-block text-[9px] font-black uppercase tracking-widest text-teal-700 bg-teal-100 px-2 py-1 rounded-full">Admin</span>}
-        </div>
-      </div>
-      <div className="mt-4 pt-4 border-t border-gray-100">
-        <Button onClick={handleImpersonate} disabled={impersonating} className="bg-indigo-600 hover:bg-indigo-700">
-          {impersonating ? 'Switching...' : 'Sign In as Customer'}
-        </Button>
-        <p className="text-xs text-gray-400 mt-2">View the client portal exactly as this customer sees it. You can switch back anytime.</p>
-      </div>
-    </Card>
-
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <Card className="p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Properties ({customer.properties.length})</h3>
-        {customer.properties.length > 0 ? (
-          <div className="space-y-3">
-            {customer.properties.map(p => (
-              <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                <p className="text-sm font-bold text-gray-900">{p.address}</p>
-                <div className="flex gap-2 mt-1">
-                  <span className="text-xs text-gray-500">{p.serviceType}</span>
-                  {p.transferStatus && <span className="text-xs text-orange-600 font-bold">Transfer: {p.transferStatus}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400">No properties</p>
-        )}
-      </Card>
-
-      {customer.stripe && (
-        <Card className="p-6">
-          <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Stripe Account</h3>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">Balance</span>
-              <span className={`text-sm font-black ${customer.stripe.balance < 0 ? 'text-green-600' : customer.stripe.balance > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                ${Math.abs(customer.stripe.balance).toFixed(2)} {customer.stripe.balance < 0 ? 'credit' : customer.stripe.balance > 0 ? 'owed' : ''}
-              </span>
-            </div>
-
-            <div>
-              <p className="text-xs font-bold text-gray-500 mb-2">Payment Methods</p>
-              {customer.stripe.paymentMethods.map(pm => (
-                <div key={pm.id} className="flex items-center gap-2 text-sm text-gray-700 py-1">
-                  <span className="capitalize font-bold">{pm.brand}</span>
-                  <span>····{pm.last4}</span>
-                  <span className="text-gray-400">{pm.expMonth}/{pm.expYear}</span>
-                </div>
-              ))}
-              {customer.stripe.paymentMethods.length === 0 && <p className="text-xs text-gray-400">No payment methods</p>}
-            </div>
-
-            <div>
-              <p className="text-xs font-bold text-gray-500 mb-2">Subscriptions ({customer.stripe.subscriptions.length})</p>
-              {customer.stripe.subscriptions.map(sub => (
-                <div key={sub.id} className="p-2 bg-gray-50 rounded-lg mb-1">
-                  <div className="flex justify-between items-center">
-                    <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
-                      sub.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                    }`}>{sub.status}</span>
-                    <span className="text-xs text-gray-400">until {formatDate(sub.currentPeriodEnd)}</span>
-                  </div>
-                  {sub.items.map((item, i) => (
-                    <p key={i} className="text-sm text-gray-700 mt-1">{item.productName} - ${item.amount}/{item.interval}</p>
-                  ))}
-                </div>
-              ))}
-              {customer.stripe.subscriptions.length === 0 && <p className="text-xs text-gray-400">No subscriptions</p>}
-            </div>
-
-            <div>
-              <p className="text-xs font-bold text-gray-500 mb-2">Recent Invoices ({customer.stripe.invoices.length})</p>
-              {customer.stripe.invoices.map(inv => (
-                <div key={inv.id} className="flex justify-between items-center py-1 text-sm">
-                  <span className="text-gray-700">{inv.number || inv.id}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold">${inv.amount.toFixed(2)}</span>
-                    <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
-                      inv.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
-                    }`}>{inv.status}</span>
-                  </div>
-                </div>
-              ))}
-              {customer.stripe.invoices.length === 0 && <p className="text-xs text-gray-400">No invoices</p>}
-            </div>
-          </div>
-        </Card>
-      )}
-    </div>
-  </>
   );
 };
 
@@ -609,7 +414,7 @@ const ActivityView: React.FC = () => {
             <div key={r.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
               <div>
                 <p className="text-sm font-bold text-gray-900">{r.referrerName}</p>
-                <p className="text-xs text-gray-400">→ {r.referredEmail}</p>
+                <p className="text-xs text-gray-400">{r.referredEmail}</p>
               </div>
               <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
                 r.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
@@ -624,7 +429,7 @@ const ActivityView: React.FC = () => {
 };
 
 const NotificationsView: React.FC = () => {
-  const [customers, setCustomers] = useState<CustomerListItem[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [notificationType, setNotificationType] = useState('pickup_reminder');
   const [message, setMessage] = useState('');
@@ -634,7 +439,7 @@ const NotificationsView: React.FC = () => {
   useEffect(() => {
     fetch('/api/admin/customers', { credentials: 'include' })
       .then(r => r.json())
-      .then(setCustomers)
+      .then(data => setCustomers(data.customers || data))
       .catch(console.error);
   }, []);
 
@@ -674,7 +479,7 @@ const NotificationsView: React.FC = () => {
               required
             >
               <option value="">Select a customer...</option>
-              {customers.map(c => (
+              {customers.map((c: any) => (
                 <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
               ))}
             </select>
@@ -718,11 +523,5 @@ const NotificationsView: React.FC = () => {
     </div>
   );
 };
-
-const LoadingSpinner: React.FC = () => (
-  <div className="flex justify-center py-12">
-    <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-teal-600"></div>
-  </div>
-);
 
 export default AdminApp;

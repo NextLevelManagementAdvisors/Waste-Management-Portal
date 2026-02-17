@@ -12,7 +12,7 @@ A comprehensive client portal for waste management, featuring a React + Vite fro
 The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with an Express backend. Authentication is session-based, using `express-session` and `connect-pg-simple` for PostgreSQL-backed session storage, `bcrypt` for password hashing, and Google OAuth for streamlined login. Styling is managed with Tailwind CSS v4 via `@tailwindcss/vite` plugin.
 
 **Key Features:**
-- **Admin Dashboard:** A separate application accessible at `/admin/` with its own entry point, allowing for customer impersonation and administrative functions.
+- **Admin Dashboard:** A comprehensive admin portal at `/admin/` with analytics, customer management, billing tools, operations views, audit logging, global search, and customer impersonation.
 - **User Authentication & Management:** Secure login, registration (auto-creates Stripe customer and links existing ones), password reset flows via Gmail, and Google OAuth. User and property data are stored in PostgreSQL.
 - **Service Management:** Users can add properties, manage service types, and track special pickup requests.
 - **Billing & Payments:** Real Stripe integration for invoices, subscriptions, and payment processing. Invoice PDFs and hosted URLs are available.
@@ -27,7 +27,18 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - `users`: Stores user credentials, profile information, and `stripe_customer_id`.
 - `properties`: Links to users, stores address, service type, and JSONB for notification preferences.
 - `session`, `password_reset_tokens`, `referral_codes`, `referrals`, `missed_pickup_reports`, `special_pickup_requests`, `collection_intents`, `driver_feedback`: Tables for specific feature data.
+- `audit_log`: Tracks all admin actions (who did what, when, to which entity).
+- `admin_notes`: Internal notes/tags on customers, linked to admin who created them.
 - `stripe.*`: Schema managed by `stripe-replit-sync` for webhook and sync data.
+
+**Admin Portal Structure (admin/):**
+- `admin/App.tsx`: Main admin app with sidebar, global search, view routing
+- `admin/components/shared.tsx`: Shared components (LoadingSpinner, StatCard, Pagination, StatusBadge, EmptyState, FilterBar, ConfirmDialog)
+- `admin/components/AnalyticsView.tsx`: Charts for signup trends, revenue, service breakdown
+- `admin/components/CustomersView.tsx`: Customer management with edit, notes/tags, filtering, CSV export, bulk actions
+- `admin/components/BillingView.tsx`: Invoice creation, credit application, subscription management, payment history
+- `admin/components/OperationsView.tsx`: Missed pickup dashboard with resolution tracking, pickup schedule overview
+- `admin/components/SystemView.tsx`: Audit log viewer, global search, settings/roles placeholder
 
 ## External Dependencies
 - **Stripe:** For payment processing, subscriptions, invoicing, and customer management. Utilizes Replit Stripe connector for secure API key management.

@@ -543,6 +543,217 @@ export class Storage {
     );
     return result.rows;
   }
+
+  async createAuditLog(adminId: string, action: string, entityType?: string, entityId?: string, details?: any) {
+    await this.query(
+      `INSERT INTO audit_log (admin_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5)`,
+      [adminId, action, entityType || null, entityId || null, details ? JSON.stringify(details) : '{}']
+    );
+  }
+
+  async getAuditLogs(options: { limit?: number; offset?: number; adminId?: string; action?: string; entityType?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.adminId) { conditions.push(`al.admin_id = $${idx++}`); params.push(options.adminId); }
+    if (options.action) { conditions.push(`al.action ILIKE $${idx++}`); params.push(`%${options.action}%`); }
+    if (options.entityType) { conditions.push(`al.entity_type = $${idx++}`); params.push(options.entityType); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT al.*, u.first_name, u.last_name, u.email as admin_email
+       FROM audit_log al JOIN users u ON al.admin_id = u.id
+       ${where} ORDER BY al.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM audit_log al ${where}`, params.slice(0, -2));
+    return { logs: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async createAdminNote(customerId: string, adminId: string, note: string, tags: string[] = []) {
+    const result = await this.query(
+      `INSERT INTO admin_notes (customer_id, admin_id, note, tags) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [customerId, adminId, note, tags]
+    );
+    return result.rows[0];
+  }
+
+  async getAdminNotes(customerId: string) {
+    const result = await this.query(
+      `SELECT n.*, u.first_name as admin_first_name, u.last_name as admin_last_name
+       FROM admin_notes n JOIN users u ON n.admin_id = u.id
+       WHERE n.customer_id = $1 ORDER BY n.created_at DESC`,
+      [customerId]
+    );
+    return result.rows;
+  }
+
+  async deleteAdminNote(noteId: number, adminId: string) {
+    await this.query(`DELETE FROM admin_notes WHERE id = $1 AND admin_id = $2`, [noteId, adminId]);
+  }
+
+  async getSignupTrends(days: number = 90) {
+    const safeDays = Math.min(Math.max(Math.round(days), 1), 365);
+    const result = await this.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM users WHERE created_at > NOW() - ($1 || ' days')::INTERVAL
+       GROUP BY DATE(created_at) ORDER BY date`,
+      [safeDays.toString()]
+    );
+    return result.rows;
+  }
+
+  async getPropertyStats() {
+    const result = await this.query(
+      `SELECT service_type, COUNT(*) as count FROM properties GROUP BY service_type ORDER BY count DESC`
+    );
+    return result.rows;
+  }
+
+  async getAllUsersPaginated(options: { limit?: number; offset?: number; search?: string; sortBy?: string; sortDir?: string; serviceType?: string; hasStripe?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.search) {
+      conditions.push(`(LOWER(u.email) LIKE LOWER($${idx}) OR LOWER(u.first_name || ' ' || u.last_name) LIKE LOWER($${idx}))`);
+      params.push(`%${options.search}%`);
+      idx++;
+    }
+    if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
+    if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
+    if (options.serviceType) {
+      conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_type = $${idx})`);
+      params.push(options.serviceType);
+      idx++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const validSorts: Record<string, string> = { name: 'u.first_name', email: 'u.email', created_at: 'u.created_at', member_since: 'u.member_since' };
+    const sortCol = validSorts[options.sortBy || ''] || 'u.created_at';
+    const sortDir = options.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT u.*, (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count
+       FROM users u ${where} ORDER BY ${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM users u ${where}`, params.slice(0, -2));
+    return { users: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+    if (fields.length === 0) return;
+    fields.push(`updated_at = NOW()`);
+    values.push(userId);
+    await this.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+  }
+
+  async globalSearch(query: string) {
+    const searchParam = `%${query}%`;
+    const [users, properties] = await Promise.all([
+      this.query(
+        `SELECT id, first_name, last_name, email, 'user' as type FROM users
+         WHERE LOWER(email) LIKE LOWER($1) OR LOWER(first_name || ' ' || last_name) LIKE LOWER($1) LIMIT 10`,
+        [searchParam]
+      ),
+      this.query(
+        `SELECT p.id, p.address, p.service_type, u.first_name || ' ' || u.last_name as owner_name, 'property' as type
+         FROM properties p JOIN users u ON p.user_id = u.id
+         WHERE LOWER(p.address) LIKE LOWER($1) LIMIT 10`,
+        [searchParam]
+      ),
+    ]);
+    return { users: users.rows, properties: properties.rows };
+  }
+
+  async getMissedPickupReports(options: { status?: string; limit?: number; offset?: number }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.status) { conditions.push(`m.status = $${idx++}`); params.push(options.status); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT m.*, u.first_name, u.last_name, u.email, p.address
+       FROM missed_pickup_reports m
+       JOIN users u ON m.user_id = u.id
+       JOIN properties p ON m.property_id = p.id
+       ${where} ORDER BY m.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports m ${where}`, params.slice(0, -2));
+    return { reports: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async updateMissedPickupStatus(reportId: string, status: string, resolutionNotes?: string) {
+    await this.query(
+      `UPDATE missed_pickup_reports SET status = $1, resolution_notes = $2, updated_at = NOW() WHERE id = $3`,
+      [status, resolutionNotes || null, reportId]
+    );
+  }
+
+  async getSpecialPickupRequests(options: { status?: string; limit?: number; offset?: number }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.status) { conditions.push(`s.status = $${idx++}`); params.push(options.status); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT s.*, u.first_name, u.last_name, u.email, p.address
+       FROM special_pickup_requests s
+       JOIN users u ON s.user_id = u.id
+       JOIN properties p ON s.property_id = p.id
+       ${where} ORDER BY s.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM special_pickup_requests s ${where}`, params.slice(0, -2));
+    return { requests: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getUsersForExport(options: { search?: string; serviceType?: string; hasStripe?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.search) {
+      conditions.push(`(LOWER(u.email) LIKE LOWER($${idx}) OR LOWER(u.first_name || ' ' || u.last_name) LIKE LOWER($${idx}))`);
+      params.push(`%${options.search}%`);
+      idx++;
+    }
+    if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
+    if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
+    if (options.serviceType) {
+      conditions.push(`EXISTS (SELECT 1 FROM properties p2 WHERE p2.user_id = u.id AND p2.service_type = $${idx})`);
+      params.push(options.serviceType);
+      idx++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.query(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id, u.is_admin, u.created_at,
+       (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
+       (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
+       FROM users u ${where} ORDER BY u.created_at DESC`,
+      params
+    );
+    return result.rows;
+  }
 }
 
 export const storage = new Storage();
