@@ -9,7 +9,8 @@
     "dev:backend": "npx tsx server/index.ts",
     "seed": "npx tsx server/seed-products.ts",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "NODE_ENV=production npx tsx server/index.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
