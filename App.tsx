@@ -184,6 +184,10 @@ const App: React.FC = () => {
         fetchUserAndSetState(userData);
         setIsAuthenticated(true);
         const pathname = normalizePath(window.location.pathname);
+        if (userData.isAdmin && !userData.impersonating && !pathname.startsWith('/accept-transfer')) {
+          window.location.href = '/admin/';
+          return;
+        }
         if (pathname === '/accept-transfer') {
           setPendingDeepLink(null);
           return;
@@ -225,6 +229,10 @@ const App: React.FC = () => {
       const userData = await login(email, password);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
+      if (userData.isAdmin && !pendingTransferToken) {
+        window.location.href = '/admin/';
+        return;
+      }
       if (pendingTransferToken) {
         return;
       }
@@ -274,6 +282,10 @@ const App: React.FC = () => {
       const userData = await getUser();
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
+      if (userData.isAdmin) {
+        window.location.href = '/admin/';
+        return;
+      }
       if (userData.properties && userData.properties.length === 0) {
         setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
