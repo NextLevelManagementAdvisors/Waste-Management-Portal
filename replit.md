@@ -31,13 +31,13 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - `admin_notes`: Internal notes/tags on customers, linked to admin who created them.
 - `stripe.*`: Schema managed by `stripe-replit-sync` for webhook and sync data.
 
-**Admin Portal Structure (admin/):**
-- `admin/App.tsx`: Main admin app with sidebar, global search, view routing
+**Admin Portal Structure (admin/) — 5-Section Relational Navigation:**
+- `admin/App.tsx`: Main admin app with 5-item sidebar (Dashboard, Customers, Billing, Operations, System), global search, view routing
 - `admin/components/shared.tsx`: Shared components (LoadingSpinner, StatCard, Pagination, StatusBadge, EmptyState, FilterBar, ConfirmDialog)
-- `admin/components/AnalyticsView.tsx`: Charts for signup trends, revenue, service breakdown
-- `admin/components/CustomersView.tsx`: Customer management with edit, notes/tags, filtering, CSV export, bulk actions
-- `admin/components/BillingView.tsx`: Invoice creation, credit application, subscription management, payment history
-- `admin/components/OperationsView.tsx`: Missed pickup dashboard with resolution tracking, pickup schedule overview
+- `admin/components/DashboardView.tsx`: Unified dashboard merging overview stats cards with analytics charts (signup trends, revenue, service breakdown)
+- `admin/components/CustomersView.tsx`: Central relational hub — customer list with search/filter/CSV export/bulk actions; detail panel with tabs: Overview (contact + notes), Properties, Billing (Stripe subscriptions/invoices/payment methods), Activity (audit log filtered by customer)
+- `admin/components/BillingView.tsx`: Global billing view — invoice creation, credit application, subscription management, payment history
+- `admin/components/OperationsView.tsx`: Tabbed operations center — Missed Pickups (with resolution tracking), Pickup Schedule, Recent Activity (signups/pickups/referrals), Notifications (send to customers)
 - `admin/components/SystemView.tsx`: Audit log viewer, global search, settings/roles placeholder
 
 ## External Dependencies
