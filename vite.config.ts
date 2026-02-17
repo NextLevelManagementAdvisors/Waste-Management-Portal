@@ -32,6 +32,7 @@ export default defineConfig(({ mode }) => {
           input: {
             main: path.resolve(__dirname, 'index.html'),
             admin: path.resolve(__dirname, 'admin/index.html'),
+            team: path.resolve(__dirname, 'team/index.html'),
           },
         },
       },

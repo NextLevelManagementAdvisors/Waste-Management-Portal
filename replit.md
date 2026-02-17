@@ -13,6 +13,7 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 
 **Key Features:**
 - **Admin Dashboard:** A comprehensive admin portal at `/admin/` with analytics, customer management, billing tools, operations views, audit logging, global search, and customer impersonation.
+- **Team Member Portal:** Standalone driver portal at `/team/` for 1099 contractors. Includes driver registration/login, onboarding flow (W9 form + Stripe Connect direct deposit), job board with smart bidding (round-robin weighted by rating/availability/bid amount), calendar/schedule view, and driver profile management.
 - **Unified Communications:** Real-time messaging system with WebSocket support. Admins can chat with customers and drivers (1-on-1 or 3-way). Customer-side floating chat widget. All message history stored in PostgreSQL.
 - **User Authentication & Management:** Secure login, registration (auto-creates Stripe customer and links existing ones), password reset flows via Gmail, and Google OAuth. User and property data are stored in PostgreSQL.
 - **Service Management:** Users can add properties, manage service types, and track special pickup requests.
@@ -31,7 +32,10 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - `audit_log`: Tracks all admin actions (who did what, when, to which entity).
 - `admin_notes`: Internal notes/tags on customers, linked to admin who created them.
 - `conversations`, `conversation_participants`, `messages`: Unified communications system for admin-customer-driver messaging.
-- `drivers`: Driver profiles for communication and routing.
+- `drivers`: Driver profiles with auth (password_hash), onboarding status, rating, Stripe Connect account, W9/deposit completion flags, availability (JSONB).
+- `driver_w9`: W9 form submissions linked to drivers (legal name, tax classification, TIN, address, signature data).
+- `route_jobs`: Available route jobs with scheduling, pay, status tracking, and driver assignment.
+- `job_bids`: Driver bids on route jobs with bid amount, message, and driver rating at time of bid.
 - `stripe.*`: Schema managed by `stripe-replit-sync` for webhook and sync data.
 
 **Admin Portal Structure (admin/) — 6-Section Relational Navigation:**
@@ -43,6 +47,13 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - `admin/components/OperationsView.tsx`: Tabbed operations center — Missed Pickups (with resolution tracking), Pickup Schedule, Recent Activity (signups/pickups/referrals), Notifications (send to customers)
 - `admin/components/CommunicationsView.tsx`: Unified inbox for all conversations — thread view with real-time WebSocket chat, new conversation modal with customer/driver selection, 3-way chat support
 - `admin/components/SystemView.tsx`: Audit log viewer, global search, settings/roles placeholder
+
+**Team Member Portal Structure (team/):**
+- `team/App.tsx`: Main team portal app with driver auth (login/register), onboarding gate, 4-view sidebar (Dashboard, Available Jobs, My Schedule, Profile)
+- Onboarding flow: W9 form (fillable with signature canvas) + Stripe Connect direct deposit setup
+- Job board: Browse available routes, view details/bids, place/withdraw bids with round-robin weighted system
+- Calendar: Monthly calendar grid with job pills, day detail panel, list view toggle
+- Profile: Driver info, availability settings (day-of-week + preferred hours), W9/deposit status
 
 ## External Dependencies
 - **Stripe:** For payment processing, subscriptions, invoicing, and customer management. Utilizes Replit Stripe connector for secure API key management.

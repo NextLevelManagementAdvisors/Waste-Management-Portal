@@ -91,12 +91,17 @@ registerAdminRoutes(app);
 const { registerCommunicationRoutes } = await import('./communicationRoutes');
 registerCommunicationRoutes(app);
 
+const { registerTeamRoutes } = await import('./teamRoutes');
+registerTeamRoutes(app);
+
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));
   app.use((req, res) => {
     if (req.path.startsWith('/admin')) {
       res.sendFile(path.join(distPath, 'admin', 'index.html'));
+    } else if (req.path.startsWith('/team')) {
+      res.sendFile(path.join(distPath, 'team', 'index.html'));
     } else {
       res.sendFile(path.join(distPath, 'index.html'));
     }
