@@ -3,16 +3,11 @@ import { Card } from '../components/Card.tsx';
 import { Button } from '../components/Button.tsx';
 import {
   UsersIcon,
-  BuildingOffice2Icon,
   ChartPieIcon,
-  ArrowRightIcon,
   MagnifyingGlassIcon,
-  ClockIcon,
   ShieldCheckIcon,
-  BellAlertIcon,
 } from '../components/Icons.tsx';
-import { LoadingSpinner, StatCard } from './components/shared.tsx';
-import AnalyticsView from './components/AnalyticsView.tsx';
+import DashboardView from './components/DashboardView.tsx';
 import CustomersView from './components/CustomersView.tsx';
 import BillingView from './components/BillingView.tsx';
 import OperationsView from './components/OperationsView.tsx';
@@ -26,33 +21,7 @@ interface AdminUser {
   isAdmin: boolean;
 }
 
-interface AdminStats {
-  totalUsers: number;
-  totalProperties: number;
-  recentUsers: number;
-  activeTransfers: number;
-  totalReferrals: number;
-  pendingReferrals: number;
-  revenue: number;
-  activeSubscriptions: number;
-  openInvoices: number;
-}
-
-interface ActivityData {
-  recentSignups: { id: string; name: string; email: string; date: string }[];
-  recentPickups: { id: string; userName: string; serviceName: string; pickupDate: string; status: string; date: string }[];
-  recentReferrals: { id: string; referrerName: string; referredEmail: string; status: string; date: string }[];
-}
-
-type AdminView = 'overview' | 'customers' | 'analytics' | 'billing' | 'operations' | 'properties' | 'activity' | 'notifications' | 'system';
-
-const formatDate = (dateStr: string) => {
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
-};
+type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'system';
 
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -76,7 +45,7 @@ const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
 const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [currentView, setCurrentView] = useState<AdminView>('overview');
+  const [currentView, setCurrentView] = useState<AdminView>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,14 +99,10 @@ const AdminApp: React.FC = () => {
   }
 
   const navItems: { view: AdminView; label: string; icon: React.ReactNode }[] = [
-    { view: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
+    { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-5 h-5" /> },
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
-    { view: 'analytics', label: 'Analytics', icon: <ChartPieIcon className="w-5 h-5" /> },
     { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
-    { view: 'properties', label: 'Properties', icon: <BuildingOffice2Icon className="w-5 h-5" /> },
-    { view: 'activity', label: 'Activity', icon: <ClockIcon className="w-5 h-5" /> },
-    { view: 'notifications', label: 'Notify', icon: <BellAlertIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
 
@@ -154,7 +119,7 @@ const AdminApp: React.FC = () => {
           </div>
         </div>
 
-        <nav className="p-4 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+        <nav className="p-4 space-y-1">
           {navItems.map(item => (
             <button
               key={item.view}
@@ -233,7 +198,7 @@ const AdminApp: React.FC = () => {
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
                         {searchResults.properties.map((p: any) => (
-                          <button key={p.id} onClick={() => { setCurrentView('properties'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={p.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{p.address}</p>
                             <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
                           </button>
@@ -251,275 +216,13 @@ const AdminApp: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'overview' && <OverviewView />}
+          {currentView === 'dashboard' && <DashboardView />}
           {currentView === 'customers' && <CustomersView />}
-          {currentView === 'analytics' && <AnalyticsView />}
           {currentView === 'billing' && <BillingView />}
           {currentView === 'operations' && <OperationsView />}
-          {currentView === 'properties' && <PropertiesView />}
-          {currentView === 'activity' && <ActivityView />}
-          {currentView === 'notifications' && <NotificationsView />}
           {currentView === 'system' && <SystemView />}
         </div>
       </main>
-    </div>
-  );
-};
-
-const OverviewView: React.FC = () => {
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/admin/stats', { credentials: 'include' })
-      .then(r => r.json())
-      .then(setStats)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <LoadingSpinner />;
-  if (!stats) return <p className="text-gray-400">Failed to load stats</p>;
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} />
-        <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} />
-        <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" />
-        <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" />
-        <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} />
-        <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} />
-        <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" />
-        <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" />
-      </div>
-    </div>
-  );
-};
-
-const PropertiesView: React.FC = () => {
-  const [properties, setProperties] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/admin/properties', { credentials: 'include' })
-      .then(r => r.json())
-      .then(setProperties)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <LoadingSpinner />;
-
-  return (
-    <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400">Address</th>
-              <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400">Owner</th>
-              <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400 hidden md:table-cell">Service</th>
-              <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-400 hidden lg:table-cell">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {properties.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
-                <td className="px-4 py-3 text-sm font-bold text-gray-900">{p.address}</td>
-                <td className="px-4 py-3">
-                  <p className="text-sm text-gray-700">{p.ownerName || '-'}</p>
-                  <p className="text-xs text-gray-400">{p.ownerEmail || ''}</p>
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{p.serviceType || '-'}</td>
-                <td className="px-4 py-3 hidden lg:table-cell">
-                  {p.transferStatus ? (
-                    <span className="text-[9px] font-black uppercase tracking-widest text-orange-700 bg-orange-100 px-2 py-1 rounded-full">Transfer {p.transferStatus}</span>
-                  ) : (
-                    <span className="text-[9px] font-black uppercase tracking-widest text-green-700 bg-green-100 px-2 py-1 rounded-full">Active</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {properties.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-12 text-center text-gray-400 text-sm">No properties found</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-};
-
-const ActivityView: React.FC = () => {
-  const [activity, setActivity] = useState<ActivityData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/admin/activity', { credentials: 'include' })
-      .then(r => r.json())
-      .then(setActivity)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <LoadingSpinner />;
-  if (!activity) return <p className="text-gray-400">Failed to load activity</p>;
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <Card className="p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Recent Signups</h3>
-        <div className="space-y-3">
-          {activity.recentSignups.map(s => (
-            <div key={s.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
-              <div>
-                <p className="text-sm font-bold text-gray-900">{s.name}</p>
-                <p className="text-xs text-gray-400">{s.email}</p>
-              </div>
-              <p className="text-xs text-gray-400">{formatDate(s.date)}</p>
-            </div>
-          ))}
-          {activity.recentSignups.length === 0 && <p className="text-sm text-gray-400">No recent signups</p>}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Special Pickups</h3>
-        <div className="space-y-3">
-          {activity.recentPickups.map(p => (
-            <div key={p.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
-              <div>
-                <p className="text-sm font-bold text-gray-900">{p.serviceName}</p>
-                <p className="text-xs text-gray-400">{p.userName}</p>
-              </div>
-              <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
-                p.status === 'completed' ? 'bg-green-100 text-green-800' :
-                p.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                'bg-yellow-100 text-yellow-800'
-              }`}>{p.status}</span>
-            </div>
-          ))}
-          {activity.recentPickups.length === 0 && <p className="text-sm text-gray-400">No recent pickups</p>}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Referrals</h3>
-        <div className="space-y-3">
-          {activity.recentReferrals.map(r => (
-            <div key={r.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
-              <div>
-                <p className="text-sm font-bold text-gray-900">{r.referrerName}</p>
-                <p className="text-xs text-gray-400">{r.referredEmail}</p>
-              </div>
-              <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
-                r.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-              }`}>{r.status}</span>
-            </div>
-          ))}
-          {activity.recentReferrals.length === 0 && <p className="text-sm text-gray-400">No recent referrals</p>}
-        </div>
-      </Card>
-    </div>
-  );
-};
-
-const NotificationsView: React.FC = () => {
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [notificationType, setNotificationType] = useState('pickup_reminder');
-  const [message, setMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  useEffect(() => {
-    fetch('/api/admin/customers', { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => setCustomers(data.customers || data))
-      .catch(console.error);
-  }, []);
-
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCustomerId) return;
-    setSending(true);
-    setResult(null);
-    try {
-      const res = await fetch('/api/admin/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ userId: selectedCustomerId, type: notificationType, message }),
-      });
-      const json = await res.json();
-      setResult({ success: res.ok, message: res.ok ? 'Notification sent successfully!' : (json.error || 'Failed to send') });
-      if (res.ok) setMessage('');
-    } catch {
-      setResult({ success: false, message: 'Failed to send notification' });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="max-w-2xl">
-      <Card className="p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-6">Send Notification</h3>
-        <form onSubmit={handleSend} className="space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Customer</label>
-            <select
-              value={selectedCustomerId}
-              onChange={e => setSelectedCustomerId(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              required
-            >
-              <option value="">Select a customer...</option>
-              {customers.map((c: any) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Notification Type</label>
-            <select
-              value={notificationType}
-              onChange={e => setNotificationType(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            >
-              <option value="pickup_reminder">Pickup Reminder</option>
-              <option value="billing_alert">Billing Alert</option>
-              <option value="service_update">Service Update</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Message (optional)</label>
-            <textarea
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              rows={3}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              placeholder="Additional details..."
-            />
-          </div>
-
-          {result && (
-            <div className={`p-3 rounded-lg text-sm font-bold ${result.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-              {result.message}
-            </div>
-          )}
-
-          <Button type="submit" disabled={sending || !selectedCustomerId}>
-            {sending ? 'Sending...' : 'Send Notification'}
-          </Button>
-        </form>
-      </Card>
     </div>
   );
 };

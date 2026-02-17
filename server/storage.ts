@@ -551,13 +551,14 @@ export class Storage {
     );
   }
 
-  async getAuditLogs(options: { limit?: number; offset?: number; adminId?: string; action?: string; entityType?: string }) {
+  async getAuditLogs(options: { limit?: number; offset?: number; adminId?: string; action?: string; entityType?: string; entityId?: string }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
     if (options.adminId) { conditions.push(`al.admin_id = $${idx++}`); params.push(options.adminId); }
     if (options.action) { conditions.push(`al.action ILIKE $${idx++}`); params.push(`%${options.action}%`); }
     if (options.entityType) { conditions.push(`al.entity_type = $${idx++}`); params.push(options.entityType); }
+    if (options.entityId) { conditions.push(`al.entity_id = $${idx++}`); params.push(options.entityId); }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const limit = options.limit || 50;
     const offset = options.offset || 0;

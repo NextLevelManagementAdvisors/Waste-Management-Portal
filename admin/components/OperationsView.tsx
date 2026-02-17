@@ -3,7 +3,7 @@ import { Card } from '../../components/Card.tsx';
 import { Button } from '../../components/Button.tsx';
 import { LoadingSpinner, Pagination, StatusBadge, EmptyState, FilterBar, ConfirmDialog } from './shared.tsx';
 
-type TabType = 'missed-pickups' | 'pickup-schedule';
+type TabType = 'missed-pickups' | 'pickup-schedule' | 'activity' | 'notifications';
 
 interface MissedPickupReport {
   id: string;
@@ -419,39 +419,205 @@ const PickupScheduleTab: React.FC = () => {
   );
 };
 
+interface ActivityData {
+  recentSignups: { id: string; name: string; email: string; date: string }[];
+  recentPickups: { id: string; userName: string; serviceName: string; pickupDate: string; status: string; date: string }[];
+  recentReferrals: { id: string; referrerName: string; referredEmail: string; status: string; date: string }[];
+}
+
+const ActivityTab: React.FC = () => {
+  const [activity, setActivity] = useState<ActivityData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/admin/activity', { credentials: 'include' })
+      .then(r => r.json())
+      .then(setActivity)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingSpinner />;
+  if (!activity) return <EmptyState message="Failed to load activity" />;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <Card className="p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Recent Signups</h3>
+        <div className="space-y-3">
+          {activity.recentSignups.map(s => (
+            <div key={s.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+              <div>
+                <p className="text-sm font-bold text-gray-900">{s.name}</p>
+                <p className="text-xs text-gray-400">{s.email}</p>
+              </div>
+              <p className="text-xs text-gray-400">{formatDate(s.date)}</p>
+            </div>
+          ))}
+          {activity.recentSignups.length === 0 && <p className="text-sm text-gray-400">No recent signups</p>}
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Special Pickups</h3>
+        <div className="space-y-3">
+          {activity.recentPickups.map(p => (
+            <div key={p.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+              <div>
+                <p className="text-sm font-bold text-gray-900">{p.serviceName}</p>
+                <p className="text-xs text-gray-400">{p.userName}</p>
+              </div>
+              <StatusBadge status={p.status} />
+            </div>
+          ))}
+          {activity.recentPickups.length === 0 && <p className="text-sm text-gray-400">No recent pickups</p>}
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Referrals</h3>
+        <div className="space-y-3">
+          {activity.recentReferrals.map(r => (
+            <div key={r.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+              <div>
+                <p className="text-sm font-bold text-gray-900">{r.referrerName}</p>
+                <p className="text-xs text-gray-400">{r.referredEmail}</p>
+              </div>
+              <StatusBadge status={r.status} />
+            </div>
+          ))}
+          {activity.recentReferrals.length === 0 && <p className="text-sm text-gray-400">No recent referrals</p>}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+const NotificationsTab: React.FC = () => {
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [notificationType, setNotificationType] = useState('pickup_reminder');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/customers', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => setCustomers(data.customers || data))
+      .catch(console.error);
+  }, []);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCustomerId) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/admin/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId: selectedCustomerId, type: notificationType, message }),
+      });
+      const json = await res.json();
+      setResult({ success: res.ok, message: res.ok ? 'Notification sent successfully!' : (json.error || 'Failed to send') });
+      if (res.ok) setMessage('');
+    } catch {
+      setResult({ success: false, message: 'Failed to send notification' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl">
+      <Card className="p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-6">Send Notification</h3>
+        <form onSubmit={handleSend} className="space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Customer</label>
+            <select
+              value={selectedCustomerId}
+              onChange={e => setSelectedCustomerId(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              required
+            >
+              <option value="">Select a customer...</option>
+              {customers.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Notification Type</label>
+            <select
+              value={notificationType}
+              onChange={e => setNotificationType(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+            >
+              <option value="pickup_reminder">Pickup Reminder</option>
+              <option value="billing_alert">Billing Alert</option>
+              <option value="service_update">Service Update</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Message (optional)</label>
+            <textarea
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              placeholder="Additional details..."
+            />
+          </div>
+          {result && (
+            <div className={`p-3 rounded-lg text-sm font-bold ${result.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              {result.message}
+            </div>
+          )}
+          <Button type="submit" disabled={sending || !selectedCustomerId}>
+            {sending ? 'Sending...' : 'Send Notification'}
+          </Button>
+        </form>
+      </Card>
+    </div>
+  );
+};
+
 const OperationsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('missed-pickups');
 
+  const tabs: { key: TabType; label: string }[] = [
+    { key: 'missed-pickups', label: 'Missed Pickups' },
+    { key: 'pickup-schedule', label: 'Pickup Schedule' },
+    { key: 'activity', label: 'Recent Activity' },
+    { key: 'notifications', label: 'Notifications' },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Tab navigation */}
-      <div className="flex gap-2 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('missed-pickups')}
-          className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
-            activeTab === 'missed-pickups'
-              ? 'text-teal-700 border-teal-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          }`}
-        >
-          Missed Pickups
-        </button>
-        <button
-          onClick={() => setActiveTab('pickup-schedule')}
-          className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
-            activeTab === 'pickup-schedule'
-              ? 'text-teal-700 border-teal-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          }`}
-        >
-          Pickup Schedule
-        </button>
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-5 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === tab.key
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-400 border-transparent hover:text-gray-600'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab content */}
-      <div className="pt-4">
+      <div>
         {activeTab === 'missed-pickups' && <MissedPickupsTab />}
         {activeTab === 'pickup-schedule' && <PickupScheduleTab />}
+        {activeTab === 'activity' && <ActivityTab />}
+        {activeTab === 'notifications' && <NotificationsTab />}
       </div>
     </div>
   );

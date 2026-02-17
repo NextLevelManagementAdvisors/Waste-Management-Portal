@@ -1,6 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { LoadingSpinner, StatCard } from './shared.tsx';
 import { Card } from '../../components/Card.tsx';
+import {
+  UsersIcon,
+  BuildingOffice2Icon,
+  ChartPieIcon,
+  ClockIcon,
+  ArrowRightIcon,
+} from '../../components/Icons.tsx';
+
+interface AdminStats {
+  totalUsers: number;
+  totalProperties: number;
+  recentUsers: number;
+  activeTransfers: number;
+  totalReferrals: number;
+  pendingReferrals: number;
+  revenue: number;
+  activeSubscriptions: number;
+  openInvoices: number;
+}
 
 type TabType = 'signups' | 'revenue' | 'services';
 
@@ -19,7 +38,10 @@ interface ServiceData {
   count: string;
 }
 
-const AnalyticsView: React.FC = () => {
+const DashboardView: React.FC = () => {
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
   const [activeTab, setActiveTab] = useState<TabType>('signups');
   const [signupDays, setSignupDays] = useState<30 | 60 | 90>(90);
   const [signupData, setSignupData] = useState<SignupData[]>([]);
@@ -28,7 +50,14 @@ const AnalyticsView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch signup trends
+  useEffect(() => {
+    fetch('/api/admin/stats', { credentials: 'include' })
+      .then(r => r.json())
+      .then(setStats)
+      .catch(console.error)
+      .finally(() => setStatsLoading(false));
+  }, []);
+
   const fetchSignupTrends = async (days: 30 | 60 | 90) => {
     setLoading(true);
     setError(null);
@@ -45,7 +74,6 @@ const AnalyticsView: React.FC = () => {
     }
   };
 
-  // Fetch revenue data
   const fetchRevenueData = async () => {
     setLoading(true);
     setError(null);
@@ -62,7 +90,6 @@ const AnalyticsView: React.FC = () => {
     }
   };
 
-  // Fetch service breakdown
   const fetchServiceBreakdown = async () => {
     setLoading(true);
     setError(null);
@@ -79,7 +106,6 @@ const AnalyticsView: React.FC = () => {
     }
   };
 
-  // Handle tab change
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     setError(null);
@@ -92,29 +118,25 @@ const AnalyticsView: React.FC = () => {
     }
   };
 
-  // Handle signup days change
   const handleSignupDaysChange = (days: 30 | 60 | 90) => {
     setSignupDays(days);
     fetchSignupTrends(days);
   };
 
-  // Initial load
   useEffect(() => {
     fetchSignupTrends(signupDays);
   }, []);
 
-  // Signup trends chart component
   const SignupTrendsChart = () => {
     if (loading) return <LoadingSpinner />;
     if (error) return <div className="text-red-600 p-4">{error}</div>;
     if (!signupData.length) return <div className="text-gray-500 p-4">No data available</div>;
 
     const maxCount = Math.max(...signupData.map(d => parseInt(d.count)));
-    const displayData = signupData.slice(-30); // Show last 30 days for better visibility
+    const displayData = signupData.slice(-30);
 
     return (
       <div className="space-y-6">
-        {/* Date range selector */}
         <div className="flex gap-2">
           {[30, 60, 90].map(days => (
             <button
@@ -131,7 +153,6 @@ const AnalyticsView: React.FC = () => {
           ))}
         </div>
 
-        {/* Chart container */}
         <Card className="p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-6">Daily Signups</h3>
           <div className="flex items-end justify-between h-80 gap-1 px-2">
@@ -164,7 +185,6 @@ const AnalyticsView: React.FC = () => {
           </div>
         </Card>
 
-        {/* Summary stats */}
         <div className="grid grid-cols-3 gap-4">
           <StatCard
             label="Total Signups"
@@ -186,7 +206,6 @@ const AnalyticsView: React.FC = () => {
     );
   };
 
-  // Revenue chart component
   const RevenueChart = () => {
     if (loading) return <LoadingSpinner />;
     if (error) return <div className="text-red-600 p-4">{error}</div>;
@@ -228,7 +247,6 @@ const AnalyticsView: React.FC = () => {
           </div>
         </Card>
 
-        {/* Summary stats */}
         <div className="grid grid-cols-3 gap-4">
           <StatCard
             label="Total Revenue"
@@ -250,7 +268,6 @@ const AnalyticsView: React.FC = () => {
     );
   };
 
-  // Service breakdown chart component
   const ServiceBreakdownChart = () => {
     if (loading) return <LoadingSpinner />;
     if (error) return <div className="text-red-600 p-4">{error}</div>;
@@ -297,7 +314,6 @@ const AnalyticsView: React.FC = () => {
           </div>
         </Card>
 
-        {/* Summary stats */}
         <div className="grid grid-cols-3 gap-4">
           <StatCard
             label="Total Services"
@@ -320,50 +336,72 @@ const AnalyticsView: React.FC = () => {
     );
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Tab navigation */}
-      <div className="flex gap-2 border-b border-gray-200">
-        <button
-          onClick={() => handleTabChange('signups')}
-          className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
-            activeTab === 'signups'
-              ? 'text-teal-700 border-teal-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          }`}
-        >
-          Signup Trends
-        </button>
-        <button
-          onClick={() => handleTabChange('revenue')}
-          className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
-            activeTab === 'revenue'
-              ? 'text-teal-700 border-teal-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          }`}
-        >
-          Revenue
-        </button>
-        <button
-          onClick={() => handleTabChange('services')}
-          className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
-            activeTab === 'services'
-              ? 'text-teal-700 border-teal-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          }`}
-        >
-          Service Breakdown
-        </button>
-      </div>
+  if (statsLoading) return <LoadingSpinner />;
 
-      {/* Tab content */}
-      <div className="pt-4">
-        {activeTab === 'signups' && <SignupTrendsChart />}
-        {activeTab === 'revenue' && <RevenueChart />}
-        {activeTab === 'services' && <ServiceBreakdownChart />}
+  return (
+    <div className="space-y-8">
+      {stats ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} />
+            <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} />
+            <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" />
+            <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" />
+            <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} />
+            <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} />
+            <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" />
+            <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" />
+          </div>
+        </div>
+      ) : (
+        <p className="text-gray-400">Failed to load stats</p>
+      )}
+
+      <div className="space-y-6">
+        <div className="flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => handleTabChange('signups')}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'signups'
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            }`}
+          >
+            Signup Trends
+          </button>
+          <button
+            onClick={() => handleTabChange('revenue')}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'revenue'
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            }`}
+          >
+            Revenue
+          </button>
+          <button
+            onClick={() => handleTabChange('services')}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'services'
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            }`}
+          >
+            Service Breakdown
+          </button>
+        </div>
+
+        <div className="pt-4">
+          {activeTab === 'signups' && <SignupTrendsChart />}
+          {activeTab === 'revenue' && <RevenueChart />}
+          {activeTab === 'services' && <ServiceBreakdownChart />}
+        </div>
       </div>
     </div>
   );
 };
 
-export default AnalyticsView;
+export default DashboardView;
