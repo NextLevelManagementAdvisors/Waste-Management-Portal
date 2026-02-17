@@ -157,10 +157,16 @@ const CustomerSelector: React.FC<{
 // ============================================================================
 // Payment History Tab
 // ============================================================================
-const PaymentHistoryTab: React.FC<{ customerId: string }> = ({ customerId }) => {
+const PaymentHistoryTab: React.FC<{ customerId: string; initialStatusFilter?: string | null }> = ({ customerId, initialStatusFilter }) => {
   const [payments, setPayments] = useState<PaymentHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter || 'all');
+
+  useEffect(() => {
+    if (initialStatusFilter) setStatusFilter(initialStatusFilter);
+    else setStatusFilter('all');
+  }, [initialStatusFilter, customerId]);
 
   useEffect(() => {
     const loadPaymentHistory = async () => {
@@ -194,12 +200,37 @@ const PaymentHistoryTab: React.FC<{ customerId: string }> = ({ customerId }) => 
     );
   }
 
+  const filteredPayments = statusFilter === 'all'
+    ? payments
+    : payments.filter(p => {
+        if (statusFilter === 'open') return ['open', 'draft', 'uncollectible'].includes(p.status);
+        if (statusFilter === 'active') return p.status === 'paid' || p.status === 'succeeded';
+        return p.status === statusFilter;
+      });
+
   if (payments.length === 0) {
     return <EmptyState message="No payment history found for this customer." />;
   }
 
+  const statusOptions = ['all', 'open', 'active', 'paid', 'void'];
+
   return (
     <Card className="p-6">
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {statusOptions.map(opt => (
+          <button
+            key={opt}
+            onClick={() => setStatusFilter(opt)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+              statusFilter === opt
+                ? 'bg-teal-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {opt === 'all' ? 'All' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+          </button>
+        ))}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -213,7 +244,7 @@ const PaymentHistoryTab: React.FC<{ customerId: string }> = ({ customerId }) => 
             </tr>
           </thead>
           <tbody>
-            {payments.map(payment => (
+            {filteredPayments.map(payment => (
               <tr key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-3 text-sm text-gray-700">{formatDate(payment.created)}</td>
                 <td className="px-4 py-3 text-sm font-semibold text-gray-900">{formatCurrency(payment.amount)}</td>
@@ -605,10 +636,21 @@ const ActionsTab: React.FC<{
 // ============================================================================
 // Main BillingView Component
 // ============================================================================
-const BillingView: React.FC = () => {
+interface NavFilter { tab?: string; filter?: string; sort?: string; search?: string; }
+
+const BillingView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('payment-history');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [initialFilter, setInitialFilter] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (navFilter) {
+      if (navFilter.tab === 'actions') setActiveTab('actions');
+      if (navFilter.filter) setInitialFilter(navFilter.filter);
+      onFilterConsumed?.();
+    }
+  }, [navFilter, onFilterConsumed]);
 
   const handleActionComplete = () => {
     setRefreshKey(k => k + 1);
@@ -648,7 +690,7 @@ const BillingView: React.FC = () => {
           </Card>
 
           <div key={refreshKey}>
-            {activeTab === 'payment-history' && <PaymentHistoryTab customerId={selectedCustomer.id} />}
+            {activeTab === 'payment-history' && <PaymentHistoryTab customerId={selectedCustomer.id} initialStatusFilter={initialFilter} />}
             {activeTab === 'actions' && <ActionsTab customerId={selectedCustomer.id} onActionComplete={handleActionComplete} />}
           </div>
         </>

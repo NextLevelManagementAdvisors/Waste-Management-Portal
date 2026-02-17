@@ -92,10 +92,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <h1 className="text-4xl font-black text-gray-900 tracking-tight">Welcome, {user?.firstName}!</h1>
                 <p className="text-gray-500 font-medium mt-1 text-lg mb-4">Here's a snapshot of your account today.</p>
                 {data.health.criticalAlerts.length > 0 && (
-                     <div className="flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-200">
+                     <button onClick={() => setIsPayBalanceModalOpen(true)} className="w-full flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-all text-left cursor-pointer">
                         <ClockIcon className="w-5 h-5 text-primary" />
-                        <p className="text-sm font-bold text-teal-800">{data.health.criticalAlerts[0]?.message}</p>
-                    </div>
+                        <p className="text-sm font-bold text-teal-800 flex-1">{data.health.criticalAlerts[0]?.message}</p>
+                        <ArrowRightIcon className="w-4 h-4 text-teal-400" />
+                    </button>
                 )}
             </div>
 
@@ -115,7 +116,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 px-2">Upcoming Collections</h2>
                     <div className="space-y-4">
                         {upcomingPickups.length > 0 ? upcomingPickups.map(state => (
-                            <Card key={state.property.id} className="p-4 !rounded-xl shadow-md border-base-200">
+                            <Card key={state.property.id} className="p-4 !rounded-xl shadow-md border-base-200 cursor-pointer hover:shadow-lg hover:border-primary/30 transition-all" onClick={() => setCurrentView('myservice')}>
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <p className="font-bold text-gray-900 text-sm">{state.property.address}</p>
@@ -123,12 +124,15 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                                             {state.nextPickup?.label || 'Not Scheduled'}
                                         </p>
                                     </div>
-                                    {state.nextPickup?.isToday && state.nextPickup.status === 'in-progress' && (
-                                        <div className="flex items-center gap-2">
-                                             <div className="w-2 h-2 rounded-full bg-primary" />
-                                            <span className="text-[10px] font-black text-primary uppercase tracking-widest">In Progress</span>
-                                        </div>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {state.nextPickup?.isToday && state.nextPickup.status === 'in-progress' && (
+                                            <>
+                                                <div className="w-2 h-2 rounded-full bg-primary" />
+                                                <span className="text-[10px] font-black text-primary uppercase tracking-widest">In Progress</span>
+                                            </>
+                                        )}
+                                        <ArrowRightIcon className="w-4 h-4 text-gray-300" />
+                                    </div>
                                 </div>
                             </Card>
                         )) : (
@@ -143,14 +147,14 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <Card className="p-6">
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Financials</h2>
                     <div className="flex flex-col sm:flex-row gap-4">
-                        <div className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10">
-                            <p className="text-xs font-bold text-primary uppercase tracking-wider">Total Monthly Cost</p>
+                        <button onClick={() => setCurrentView('myservice')} className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10 text-left hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group">
+                            <p className="text-xs font-bold text-primary uppercase tracking-wider group-hover:text-teal-700">Total Monthly Cost</p>
                             <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
-                        </div>
-                        <div className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100">
-                            <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Outstanding Balance</p>
+                        </button>
+                        <button onClick={() => setIsPayBalanceModalOpen(true)} className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100 text-left hover:shadow-md hover:border-red-300 transition-all cursor-pointer group">
+                            <p className="text-xs font-bold text-red-600 uppercase tracking-wider group-hover:text-red-700">Outstanding Balance</p>
                             <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
-                        </div>
+                        </button>
                     </div>
                 </Card>
 

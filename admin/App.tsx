@@ -49,14 +49,27 @@ const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+export interface NavFilter {
+  tab?: string;
+  filter?: string;
+  sort?: string;
+  search?: string;
+}
+
 const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
+  const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any>(null);
+
+  const navigateTo = (view: AdminView, filter?: NavFilter) => {
+    setNavFilter(filter || null);
+    setCurrentView(view);
+  };
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -131,7 +144,7 @@ const AdminApp: React.FC = () => {
           {navItems.map(item => (
             <button
               key={item.view}
-              onClick={() => { setCurrentView(item.view); setSidebarOpen(false); }}
+              onClick={() => { setNavFilter(null); setCurrentView(item.view); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${
                 currentView === item.view
                   ? 'bg-teal-600 text-white'
@@ -224,10 +237,10 @@ const AdminApp: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <DashboardView />}
-          {currentView === 'customers' && <CustomersView />}
-          {currentView === 'billing' && <BillingView />}
-          {currentView === 'operations' && <OperationsView />}
+          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} />}
+          {currentView === 'customers' && <CustomersView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'communications' && <CommunicationsView />}
           {currentView === 'system' && <SystemView />}
         </div>

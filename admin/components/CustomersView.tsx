@@ -842,7 +842,9 @@ const BulkNotifyDialog: React.FC<{
   );
 };
 
-const CustomersView: React.FC = () => {
+interface NavFilter { tab?: string; filter?: string; sort?: string; search?: string; }
+
+const CustomersView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -859,6 +861,16 @@ const CustomersView: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkNotify, setShowBulkNotify] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
+
+  useEffect(() => {
+    if (navFilter) {
+      if (navFilter.sort) setSortBy(navFilter.sort);
+      if (navFilter.filter) setServiceFilter(navFilter.filter);
+      if (navFilter.search) setSearchQuery(navFilter.search);
+      setOffset(0);
+      onFilterConsumed?.();
+    }
+  }, [navFilter, onFilterConsumed]);
 
   const buildQueryString = useCallback(() => {
     const params = new URLSearchParams();

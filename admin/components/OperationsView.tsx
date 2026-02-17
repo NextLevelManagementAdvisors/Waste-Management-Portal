@@ -585,8 +585,20 @@ const NotificationsTab: React.FC = () => {
   );
 };
 
-const OperationsView: React.FC = () => {
+interface NavFilter { tab?: string; filter?: string; sort?: string; search?: string; }
+
+const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
   const [activeTab, setActiveTab] = useState<TabType>('missed-pickups');
+
+  useEffect(() => {
+    if (navFilter?.tab) {
+      const validTabs: TabType[] = ['missed-pickups', 'pickup-schedule', 'activity', 'notifications'];
+      if (validTabs.includes(navFilter.tab as TabType)) {
+        setActiveTab(navFilter.tab as TabType);
+      }
+      onFilterConsumed?.();
+    }
+  }, [navFilter, onFilterConsumed]);
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'missed-pickups', label: 'Missed Pickups' },
