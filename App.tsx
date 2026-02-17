@@ -87,6 +87,8 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [postNavAction, setPostNavAction] = useState<PostNavAction | null>(null);
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonatedBy, setImpersonatedBy] = useState<string | null>(null);
 
   const [initialLoading, setInitialLoading] = useState(true);
 
@@ -131,18 +133,17 @@ const App: React.FC = () => {
     selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null
   , [selectedPropertyId, properties]);
 
-  const fetchUserAndSetState = useCallback((userData: User) => {
+  const fetchUserAndSetState = useCallback((userData: any) => {
+    setImpersonating(!!userData.impersonating);
+    setImpersonatedBy(userData.impersonatedBy || null);
     setUser(userData);
     if (userData.properties && userData.properties.length > 0) {
-        // Default to 'all' properties view if user has more than one
         if (userData.properties.length > 1) {
             setSelectedPropertyId('all');
         } else {
-            // Otherwise, select the single property they have
             setSelectedPropertyId(userData.properties[0].id);
         }
     } else {
-        // No properties, so no selection
         setSelectedPropertyId(null);
     }
   }, []);
@@ -531,12 +532,38 @@ const App: React.FC = () => {
     );
   }
   
+  const handleStopImpersonation = async () => {
+    try {
+      const res = await fetch('/api/admin/stop-impersonate', { method: 'POST', credentials: 'include' });
+      if (res.ok) {
+        window.location.href = '/admin/';
+      }
+    } catch {}
+  };
+
   return (
     <StripeProvider>
       <PropertyContext.Provider value={contextValue}>
         <div className="flex h-screen bg-base-100 text-neutral">
           <Sidebar currentView={currentView} setCurrentView={setCurrentView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onLogout={handleLogout} />
           <div className="flex-1 flex flex-col overflow-hidden">
+            {impersonating && (
+              <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between text-sm shrink-0 z-50">
+                <div className="flex items-center gap-2">
+                  <ExclamationTriangleIcon className="w-4 h-4" />
+                  <span>
+                    <span className="font-bold">Admin View</span> — You are viewing as {user?.firstName} {user?.lastName} ({user?.email})
+                    {impersonatedBy && <span className="opacity-75"> | Signed in by {impersonatedBy}</span>}
+                  </span>
+                </div>
+                <button
+                  onClick={handleStopImpersonation}
+                  className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-bold transition-colors"
+                >
+                  Back to Admin
+                </button>
+              </div>
+            )}
             <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
             <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
               <div className="max-w-7xl mx-auto w-full">

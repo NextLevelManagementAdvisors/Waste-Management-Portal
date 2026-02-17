@@ -7,7 +7,8 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  storage.getUserById(req.session.userId).then(user => {
+  const adminCheckId = req.session.originalAdminUserId || req.session.userId;
+  storage.getUserById(adminCheckId).then(user => {
     if (!user || !user.is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
@@ -227,6 +228,43 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Admin notify error:', error);
       res.status(500).json({ error: 'Failed to send notification' });
+    }
+  });
+
+  app.post('/api/admin/impersonate/:userId', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const targetUserId = req.params.userId;
+      const targetUser = await storage.getUserById(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const adminUserId = req.session.originalAdminUserId || req.session.userId;
+      req.session.originalAdminUserId = adminUserId;
+      req.session.impersonatingUserId = targetUserId;
+      req.session.userId = targetUserId;
+
+      res.json({ success: true, user: { firstName: targetUser.first_name, lastName: targetUser.last_name, email: targetUser.email } });
+    } catch (error) {
+      console.error('Impersonation error:', error);
+      res.status(500).json({ error: 'Failed to start impersonation' });
+    }
+  });
+
+  app.post('/api/admin/stop-impersonate', async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.originalAdminUserId) {
+        return res.status(400).json({ error: 'Not currently impersonating' });
+      }
+
+      req.session.userId = req.session.originalAdminUserId;
+      delete req.session.impersonatingUserId;
+      delete req.session.originalAdminUserId;
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Stop impersonation error:', error);
+      res.status(500).json({ error: 'Failed to stop impersonation' });
     }
   });
 }

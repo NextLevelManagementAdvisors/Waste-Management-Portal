@@ -19,6 +19,8 @@ declare module 'express-session' {
     googleOAuthReferralCode?: string;
     googleOAuthRedirect?: string;
     googleOAuthPopup?: boolean;
+    impersonatingUserId?: string;
+    originalAdminUserId?: string;
   }
 }
 
@@ -210,7 +212,17 @@ export function registerAuthRoutes(app: Express) {
 
       const properties = await storage.getPropertiesForUser(user.id);
 
-      res.json({ data: formatUserForClient(user, properties) });
+      const clientData: any = formatUserForClient(user, properties);
+
+      if (req.session.impersonatingUserId) {
+        clientData.impersonating = true;
+        const admin = await storage.getUserById(req.session.originalAdminUserId!);
+        if (admin) {
+          clientData.impersonatedBy = `${admin.first_name} ${admin.last_name}`;
+        }
+      }
+
+      res.json({ data: clientData });
     } catch (error: any) {
       console.error('Get user error:', error);
       res.status(500).json({ error: 'Failed to get user' });

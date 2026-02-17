@@ -363,7 +363,30 @@ const CustomersView: React.FC = () => {
   );
 };
 
-const CustomerDetailView: React.FC<{ customer: CustomerDetail }> = ({ customer }) => (
+const CustomerDetailView: React.FC<{ customer: CustomerDetail }> = ({ customer }) => {
+  const [impersonating, setImpersonating] = useState(false);
+
+  const handleImpersonate = async () => {
+    setImpersonating(true);
+    try {
+      const res = await fetch(`/api/admin/impersonate/${customer.id}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        window.location.href = '/';
+      } else {
+        const json = await res.json();
+        alert(json.error || 'Failed to impersonate');
+      }
+    } catch {
+      alert('Failed to impersonate customer');
+    } finally {
+      setImpersonating(false);
+    }
+  };
+
+  return (
   <>
     <Card className="p-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -379,6 +402,12 @@ const CustomerDetailView: React.FC<{ customer: CustomerDetail }> = ({ customer }
           )}
           {customer.isAdmin && <span className="inline-block text-[9px] font-black uppercase tracking-widest text-teal-700 bg-teal-100 px-2 py-1 rounded-full">Admin</span>}
         </div>
+      </div>
+      <div className="mt-4 pt-4 border-t border-gray-100">
+        <Button onClick={handleImpersonate} disabled={impersonating} className="bg-indigo-600 hover:bg-indigo-700">
+          {impersonating ? 'Switching...' : 'Sign In as Customer'}
+        </Button>
+        <p className="text-xs text-gray-400 mt-2">View the client portal exactly as this customer sees it. You can switch back anytime.</p>
       </div>
     </Card>
 
@@ -463,7 +492,8 @@ const CustomerDetailView: React.FC<{ customer: CustomerDetail }> = ({ customer }
       )}
     </div>
   </>
-);
+  );
+};
 
 const PropertiesView: React.FC = () => {
   const [properties, setProperties] = useState<any[]>([]);
