@@ -53,6 +53,7 @@ export interface User {
   autopayEnabled: boolean;
   stripeCustomerId?: string;
   isAdmin?: boolean;
+  impersonating?: boolean;
 }
 
 export interface Service {

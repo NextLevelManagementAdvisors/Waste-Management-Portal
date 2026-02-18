@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -8,7 +9,7 @@ import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { registerAuthRoutes } from './authRoutes';
-import { pool } from './storage';
+import { pool } from './db';
 import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);

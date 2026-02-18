@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
-import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/mockApiService.ts';
+import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/apiService.ts';
 import { Subscription, Property } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

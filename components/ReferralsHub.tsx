@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { getReferralInfo } from '../services/mockApiService.ts';
+import { getReferralInfo } from '../services/apiService.ts';
 import { ReferralInfo, Referral } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

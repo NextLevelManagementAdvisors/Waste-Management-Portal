@@ -3,7 +3,7 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { getCollectionHistory, leaveDriverTip, leaveDriverNote, reportMissedPickup, CollectionHistoryLogWithFeedback } from '../services/mockApiService.ts';
+import { getCollectionHistory, leaveDriverTip, leaveDriverNote, reportMissedPickup, CollectionHistoryLogWithFeedback } from '../services/apiService.ts';
 import { CheckCircleIcon, ExclamationTriangleIcon, SparklesIcon, CurrencyDollarIcon, PencilSquareIcon, UserCircleIcon } from './Icons.tsx';
 
 const CollectionHistory: React.FC = () => {

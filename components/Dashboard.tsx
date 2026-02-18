@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getDashboardState, PropertyState, AccountHealth, dismissTipPrompt } from '../services/mockApiService.ts';
+import { getDashboardState, PropertyState, AccountHealth, dismissTipPrompt } from '../services/apiService.ts';
 import { View } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
@@ -28,11 +28,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     const { user, selectedPropertyId, setPostNavAction } = useProperty();
     const [data, setData] = useState<{ states: PropertyState[]; health: AccountHealth } | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [isTipPromptOpen, setIsTipPromptOpen] = useState(false);
     const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
 
     const refreshDashboard = useCallback(() => {
         setLoading(true);
+        setError(null);
         getDashboardState(selectedPropertyId || 'all').then(res => {
             setData(res);
             setLoading(false);
@@ -42,6 +44,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             }
         }).catch(err => {
             console.error("Failed to load dashboard state", err);
+            setError('Failed to load your dashboard. Please try again.');
             setLoading(false);
         });
     }, [selectedPropertyId]);
@@ -74,6 +77,17 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         refreshDashboard();
     };
 
+    if (error) {
+        return (
+            <div className="flex flex-col justify-center items-center h-96 gap-4">
+                <p className="text-sm font-bold text-red-600">{error}</p>
+                <button type="button" onClick={refreshDashboard} className="text-xs font-black text-primary uppercase tracking-widest hover:underline">
+                    Try Again
+                </button>
+            </div>
+        );
+    }
+
     if (loading || !data) {
         return (
             <div className="flex flex-col justify-center items-center h-96 gap-4">
@@ -92,7 +106,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <h1 className="text-4xl font-black text-gray-900 tracking-tight">Welcome, {user?.firstName}!</h1>
                 <p className="text-gray-500 font-medium mt-1 text-lg mb-4">Here's a snapshot of your account today.</p>
                 {data.health.criticalAlerts.length > 0 && (
-                     <button onClick={() => setIsPayBalanceModalOpen(true)} className="w-full flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-all text-left cursor-pointer">
+                     <button type="button" onClick={() => setIsPayBalanceModalOpen(true)} className="w-full flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-all text-left cursor-pointer">
                         <ClockIcon className="w-5 h-5 text-primary" />
                         <p className="text-sm font-bold text-teal-800 flex-1">{data.health.criticalAlerts[0]?.message}</p>
                         <ArrowRightIcon className="w-4 h-4 text-teal-400" />
@@ -147,11 +161,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <Card className="p-6">
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Financials</h2>
                     <div className="flex flex-col sm:flex-row gap-4">
-                        <button onClick={() => setCurrentView('myservice')} className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10 text-left hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group">
+                        <button type="button" onClick={() => setCurrentView('myservice')} className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10 text-left hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group">
                             <p className="text-xs font-bold text-primary uppercase tracking-wider group-hover:text-teal-700">Total Monthly Cost</p>
                             <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
                         </button>
-                        <button onClick={() => setIsPayBalanceModalOpen(true)} className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100 text-left hover:shadow-md hover:border-red-300 transition-all cursor-pointer group">
+                        <button type="button" onClick={() => setIsPayBalanceModalOpen(true)} className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100 text-left hover:shadow-md hover:border-red-300 transition-all cursor-pointer group">
                             <p className="text-xs font-bold text-red-600 uppercase tracking-wider group-hover:text-red-700">Outstanding Balance</p>
                             <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
                         </button>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
-import { getInvoices } from '../services/mockApiService.ts';
+import { getInvoices } from '../services/apiService.ts';
 import { Invoice, Property } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

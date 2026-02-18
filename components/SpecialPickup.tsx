@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
-import { getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup } from '../services/mockApiService.ts';
+import { getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup } from '../services/apiService.ts';
 import { SpecialPickupService, SpecialPickupRequest, Property } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

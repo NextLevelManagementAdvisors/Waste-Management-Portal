@@ -6,7 +6,7 @@ import ServiceStatusOverview from './ServiceStatusOverview.tsx';
 import PropertyManagement from './PropertyManagement.tsx';
 import StartService from './StartService.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { getSubscriptions } from '../services/mockApiService.ts';
+import { getSubscriptions } from '../services/apiService.ts';
 import { Subscription, NewPropertyInfo } from '../types.ts';
 import { 
     ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon

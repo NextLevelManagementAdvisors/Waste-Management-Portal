@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
-import { updateNotificationPreferences } from '../services/mockApiService.ts';
+import { updateNotificationPreferences } from '../services/apiService.ts';
 import { NotificationPreferences } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

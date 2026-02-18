@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import { transferPropertyOwnership } from '../services/mockApiService.ts';
+import { transferPropertyOwnership } from '../services/apiService.ts';
 import { ArrowPathRoundedSquareIcon, CheckCircleIcon, PaperAirplaneIcon, ClockIcon } from './Icons.tsx';
 
 const AccountTransfer: React.FC = () => {

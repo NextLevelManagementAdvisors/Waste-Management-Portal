@@ -3,7 +3,7 @@ import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
 import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
-import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/mockApiService.ts';
+import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
 import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon, HomeModernIcon, TruckIcon, SunIcon } from './Icons.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';

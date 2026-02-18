@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { storage } from './storage';
 import { getUncachableStripeClient, getStripePublishableKey } from './stripeClient';
 import * as optimoRoute from './optimoRouteClient';
-import { requireAuth } from './authRoutes';
+import { requireAuth } from './middleware';
 
 function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
@@ -527,24 +527,27 @@ export function registerRoutes(app: Express) {
 
   app.post('/api/ai/support', requireAuth, async (req: Request, res: Response) => {
     try {
-      const { prompt, userContext } = req.body;
-      if (!prompt) {
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ error: 'prompt is required' });
+      }
+      if (prompt.length > 2000) {
+        return res.status(400).json({ error: 'prompt too long' });
       }
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return res.status(503).json({ error: 'AI service not configured' });
       }
-      const ai = new GoogleGenAI({ apiKey });
-      const contextString = userContext ? `
-    User Details:
-    - Name: ${userContext.user?.firstName} ${userContext.user?.lastName}
-    - Current Focus Address: ${userContext.user?.address}
 
-    Account Status:
-    - Subscriptions: ${userContext.subscriptions?.filter((s: any) => s.status === 'active').map((s: any) => s.serviceName).join(', ')}
-    - Outstanding Balance: $${userContext.invoices?.filter((i: any) => i.status !== 'Paid').reduce((acc: number, inv: any) => acc + inv.amount, 0).toFixed(2)}
+      // Load context server-side from session — never trust client-supplied context
+      const user = await storage.getUserById(req.session.userId!);
+      const contextString = user ? `
+    User Details:
+    - Name: ${user.first_name} ${user.last_name}
+    - Properties: ${user.properties?.length ?? 0}
   ` : '';
+
+      const ai = new GoogleGenAI({ apiKey });
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
-import { getSubscriptions } from '../services/mockApiService.ts';
+import { getSubscriptions } from '../services/apiService.ts';
 import { Property, Subscription } from '../types.ts';
 import PropertyCard from './PropertyCard.tsx';
 import { ListBulletIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, PlusCircleIcon } from './Icons.tsx';

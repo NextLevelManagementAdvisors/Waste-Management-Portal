@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getDashboardState, PropertyState, setCollectionIntent } from '../services/mockApiService.ts';
+import { getDashboardState, PropertyState, setCollectionIntent } from '../services/apiService.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

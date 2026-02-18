@@ -1,23 +1,8 @@
-import { type Express, type Request, type Response, type NextFunction } from 'express';
+import { type Express, type Request, type Response } from 'express';
 import { storage } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate } from './notificationService';
-
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  try {
-    const adminCheckId = req.session.originalAdminUserId || req.session.userId;
-    const user = await storage.getUserById(adminCheckId);
-    if (!user || !user.is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    next();
-  } catch {
-    res.status(500).json({ error: 'Server error' });
-  }
-}
+import { requireAdmin } from './middleware';
 
 export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/stats', requireAdmin, async (_req: Request, res: Response) => {
@@ -244,7 +229,7 @@ export function registerAdminRoutes(app: Express) {
       if (isAdmin !== undefined) updateData.is_admin = isAdmin;
 
       await storage.updateUserAdmin(req.params.id, updateData);
-      await audit(req, 'edit_customer', 'user', req.params.id, updateData);
+      await audit(req, 'edit_customer', 'user', req.params.id as string, updateData);
       res.json({ success: true });
     } catch (error) {
       console.error('Admin edit customer error:', error);
@@ -273,7 +258,7 @@ export function registerAdminRoutes(app: Express) {
       const { note, tags } = req.body;
       if (!note) return res.status(400).json({ error: 'Note is required' });
       await storage.createAdminNote(req.params.id, getAdminId(req), note, tags || []);
-      await audit(req, 'add_note', 'user', req.params.id, { note: note.substring(0, 100) });
+      await audit(req, 'add_note', 'user', req.params.id as string, { note: note.substring(0, 100) });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to create note' });
@@ -282,7 +267,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/notes/:noteId', requireAdmin, async (req: Request, res: Response) => {
     try {
-      await storage.deleteAdminNote(parseInt(req.params.noteId), getAdminId(req));
+      await storage.deleteAdminNote(parseInt(req.params.noteId as string), getAdminId(req));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete note' });
@@ -433,7 +418,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { status, resolutionNotes } = req.body;
       await storage.updateMissedPickupStatus(req.params.id, status, resolutionNotes);
-      await audit(req, 'resolve_missed_pickup', 'missed_pickup', req.params.id, { status, resolutionNotes });
+      await audit(req, 'resolve_missed_pickup', 'missed_pickup', req.params.id as string, { status, resolutionNotes });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to update missed pickup' });
@@ -637,7 +622,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/impersonate/:userId', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const targetUserId = req.params.userId;
+      const targetUserId = req.params.userId as string;
       const targetUser = await storage.getUserById(targetUserId);
       if (!targetUser) {
         return res.status(404).json({ error: 'User not found' });

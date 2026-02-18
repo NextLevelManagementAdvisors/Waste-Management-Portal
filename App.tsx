@@ -18,7 +18,7 @@ import AcceptTransfer from './components/AcceptTransfer.tsx';
 import ChatWidget from './components/ChatWidget.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/apiService.ts';
 import StripeProvider from './components/StripeProvider.tsx';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';

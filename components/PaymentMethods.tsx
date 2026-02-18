@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { PaymentMethod } from '../types.ts';
-import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/mockApiService.ts';
+import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';

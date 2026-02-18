@@ -16,16 +16,18 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        fetch(`/api/auth/verify-reset-token?token=${encodeURIComponent(token)}`)
-            .then(res => res.text())
-            .then(text => {
-                try { const json = JSON.parse(text); setTokenValid(json.valid === true); } catch { setTokenValid(false); }
-                setVerifying(false);
-            })
-            .catch(() => {
+        const verifyToken = async () => {
+            try {
+                const res = await fetch(`/api/auth/verify-reset-token?token=${encodeURIComponent(token)}`);
+                const data = await res.json();
+                setTokenValid(res.ok && data.valid === true);
+            } catch {
                 setTokenValid(false);
+            } finally {
                 setVerifying(false);
-            });
+            }
+        };
+        verifyToken();
     }, [token]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -49,10 +51,16 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, newPassword }),
             });
-            const text = await res.text();
-            let json;
-            try { json = JSON.parse(text); } catch { throw new Error(`Server error (${res.status})`); }
-            if (!res.ok) throw new Error(json.error || 'Reset failed');
+            if (!res.ok) {
+                let message = 'Reset failed';
+                try {
+                    const json = await res.json();
+                    message = json.error || `Server error (${res.status})`;
+                } catch (e) {
+                    // Response body is not JSON or is empty
+                }
+                throw new Error(message);
+            }
             setSuccess(true);
         } catch (err: any) {
             setError(err.message);

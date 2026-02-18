@@ -4,7 +4,7 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 import { UpdateProfileInfo, UpdatePasswordInfo, NotificationPreferences } from '../types.ts';
-import { updateNotificationPreferences } from '../services/mockApiService.ts';
+import { updateNotificationPreferences } from '../services/apiService.ts';
 import {
   UserIcon, BellIcon, KeyIcon, ExclamationTriangleIcon
 } from './Icons.tsx';

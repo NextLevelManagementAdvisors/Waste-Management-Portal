@@ -4,7 +4,7 @@ import { SupportMessage } from '../types.ts';
 import { Button } from './Button.tsx';
 import { PaperAirplaneIcon, SparklesIcon, ArrowRightIcon, MapPinIcon } from './Icons.tsx';
 import { getSupportResponseStream } from '../services/geminiService.ts';
-import { getSubscriptions, getInvoices } from '../services/mockApiService.ts';
+import { getSubscriptions, getInvoices } from '../services/apiService.ts';
 import { useProperty } from '../PropertyContext.tsx';
 
 // Define GroundingSource interface for displaying search results
@@ -67,19 +67,6 @@ const Support: React.FC = () => {
                 fullText += text;
                 setStreamingText(fullText);
 
-                const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-                if (groundingChunks) {
-                    groundingChunks.forEach((gChunk: any) => {
-                        if (gChunk.web?.uri && !finalSources.some(s => s.uri === gChunk.web.uri)) {
-                            finalSources.push({
-                                title: gChunk.web.title || gChunk.web.uri,
-                                uri: gChunk.web.uri,
-                                type: 'web',
-                            });
-                        }
-                    });
-                    setStreamingSources([...finalSources]);
-                }
             }
 
             setMessages(prev => [...prev, { sender: 'gemini', text: fullText, sources: finalSources }]);

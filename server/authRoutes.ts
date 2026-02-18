@@ -420,8 +420,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Token and new password are required' });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      if (newPassword.length < 12) {
+        return res.status(400).json({ error: 'Password must be at least 12 characters' });
       }
 
       const resetToken = await storage.getValidResetToken(token);

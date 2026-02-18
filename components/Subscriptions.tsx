@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/mockApiService.ts';
+import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/apiService.ts';
 import { Subscription, PaymentMethod, Service, Property } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';

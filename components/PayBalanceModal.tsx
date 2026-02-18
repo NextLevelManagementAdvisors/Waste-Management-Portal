@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Modal from './Modal.tsx';
 import { Button } from './Button.tsx';
-import { getInvoices, getPaymentMethods, payOutstandingBalance } from '../services/mockApiService.ts';
+import { getInvoices, getPaymentMethods, payOutstandingBalance } from '../services/apiService.ts';
 import { Invoice, PaymentMethod, View } from '../types.ts';
 import { CreditCardIcon, BanknotesIcon, ArrowRightIcon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
