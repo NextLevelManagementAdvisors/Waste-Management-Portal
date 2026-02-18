@@ -3,17 +3,20 @@ import { storage } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate } from './notificationService';
 
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  const adminCheckId = req.session.originalAdminUserId || req.session.userId;
-  storage.getUserById(adminCheckId).then(user => {
+  try {
+    const adminCheckId = req.session.originalAdminUserId || req.session.userId;
+    const user = await storage.getUserById(adminCheckId);
     if (!user || !user.is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     next();
-  }).catch(() => res.status(500).json({ error: 'Server error' }));
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 export function registerAdminRoutes(app: Express) {
@@ -520,7 +523,7 @@ export function registerAdminRoutes(app: Express) {
       res.json({ success: true, invoiceId: invoice.id });
     } catch (error: any) {
       console.error('Create invoice error:', error);
-      res.status(500).json({ error: error.message || 'Failed to create invoice' });
+      res.status(500).json({ error: 'Failed to create invoice' });
     }
   });
 
@@ -537,7 +540,7 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'apply_credit', 'user', customerId, { amount, description });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to apply credit' });
+      res.status(500).json({ error: 'Failed to apply credit' });
     }
   });
 
@@ -550,7 +553,7 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'cancel_subscription', 'user', customerId, { subscriptionId });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
+      res.status(500).json({ error: 'Failed to cancel subscription' });
     }
   });
 
@@ -565,7 +568,7 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'pause_subscription', 'user', customerId, { subscriptionId });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to pause subscription' });
+      res.status(500).json({ error: 'Failed to pause subscription' });
     }
   });
 
@@ -580,7 +583,7 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'resume_subscription', 'user', customerId, { subscriptionId });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to resume subscription' });
+      res.status(500).json({ error: 'Failed to resume subscription' });
     }
   });
 
@@ -652,7 +655,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/stop-impersonate', async (req: Request, res: Response) => {
+  app.post('/api/admin/stop-impersonate', requireAdmin, async (req: Request, res: Response) => {
     try {
       if (!req.session?.originalAdminUserId) {
         return res.status(400).json({ error: 'Not currently impersonating' });

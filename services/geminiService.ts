@@ -1,44 +1,48 @@
 
-import { GoogleGenAI } from "@google/genai";
 import { User, Subscription, Invoice } from '../types.ts';
 
 /**
- * Enhanced Support AI with Streaming and Google Search Grounding.
+ * Calls the backend AI support endpoint which proxies Gemini securely server-side.
+ * Returns an async iterable of text chunks for streaming.
  */
 export const getSupportResponseStream = async (
   prompt: string,
   userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] }
-) => {
-  // FIX: Created a new GoogleGenAI instance before making an API call.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+): Promise<AsyncIterable<{ text?: string }>> => {
+  const response = await fetch('/api/ai/support', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, userContext }),
+  });
 
-  const contextString = `
-    User Details:
-    - Name: ${userContext.user.firstName} ${userContext.user.lastName}
-    - Current Focus Address: ${userContext.user.address}
-
-    Account Status:
-    - Subscriptions: ${userContext.subscriptions.filter(s => s.status === 'active').map(s => s.serviceName).join(', ')}
-    - Outstanding Balance: $${userContext.invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => acc + inv.amount, 0).toFixed(2)}
-  `;
-
-  const tools: any[] = [{ googleSearch: {} }];
-
-  const config: any = {
-    systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details and Google Search. Use search to verify any external events like holiday schedules, weather delays, or local traffic if relevant to the user's trash collection. Always cite your sources if used.",
-    tools: tools
-  };
-
-  try {
-    const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
-      contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
-      config: config,
-    });
-
-    return responseStream;
-  } catch (error) {
-    console.error("Error initiating Gemini stream:", error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`AI service error: ${response.statusText}`);
   }
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+
+  async function* streamChunks(): AsyncIterable<{ text?: string }> {
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') return;
+          try {
+            yield JSON.parse(data);
+          } catch {
+            // skip malformed chunks
+          }
+        }
+      }
+    }
+  }
+
+  return streamChunks();
 };

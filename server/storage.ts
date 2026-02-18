@@ -793,10 +793,19 @@ export class Storage {
   async getConversations(participantId: string, participantType: string, options: { limit?: number; offset?: number; status?: string } = {}) {
     const limit = options.limit || 50;
     const offset = options.offset || 0;
-    const statusFilter = options.status && options.status !== 'all' ? `AND c.status = '${options.status}'` : '';
+
+    const listParams: any[] = [participantId, participantType, limit, offset];
+    const countParams: any[] = [participantId, participantType];
+    let statusFilter = '';
+    if (options.status && options.status !== 'all') {
+      statusFilter = `AND c.status = $5`;
+      listParams.push(options.status);
+      countParams.push(options.status);
+    }
+    const countStatusFilter = options.status && options.status !== 'all' ? `AND c.status = $3` : '';
 
     const result = await this.query(
-      `SELECT c.*, 
+      `SELECT c.*,
         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
         (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
         (SELECT sender_type FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_sender_type,
@@ -807,14 +816,14 @@ export class Storage {
        ${statusFilter}
        ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC
        LIMIT $3 OFFSET $4`,
-      [participantId, participantType, limit, offset]
+      listParams
     );
 
     const countResult = await this.query(
       `SELECT COUNT(*) FROM conversations c
        JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = $2
-       ${statusFilter}`,
-      [participantId, participantType]
+       ${countStatusFilter}`,
+      countParams
     );
 
     return { conversations: result.rows, total: parseInt(countResult.rows[0].count) };

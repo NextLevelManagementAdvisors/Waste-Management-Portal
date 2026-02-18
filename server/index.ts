@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
@@ -16,10 +18,35 @@ const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = isProduction ? 5000 : 3001;
 
+app.use(helmet({
+  contentSecurityPolicy: false, // disabled to allow inline scripts from React build; tighten in future
+  crossOriginEmbedderPolicy: false,
+}));
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
 app.use(cors({
-  origin: true,
+  origin: isProduction
+    ? (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Not allowed by CORS'));
+        }
+      }
+    : true,
   credentials: true,
 }));
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts, please try again later' },
+});
 
 const PgSession = connectPgSimple(session);
 
@@ -43,8 +70,8 @@ const sessionMiddleware = session({
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000,
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
+    secure: isProduction,
+    sameSite: 'lax',
   },
 });
 
@@ -80,6 +107,8 @@ app.post(
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+app.use('/api/auth/login', authRateLimit);
+app.use('/api/auth/register', authRateLimit);
 registerAuthRoutes(app);
 
 const { registerRoutes } = await import('./routes');

@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response } from 'express';
+import { GoogleGenAI } from '@google/genai';
 import { storage } from './storage';
 import { getUncachableStripeClient, getStripePublishableKey } from './stripeClient';
 import * as optimoRoute from './optimoRouteClient';
@@ -52,7 +53,7 @@ export function registerRoutes(app: Express) {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -83,7 +84,7 @@ export function registerRoutes(app: Express) {
       res.json({ data });
     } catch (error: any) {
       console.error('Error listing products:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -105,7 +106,7 @@ export function registerRoutes(app: Express) {
         metadata: p.metadata,
       })) });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -121,7 +122,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: customer });
     } catch (error: any) {
       console.error('Error creating customer:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -132,7 +133,7 @@ export function registerRoutes(app: Express) {
       if (!customer) return res.status(404).json({ error: 'Customer not found' });
       res.json({ data: customer });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -147,7 +148,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: paymentMethods.data });
     } catch (error: any) {
       console.error('Error listing payment methods:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -162,7 +163,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: paymentMethod });
     } catch (error: any) {
       console.error('Error attaching payment method:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -174,7 +175,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: detached });
     } catch (error: any) {
       console.error('Error detaching payment method:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -189,7 +190,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: customer });
     } catch (error: any) {
       console.error('Error setting default payment method:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -204,7 +205,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: { clientSecret: setupIntent.client_secret } });
     } catch (error: any) {
       console.error('Error creating setup intent:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -234,7 +235,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error creating subscription:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -271,7 +272,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subsWithProducts });
     } catch (error: any) {
       console.error('Error listing subscriptions:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -301,7 +302,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error updating subscription:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -313,7 +314,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error canceling subscription:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -327,7 +328,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error pausing subscription:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -341,7 +342,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error resuming subscription:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -356,7 +357,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: invoices.data });
     } catch (error: any) {
       console.error('Error listing invoices:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -371,7 +372,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: invoice });
     } catch (error: any) {
       console.error('Error paying invoice:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -392,7 +393,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: { url: session.url, id: session.id } });
     } catch (error: any) {
       console.error('Error creating checkout session:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -425,7 +426,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: finalizedInvoice });
     } catch (error: any) {
       console.error('Error creating invoice:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -440,7 +441,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: { url: session.url } });
     } catch (error: any) {
       console.error('Error creating portal session:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -462,7 +463,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: result });
     } catch (error: any) {
       console.error('OptimoRoute next-pickup error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -478,7 +479,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: result });
     } catch (error: any) {
       console.error('OptimoRoute history error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -490,7 +491,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: result });
     } catch (error: any) {
       console.error('OptimoRoute routes error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -503,7 +504,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: result });
     } catch (error: any) {
       console.error('OptimoRoute search error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -520,7 +521,56 @@ export function registerRoutes(app: Express) {
       res.json({ data: result });
     } catch (error: any) {
       console.error('OptimoRoute create-order error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/ai/support', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { prompt, userContext } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: 'prompt is required' });
+      }
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: 'AI service not configured' });
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      const contextString = userContext ? `
+    User Details:
+    - Name: ${userContext.user?.firstName} ${userContext.user?.lastName}
+    - Current Focus Address: ${userContext.user?.address}
+
+    Account Status:
+    - Subscriptions: ${userContext.subscriptions?.filter((s: any) => s.status === 'active').map((s: any) => s.serviceName).join(', ')}
+    - Outstanding Balance: $${userContext.invoices?.filter((i: any) => i.status !== 'Paid').reduce((acc: number, inv: any) => acc + inv.amount, 0).toFixed(2)}
+  ` : '';
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-2.0-flash',
+        contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
+        config: {
+          systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details. Always be concise and helpful.",
+        },
+      });
+
+      for await (const chunk of responseStream) {
+        const text = chunk.text;
+        if (text) {
+          res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        }
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } catch (error: any) {
+      console.error('AI support error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'AI service error' });
+      }
     }
   });
 }

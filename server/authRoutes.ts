@@ -97,6 +97,10 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'First name, last name, email, and password are required' });
       }
 
+      if (password.length < 12) {
+        return res.status(400).json({ error: 'Password must be at least 12 characters' });
+      }
+
       const existing = await storage.getUserByEmail(email.toLowerCase());
       if (existing) {
         return res.status(409).json({ error: 'An account with this email already exists' });
