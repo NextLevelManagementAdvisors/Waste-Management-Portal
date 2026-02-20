@@ -124,6 +124,9 @@ registerCommunicationRoutes(app);
 const { registerTeamRoutes } = await import('./teamRoutes');
 registerTeamRoutes(app);
 
+const { ensureAdmin } = await import('./ensureAdmin');
+await ensureAdmin();
+
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));
