@@ -21,6 +21,8 @@ declare module 'express-session' {
     googleOAuthPopup?: boolean;
     impersonatingUserId?: string;
     originalAdminUserId?: string;
+    impersonatingDriverId?: string;
+    originalAdminForDriver?: string;
   }
 }
 

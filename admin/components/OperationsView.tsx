@@ -3,7 +3,7 @@ import { Card } from '../../components/Card.tsx';
 import { Button } from '../../components/Button.tsx';
 import { LoadingSpinner, Pagination, StatusBadge, EmptyState, FilterBar, ConfirmDialog } from './shared.tsx';
 
-type TabType = 'missed-pickups' | 'pickup-schedule' | 'activity' | 'notifications';
+type TabType = 'missed-pickups' | 'pickup-schedule' | 'activity' | 'notifications' | 'team-members';
 
 interface MissedPickupReport {
   id: string;
@@ -585,6 +585,107 @@ const NotificationsTab: React.FC = () => {
   );
 };
 
+const TeamMembersTab: React.FC = () => {
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    fetch('/api/admin/drivers', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => setDrivers(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleImpersonate = async (driver: any) => {
+    setImpersonatingId(driver.id);
+    try {
+      const res = await fetch(`/api/admin/impersonate-driver/${driver.id}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        window.location.href = '/team/';
+      } else {
+        const json = await res.json();
+        alert(json.error || 'Failed to sign in as driver');
+      }
+    } catch {
+      alert('Failed to sign in as driver');
+    } finally {
+      setImpersonatingId(null);
+    }
+  };
+
+  const filtered = drivers.filter(d => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (d.name || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
+  });
+
+  if (loading) return <LoadingSpinner />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">{drivers.length} team member{drivers.length !== 1 ? 's' : ''} registered</p>
+        {drivers.length > 5 && (
+          <input
+            type="text"
+            placeholder="Search team members..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 w-64"
+          />
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon="users" message={searchQuery ? 'No team members match your search' : 'No team members registered yet'} />
+      ) : (
+        <div className="grid gap-3">
+          {filtered.map((driver: any) => (
+            <Card key={driver.id} className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                    <span className="text-orange-700 font-bold text-sm">
+                      {(driver.name || '?').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900">{driver.name}</p>
+                    <p className="text-sm text-gray-500">{driver.email || 'No email'}</p>
+                  </div>
+                  {driver.phone && (
+                    <span className="text-xs text-gray-400">{driver.phone}</span>
+                  )}
+                  <StatusBadge status={driver.onboarding_status === 'completed' ? 'active' : driver.onboarding_status || 'pending'} />
+                  {driver.rating && (
+                    <span className="text-xs text-yellow-600 font-medium">{Number(driver.rating).toFixed(1)} rating</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => handleImpersonate(driver)}
+                    disabled={impersonatingId === driver.id}
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    {impersonatingId === driver.id ? 'Switching...' : 'Sign In as Driver'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface NavFilter { tab?: string; filter?: string; sort?: string; search?: string; }
 
 const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
@@ -592,7 +693,7 @@ const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?
 
   useEffect(() => {
     if (navFilter?.tab) {
-      const validTabs: TabType[] = ['missed-pickups', 'pickup-schedule', 'activity', 'notifications'];
+      const validTabs: TabType[] = ['missed-pickups', 'pickup-schedule', 'activity', 'notifications', 'team-members'];
       if (validTabs.includes(navFilter.tab as TabType)) {
         setActiveTab(navFilter.tab as TabType);
       }
@@ -605,6 +706,7 @@ const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?
     { key: 'pickup-schedule', label: 'Pickup Schedule' },
     { key: 'activity', label: 'Recent Activity' },
     { key: 'notifications', label: 'Notifications' },
+    { key: 'team-members', label: 'Team Members' },
   ];
 
   return (
@@ -630,6 +732,7 @@ const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?
         {activeTab === 'pickup-schedule' && <PickupScheduleTab />}
         {activeTab === 'activity' && <ActivityTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
+        {activeTab === 'team-members' && <TeamMembersTab />}
       </div>
     </div>
   );

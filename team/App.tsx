@@ -1411,6 +1411,9 @@ const TeamApp: React.FC = () => {
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonatedBy, setImpersonatedBy] = useState('');
+
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -1430,6 +1433,10 @@ const TeamApp: React.FC = () => {
       if (!res.ok) throw new Error('Not authenticated');
       const json = await res.json();
       setCurrentDriver(normalizeDriver(json.data || json.driver));
+      if (json.impersonating) {
+        setImpersonating(true);
+        setImpersonatedBy(json.impersonatedBy || 'Admin');
+      }
       await checkOnboarding();
     } catch {
       setCurrentDriver(null);
@@ -1507,6 +1514,15 @@ const TeamApp: React.FC = () => {
     setCurrentDriver(null);
     setOnboardingStatus(null);
     setCurrentView('dashboard');
+  };
+
+  const handleStopImpersonation = async () => {
+    try {
+      await fetch('/api/admin/stop-impersonate-driver', { method: 'POST', credentials: 'include' });
+      window.location.href = '/admin/';
+    } catch {
+      alert('Failed to exit driver view');
+    }
   };
 
   if (loading) {
@@ -1654,8 +1670,22 @@ const TeamApp: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {impersonating && (
+        <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between z-50 relative">
+          <span className="text-sm font-bold">
+            Viewing as driver: {currentDriver?.full_name} (signed in by {impersonatedBy})
+          </span>
+          <button
+            onClick={handleStopImpersonation}
+            className="px-4 py-1 bg-white text-indigo-700 rounded-lg text-sm font-bold hover:bg-indigo-50 transition-colors"
+          >
+            Back to Admin
+          </button>
+        </div>
+      )}
+      <div className="flex-1 flex">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${impersonating ? 'lg:top-[40px]' : ''}`}>
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
             <BriefcaseIcon className="w-8 h-8 text-teal-400" />
@@ -1724,6 +1754,7 @@ const TeamApp: React.FC = () => {
           {currentView === 'profile' && <Profile />}
         </div>
       </main>
+      </div>
     </div>
   );
 };

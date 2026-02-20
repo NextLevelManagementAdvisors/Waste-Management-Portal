@@ -112,7 +112,15 @@ export function registerTeamRoutes(app: Express) {
       if (!driver) {
         return res.status(401).json({ error: 'Driver not found' });
       }
-      res.json({ data: formatDriverForClient(driver) });
+      const clientData: any = { data: formatDriverForClient(driver) };
+      if (req.session.impersonatingDriverId) {
+        clientData.impersonating = true;
+        const admin = await storage.getUserById(req.session.originalAdminForDriver!);
+        if (admin) {
+          clientData.impersonatedBy = `${admin.first_name} ${admin.last_name}`;
+        }
+      }
+      res.json(clientData);
     } catch (error: any) {
       console.error('Get driver error:', error);
       res.status(500).json({ error: 'Failed to get driver' });

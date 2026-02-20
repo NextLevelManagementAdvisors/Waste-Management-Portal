@@ -805,4 +805,46 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to stop impersonation' });
     }
   });
+
+  app.post('/api/admin/impersonate-driver/:driverId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const driverId = req.params.driverId;
+      const driver = await storage.getDriverById(driverId);
+      if (!driver) {
+        return res.status(404).json({ error: 'Driver not found' });
+      }
+
+      const adminUserId = req.session.originalAdminForDriver || req.session.userId;
+      req.session.originalAdminForDriver = adminUserId;
+      req.session.impersonatingDriverId = driverId;
+      req.session.driverId = driverId;
+
+      await audit(req, 'impersonate_driver', 'driver', driverId, { driverName: driver.name, driverEmail: driver.email });
+
+      res.json({ success: true, driver: { id: driver.id, name: driver.name, email: driver.email } });
+    } catch (error) {
+      console.error('Driver impersonation error:', error);
+      res.status(500).json({ error: 'Failed to start driver impersonation' });
+    }
+  });
+
+  app.post('/api/admin/stop-impersonate-driver', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.originalAdminForDriver) {
+        return res.status(400).json({ error: 'Not currently impersonating a driver' });
+      }
+
+      const driverId = req.session.impersonatingDriverId;
+      await audit(req, 'stop_impersonate_driver', 'driver', driverId || undefined, {});
+
+      delete req.session.driverId;
+      delete req.session.impersonatingDriverId;
+      delete req.session.originalAdminForDriver;
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Stop driver impersonation error:', error);
+      res.status(500).json({ error: 'Failed to stop driver impersonation' });
+    }
+  });
 }
