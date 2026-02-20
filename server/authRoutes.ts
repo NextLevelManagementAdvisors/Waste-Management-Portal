@@ -473,11 +473,14 @@ export function registerAuthRoutes(app: Express) {
       }
 
       const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
       if (replitDomain) {
         redirectUri = `https://${replitDomain}/api/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
-        const host = req.get('host') || 'localhost:5000';
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
         const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
         redirectUri = `${protocol}://${host}/api/auth/google/callback`;
       }
@@ -526,11 +529,14 @@ export function registerAuthRoutes(app: Express) {
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
       const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
       if (replitDomain) {
         redirectUri = `https://${replitDomain}/api/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
-        const host = req.get('host') || 'localhost:5000';
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
         const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
         redirectUri = `${protocol}://${host}/api/auth/google/callback`;
       }
