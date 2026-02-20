@@ -1,7 +1,26 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import { storage } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
-import { sendPickupReminder, sendBillingAlert, sendServiceUpdate } from './notificationService';
+import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
+
+type AdminRole = 'full_admin' | 'support' | 'viewer';
+
+const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
+  full_admin: ['*'],
+  support: ['customers', 'communications', 'operations', 'billing.read', 'audit.read'],
+  viewer: ['dashboard.read', 'customers.read', 'audit.read'],
+};
+
+function hasPermission(role: AdminRole | null, permission: string): boolean {
+  if (!role) return false;
+  const perms = ROLE_PERMISSIONS[role];
+  if (!perms) return false;
+  if (perms.includes('*')) return true;
+  if (perms.includes(permission)) return true;
+  const basePermission = permission.split('.')[0];
+  if (perms.includes(basePermission)) return true;
+  return false;
+}
 
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -13,10 +32,22 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
     if (!user || !user.is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
+    (req as any).adminUser = user;
+    (req as any).adminRole = (user.admin_role || 'full_admin') as AdminRole;
     next();
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+}
+
+function requirePermission(permission: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const role = (req as any).adminRole as AdminRole;
+    if (!hasPermission(role, permission)) {
+      return res.status(403).json({ error: 'Insufficient permissions for this action' });
+    }
+    next();
+  };
 }
 
 export function registerAdminRoutes(app: Express) {
@@ -230,7 +261,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Edit customer details
-  app.put('/api/admin/customers/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/customers/:id', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
       const { firstName, lastName, phone, email, isAdmin } = req.body;
       const user = await storage.getUserById(req.params.id);
@@ -268,7 +299,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/customers/:id/notes', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/customers/:id/notes', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
       const { note, tags } = req.body;
       if (!note) return res.status(400).json({ error: 'Note is required' });
@@ -280,7 +311,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/admin/notes/:noteId', requireAdmin, async (req: Request, res: Response) => {
+  app.delete('/api/admin/notes/:noteId', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
       await storage.deleteAdminNote(parseInt(req.params.noteId), getAdminId(req));
       res.json({ success: true });
@@ -429,7 +460,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/missed-pickups/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/missed-pickups/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { status, resolutionNotes } = req.body;
       await storage.updateMissedPickupStatus(req.params.id, status, resolutionNotes);
@@ -469,7 +500,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Bulk notifications
-  app.post('/api/admin/bulk-notify', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/bulk-notify', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { userIds, type, data } = req.body;
       if (!userIds || !Array.isArray(userIds) || !type) {
@@ -501,7 +532,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Stripe billing actions
-  app.post('/api/admin/billing/create-invoice', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/billing/create-invoice', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { customerId, amount, description } = req.body;
       if (!customerId || !amount) return res.status(400).json({ error: 'customerId and amount are required' });
@@ -527,7 +558,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/billing/apply-credit', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/billing/apply-credit', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { customerId, amount, description } = req.body;
       if (!customerId || !amount) return res.status(400).json({ error: 'customerId and amount are required' });
@@ -544,7 +575,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/billing/cancel-subscription', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/billing/cancel-subscription', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { subscriptionId, customerId } = req.body;
       if (!subscriptionId) return res.status(400).json({ error: 'subscriptionId is required' });
@@ -557,7 +588,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/billing/pause-subscription', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/billing/pause-subscription', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { subscriptionId, customerId } = req.body;
       if (!subscriptionId) return res.status(400).json({ error: 'subscriptionId is required' });
@@ -572,7 +603,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/billing/resume-subscription', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/billing/resume-subscription', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { subscriptionId, customerId } = req.body;
       if (!subscriptionId) return res.status(400).json({ error: 'subscriptionId is required' });
@@ -607,35 +638,138 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/notify', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/notify', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const { userId, type, data } = req.body;
-      if (!userId || !type) {
-        return res.status(400).json({ error: 'userId and type are required' });
+      const { userId, userIds, type, data, message, channel } = req.body;
+
+      const targetIds: string[] = userIds && Array.isArray(userIds) ? userIds : userId ? [userId] : [];
+      if (targetIds.length === 0) {
+        return res.status(400).json({ error: 'userId or userIds required' });
       }
 
-      switch (type) {
-        case 'pickup_reminder':
-          await sendPickupReminder(userId, data?.address || '', data?.date || '', data?.pickupType || 'Regular');
-          break;
-        case 'billing_alert':
-          await sendBillingAlert(userId, data?.invoiceNumber || '', data?.amount || 0, data?.dueDate || '');
-          break;
-        case 'service_update':
-          await sendServiceUpdate(userId, data?.updateType || 'Update', data?.details || '');
-          break;
-        default:
-          return res.status(400).json({ error: 'Invalid notification type' });
+      let sent = 0;
+      let failed = 0;
+
+      for (const uid of targetIds) {
+        try {
+          if (message) {
+            await sendCustomNotification(uid, message, channel || 'email');
+          } else if (type) {
+            switch (type) {
+              case 'pickup_reminder':
+                await sendPickupReminder(uid, data?.address || '', data?.date || '', data?.pickupType || 'Regular');
+                break;
+              case 'billing_alert':
+                await sendBillingAlert(uid, data?.invoiceNumber || '', data?.amount || 0, data?.dueDate || '');
+                break;
+              case 'service_update':
+                await sendServiceUpdate(uid, data?.updateType || 'Update', data?.details || '');
+                break;
+              default:
+                failed++;
+                continue;
+            }
+          }
+          sent++;
+        } catch {
+          failed++;
+        }
       }
 
-      res.json({ success: true });
+      if (targetIds.length > 1) {
+        await audit(req, 'bulk_notify', 'system', undefined, { channel: channel || type, count: targetIds.length, sent, failed });
+      }
+
+      res.json({ success: true, sent, failed });
     } catch (error) {
       console.error('Admin notify error:', error);
       res.status(500).json({ error: 'Failed to send notification' });
     }
   });
 
-  app.post('/api/admin/impersonate/:userId', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/current', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const adminUser = (req as any).adminUser;
+      const role = (req as any).adminRole;
+      res.json({
+        id: adminUser.id,
+        name: `${adminUser.first_name} ${adminUser.last_name}`,
+        email: adminUser.email,
+        role: role || 'full_admin',
+        permissions: ROLE_PERMISSIONS[role as AdminRole] || ROLE_PERMISSIONS.full_admin,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch admin info' });
+    }
+  });
+
+  app.get('/api/admin/roles', requireAdmin, requirePermission('*'), async (_req: Request, res: Response) => {
+    try {
+      const admins = await storage.getAdminUsers();
+      res.json({
+        admins: admins.map((a: any) => ({
+          id: a.id,
+          name: `${a.first_name} ${a.last_name}`,
+          email: a.email,
+          role: a.admin_role || 'full_admin',
+          createdAt: a.created_at,
+        })),
+        roles: Object.entries(ROLE_PERMISSIONS).map(([role, perms]) => ({
+          id: role,
+          label: role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          permissions: perms,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch roles' });
+    }
+  });
+
+  app.put('/api/admin/roles/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
+      const validRoles = ['full_admin', 'support', 'viewer'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+      await storage.updateAdminRole(userId, role);
+      await audit(req, 'update_admin_role', 'user', userId, { role });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update role' });
+    }
+  });
+
+  app.post('/api/admin/customers/bulk-action', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
+    try {
+      const { action, userIds } = req.body;
+      if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ error: 'userIds array is required' });
+      }
+
+      switch (action) {
+        case 'grant_admin':
+          await storage.bulkUpdateAdminStatus(userIds, true);
+          await audit(req, 'bulk_grant_admin', 'system', undefined, { count: userIds.length });
+          break;
+        case 'revoke_admin':
+          await storage.bulkUpdateAdminStatus(userIds, false);
+          await audit(req, 'bulk_revoke_admin', 'system', undefined, { count: userIds.length });
+          break;
+        case 'export':
+          break;
+        default:
+          return res.status(400).json({ error: 'Invalid bulk action' });
+      }
+
+      res.json({ success: true, affected: userIds.length });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to execute bulk action' });
+    }
+  });
+
+  app.post('/api/admin/impersonate/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
       const targetUserId = req.params.userId;
       const targetUser = await storage.getUserById(targetUserId);

@@ -791,10 +791,10 @@ const BulkNotifyDialog: React.FC<{
   isOpen: boolean;
   selectedCount: number;
   onClose: () => void;
-  onSend: (type: string, message: string) => void;
+  onSend: (channel: string, message: string) => void;
   isSending: boolean;
 }> = ({ isOpen, selectedCount, onClose, onSend, isSending }) => {
-  const [notifType, setNotifType] = useState('email');
+  const [channel, setChannel] = useState('email');
   const [message, setMessage] = useState('');
 
   if (!isOpen) return null;
@@ -807,17 +807,22 @@ const BulkNotifyDialog: React.FC<{
         <p className="text-sm text-gray-500 mb-4">Send to {selectedCount} selected customer{selectedCount !== 1 ? 's' : ''}</p>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">Notification Type</label>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Channel</label>
             <select
-              value={notifType}
-              onChange={e => setNotifType(e.target.value)}
+              value={channel}
+              onChange={e => setChannel(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             >
               <option value="email">Email</option>
               <option value="sms">SMS</option>
-              <option value="push">Push Notification</option>
+              <option value="both">Email + SMS</option>
             </select>
           </div>
+          {channel !== 'email' && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs text-amber-700">SMS will only be sent to customers who have a phone number on file.</p>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Message</label>
             <textarea
@@ -827,12 +832,15 @@ const BulkNotifyDialog: React.FC<{
               placeholder="Enter notification message..."
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none"
             />
+            {channel !== 'email' && (
+              <p className="text-xs text-gray-400 mt-1">{message.length}/160 characters (SMS best practice)</p>
+            )}
           </div>
           <div className="flex gap-3 pt-4 border-t border-gray-200">
             <Button variant="secondary" size="sm" onClick={onClose} disabled={isSending} className="flex-1">
               Cancel
             </Button>
-            <Button size="sm" disabled={isSending || !message.trim()} onClick={() => onSend(notifType, message)} className="flex-1">
+            <Button size="sm" disabled={isSending || !message.trim()} onClick={() => onSend(channel, message)} className="flex-1">
               {isSending ? 'Sending...' : 'Send'}
             </Button>
           </div>
@@ -950,7 +958,7 @@ const CustomersView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?:
     }
   };
 
-  const handleBulkNotify = async (type: string, message: string) => {
+  const handleBulkNotify = async (channel: string, message: string) => {
     setBulkSending(true);
     try {
       const res = await fetch('/api/admin/notify', {
@@ -958,14 +966,18 @@ const CustomersView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?:
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          type,
+          channel,
           message,
           userIds: Array.from(selectedIds),
         }),
       });
       if (res.ok) {
+        const data = await res.json();
         setShowBulkNotify(false);
         setSelectedIds(new Set());
+        if (data.failed > 0) {
+          alert(`Sent ${data.sent} notification(s), ${data.failed} failed.`);
+        }
       } else {
         const json = await res.json();
         alert(json.error || 'Failed to send notifications');
@@ -1050,9 +1062,39 @@ const CustomersView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?:
             </select>
           </div>
           {selectedIds.size > 0 && (
-            <div className="ml-auto">
+            <div className="ml-auto flex gap-2">
               <Button size="sm" onClick={() => setShowBulkNotify(true)}>
                 Notify ({selectedIds.size})
+              </Button>
+              <Button variant="secondary" size="sm" onClick={async () => {
+                if (!confirm(`Grant admin access to ${selectedIds.size} selected user(s)?`)) return;
+                try {
+                  const res = await fetch('/api/admin/customers/bulk-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ action: 'grant_admin', userIds: Array.from(selectedIds) }),
+                  });
+                  if (res.ok) { setSelectedIds(new Set()); loadCustomers(); }
+                  else { const j = await res.json(); alert(j.error || 'Failed'); }
+                } catch { alert('Failed to execute action'); }
+              }}>
+                Grant Admin
+              </Button>
+              <Button variant="secondary" size="sm" onClick={async () => {
+                if (!confirm(`Revoke admin access from ${selectedIds.size} selected user(s)?`)) return;
+                try {
+                  const res = await fetch('/api/admin/customers/bulk-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ action: 'revoke_admin', userIds: Array.from(selectedIds) }),
+                  });
+                  if (res.ok) { setSelectedIds(new Set()); loadCustomers(); }
+                  else { const j = await res.json(); alert(j.error || 'Failed'); }
+                } catch { alert('Failed to execute action'); }
+              }}>
+                Revoke Admin
               </Button>
             </div>
           )}

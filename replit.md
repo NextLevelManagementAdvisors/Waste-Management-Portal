@@ -12,14 +12,14 @@ A comprehensive client portal for waste management, featuring a React + Vite fro
 The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with an Express backend. Authentication is session-based, using `express-session` and `connect-pg-simple` for PostgreSQL-backed session storage, `bcrypt` for password hashing, and Google OAuth for streamlined login. Styling is managed with Tailwind CSS v4 via `@tailwindcss/vite` plugin.
 
 **Key Features:**
-- **Admin Dashboard:** A comprehensive admin portal at `/admin/` with analytics, customer management, billing tools, operations views, audit logging, global search, and customer impersonation.
+- **Admin Dashboard:** A comprehensive admin portal at `/admin/` with analytics, customer management, billing tools, operations views, audit logging, global search, customer impersonation, role-based permissions (Full Admin / Support / Viewer), and bulk customer actions (notify via email/SMS, grant/revoke admin).
 - **Team Member Portal:** Standalone driver portal at `/team/` for 1099 contractors. Includes driver registration/login, onboarding flow (W9 form + Stripe Connect direct deposit), job board with smart bidding (round-robin weighted by rating/availability/bid amount), calendar/schedule view, and driver profile management.
 - **Unified Communications:** Real-time messaging system with WebSocket support. Admins can chat with customers and drivers (1-on-1 or 3-way). Customer-side floating chat widget. All message history stored in PostgreSQL.
 - **User Authentication & Management:** Secure login, registration (auto-creates Stripe customer and links existing ones), password reset flows via Gmail, and Google OAuth. User and property data are stored in PostgreSQL.
 - **Service Management:** Users can add properties, manage service types, and track special pickup requests.
 - **Billing & Payments:** Real Stripe integration for invoices, subscriptions, and payment processing. Invoice PDFs and hosted URLs are available.
 - **Pickup Tracking:** Integration with OptimoRoute API for real-time pickup status, route scheduling, and order creation.
-- **Notifications:** Comprehensive notification system (email/SMS) for pickup reminders, billing alerts, service updates, and missed pickup confirmations, with customizable preferences stored per property.
+- **Notifications:** Comprehensive notification system (email via Gmail + SMS via Twilio) for pickup reminders, billing alerts, service updates, and missed pickup confirmations. Custom bulk notifications support email, SMS, or both channels. Customizable preferences stored per property.
 - **Referral System:** Users can generate unique referral codes, track referrals, and benefit from rewards.
 - **Account & Property Transfer:** Secure tokenized system for transferring property ownership between users via email invitations.
 - **Address Autocomplete:** Google Places integration for address suggestions in forms.
@@ -61,4 +61,5 @@ The project utilizes a React 19 frontend with TypeScript and Vite 6, paired with
 - **Google OAuth:** For "Sign in with Google" functionality.
 - **Google Places API:** For address autocomplete in forms.
 - **Gmail API (Google Workspace):** For sending password reset emails, account transfer invitations, and various user notifications.
+- **Twilio:** For SMS notifications (pickup reminders, billing alerts, service updates, bulk admin notifications). Uses Replit Twilio connector for secure API key management.
 - **PostgreSQL:** The primary database for storing user, property, session, and application-specific data.

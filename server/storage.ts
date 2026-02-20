@@ -17,6 +17,7 @@ export interface DbUser {
   autopay_enabled: boolean;
   stripe_customer_id: string | null;
   is_admin: boolean;
+  admin_role: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -645,7 +646,31 @@ export class Storage {
     return { users: result.rows, total: parseInt(countResult.rows[0].count) };
   }
 
-  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean }>) {
+  async getAdminUsers() {
+    const result = await this.query(
+      `SELECT id, first_name, last_name, email, phone, is_admin, admin_role, created_at
+       FROM users WHERE is_admin = true ORDER BY created_at ASC`
+    );
+    return result.rows;
+  }
+
+  async updateAdminRole(userId: string, role: string | null) {
+    await this.query(
+      'UPDATE users SET admin_role = $1, updated_at = NOW() WHERE id = $2',
+      [role, userId]
+    );
+  }
+
+  async bulkUpdateAdminStatus(userIds: string[], isAdmin: boolean) {
+    if (userIds.length === 0) return;
+    const placeholders = userIds.map((_, i) => `$${i + 2}`).join(',');
+    await this.query(
+      `UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id IN (${placeholders})`,
+      [isAdmin, ...userIds]
+    );
+  }
+
+  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean; admin_role: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
