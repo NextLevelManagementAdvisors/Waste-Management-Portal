@@ -214,6 +214,51 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
+  app.post('/api/conversations/new', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { subject, body } = req.body;
+      if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
+
+      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
+      if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
+
+      const participants = [
+        { id: userId, type: 'user', role: 'customer' },
+        { id: admins.rows[0].id, type: 'admin', role: 'admin' },
+      ];
+
+      const conversation = await storage.createConversation({
+        subject: subject || 'Support Request',
+        type: 'direct',
+        createdById: userId,
+        createdByType: 'user',
+        participants,
+      });
+
+      const message = await storage.createMessage({
+        conversationId: conversation.id,
+        senderId: userId,
+        senderType: 'user',
+        body: body.trim(),
+      });
+
+      await storage.markConversationRead(conversation.id, userId, 'user');
+
+      const user = await storage.getUserById(userId);
+      broadcastToParticipants(
+        [`admin:${admins.rows[0].id}`],
+        'conversation:new',
+        { conversationId: conversation.id, customerName: user ? `${user.first_name} ${user.last_name}` : 'Customer' }
+      );
+
+      res.json({ conversation, message });
+    } catch (e) {
+      console.error('Error creating conversation:', e);
+      res.status(500).json({ error: 'Failed to create conversation' });
+    }
+  });
+
   app.get('/api/conversations/:id/messages', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
@@ -332,6 +377,51 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
+  app.post('/api/team/conversations/new', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = (req.session as any).driverId;
+      const { subject, body } = req.body;
+      if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
+
+      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
+      if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
+
+      const participants = [
+        { id: driverId, type: 'driver', role: 'driver' },
+        { id: admins.rows[0].id, type: 'admin', role: 'admin' },
+      ];
+
+      const conversation = await storage.createConversation({
+        subject: subject?.trim() || 'Driver Support Request',
+        type: 'direct',
+        createdById: driverId,
+        createdByType: 'driver',
+        participants,
+      });
+
+      const message = await storage.createMessage({
+        conversationId: conversation.id,
+        senderId: driverId,
+        senderType: 'driver',
+        body: body.trim(),
+      });
+
+      await storage.markConversationRead(conversation.id, driverId, 'driver');
+
+      const driver = await storage.getDriverById(driverId);
+      broadcastToParticipants(
+        [`admin:${admins.rows[0].id}`],
+        'conversation:new',
+        { conversationId: conversation.id, driverName: driver ? driver.name : 'Driver' }
+      );
+
+      res.json({ conversation, message });
+    } catch (e) {
+      console.error('Error creating driver conversation:', e);
+      res.status(500).json({ error: 'Failed to create conversation' });
+    }
+  });
+
   app.post('/api/team/conversations/:id/messages', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = (req.session as any).driverId;
@@ -389,93 +479,4 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
-  app.post('/api/team/conversations/new', requireDriverAuth, async (req: Request, res: Response) => {
-    try {
-      const driverId = (req.session as any).driverId;
-      const { subject, body } = req.body;
-      if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
-
-      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
-      if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
-
-      const participants = [
-        { id: driverId, type: 'driver', role: 'driver' },
-        { id: admins.rows[0].id, type: 'admin', role: 'admin' },
-      ];
-
-      const conversation = await storage.createConversation({
-        subject: subject?.trim() || 'Driver Support Request',
-        type: 'direct',
-        createdById: driverId,
-        createdByType: 'driver',
-        participants,
-      });
-
-      const message = await storage.createMessage({
-        conversationId: conversation.id,
-        senderId: driverId,
-        senderType: 'driver',
-        body: body.trim(),
-      });
-
-      await storage.markConversationRead(conversation.id, driverId, 'driver');
-
-      const driver = await storage.getDriverById(driverId);
-      broadcastToParticipants(
-        [`admin:${admins.rows[0].id}`],
-        'conversation:new',
-        { conversationId: conversation.id, driverName: driver ? driver.name : 'Driver' }
-      );
-
-      res.json({ conversation, message });
-    } catch (e) {
-      console.error('Error creating driver conversation:', e);
-      res.status(500).json({ error: 'Failed to create conversation' });
-    }
-  });
-
-  app.post('/api/conversations/new', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = (req.session as any).userId;
-      const { subject, body } = req.body;
-      if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
-
-      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
-      if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
-
-      const participants = [
-        { id: userId, type: 'user', role: 'customer' },
-        { id: admins.rows[0].id, type: 'admin', role: 'admin' },
-      ];
-
-      const conversation = await storage.createConversation({
-        subject: subject || 'Support Request',
-        type: 'direct',
-        createdById: userId,
-        createdByType: 'user',
-        participants,
-      });
-
-      const message = await storage.createMessage({
-        conversationId: conversation.id,
-        senderId: userId,
-        senderType: 'user',
-        body: body.trim(),
-      });
-
-      await storage.markConversationRead(conversation.id, userId, 'user');
-
-      const user = await storage.getUserById(userId);
-      broadcastToParticipants(
-        [`admin:${admins.rows[0].id}`],
-        'conversation:new',
-        { conversationId: conversation.id, customerName: user ? `${user.first_name} ${user.last_name}` : 'Customer' }
-      );
-
-      res.json({ conversation, message });
-    } catch (e) {
-      console.error('Error creating conversation:', e);
-      res.status(500).json({ error: 'Failed to create conversation' });
-    }
-  });
 }
