@@ -13,7 +13,12 @@ async function getGmailAuth() {
   const senderEmail = process.env.GMAIL_SENDER_EMAIL;
 
   if (serviceAccountJson && senderEmail) {
-    const credentials = JSON.parse(serviceAccountJson);
+    let credentials: any;
+    try {
+      credentials = JSON.parse(serviceAccountJson);
+    } catch {
+      throw new Error('GMAIL_SERVICE_ACCOUNT_JSON is not valid JSON. Check your .env file for formatting issues.');
+    }
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/gmail.send'],

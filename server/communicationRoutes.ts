@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import { storage } from './storage';
 import { broadcastToParticipants } from './websocket';
 
@@ -9,11 +9,19 @@ function requireAuth(req: Request, res: Response, next: Function) {
   next();
 }
 
-function requireAdmin(req: Request, res: Response, next: Function) {
-  if (!(req.session as any)?.userId || !(req.session as any)?.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!(req.session as any)?.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
-  next();
+  try {
+    const user = await storage.getUserById((req.session as any).userId);
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 export function registerCommunicationRoutes(app: Express) {

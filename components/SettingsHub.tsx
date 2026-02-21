@@ -53,6 +53,15 @@ const SettingsHub: React.FC = () => {
   );
 };
 
+const NotificationPopup: React.FC<{ notification: { type: 'success' | 'error'; message: string } | null }> = ({ notification }) => {
+  if (!notification) return null;
+  return (
+    <div className={`fixed bottom-5 right-5 p-4 rounded-xl shadow-lg text-white z-50 ${notification.type === 'success' ? 'bg-primary' : 'bg-red-600'}`}>
+      {notification.message}
+    </div>
+  );
+};
+
 const ProfileTab: React.FC = () => {
   const { user, updateProfile } = useProperty();
   const [isEditing, setIsEditing] = useState(false);
@@ -166,11 +175,7 @@ const ProfileTab: React.FC = () => {
           )}
         </form>
       </Card>
-      {notification && (
-        <div className={`fixed bottom-5 right-5 p-4 rounded-xl shadow-lg text-white z-50 ${notification.type === 'success' ? 'bg-primary' : 'bg-red-600'}`}>
-          {notification.message}
-        </div>
-      )}
+      <NotificationPopup notification={notification} />
     </div>
   );
 };
@@ -181,19 +186,16 @@ const NotificationsTab: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [notification, setNotification] = useState('');
-  const [billingAlerts, setBillingAlerts] = useState({ invoiceDue: true, paymentConfirmation: true, autopayReminder: true });
-  const [accountAlerts, setAccountAlerts] = useState({ serviceUpdates: true, promotions: false, referralUpdates: true });
 
   useEffect(() => {
     if (selectedProperty) {
       const np = selectedProperty.notificationPreferences;
-      setPrefs(JSON.parse(JSON.stringify(np)));
-      setBillingAlerts({
+      // Deep copy and set defaults in one go
+      setPrefs({
+        ...JSON.parse(JSON.stringify(np)),
         invoiceDue: np.invoiceDue !== false,
         paymentConfirmation: np.paymentConfirmation !== false,
         autopayReminder: np.autopayReminder !== false,
-      });
-      setAccountAlerts({
         serviceUpdates: np.serviceUpdates !== false,
         promotions: np.promotions === true,
         referralUpdates: np.referralUpdates !== false,
@@ -204,41 +206,25 @@ const NotificationsTab: React.FC = () => {
     }
   }, [selectedProperty]);
 
-  const handlePrefChange = useCallback((category: keyof NotificationPreferences, type: 'email' | 'sms') => {
+  const handlePrefChange = useCallback((category: keyof NotificationPreferences, type?: 'email' | 'sms') => {
     setPrefs(prev => {
       if (!prev) return null;
-      const newPrefs = { ...prev };
-      newPrefs[category] = { ...newPrefs[category], [type]: !newPrefs[category][type] };
-      return newPrefs;
+      if (type) {
+        const newPrefs = { ...prev };
+        newPrefs[category] = { ...newPrefs[category], [type]: !newPrefs[category][type] };
+        return newPrefs;
+      }
+      return { ...prev, [category]: !prev[category] };
     });
     setHasChanges(true);
   }, []);
-
-  const handleBillingToggle = (key: keyof typeof billingAlerts) => {
-    setBillingAlerts(prev => ({ ...prev, [key]: !prev[key] }));
-    setHasChanges(true);
-  };
-
-  const handleAccountToggle = (key: keyof typeof accountAlerts) => {
-    setAccountAlerts(prev => ({ ...prev, [key]: !prev[key] }));
-    setHasChanges(true);
-  };
 
   const handleSave = async () => {
     if (!selectedProperty || !prefs) return;
     setIsSaving(true);
     setNotification('');
     try {
-      const fullPrefs: NotificationPreferences = {
-        ...prefs,
-        invoiceDue: billingAlerts.invoiceDue,
-        paymentConfirmation: billingAlerts.paymentConfirmation,
-        autopayReminder: billingAlerts.autopayReminder,
-        serviceUpdates: accountAlerts.serviceUpdates,
-        promotions: accountAlerts.promotions,
-        referralUpdates: accountAlerts.referralUpdates,
-      };
-      await updateNotificationPreferences(selectedProperty.id, fullPrefs);
+      await updateNotificationPreferences(selectedProperty.id, prefs);
       await refreshUser();
       setHasChanges(false);
       setNotification('Preferences saved successfully!');
@@ -319,11 +305,11 @@ const NotificationsTab: React.FC = () => {
           Billing Alerts
         </h2>
         <p className="text-sm text-gray-500 mb-4">Control how you receive billing and payment notifications.</p>
-        <div className="divide-y divide-base-200">
-          <SimpleToggleRow title="Invoice Due Reminders" description="Receive a reminder when an invoice is due or overdue." checked={billingAlerts.invoiceDue} onChange={() => handleBillingToggle('invoiceDue')} />
-          <SimpleToggleRow title="Payment Confirmations" description="Get a confirmation when your payment is processed successfully." checked={billingAlerts.paymentConfirmation} onChange={() => handleBillingToggle('paymentConfirmation')} />
-          <SimpleToggleRow title="AutoPay Notifications" description="Get notified before an automatic payment is processed." checked={billingAlerts.autopayReminder} onChange={() => handleBillingToggle('autopayReminder')} />
-        </div>
+        {prefs && <div className="divide-y divide-base-200">
+          <SimpleToggleRow title="Invoice Due Reminders" description="Receive a reminder when an invoice is due or overdue." checked={prefs.invoiceDue!} onChange={() => handlePrefChange('invoiceDue')} />
+          <SimpleToggleRow title="Payment Confirmations" description="Get a confirmation when your payment is processed successfully." checked={prefs.paymentConfirmation!} onChange={() => handlePrefChange('paymentConfirmation')} />
+          <SimpleToggleRow title="AutoPay Notifications" description="Get notified before an automatic payment is processed." checked={prefs.autopayReminder!} onChange={() => handlePrefChange('autopayReminder')} />
+        </div>}
       </Card>
 
       <Card className="border-none ring-1 ring-base-200 shadow-xl">
@@ -332,11 +318,11 @@ const NotificationsTab: React.FC = () => {
           Account & Marketing
         </h2>
         <p className="text-sm text-gray-500 mb-4">Choose which account-related communications you want to receive.</p>
-        <div className="divide-y divide-base-200">
-          <SimpleToggleRow title="Service Updates" description="Important updates about your service plan or account changes." checked={accountAlerts.serviceUpdates} onChange={() => handleAccountToggle('serviceUpdates')} />
-          <SimpleToggleRow title="Promotions & Offers" description="Special deals, seasonal offers, and discounts." checked={accountAlerts.promotions} onChange={() => handleAccountToggle('promotions')} />
-          <SimpleToggleRow title="Referral Updates" description="Get notified when someone uses your referral code." checked={accountAlerts.referralUpdates} onChange={() => handleAccountToggle('referralUpdates')} />
-        </div>
+        {prefs && <div className="divide-y divide-base-200">
+          <SimpleToggleRow title="Service Updates" description="Important updates about your service plan or account changes." checked={prefs.serviceUpdates!} onChange={() => handlePrefChange('serviceUpdates')} />
+          <SimpleToggleRow title="Promotions & Offers" description="Special deals, seasonal offers, and discounts." checked={prefs.promotions!} onChange={() => handlePrefChange('promotions')} />
+          <SimpleToggleRow title="Referral Updates" description="Get notified when someone uses your referral code." checked={prefs.referralUpdates!} onChange={() => handlePrefChange('referralUpdates')} />
+        </div>}
       </Card>
 
       <div className="flex justify-end items-center gap-4">
@@ -441,11 +427,7 @@ const SecurityTab: React.FC = () => {
         </div>
       </Card>
 
-      {notification && (
-        <div className={`fixed bottom-5 right-5 p-4 rounded-xl shadow-lg text-white z-50 ${notification.type === 'success' ? 'bg-primary' : 'bg-red-600'}`}>
-          {notification.message}
-        </div>
-      )}
+      <NotificationPopup notification={notification} />
     </div>
   );
 };

@@ -1,11 +1,18 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { storage } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
+import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
 
 declare module 'express-session' {
   interface SessionData {
     driverId?: string;
+    teamGoogleOAuthState?: string;
   }
 }
 
@@ -29,6 +36,163 @@ async function requireOnboarded(req: Request, res: Response, next: NextFunction)
 }
 
 export function registerTeamRoutes(app: Express) {
+
+  app.get('/api/team/auth/google', async (req: Request, res: Response) => {
+    try {
+      if (!GOOGLE_CLIENT_ID) {
+        return res.status(500).json({ error: 'Google OAuth not configured' });
+      }
+
+      const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
+      if (!discoveryRes.ok) {
+        return res.status(500).json({ error: 'Failed to reach Google services' });
+      }
+      const discovery = await discoveryRes.json() as { authorization_endpoint: string };
+
+      const state = crypto.randomBytes(32).toString('hex');
+      req.session.teamGoogleOAuthState = state;
+
+      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
+      let redirectUri: string;
+      if (replitDomain) {
+        redirectUri = `https://${replitDomain}/api/team/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/team/auth/google/callback`;
+      } else {
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        redirectUri = `${protocol}://${host}/api/team/auth/google/callback`;
+      }
+
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        access_type: 'offline',
+        prompt: 'select_account',
+        state,
+      });
+
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during Google OAuth initiation:', err);
+          return res.status(500).json({ error: 'Session error' });
+        }
+        res.redirect(`${discovery.authorization_endpoint}?${params.toString()}`);
+      });
+    } catch (error: any) {
+      console.error('Team Google OAuth initiation error:', error);
+      res.status(500).json({ error: 'Failed to start Google login' });
+    }
+  });
+
+  app.get('/api/team/auth/google/callback', async (req: Request, res: Response) => {
+    try {
+      const code = req.query.code as string;
+      const state = req.query.state as string;
+
+      if (!code || !state) {
+        return res.redirect('/team?error=google_auth_failed');
+      }
+
+      const expectedState = req.session.teamGoogleOAuthState;
+      delete req.session.teamGoogleOAuthState;
+
+      if (!expectedState || state !== expectedState) {
+        return res.redirect('/team?error=google_auth_failed');
+      }
+
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        return res.redirect('/team?error=google_not_configured');
+      }
+
+      const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
+      if (!discoveryRes.ok) {
+        return res.redirect('/team?error=google_auth_failed');
+      }
+      const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
+
+      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
+      let redirectUri: string;
+      if (replitDomain) {
+        redirectUri = `https://${replitDomain}/api/team/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/team/auth/google/callback`;
+      } else {
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        redirectUri = `${protocol}://${host}/api/team/auth/google/callback`;
+      }
+
+      const tokenRes = await fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        console.error('Team Google token exchange HTTP error:', tokenRes.status);
+        return res.redirect('/team?error=google_token_failed');
+      }
+
+      const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+      if (!tokenData.access_token) {
+        console.error('Team Google token exchange failed:', tokenData);
+        return res.redirect('/team?error=google_token_failed');
+      }
+
+      const userInfoRes = await fetch(discovery.userinfo_endpoint, {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+
+      if (!userInfoRes.ok) {
+        return res.redirect('/team?error=google_auth_failed');
+      }
+
+      const userInfo = await userInfoRes.json() as {
+        email?: string;
+        email_verified?: boolean;
+        given_name?: string;
+        family_name?: string;
+        name?: string;
+      };
+
+      if (!userInfo.email || !userInfo.email_verified) {
+        return res.redirect('/team?error=google_email_not_verified');
+      }
+
+      const email = userInfo.email.toLowerCase();
+      let driver = await storage.getDriverByEmail(email);
+
+      if (!driver) {
+        const name = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim() || 'Driver';
+        driver = await storage.createDriver({ name, email });
+        await storage.updateDriver(driver.id, { onboarding_status: 'w9_pending' });
+        driver = await storage.getDriverById(driver.id);
+      }
+
+      req.session.driverId = driver!.id;
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during team Google OAuth callback:', err);
+          return res.redirect('/team?error=google_auth_failed');
+        }
+        res.redirect('/team');
+      });
+    } catch (error: any) {
+      console.error('Team Google OAuth callback error:', error);
+      res.redirect('/team?error=google_auth_failed');
+    }
+  });
 
   app.post('/api/team/auth/register', async (req: Request, res: Response) => {
     try {
@@ -61,7 +225,13 @@ export function registerTeamRoutes(app: Express) {
 
       req.session.driverId = driver.id;
 
-      res.status(201).json({ data: formatDriverForClient(updatedDriver) });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during driver registration:', err);
+          return res.status(500).json({ error: 'Registration failed' });
+        }
+        res.status(201).json({ data: formatDriverForClient(updatedDriver) });
+      });
     } catch (error: any) {
       console.error('Driver registration error:', error);
       res.status(500).json({ error: 'Registration failed' });
@@ -88,7 +258,13 @@ export function registerTeamRoutes(app: Express) {
 
       req.session.driverId = driver.id;
 
-      res.json({ data: formatDriverForClient(driver) });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during driver login:', err);
+          return res.status(500).json({ error: 'Login failed' });
+        }
+        res.json({ data: formatDriverForClient(driver) });
+      });
     } catch (error: any) {
       console.error('Driver login error:', error);
       res.status(500).json({ error: 'Login failed' });
@@ -295,6 +471,134 @@ export function registerTeamRoutes(app: Express) {
     } catch (error: any) {
       console.error('Stripe Connect refresh error:', error);
       res.redirect('/team/');
+    }
+  });
+
+  // Manual bank account entry for direct deposit
+  app.post('/api/team/onboarding/bank-account', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const { account_holder_name, routing_number, account_number, account_type } = req.body;
+      const driverId = req.session.driverId!;
+
+      // Validation
+      if (!account_holder_name || !account_holder_name.trim()) {
+        return res.status(400).json({ error: 'Account holder name is required' });
+      }
+
+      if (!routing_number || !routing_number.trim()) {
+        return res.status(400).json({ error: 'Routing number is required' });
+      }
+
+      if (!validateRoutingNumber(routing_number)) {
+        return res.status(400).json({ error: 'Invalid routing number. Must be a valid 9-digit ABA routing number.' });
+      }
+
+      if (!account_number || !account_number.trim()) {
+        return res.status(400).json({ error: 'Account number is required' });
+      }
+
+      if (!validateAccountNumber(account_number)) {
+        return res.status(400).json({ error: 'Invalid account number. Must be 1-17 digits.' });
+      }
+
+      if (!validateAccountType(account_type)) {
+        return res.status(400).json({ error: 'Account type must be either "checking" or "savings"' });
+      }
+
+      // Get driver and their W9 record
+      const driver = await storage.getDriverById(driverId);
+      if (!driver) {
+        return res.status(404).json({ error: 'Driver not found' });
+      }
+
+      // Encrypt sensitive data
+      const routingEncrypted = encrypt(routing_number.trim());
+      const accountEncrypted = encrypt(account_number.trim());
+
+      // Update driver_w9 with bank account info
+      const query = `
+        UPDATE driver_w9
+        SET
+          account_holder_name = $1,
+          routing_number_encrypted = $2,
+          account_number_encrypted = $3,
+          account_type = $4
+        WHERE driver_id = $5
+      `;
+
+      await storage.query(query, [
+        account_holder_name.trim(),
+        routingEncrypted,
+        accountEncrypted,
+        account_type,
+        driverId,
+      ]);
+
+      // Update driver to mark direct deposit as completed
+      const updateDriverQuery = `
+        UPDATE drivers
+        SET
+          direct_deposit_completed = true,
+          updated_at = NOW()
+        WHERE id = $1
+      `;
+
+      await storage.query(updateDriverQuery, [driverId]);
+
+      // Check if onboarding is complete (both W9 and direct deposit done)
+      const updatedDriver = await storage.getDriverById(driverId);
+      if (updatedDriver.w9_completed && updatedDriver.direct_deposit_completed) {
+        const completeQuery = `
+          UPDATE drivers
+          SET onboarding_status = 'completed', updated_at = NOW()
+          WHERE id = $1
+        `;
+        await storage.query(completeQuery, [driverId]);
+      }
+
+      // Return masked account number for confirmation
+      const maskedAccount = maskAccountNumber(account_number);
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Bank account information submitted successfully',
+          masked_account: maskedAccount,
+          account_type: account_type,
+        },
+      });
+    } catch (error: any) {
+      console.error('Bank account submission error:', error);
+      res.status(500).json({ error: 'Failed to submit bank account information' });
+    }
+  });
+
+  // Skip direct deposit setup for now - team member can complete later
+  app.post('/api/team/onboarding/bank-account/skip', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = req.session.driverId!;
+
+      // Update driver to mark direct deposit as completed (deferred)
+      const updateDriverQuery = `
+        UPDATE drivers
+        SET
+          direct_deposit_completed = true,
+          onboarding_status = 'completed',
+          updated_at = NOW()
+        WHERE id = $1
+      `;
+
+      await storage.query(updateDriverQuery, [driverId]);
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Onboarding complete! You can set up direct deposit anytime from your profile.',
+        },
+      });
+    } catch (error: any) {
+      console.error('Skip direct deposit error:', error);
+      res.status(500).json({ error: 'Failed to complete onboarding' });
     }
   });
 

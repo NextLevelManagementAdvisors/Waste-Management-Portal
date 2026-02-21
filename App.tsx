@@ -16,6 +16,7 @@ import ResetPassword from './components/ResetPassword.tsx';
 import MakePaymentHub from './components/MakePaymentHub.tsx';
 import AcceptTransfer from './components/AcceptTransfer.tsx';
 import ChatWidget from './components/ChatWidget.tsx';
+import LandingPage from './components/LandingPage.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
 import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/mockApiService.ts';
@@ -164,6 +165,8 @@ const App: React.FC = () => {
     if (window.location.pathname === '/reset-password' && token) {
       setResetToken(token);
       setAuthView('reset-password');
+      // Remove token from browser history so it can't be replayed from history
+      window.history.replaceState({}, '', '/reset-password');
       setInitialLoading(false);
       return;
     }
@@ -185,10 +188,6 @@ const App: React.FC = () => {
         fetchUserAndSetState(userData);
         setIsAuthenticated(true);
         const pathname = normalizePath(window.location.pathname);
-        if (userData.isAdmin && !userData.impersonating && !pathname.startsWith('/accept-transfer')) {
-          window.location.href = '/admin/';
-          return;
-        }
         if (pathname === '/accept-transfer') {
           setPendingDeepLink(null);
           return;
@@ -210,7 +209,7 @@ const App: React.FC = () => {
       })
       .catch(() => {
         const pathname = normalizePath(window.location.pathname);
-        if (pathname !== '/reset-password' && pathname !== '/accept-transfer' && !AUTH_PATHS[pathname]) {
+        if (pathname !== '/' && pathname !== '/reset-password' && pathname !== '/accept-transfer' && !AUTH_PATHS[pathname]) {
           setAuthView('login');
           window.history.replaceState({}, '', '/login');
         }
@@ -230,10 +229,6 @@ const App: React.FC = () => {
       const userData = await login(email, password);
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      if (userData.isAdmin && !pendingTransferToken) {
-        window.location.href = '/admin/';
-        return;
-      }
       if (pendingTransferToken) {
         return;
       }
@@ -283,10 +278,6 @@ const App: React.FC = () => {
       const userData = await getUser();
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      if (userData.isAdmin) {
-        window.location.href = '/admin/';
-        return;
-      }
       if (userData.properties && userData.properties.length === 0) {
         setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
@@ -511,6 +502,13 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
+    const pathname = normalizePath(window.location.pathname);
+
+    // Show landing page at root path
+    if (pathname === '/' && !AUTH_PATHS[pathname]) {
+      return <LandingPage />;
+    }
+
     const switchToLogin = () => {
       window.history.replaceState({}, '', '/login');
       setResetToken(null);

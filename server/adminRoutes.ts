@@ -33,7 +33,8 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     (req as any).adminUser = user;
-    (req as any).adminRole = (user.admin_role || 'full_admin') as AdminRole;
+    const rawRole = user.admin_role || 'full_admin';
+    (req as any).adminRole = (rawRole === 'superadmin' ? 'full_admin' : rawRole) as AdminRole;
     next();
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -132,13 +133,12 @@ export function registerAdminRoutes(app: Express) {
       if (user.stripe_customer_id) {
         try {
           const stripe = await getUncachableStripeClient();
-          const customer = await stripe.customers.retrieve(user.stripe_customer_id);
-          const subscriptions = await stripe.subscriptions.list({ customer: user.stripe_customer_id });
-          const invoices = await stripe.invoices.list({ customer: user.stripe_customer_id, limit: 10 });
-          const paymentMethods = await stripe.paymentMethods.list({
-            customer: user.stripe_customer_id,
-            type: 'card',
-          });
+          const [customer, subscriptions, invoices, paymentMethods] = await Promise.all([
+            stripe.customers.retrieve(user.stripe_customer_id),
+            stripe.subscriptions.list({ customer: user.stripe_customer_id }),
+            stripe.invoices.list({ customer: user.stripe_customer_id, limit: 10 }),
+            stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: 'card' }),
+          ]);
 
           const safeDate = (ts: any) => {
             try {

@@ -1,0 +1,115 @@
+import React from 'react';
+import { HomeIcon, BuildingOffice2Icon, TruckIcon } from './Icons.tsx';
+import { Card } from './Card.tsx';
+import { Button } from './Button.tsx';
+
+interface PortalInfo {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  signInText: string;
+  signUpText: string;
+  href: string;
+}
+
+const portals: PortalInfo[] = [
+  {
+    id: 'client',
+    name: 'Client Portal',
+    description: 'Manage your waste management services, subscriptions, and payments',
+    icon: <HomeIcon className="w-16 h-16 text-primary mb-4" />,
+    signInText: 'Sign In',
+    signUpText: 'Create Account',
+    href: '/login',
+  },
+  {
+    id: 'admin',
+    name: 'Admin Portal',
+    description: 'Manage customers, billing, operations, and system settings',
+    icon: <BuildingOffice2Icon className="w-16 h-16 text-primary mb-4" />,
+    signInText: 'Sign In',
+    signUpText: 'Request Access',
+    href: '/admin',
+  },
+  {
+    id: 'team',
+    name: 'Team Portal',
+    description: 'Find jobs, manage your schedule, and track your performance',
+    icon: <TruckIcon className="w-16 h-16 text-primary mb-4" />,
+    signInText: 'Sign In',
+    signUpText: 'Create Account',
+    href: '/team',
+  },
+];
+
+const LandingPage: React.FC = () => {
+  const handlePortalClick = (href: string) => {
+    window.location.href = href;
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-base-200 to-base-100 flex flex-col">
+      {/* Header */}
+      <div className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <h1 className="text-4xl font-bold text-center text-neutral">
+            Welcome to WasteHub
+          </h1>
+          <p className="text-center text-gray-600 mt-2">
+            Choose your portal to continue
+          </p>
+        </div>
+      </div>
+
+      {/* Portal Cards */}
+      <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {portals.map((portal) => (
+            <Card key={portal.id} className="flex flex-col h-full hover:shadow-lg transition-shadow duration-300 cursor-pointer">
+              {/* Icon */}
+              <div className="flex justify-center">
+                {portal.icon}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 text-center mb-6">
+                <h2 className="text-2xl font-bold text-neutral mb-3">
+                  {portal.name}
+                </h2>
+                <p className="text-gray-600 text-sm leading-relaxed">
+                  {portal.description}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-3">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => handlePortalClick(portal.href)}
+                >
+                  {portal.signInText}
+                </Button>
+                <button
+                  className="text-sm text-primary hover:text-primary-focus font-medium transition-colors"
+                  onClick={() => handlePortalClick(portal.href)}
+                >
+                  {portal.signUpText} →
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="bg-white border-t border-base-200 py-6 text-center text-sm text-gray-500">
+        <p>© 2025 WasteHub. All rights reserved.</p>
+      </div>
+    </div>
+  );
+};
+
+export default LandingPage;

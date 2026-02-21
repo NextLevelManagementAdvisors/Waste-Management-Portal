@@ -71,7 +71,7 @@ const sessionMiddleware = session({
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000,
     httpOnly: true,
-    secure: isProduction,
+    secure: 'auto',
     sameSite: 'lax',
   },
 });
@@ -110,6 +110,8 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use('/api/auth/login', authRateLimit);
 app.use('/api/auth/register', authRateLimit);
+app.use('/api/auth/forgot-password', authRateLimit);
+app.use('/api/auth/reset-password', authRateLimit);
 registerAuthRoutes(app);
 
 const { registerRoutes } = await import('./routes');
@@ -168,7 +170,7 @@ async function initStripe() {
     const stripeSync = await getStripeSync();
 
     console.log('Setting up managed webhook...');
-    const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const webhookBaseUrl = process.env.APP_DOMAIN || `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
     try {
       const result = await stripeSync.findOrCreateManagedWebhook(
         `${webhookBaseUrl}/api/stripe/webhook`

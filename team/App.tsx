@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '../components/Card.tsx';
 import { Button } from '../components/Button.tsx';
+import TeamAuthLayout from './components/TeamAuthLayout';
+import TeamLogin from './components/TeamLogin';
+import TeamRegister from './components/TeamRegister';
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -239,11 +242,20 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
   const [w9Error, setW9Error] = useState('');
   const [w9Success, setW9Success] = useState(false);
 
-  const [stripeLoading, setStripeLoading] = useState(false);
-  const [stripeError, setStripeError] = useState('');
-  const [stripeCheckLoading, setStripeCheckLoading] = useState(false);
+  const [bankForm, setBankForm] = useState({
+    account_holder_name: '',
+    routing_number: '',
+    account_number: '',
+    account_type: 'checking' as 'checking' | 'savings',
+  });
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [bankSuccess, setBankSuccess] = useState(false);
+  const [depositMethod, setDepositMethod] = useState<'select' | 'manual' | 'skip' | null>(null);
+  const [skipLoading, setSkipLoading] = useState(false);
 
   const updateW9 = (field: string, value: any) => setW9Form(prev => ({ ...prev, [field]: value }));
+  const updateBank = (field: string, value: any) => setBankForm(prev => ({ ...prev, [field]: value }));
 
   const handleW9Submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,32 +313,72 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
     }
   };
 
-  const handleStripeConnect = async () => {
-    setStripeError('');
-    setStripeLoading(true);
+  const handleBankAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBankError('');
+
+    // Client-side validation
+    if (!bankForm.account_holder_name.trim()) {
+      setBankError('Account holder name is required');
+      return;
+    }
+    if (!bankForm.routing_number.trim()) {
+      setBankError('Routing number is required');
+      return;
+    }
+    if (!/^\d{9}$/.test(bankForm.routing_number)) {
+      setBankError('Routing number must be 9 digits');
+      return;
+    }
+    if (!bankForm.account_number.trim()) {
+      setBankError('Account number is required');
+      return;
+    }
+    if (!/^\d{1,17}$/.test(bankForm.account_number)) {
+      setBankError('Account number must be 1-17 digits');
+      return;
+    }
+
+    setBankLoading(true);
     try {
-      const res = await fetch('/api/team/onboarding/stripe-connect', {
+      const res = await fetch('/api/team/onboarding/bank-account', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({
+          account_holder_name: bankForm.account_holder_name,
+          routing_number: bankForm.routing_number,
+          account_number: bankForm.account_number,
+          account_type: bankForm.account_type,
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to start Stripe Connect');
-      const url = json.data?.url || json.url;
-      if (url) window.location.href = url;
+      if (!res.ok) throw new Error(json.error || 'Failed to submit bank account');
+      setBankSuccess(true);
+      onRefresh();
     } catch (err: any) {
-      setStripeError(err.message);
+      setBankError(err.message);
     } finally {
-      setStripeLoading(false);
+      setBankLoading(false);
     }
   };
 
-  const handleCheckStripeStatus = async () => {
-    setStripeCheckLoading(true);
+  const handleSkipDirectDeposit = async () => {
+    setSkipLoading(true);
     try {
-      await fetch('/api/team/onboarding/stripe-connect/status', { credentials: 'include' });
+      const res = await fetch('/api/team/onboarding/bank-account/skip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to skip direct deposit setup');
       onRefresh();
-    } catch {} finally {
-      setStripeCheckLoading(false);
+    } catch (err: any) {
+      setBankError(err.message);
+    } finally {
+      setSkipLoading(false);
     }
   };
 
@@ -543,32 +595,119 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                   <h2 className="text-xl font-bold text-gray-900 mb-2">Direct Deposit Setup Complete</h2>
                   <p className="text-gray-500">Your bank account is connected and ready to receive payments.</p>
                 </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-teal-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18v-.008Zm-12 0h.008v.008H6v-.008Z" />
-                    </svg>
+              ) : depositMethod === null || depositMethod === 'select' ? (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Set Up Direct Deposit</h2>
+                    <p className="text-gray-500 mb-6">Choose how you'd like to connect your bank account</p>
                   </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">Set Up Direct Deposit</h2>
-                  <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                    Connect your bank account through Stripe to receive payments directly. This is a secure process powered by Stripe.
-                  </p>
 
-                  {stripeError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4 max-w-md mx-auto">{stripeError}</div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <button
+                      onClick={() => setDepositMethod('manual')}
+                      className="p-4 border-2 border-teal-200 rounded-lg hover:border-teal-600 hover:bg-teal-50 transition-all text-left"
+                    >
+                      <h3 className="font-bold text-gray-900 mb-1">Enter Bank Account Manually</h3>
+                      <p className="text-sm text-gray-600">Securely enter your routing and account number</p>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setDepositMethod('skip');
+                        handleSkipDirectDeposit();
+                      }}
+                      className="p-4 border-2 border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all text-left"
+                    >
+                      <h3 className="font-bold text-gray-900 mb-1">Set Up Later</h3>
+                      <p className="text-sm text-gray-600">Complete onboarding now, add bank details anytime</p>
+                    </button>
+                  </div>
+                </div>
+              ) : depositMethod === 'manual' ? (
+                <form onSubmit={handleBankAccountSubmit} className="space-y-5">
+                  <div className="border-b border-gray-200 pb-4 mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">Direct Deposit Setup</h2>
+                    <p className="text-xs text-gray-400 mt-1">Enter your bank account information to receive payments</p>
+                  </div>
+
+                  {bankError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{bankError}</div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                    <Button onClick={handleStripeConnect} disabled={stripeLoading}>
-                      {stripeLoading ? 'Connecting...' : 'Connect Your Bank Account'}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Account Holder Name *</label>
+                    <input
+                      type="text"
+                      value={bankForm.account_holder_name}
+                      onChange={e => updateBank('account_holder_name', e.target.value)}
+                      placeholder="John Doe"
+                      required
+                      className={inputClass}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Account Type *</label>
+                    <select
+                      value={bankForm.account_type}
+                      onChange={e => updateBank('account_type', e.target.value as 'checking' | 'savings')}
+                      className={inputClass}
+                    >
+                      <option value="checking">Checking</option>
+                      <option value="savings">Savings</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Routing Number *</label>
+                      <input
+                        type="text"
+                        value={bankForm.routing_number}
+                        onChange={e => updateBank('routing_number', e.target.value.replace(/\D/g, ''))}
+                        placeholder="000000000"
+                        maxLength={9}
+                        required
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">9-digit ABA routing number</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Account Number *</label>
+                      <input
+                        type="password"
+                        value={bankForm.account_number}
+                        onChange={e => updateBank('account_number', e.target.value.replace(/\D/g, ''))}
+                        placeholder="•••••••••••"
+                        required
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Up to 17 digits</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <p className="text-xs text-blue-700">
+                      <strong>Secure:</strong> Your bank account information is encrypted and stored securely. We never share this information with third parties.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setDepositMethod('select')}
+                      className="flex-1"
+                      disabled={bankLoading}
+                    >
+                      Back
                     </Button>
-                    <Button variant="secondary" onClick={handleCheckStripeStatus} disabled={stripeCheckLoading}>
-                      {stripeCheckLoading ? 'Checking...' : 'Check Status'}
+                    <Button type="submit" disabled={bankLoading} className="flex-1">
+                      {bankLoading ? 'Submitting...' : 'Submit Bank Account'}
                     </Button>
                   </div>
-                </>
-              )}
+                </form>
+              ) : null}
             </div>
           )}
         </Card>
@@ -1459,54 +1598,6 @@ const TeamApp: React.FC = () => {
     checkSession();
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/team/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
-      setCurrentDriver(normalizeDriver(json.data || json.driver));
-      await checkOnboarding();
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    if (regPassword !== regConfirm) {
-      setAuthError('Passwords do not match');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/team/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ full_name: regName, email: regEmail, phone: regPhone, password: regPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
-      setCurrentDriver(normalizeDriver(json.data || json.driver));
-      await checkOnboarding();
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
     try {
       await fetch('/api/team/auth/logout', { method: 'POST', credentials: 'include' });
@@ -1535,126 +1626,77 @@ const TeamApp: React.FC = () => {
 
   if (!currentDriver) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full p-8">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center mx-auto mb-4">
-              <BriefcaseIcon className="w-8 h-8 text-teal-600" />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900">Team Portal</h1>
-            <p className="text-gray-500 text-sm mt-1">Driver & Contractor Access</p>
-          </div>
-
-          {authError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
-              {authError}
-            </div>
-          )}
-
-          {authMode === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Signing in...' : 'Sign In'}
-              </Button>
-              <p className="text-center text-sm text-gray-500">
-                Don't have an account?{' '}
-                <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); }} className="text-teal-600 font-bold hover:underline">
-                  Register
-                </button>
-              </p>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={regName}
-                  onChange={e => setRegName(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="John Doe"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={regEmail}
-                  onChange={e => setRegEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={regPhone}
-                  onChange={e => setRegPhone(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="(555) 123-4567"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={regPassword}
-                  onChange={e => setRegPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Confirm Password</label>
-                <input
-                  type="password"
-                  value={regConfirm}
-                  onChange={e => setRegConfirm(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Creating account...' : 'Create Account'}
-              </Button>
-              <p className="text-center text-sm text-gray-500">
-                Already have an account?{' '}
-                <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); }} className="text-teal-600 font-bold hover:underline">
-                  Sign In
-                </button>
-              </p>
-            </form>
-          )}
-        </Card>
-      </div>
+      <TeamAuthLayout error={authError}>
+        {authMode === 'login' ? (
+          <TeamLogin
+            onLogin={async (email, password) => {
+              setAuthError('');
+              setAuthLoading(true);
+              try {
+                const res = await fetch('/api/team/auth/login', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ email, password }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
+                setCurrentDriver(normalizeDriver(json.data || json.driver));
+                setLoginEmail('');
+                setLoginPassword('');
+                await checkOnboarding();
+              } catch (err: any) {
+                setAuthError(err.message);
+              } finally {
+                setAuthLoading(false);
+              }
+            }}
+            switchToRegister={() => {
+              setAuthMode('register');
+              setAuthError('');
+            }}
+            isLoading={authLoading}
+          />
+        ) : (
+          <TeamRegister
+            onRegister={async (data) => {
+              setAuthError('');
+              setAuthLoading(true);
+              try {
+                const res = await fetch('/api/team/auth/register', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    full_name: data.full_name,
+                    email: data.email,
+                    phone: data.phone,
+                    password: data.password,
+                  }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
+                setCurrentDriver(normalizeDriver(json.data || json.driver));
+                setRegName('');
+                setRegEmail('');
+                setRegPhone('');
+                setRegPassword('');
+                setRegConfirm('');
+                await checkOnboarding();
+              } catch (err: any) {
+                setAuthError(err.message);
+              } finally {
+                setAuthLoading(false);
+              }
+            }}
+            switchToLogin={() => {
+              setAuthMode('login');
+              setAuthError('');
+            }}
+            isLoading={authLoading}
+          />
+        )}
+      </TeamAuthLayout>
     );
   }
 

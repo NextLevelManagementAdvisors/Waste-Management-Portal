@@ -10,7 +10,9 @@
     "seed": "npx tsx server/seed-products.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production npx tsx server/index.ts"
+    "stop": "npx kill-port 5000 || true",
+    "start": "NODE_ENV=production npx tsx server/index.ts",
+    "restart": "npm run stop && npm run start"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -49,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

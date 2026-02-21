@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { LoadingSpinner, StatCard } from './shared.tsx';
-import { Card } from '../../components/Card.tsx';
+import { LoadingSpinner, StatCard } from '../ui/index.ts';
+import { Card } from '../../../components/Card.tsx';
 import {
   UsersIcon,
   BuildingOffice2Icon,
   ChartPieIcon,
   ClockIcon,
   ArrowRightIcon,
-} from '../../components/Icons.tsx';
+} from '../../../components/Icons.tsx';
 
 interface AdminStats {
   totalUsers: number;

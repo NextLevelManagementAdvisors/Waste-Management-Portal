@@ -31,13 +31,20 @@ export async function ensureAdmin() {
       ['Admin', 'User', email.toLowerCase(), passwordHash]
     );
     console.log(`ensureAdmin: Created superadmin account (${email})`);
-  } else if (!existing.rows[0].is_admin) {
-    await pool.query(
-      `UPDATE users SET is_admin = TRUE, admin_role = 'superadmin' WHERE id = $1`,
-      [existing.rows[0].id]
-    );
-    console.log(`ensureAdmin: Promoted existing account to superadmin (${email})`);
   } else {
-    console.log(`ensureAdmin: Superadmin account OK (${email})`);
+    const passwordHash = await bcrypt.hash(password, 12);
+    if (!existing.rows[0].is_admin) {
+      await pool.query(
+        `UPDATE users SET is_admin = TRUE, admin_role = 'superadmin', password_hash = $1 WHERE id = $2`,
+        [passwordHash, existing.rows[0].id]
+      );
+      console.log(`ensureAdmin: Promoted existing account to superadmin and updated password (${email})`);
+    } else {
+      await pool.query(
+        `UPDATE users SET password_hash = $1 WHERE id = $2`,
+        [passwordHash, existing.rows[0].id]
+      );
+      console.log(`ensureAdmin: Superadmin password synced from env (${email})`);
+    }
   }
 }

@@ -288,3 +288,9 @@ CREATE TABLE IF NOT EXISTS messages (
   message_type VARCHAR(50) DEFAULT 'text',
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add bank account columns to driver_w9 for manual bank account entry
+ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(255);
+ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS routing_number_encrypted VARCHAR(255);
+ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_number_encrypted VARCHAR(255);
+ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_type VARCHAR(20);

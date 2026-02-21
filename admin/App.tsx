@@ -13,6 +13,8 @@ import BillingView from './components/BillingView.tsx';
 import OperationsView from './components/OperationsView.tsx';
 import SystemView from './components/SystemView.tsx';
 import CommunicationsView from './components/CommunicationsView.tsx';
+import AdminAuthLayout from './components/AdminAuthLayout.tsx';
+import AdminLogin from './components/AdminLogin.tsx';
 
 interface AdminUser {
   id: string;
@@ -59,6 +61,7 @@ export interface NavFilter {
 const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -70,6 +73,36 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentView(view);
   };
+
+  const handleAdminLogin = useCallback(async (email: string, password: string) => {
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setAuthError(json.error || 'Login failed');
+        return;
+      }
+
+      // Check if user is admin
+      if (!json.data?.isAdmin) {
+        setAuthError('You do not have admin privileges. Please use the Client Portal to sign in.');
+        return;
+      }
+
+      setUser(json.data);
+      setAuthChecked(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'An error occurred during login');
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -105,16 +138,9 @@ const AdminApp: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full p-8 text-center">
-          <ShieldCheckIcon className="w-16 h-16 text-teal-600 mx-auto mb-4" />
-          <h1 className="text-2xl font-black text-gray-900 mb-2">Admin Access Required</h1>
-          <p className="text-gray-500 mb-6">You need to be logged in with an admin account to access this portal.</p>
-          <a href="/" className="inline-block">
-            <Button>Go to Client Portal</Button>
-          </a>
-        </Card>
-      </div>
+      <AdminAuthLayout error={authError}>
+        <AdminLogin onLogin={handleAdminLogin} />
+      </AdminAuthLayout>
     );
   }
 
@@ -208,7 +234,7 @@ const AdminApp: React.FC = () => {
                       <div className="mb-2">
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Customers</p>
                         {searchResults.users.map((u: any) => (
-                          <button key={u.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={u.id} onClick={() => { navigateTo('customers', { search: u.email }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{u.first_name} {u.last_name}</p>
                             <p className="text-xs text-gray-400">{u.email}</p>
                           </button>
@@ -219,7 +245,7 @@ const AdminApp: React.FC = () => {
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
                         {searchResults.properties.map((p: any) => (
-                          <button key={p.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={p.id} onClick={() => { navigateTo('customers', { search: p.address }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{p.address}</p>
                             <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
                           </button>
