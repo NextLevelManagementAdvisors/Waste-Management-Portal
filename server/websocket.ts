@@ -52,16 +52,20 @@ export function setupWebSocket(server: Server, sessionMiddleware: any) {
     const mockRes = { end: () => {}, setHeader: () => {}, getHeader: () => '' } as any;
     sessionMiddleware(req, mockRes, async () => {
       const session = (req as any).session;
-      if (!session?.userId) {
+
+      // Support both user sessions (userId) and driver sessions (driverId)
+      if (session?.driverId) {
+        ws.userId = session.driverId;
+        ws.userType = 'driver';
+      } else if (session?.userId) {
+        const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [session.userId]);
+        const isAdmin = result.rows[0]?.is_admin ?? false;
+        ws.userId = session.userId;
+        ws.userType = isAdmin ? 'admin' : 'user';
+      } else {
         ws.close(4001, 'Unauthorized');
         return;
       }
-
-      const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [session.userId]);
-      const isAdmin = result.rows[0]?.is_admin ?? false;
-
-      ws.userId = session.userId;
-      ws.userType = isAdmin ? 'admin' : 'user';
 
       const key = getClientKey(ws.userId!, ws.userType!);
       if (!clients.has(key)) {

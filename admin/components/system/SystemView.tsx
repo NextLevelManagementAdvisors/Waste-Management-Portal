@@ -9,7 +9,7 @@ const SystemView: React.FC = () => {
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'audit', label: 'Audit Log' },
-    { key: 'settings', label: 'Settings' },
+    { key: 'settings', label: 'Admin Roles' },
   ];
 
   return (

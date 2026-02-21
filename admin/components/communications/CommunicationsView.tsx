@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, StatusBadge } from '../ui/index.ts';
+import NotificationSender from '../operations/NotificationSender.tsx';
 
 interface Participant {
   id: string;
@@ -341,7 +342,7 @@ const ChatThread: React.FC<{
     <div className="flex flex-col h-[calc(100vh-12rem)]">
       <div className="flex items-center justify-between pb-4 border-b border-gray-200">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <button type="button" onClick={onBack} title="Back to conversations" className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <div>
@@ -417,6 +418,7 @@ const ChatThread: React.FC<{
 };
 
 const CommunicationsView: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'conversations' | 'notifications'>('conversations');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -477,23 +479,51 @@ const CommunicationsView: React.FC = () => {
     } catch {}
   };
 
+  const tabBar = (
+    <div className="flex gap-1 border-b border-gray-200">
+      {(['conversations', 'notifications'] as const).map(t => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => { setActiveTab(t); setSelectedConversation(null); }}
+          className={`px-5 py-3 font-bold text-sm border-b-2 transition-colors capitalize ${
+            activeTab === t
+              ? 'text-teal-700 border-teal-600'
+              : 'text-gray-400 border-transparent hover:text-gray-600'
+          }`}
+        >
+          {t.charAt(0).toUpperCase() + t.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
+
   if (selectedConversation) {
     return (
-      <ChatThread
-        conversation={selectedConversation}
-        onBack={() => { setSelectedConversation(null); loadConversations(); }}
-        onStatusChange={handleStatusChange}
-      />
+      <div className="space-y-6">
+        {tabBar}
+        <ChatThread
+          conversation={selectedConversation}
+          onBack={() => { setSelectedConversation(null); loadConversations(); }}
+          onStatusChange={handleStatusChange}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {tabBar}
+      {activeTab === 'notifications' ? (
+        <NotificationSender />
+      ) : (
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
             {['all', 'open', 'closed'].map(s => (
               <button
+                type="button"
                 key={s}
                 onClick={() => setStatusFilter(s)}
                 className={`px-4 py-1.5 rounded-md text-sm font-bold transition-colors ${
@@ -581,6 +611,8 @@ const CommunicationsView: React.FC = () => {
           loadConversations();
         }}
       />
+      </div>
+      )}
     </div>
   );
 };

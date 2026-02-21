@@ -294,3 +294,7 @@ ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(255);
 ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS routing_number_encrypted VARCHAR(255);
 ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_number_encrypted VARCHAR(255);
 ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_type VARCHAR(20);
+
+-- Message email opt-in
+ALTER TABLE users ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
+ALTER TABLE drivers ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;

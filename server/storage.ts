@@ -981,6 +981,22 @@ export class Storage {
     return result.rows;
   }
 
+  async getConversationsForDriver(driverId: string) {
+    const result = await this.query(
+      `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')) as unread_count
+       FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = 'driver'
+       WHERE c.status != 'archived'
+       ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
   async getUnreadCount(participantId: string, participantType: string) {
     const result = await this.query(
       `SELECT COUNT(DISTINCT c.id) as count FROM conversations c
@@ -1031,6 +1047,53 @@ export class Storage {
   async getW9ByDriverId(driverId: string) {
     const result = await this.query('SELECT * FROM driver_w9 WHERE driver_id = $1', [driverId]);
     return result.rows[0] || null;
+  }
+
+  async createRouteJob(data: {
+    title: string;
+    description?: string;
+    area?: string;
+    scheduled_date: string;
+    start_time?: string;
+    end_time?: string;
+    estimated_stops?: number;
+    estimated_hours?: number;
+    base_pay?: number;
+    notes?: string;
+    assigned_driver_id?: string;
+  }) {
+    const result = await this.query(
+      `INSERT INTO route_jobs
+         (title, description, area, scheduled_date, start_time, end_time,
+          estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       RETURNING *`,
+      [
+        data.title,
+        data.description ?? null,
+        data.area ?? null,
+        data.scheduled_date,
+        data.start_time ?? null,
+        data.end_time ?? null,
+        data.estimated_stops ?? null,
+        data.estimated_hours ?? null,
+        data.base_pay ?? null,
+        data.notes ?? null,
+        data.assigned_driver_id ?? null,
+        data.assigned_driver_id ? 'assigned' : 'open',
+      ]
+    );
+    return result.rows[0];
+  }
+
+  async getAllRouteJobs() {
+    const result = await this.query(
+      `SELECT rj.*, d.name AS driver_name
+       FROM route_jobs rj
+       LEFT JOIN drivers d ON rj.assigned_driver_id = d.id
+       ORDER BY rj.scheduled_date DESC, rj.created_at DESC`
+    );
+    return result.rows;
   }
 
   async getOpenJobs(filters?: { startDate?: string; endDate?: string }) {

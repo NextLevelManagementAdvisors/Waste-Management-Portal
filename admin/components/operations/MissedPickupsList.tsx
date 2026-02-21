@@ -30,13 +30,13 @@ interface ResolveModalProps {
   report: MissedPickupReport | null;
   onClose: () => void;
   onSaved: () => void;
-  isSaving: boolean;
 }
 
-const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, onSaved, isSaving }) => {
+const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, onSaved }) => {
   const [status, setStatus] = useState<string>('investigating');
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (report) {
@@ -50,6 +50,7 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
     e.preventDefault();
     if (!report) return;
 
+    setIsSaving(true);
     try {
       const res = await fetch(`/api/admin/missed-pickups/${report.id}`, {
         method: 'PUT',
@@ -67,6 +68,8 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
       }
     } catch {
       setError('Failed to update missed pickup report');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -125,7 +128,6 @@ const MissedPickupsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<MissedPickupReport | null>(null);
   const [showResolveModal, setShowResolveModal] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -157,7 +159,6 @@ const MissedPickupsList: React.FC = () => {
   };
 
   const handleSaved = async () => {
-    setSaving(false);
     await loadReports();
   };
 
@@ -247,7 +248,6 @@ const MissedPickupsList: React.FC = () => {
         report={selectedReport}
         onClose={() => setShowResolveModal(false)}
         onSaved={handleSaved}
-        isSaving={saving}
       />
     </div>
   );

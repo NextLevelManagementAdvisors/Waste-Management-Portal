@@ -30,3 +30,21 @@ export interface Driver {
   onboarding_status?: string;
   rating?: number;
 }
+
+export interface RouteJob {
+  id: string;
+  title: string;
+  description?: string;
+  area?: string;
+  scheduled_date: string;
+  start_time?: string;
+  end_time?: string;
+  estimated_stops?: number;
+  estimated_hours?: number;
+  base_pay?: number;
+  status: 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed';
+  assigned_driver_id?: string;
+  driver_name?: string;
+  notes?: string;
+  created_at: string;
+}

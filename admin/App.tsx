@@ -120,6 +120,11 @@ const AdminApp: React.FC = () => {
       .finally(() => setAuthChecked(true));
   }, []);
 
+  const handleLogout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    setUser(null);
+  }, []);
+
   const handleGlobalSearch = useCallback(async (q: string) => {
     setSearchQuery(q);
     if (q.length < 2) { setSearchResults(null); return; }
@@ -150,7 +155,7 @@ const AdminApp: React.FC = () => {
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
     { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
-    { view: 'team', label: 'Team', icon: <PeopleIcon className="w-5 h-5" /> },
+    { view: 'team', label: 'Drivers', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
@@ -187,7 +192,7 @@ const AdminApp: React.FC = () => {
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black">
+            <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black flex-shrink-0">
               {user.firstName[0]}{user.lastName[0]}
             </div>
             <div className="flex-1 min-w-0">
@@ -195,6 +200,16 @@ const AdminApp: React.FC = () => {
               <p className="text-xs text-gray-400 truncate">{user.email}</p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15m-3 0-3-3m0 0 3-3m-3 3H15" />
+            </svg>
+            Sign Out
+          </button>
         </div>
       </aside>
 
@@ -262,7 +277,7 @@ const AdminApp: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} />}
+          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'customers' && <CustomersView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}

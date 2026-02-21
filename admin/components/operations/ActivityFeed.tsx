@@ -22,7 +22,7 @@ const ActivityFeed: React.FC = () => {
 
   useEffect(() => {
     fetch('/api/admin/activity', { credentials: 'include' })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then(setActivity)
       .catch(console.error)
       .finally(() => setLoading(false));

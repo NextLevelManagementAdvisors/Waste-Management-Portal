@@ -337,10 +337,57 @@ export function registerTeamRoutes(app: Express) {
   app.get('/api/team/onboarding/w9', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const w9 = await storage.getW9ByDriverId(req.session.driverId!);
-      res.json({ data: w9 || null });
+      if (!w9) return res.json({ data: null });
+      // Return safe fields only (no encrypted bank data)
+      const { account_number_encrypted, routing_number_encrypted, ...safeW9 } = w9;
+      res.json({ data: safeW9 });
     } catch (error: any) {
       console.error('Get W9 error:', error);
       res.status(500).json({ error: 'Failed to get W9 data' });
+    }
+  });
+
+  app.put('/api/team/onboarding/w9', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = req.session.driverId!;
+      const d = req.body;
+
+      if (!d.legal_name || !d.federal_tax_classification || !d.address || !d.city || !d.state || !d.zip || !d.tin_type || !d.signature_date) {
+        return res.status(400).json({ error: 'Required W9 fields are missing' });
+      }
+      if (!d.certification) {
+        return res.status(400).json({ error: 'You must certify the information is correct' });
+      }
+      if (!d.signature_data) {
+        return res.status(400).json({ error: 'Signature is required' });
+      }
+
+      const existing = await storage.getW9ByDriverId(driverId);
+      if (existing) {
+        await storage.query(
+          `UPDATE driver_w9 SET
+            legal_name = $1, business_name = $2, federal_tax_classification = $3,
+            exempt_payee_code = $4, fatca_exemption_code = $5,
+            address = $6, city = $7, state = $8, zip = $9,
+            tin_type = $10, signature_data = $11, signature_date = $12, certified = $13
+          WHERE driver_id = $14`,
+          [
+            d.legal_name, d.business_name || null, d.federal_tax_classification,
+            d.exempt_payee_code || null, d.fatca_exemption_code || null,
+            d.address, d.city, d.state, d.zip,
+            d.tin_type, d.signature_data, d.signature_date, d.certification,
+            driverId,
+          ]
+        );
+      } else {
+        await storage.createW9(driverId, d);
+      }
+
+      await storage.updateDriver(driverId, { w9_completed: true });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('W9 update error:', error);
+      res.status(500).json({ error: 'Failed to update W9' });
     }
   });
 
@@ -573,6 +620,28 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  app.get('/api/team/profile/bank-account', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const result = await storage.query(
+        `SELECT account_holder_name, account_number_encrypted, account_type FROM driver_w9 WHERE driver_id = $1`,
+        [req.session.driverId!]
+      );
+      const row = result.rows[0];
+      if (!row || !row.account_number_encrypted) {
+        return res.json({ has_bank_account: false });
+      }
+      res.json({
+        has_bank_account: true,
+        account_holder_name: row.account_holder_name,
+        masked_account: maskAccountNumber(decrypt(row.account_number_encrypted)),
+        account_type: row.account_type,
+      });
+    } catch (error: any) {
+      console.error('Get bank account info error:', error);
+      res.status(500).json({ error: 'Failed to get bank account info' });
+    }
+  });
+
   // Skip direct deposit setup for now - team member can complete later
   app.post('/api/team/onboarding/bank-account/skip', requireDriverAuth, async (req: Request, res: Response) => {
     try {
@@ -800,6 +869,31 @@ export function registerTeamRoutes(app: Express) {
     } catch (error: any) {
       console.error('Get onboarding status error:', error);
       res.status(500).json({ error: 'Failed to get onboarding status' });
+    }
+  });
+
+  // Message email opt-in toggle for drivers
+  app.put('/api/team/profile/message-notifications', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = req.session.driverId!;
+      const { enabled } = req.body;
+      if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+      await storage.query(`UPDATE drivers SET message_email_notifications = $1, updated_at = NOW() WHERE id = $2`, [enabled, driverId]);
+      res.json({ success: true, message_email_notifications: enabled });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to update preference' });
+    }
+  });
+
+  // Get message notification preference for drivers
+  app.get('/api/team/profile/message-notifications', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = req.session.driverId!;
+      const result = await storage.query(`SELECT message_email_notifications FROM drivers WHERE id = $1`, [driverId]);
+      const enabled = result.rows[0]?.message_email_notifications ?? false;
+      res.json({ message_email_notifications: enabled });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to get preference' });
     }
   });
 }

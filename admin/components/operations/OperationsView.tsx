@@ -2,17 +2,16 @@ import React, { useState, useEffect } from 'react';
 import type { NavFilter } from '../../../shared/types/index.ts';
 import MissedPickupsList from './MissedPickupsList.tsx';
 import PickupSchedule from './PickupSchedule.tsx';
-import ActivityFeed from './ActivityFeed.tsx';
-import NotificationSender from './NotificationSender.tsx';
+import RouteJobsList from './RouteJobsList.tsx';
 
-type TabType = 'missed-pickups' | 'pickup-schedule' | 'activity' | 'notifications';
+type TabType = 'missed-pickups' | 'pickup-schedule' | 'route-jobs';
 
 const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('missed-pickups');
+  const [activeTab, setActiveTab] = useState<TabType>('route-jobs');
 
   useEffect(() => {
     if (navFilter?.tab) {
-      const validTabs: TabType[] = ['missed-pickups', 'pickup-schedule', 'activity', 'notifications'];
+      const validTabs: TabType[] = ['missed-pickups', 'pickup-schedule', 'route-jobs'];
       if (validTabs.includes(navFilter.tab as TabType)) {
         setActiveTab(navFilter.tab as TabType);
       }
@@ -21,10 +20,9 @@ const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?
   }, [navFilter, onFilterConsumed]);
 
   const tabs: { key: TabType; label: string }[] = [
+    { key: 'route-jobs', label: 'Route Jobs' },
     { key: 'missed-pickups', label: 'Missed Pickups' },
     { key: 'pickup-schedule', label: 'Pickup Schedule' },
-    { key: 'activity', label: 'Recent Activity' },
-    { key: 'notifications', label: 'Notifications' },
   ];
 
   return (
@@ -48,8 +46,7 @@ const OperationsView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?
       <div>
         {activeTab === 'missed-pickups' && <MissedPickupsList />}
         {activeTab === 'pickup-schedule' && <PickupSchedule />}
-        {activeTab === 'activity' && <ActivityFeed />}
-        {activeTab === 'notifications' && <NotificationSender />}
+        {activeTab === 'route-jobs' && <RouteJobsList />}
       </div>
     </div>
   );

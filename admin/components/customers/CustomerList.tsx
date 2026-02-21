@@ -49,8 +49,16 @@ const CustomerList: React.FC<CustomerListProps> = ({ navFilter, onFilterConsumed
     const params = new URLSearchParams();
     if (searchQuery) params.set('search', searchQuery);
     if (serviceFilter !== 'all') params.set('serviceType', serviceFilter);
-    if (stripeFilter !== 'all') params.set('stripeStatus', stripeFilter);
-    if (sortBy) params.set('sort', sortBy);
+    if (stripeFilter === 'linked') params.set('hasStripe', 'yes');
+    else if (stripeFilter === 'not_linked') params.set('hasStripe', 'no');
+    const sortMap: Record<string, { sortBy: string; sortDir: string }> = {
+      newest:    { sortBy: 'created_at', sortDir: 'desc' },
+      oldest:    { sortBy: 'created_at', sortDir: 'asc' },
+      name_asc:  { sortBy: 'name',       sortDir: 'asc' },
+      name_desc: { sortBy: 'name',       sortDir: 'desc' },
+    };
+    const s = sortMap[sortBy];
+    if (s) { params.set('sortBy', s.sortBy); params.set('sortDir', s.sortDir); }
     params.set('limit', String(limit));
     params.set('offset', String(offset));
     return params.toString();
@@ -89,8 +97,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ navFilter, onFilterConsumed
     const params = new URLSearchParams();
     if (searchQuery) params.set('search', searchQuery);
     if (serviceFilter !== 'all') params.set('serviceType', serviceFilter);
-    if (stripeFilter !== 'all') params.set('stripeStatus', stripeFilter);
-    if (sortBy) params.set('sort', sortBy);
+    if (stripeFilter === 'linked') params.set('hasStripe', 'yes');
+    else if (stripeFilter === 'not_linked') params.set('hasStripe', 'no');
     window.open(`/api/admin/export/customers?${params.toString()}`, '_blank');
   };
 

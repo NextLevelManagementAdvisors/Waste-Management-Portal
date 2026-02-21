@@ -8,6 +8,8 @@ import {
   ClockIcon,
   ArrowRightIcon,
 } from '../../../components/Icons.tsx';
+import ActivityFeed from '../operations/ActivityFeed.tsx';
+import type { NavFilter } from '../../../shared/types/index.ts';
 
 interface AdminStats {
   totalUsers: number;
@@ -21,7 +23,7 @@ interface AdminStats {
   openInvoices: number;
 }
 
-type TabType = 'signups' | 'revenue' | 'services';
+type TabType = 'signups' | 'revenue' | 'services' | 'activity';
 
 interface SignupData {
   date: string;
@@ -38,7 +40,7 @@ interface ServiceData {
   count: string;
 }
 
-const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: string; filter?: string; sort?: string; search?: string }) => void }> = ({ onNavigate }) => {
+const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: string; filter?: string; sort?: string; search?: string }) => void; navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ onNavigate, navFilter, onFilterConsumed }) => {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -57,6 +59,16 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
       .catch(console.error)
       .finally(() => setStatsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (navFilter?.tab) {
+      const validTabs: TabType[] = ['signups', 'revenue', 'services', 'activity'];
+      if (validTabs.includes(navFilter.tab as TabType)) {
+        handleTabChange(navFilter.tab as TabType);
+      }
+      onFilterConsumed?.();
+    }
+  }, [navFilter]);
 
   const fetchSignupTrends = async (days: 30 | 60 | 90) => {
     setLoading(true);
@@ -113,9 +125,10 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
       fetchSignupTrends(signupDays);
     } else if (tab === 'revenue') {
       fetchRevenueData();
-    } else {
+    } else if (tab === 'services') {
       fetchServiceBreakdown();
     }
+    // 'activity' — ActivityFeed fetches its own data
   };
 
   const handleSignupDaysChange = (days: 30 | 60 | 90) => {
@@ -351,9 +364,9 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('billing', { filter: 'open' })} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('operations', { tab: 'activity' })} />
-            <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('operations', { tab: 'activity' })} />
-            <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('operations', { tab: 'activity' })} />
+            <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
+            <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
+            <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
           </div>
         </div>
       ) : (
@@ -392,12 +405,23 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
           >
             Service Breakdown
           </button>
+          <button
+            onClick={() => handleTabChange('activity')}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'activity'
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            }`}
+          >
+            Recent Activity
+          </button>
         </div>
 
         <div className="pt-4">
           {activeTab === 'signups' && <SignupTrendsChart />}
           {activeTab === 'revenue' && <RevenueChart />}
           {activeTab === 'services' && <ServiceBreakdownChart />}
+          {activeTab === 'activity' && <ActivityFeed />}
         </div>
       </div>
     </div>

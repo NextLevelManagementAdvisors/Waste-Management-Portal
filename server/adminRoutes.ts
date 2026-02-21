@@ -499,6 +499,30 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Route Jobs
+  app.get('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobs = await storage.getAllRouteJobs();
+      res.json({ jobs });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch jobs' });
+    }
+  });
+
+  app.post('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { title, scheduled_date, ...rest } = req.body;
+      if (!title || !scheduled_date) {
+        return res.status(400).json({ error: 'title and scheduled_date are required' });
+      }
+      const job = await storage.createRouteJob({ title, scheduled_date, ...rest });
+      await audit(req, 'create_job', 'route_job', job.id, { title, scheduled_date });
+      res.status(201).json({ job });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create job' });
+    }
+  });
+
   // Bulk notifications
   app.post('/api/admin/bulk-notify', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {

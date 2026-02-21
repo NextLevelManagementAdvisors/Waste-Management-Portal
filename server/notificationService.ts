@@ -198,6 +198,50 @@ export async function sendMissedPickupConfirmation(userId: string, propertyAddre
   }
 }
 
+export async function sendMessageNotificationEmail(
+  recipientId: string,
+  recipientType: 'user' | 'driver',
+  senderName: string,
+  messageBody: string,
+  conversationSubject?: string,
+): Promise<void> {
+  let recipientEmail: string | undefined;
+  let recipientFirstName: string | undefined;
+  let optedIn: boolean | undefined;
+
+  if (recipientType === 'user') {
+    const user = await storage.getUserById(recipientId);
+    if (!user) return;
+    optedIn = (user as any).message_email_notifications;
+    recipientEmail = user.email;
+    recipientFirstName = user.first_name;
+  } else {
+    const driver = await storage.getDriverById(recipientId);
+    if (!driver) return;
+    optedIn = (driver as any).message_email_notifications;
+    recipientEmail = driver.email;
+    recipientFirstName = driver.name?.split(' ')[0];
+  }
+
+  if (!optedIn || !recipientEmail) return;
+
+  const subjectLine = `New message${conversationSubject ? ` re: ${conversationSubject}` : ''}`;
+  const snippet = messageBody.length > 200 ? messageBody.slice(0, 197) + '…' : messageBody;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${recipientFirstName || 'there'},</p>
+    <p style="color:#4b5563;line-height:1.6;">You have a new message from <strong>${senderName}</strong>:</p>
+    <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;color:#1f2937;font-size:15px;line-height:1.6;">${snippet}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Log in to your account to read and reply.</p>
+  `;
+  try {
+    await sendEmail(recipientEmail, subjectLine, baseTemplate('New Message', body));
+  } catch (e) {
+    console.error('Failed to send message notification email:', e);
+  }
+}
+
 export async function sendCustomNotification(userId: string, message: string, channel: 'email' | 'sms' | 'both' = 'email'): Promise<{ email?: boolean; sms?: boolean }> {
   const user = await storage.getUserById(userId);
   if (!user) return {};

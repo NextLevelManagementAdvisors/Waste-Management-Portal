@@ -15,6 +15,11 @@ const formatDate = (dateStr: string) => {
 };
 
 const ROLE_DESCRIPTIONS: Record<string, { label: string; description: string; color: string }> = {
+  superadmin: {
+    label: 'Full Admin',
+    description: 'Complete access to all system features, customer management, billing, settings, and role management',
+    color: 'bg-red-100 text-red-800',
+  },
   full_admin: {
     label: 'Full Admin',
     description: 'Complete access to all system features, customer management, billing, settings, and role management',
@@ -102,7 +107,7 @@ const AdminRoles: React.FC = () => {
     }
   };
 
-  const isFullAdmin = adminInfo?.role === 'full_admin';
+  const isFullAdmin = adminInfo?.role === 'full_admin' || adminInfo?.role === 'superadmin';
 
   return (
     <div className="space-y-6">
