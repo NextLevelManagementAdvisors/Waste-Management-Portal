@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "stop": "npx kill-port 5000 || true",
     "start": "NODE_ENV=production npx tsx server/index.ts",
-    "restart": "npm run stop && npm run start"
+    "restart": "npm run stop && npm run start",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -50,9 +52,12 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^4.0.18"
   }
 }
