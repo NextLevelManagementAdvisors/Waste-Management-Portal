@@ -2139,7 +2139,7 @@ const DriverMessages: React.FC = () => {
         if (event === 'message:new') {
           setSelectedId(current => {
             if (data.conversationId === current) {
-              setMessages(prev => [...prev, data.message]);
+              setMessages(prev => prev.some(m => m.id === data.message.id) ? prev : [...prev, data.message]);
               fetch(`/api/team/conversations/${data.conversationId}/read`, { method: 'PUT', credentials: 'include' });
             } else {
               setConversations(prev => {
