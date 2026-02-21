@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Card } from '../../components/Card.tsx';
-import { Button } from '../../components/Button.tsx';
-import { LoadingSpinner, EmptyState, StatusBadge } from './shared.tsx';
+import { Card } from '../../../components/Card.tsx';
+import { Button } from '../../../components/Button.tsx';
+import { LoadingSpinner, EmptyState, StatusBadge } from '../ui/index.ts';
 
 interface Participant {
   id: string;
@@ -89,10 +89,6 @@ const NewConversationModal: React.FC<NewConversationModalProps> = ({ isOpen, onC
   const [initialMessage, setInitialMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [showAddDriver, setShowAddDriver] = useState(false);
-  const [newDriverName, setNewDriverName] = useState('');
-  const [newDriverEmail, setNewDriverEmail] = useState('');
-  const [newDriverPhone, setNewDriverPhone] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -112,27 +108,6 @@ const NewConversationModal: React.FC<NewConversationModalProps> = ({ isOpen, onC
       if (exists) return prev.filter(p => !(p.id === id && p.type === type));
       return [...prev, { id, type, name }];
     });
-  };
-
-  const handleAddDriver = async () => {
-    if (!newDriverName.trim()) return;
-    try {
-      const res = await fetch('/api/admin/drivers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: newDriverName.trim(), email: newDriverEmail.trim() || undefined, phone: newDriverPhone.trim() || undefined }),
-      });
-      if (res.ok) {
-        const driver = await res.json();
-        setDrivers(prev => [...prev, driver]);
-        setNewDriverName('');
-        setNewDriverEmail('');
-        setNewDriverPhone('');
-        setShowAddDriver(false);
-        toggleParticipant(driver.id, 'driver', driver.name);
-      }
-    } catch {}
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -234,24 +209,7 @@ const NewConversationModal: React.FC<NewConversationModalProps> = ({ isOpen, onC
                 {customers.length === 0 && <p className="text-sm text-gray-400 text-center py-3">No customers</p>}
               </div>
 
-              <div className="flex items-center justify-between mt-3">
-                <p className="text-xs font-bold text-gray-500">Drivers</p>
-                <button type="button" onClick={() => setShowAddDriver(!showAddDriver)} className="text-xs text-teal-600 font-bold hover:text-teal-700">
-                  {showAddDriver ? 'Cancel' : '+ Add Driver'}
-                </button>
-              </div>
-
-              {showAddDriver && (
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
-                  <input type="text" value={newDriverName} onChange={e => setNewDriverName(e.target.value)} placeholder="Driver name *" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="email" value={newDriverEmail} onChange={e => setNewDriverEmail(e.target.value)} placeholder="Email (optional)" className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
-                    <input type="tel" value={newDriverPhone} onChange={e => setNewDriverPhone(e.target.value)} placeholder="Phone (optional)" className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20" />
-                  </div>
-                  <Button type="button" size="sm" onClick={handleAddDriver} disabled={!newDriverName.trim()}>Add Driver</Button>
-                </div>
-              )}
-
+              <p className="text-xs font-bold text-gray-500 mt-3">Drivers</p>
               <div className="max-h-32 overflow-y-auto border border-gray-100 rounded-lg">
                 {drivers.map((d: any) => (
                   <label key={d.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0">
@@ -267,7 +225,7 @@ const NewConversationModal: React.FC<NewConversationModalProps> = ({ isOpen, onC
                     </div>
                   </label>
                 ))}
-                {drivers.length === 0 && !showAddDriver && <p className="text-sm text-gray-400 text-center py-3">No drivers yet</p>}
+                {drivers.length === 0 && <p className="text-sm text-gray-400 text-center py-3">No drivers yet — add them in the Team tab</p>}
               </div>
             </div>
           </div>

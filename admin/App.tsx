@@ -7,14 +7,16 @@ import {
   MagnifyingGlassIcon,
   ShieldCheckIcon,
 } from '../components/Icons.tsx';
-import DashboardView from './components/DashboardView.tsx';
-import CustomersView from './components/CustomersView.tsx';
-import BillingView from './components/BillingView.tsx';
-import OperationsView from './components/OperationsView.tsx';
-import SystemView from './components/SystemView.tsx';
-import CommunicationsView from './components/CommunicationsView.tsx';
-import AdminAuthLayout from './components/AdminAuthLayout.tsx';
-import AdminLogin from './components/AdminLogin.tsx';
+import DashboardView from './components/dashboard/DashboardView.tsx';
+import CustomersView from './components/customers/CustomersView.tsx';
+import BillingView from './components/billing/BillingView.tsx';
+import OperationsView from './components/operations/OperationsView.tsx';
+import SystemView from './components/system/SystemView.tsx';
+import CommunicationsView from './components/communications/CommunicationsView.tsx';
+import TeamView from './components/team/TeamView.tsx';
+import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
+import AdminLogin from './components/auth/AdminLogin.tsx';
+import type { NavFilter } from '../shared/types/index.ts';
 
 interface AdminUser {
   id: string;
@@ -24,7 +26,7 @@ interface AdminUser {
   isAdmin: boolean;
 }
 
-type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'communications' | 'system';
+type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'team' | 'communications' | 'system';
 
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -51,12 +53,11 @@ const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-export interface NavFilter {
-  tab?: string;
-  filter?: string;
-  sort?: string;
-  search?: string;
-}
+const PeopleIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+  </svg>
+);
 
 const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
@@ -149,6 +150,7 @@ const AdminApp: React.FC = () => {
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
     { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
+    { view: 'team', label: 'Team', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
@@ -193,9 +195,6 @@ const AdminApp: React.FC = () => {
               <p className="text-xs text-gray-400 truncate">{user.email}</p>
             </div>
           </div>
-          <a href="/" className="block text-center text-xs text-gray-400 hover:text-white transition-colors py-2 rounded-lg hover:bg-gray-800">
-            Switch to Client Portal
-          </a>
         </div>
       </aside>
 
@@ -267,6 +266,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'customers' && <CustomersView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'team' && <TeamView />}
           {currentView === 'communications' && <CommunicationsView />}
           {currentView === 'system' && <SystemView />}
         </div>
