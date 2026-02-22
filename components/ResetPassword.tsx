@@ -71,9 +71,9 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
 
     if (verifying) {
         return (
-            <div className="text-center">
-                <div className="loading loading-spinner loading-lg text-primary mb-4"></div>
-                <p className="text-gray-500">Verifying your reset link...</p>
+            <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-gray-500 font-medium">Verifying your reset link...</p>
             </div>
         );
     }
@@ -81,7 +81,7 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
     if (!tokenValid) {
         return (
             <div>
-                <h2 className="text-2xl font-bold text-center text-neutral mb-2">Invalid Reset Link</h2>
+                <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Invalid Reset Link</h2>
                 <div className="text-center mb-6">
                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-4">
                         <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,12 +89,12 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
                         </svg>
                     </div>
                 </div>
-                <p className="text-center text-gray-600 mb-6">
+                <p className="text-center text-gray-600 font-medium mb-6">
                     This password reset link is invalid or has expired. Please request a new one.
                 </p>
                 <button
                     onClick={switchToLogin}
-                    className="w-full text-center font-medium text-primary hover:text-primary-focus"
+                    className="w-full text-center font-black text-primary hover:text-primary-focus transition-colors"
                 >
                     Back to Sign In
                 </button>
@@ -105,7 +105,7 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
     if (success) {
         return (
             <div>
-                <h2 className="text-2xl font-bold text-center text-neutral mb-2">Password Reset!</h2>
+                <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Password Reset!</h2>
                 <div className="text-center mb-6">
                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
                         <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,10 +113,10 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
                         </svg>
                     </div>
                 </div>
-                <p className="text-center text-gray-600 mb-6">
+                <p className="text-center text-gray-600 font-medium mb-6">
                     Your password has been successfully reset. You can now sign in with your new password.
                 </p>
-                <Button onClick={switchToLogin} className="w-full">
+                <Button onClick={switchToLogin} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
                     Sign In
                 </Button>
             </div>
@@ -125,17 +125,17 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-center text-neutral mb-2">Set New Password</h2>
-            <p className="text-center text-gray-500 mb-6">Enter your new password below.</p>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Set New Password</h2>
+            <p className="text-center text-gray-500 font-medium mb-6">Enter your new password below.</p>
+            <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                    <label htmlFor="new-password" className="block text-sm font-medium text-gray-700">New Password</label>
+                    <label htmlFor="new-password" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">New Password</label>
                     <input
                         type="password"
                         id="new-password"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
+                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all"
                         required
                         minLength={6}
                         autoComplete="new-password"
@@ -143,21 +143,21 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, switchToLogin }) =
                     />
                 </div>
                 <div>
-                    <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">Confirm Password</label>
+                    <label htmlFor="confirm-password" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Confirm Password</label>
                     <input
                         type="password"
                         id="confirm-password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
+                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all"
                         required
                         minLength={6}
                         autoComplete="new-password"
                         placeholder="Re-enter your password"
                     />
                 </div>
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                {error && <p className="text-sm font-bold text-red-600 text-center">{error}</p>}
+                <Button type="submit" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20" disabled={isLoading}>
                     {isLoading ? 'Resetting...' : 'Reset Password'}
                 </Button>
             </form>

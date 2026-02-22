@@ -36,7 +36,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ switchToLogin }) => {
     if (submitted) {
         return (
             <div>
-                <h2 className="text-2xl font-bold text-center text-neutral mb-2">Check Your Email</h2>
+                <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Check Your Email</h2>
                 <div className="text-center mb-6">
                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
                         <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,7 +44,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ switchToLogin }) => {
                         </svg>
                     </div>
                 </div>
-                <p className="text-center text-gray-600 mb-6">
+                <p className="text-center text-gray-600 font-medium mb-6">
                     If an account exists for <strong>{email}</strong>, we've sent a password reset link. Please check your inbox and spam folder.
                 </p>
                 <p className="text-center text-sm text-gray-500 mb-4">
@@ -52,7 +52,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ switchToLogin }) => {
                 </p>
                 <button
                     onClick={switchToLogin}
-                    className="w-full text-center font-medium text-primary hover:text-primary-focus"
+                    className="w-full text-center font-black text-primary hover:text-primary-focus transition-colors"
                 >
                     Back to Sign In
                 </button>
@@ -62,33 +62,35 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ switchToLogin }) => {
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-center text-neutral mb-2">Forgot Password?</h2>
-            <p className="text-center text-gray-500 mb-6">Enter your email address and we'll send you a link to reset your password.</p>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Forgot Password?</h2>
+            <p className="text-center text-gray-500 font-medium mb-6">Enter your email address and we'll send you a link to reset your password.</p>
+            <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                    <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700">Email Address</label>
+                    <label htmlFor="reset-email" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Address</label>
                     <input
                         type="email"
                         id="reset-email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
+                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all"
                         required
                         autoComplete="email"
                         placeholder="you@example.com"
                     />
                 </div>
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                {error && <p className="text-sm font-bold text-red-600 text-center">{error}</p>}
+                <Button type="submit" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20" disabled={isLoading}>
                     {isLoading ? 'Sending...' : 'Send Reset Link'}
                 </Button>
             </form>
-            <p className="mt-6 text-center text-sm text-gray-600">
-                Remember your password?{' '}
-                <button onClick={switchToLogin} className="font-medium text-primary hover:text-primary-focus">
-                    Sign In
-                </button>
-            </p>
+            <div className="mt-10 pt-6 border-t border-base-200 text-center">
+                <p className="text-sm font-medium text-gray-500">
+                    Remember your password?{' '}
+                    <button onClick={switchToLogin} className="font-black text-primary hover:text-primary-focus transition-colors">
+                        Sign In
+                    </button>
+                </p>
+            </div>
         </div>
     );
 };

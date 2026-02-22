@@ -40,7 +40,6 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgot
 
     useEffect(() => {
         const handler = (e: MessageEvent) => {
-            // Verify origin for security
             if (e.origin !== window.location.origin) return;
 
             if (e.data?.type === 'google-oauth-success') {
@@ -52,12 +51,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgot
 
         window.addEventListener('message', handler);
 
-        // Fallback: listen for localStorage changes (when popup loses parent reference)
         const storageHandler = (e: StorageEvent) => {
             if (e.key === 'google-oauth-success' && e.newValue) {
                 try {
                     const data = JSON.parse(e.newValue);
-                    // Only accept recent tokens (within 5 seconds)
                     if (Date.now() - data.timestamp < 5000) {
                         onGoogleAuthSuccess?.();
                         localStorage.removeItem('google-oauth-success');
@@ -85,13 +82,13 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgot
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-center text-neutral mb-2">Welcome Back!</h2>
-            <p className="text-center text-gray-500 mb-6">Sign in to your account</p>
+            <h2 className="text-3xl font-black text-center text-gray-900 tracking-tight mb-2">Welcome Back!</h2>
+            <p className="text-center text-gray-500 font-medium mb-6">Sign in to your account</p>
             <div className="mb-6">
                 <button
                     type="button"
                     onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border border-gray-300 rounded-md shadow-sm bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700 cursor-pointer"
+                    className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border-2 border-base-200 rounded-xl shadow-sm bg-white hover:bg-gray-50 transition-colors font-bold text-gray-700 cursor-pointer"
                 >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
                         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -104,55 +101,57 @@ const Login: React.FC<LoginProps> = ({ onLogin, switchToRegister, switchToForgot
             </div>
             <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300"></div>
+                    <div className="w-full border-t border-base-200"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
                     <span className="px-2 bg-white text-gray-500">Or sign in with email</span>
                 </div>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
+                    <label htmlFor="email" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Address</label>
                     <input
                         type="email"
                         id="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         required
                         autoComplete="email"
                         disabled={isLoading}
                     />
                 </div>
                 <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
+                    <label htmlFor="password" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password</label>
                     <input
                         type="password"
                         id="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         required
                         autoComplete="current-password"
                         disabled={isLoading}
                     />
                 </div>
                 <div className="flex justify-end">
-                    <button type="button" onClick={switchToForgotPassword} className="text-sm font-medium text-primary hover:text-primary-focus">
+                    <button type="button" onClick={switchToForgotPassword} className="text-sm font-bold text-primary hover:text-primary-focus transition-colors">
                         Forgot password?
                     </button>
                 </div>
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                {error && <p className="text-sm font-bold text-red-600 text-center">{error}</p>}
+                <Button type="submit" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20" disabled={isLoading}>
                     {isLoading ? 'Signing In...' : 'Sign In'}
                 </Button>
             </form>
-            <p className="mt-6 text-center text-sm text-gray-600">
-                Don't have an account?{' '}
-                <button onClick={switchToRegister} className="font-medium text-primary hover:text-primary-focus">
-                    Sign Up
-                </button>
-            </p>
+            <div className="mt-10 pt-6 border-t border-base-200 text-center">
+                <p className="text-sm font-medium text-gray-500">
+                    Don't have an account?{' '}
+                    <button onClick={switchToRegister} className="font-black text-primary hover:text-primary-focus transition-colors">
+                        Sign Up
+                    </button>
+                </p>
+            </div>
         </div>
     );
 };

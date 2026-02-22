@@ -53,10 +53,10 @@ const LandingPage: React.FC = () => {
       {/* Header */}
       <div className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <h1 className="text-4xl font-bold text-center text-neutral">
-            Welcome to WasteHub
+          <h1 className="text-4xl font-black text-center text-gray-900 tracking-tight">
+            ZIP-A-DEE Services
           </h1>
-          <p className="text-center text-gray-600 mt-2">
+          <p className="text-center text-gray-500 font-medium mt-2">
             Choose your portal to continue
           </p>
         </div>
@@ -74,7 +74,7 @@ const LandingPage: React.FC = () => {
 
               {/* Content */}
               <div className="flex-1 text-center mb-6">
-                <h2 className="text-2xl font-bold text-neutral mb-3">
+                <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-3">
                   {portal.name}
                 </h2>
                 <p className="text-gray-600 text-sm leading-relaxed">
@@ -93,7 +93,7 @@ const LandingPage: React.FC = () => {
                   {portal.signInText}
                 </Button>
                 <button
-                  className="text-sm text-primary hover:text-primary-focus font-medium transition-colors"
+                  className="text-sm text-primary hover:text-primary-focus font-bold transition-colors"
                   onClick={() => handlePortalClick(portal.href)}
                 >
                   {portal.signUpText} →
@@ -106,7 +106,7 @@ const LandingPage: React.FC = () => {
 
       {/* Footer */}
       <div className="bg-white border-t border-base-200 py-6 text-center text-sm text-gray-500">
-        <p>© 2025 WasteHub. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} ZIP-A-DEE Services. All rights reserved.</p>
       </div>
     </div>
   );
