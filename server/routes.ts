@@ -147,6 +147,9 @@ export function registerRoutes(app: Express) {
       });
       res.json({ data: paymentMethods.data });
     } catch (error: any) {
+      if (error?.code === 'resource_missing') {
+        return res.json({ data: [] });
+      }
       console.error('Error listing payment methods:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -271,6 +274,9 @@ export function registerRoutes(app: Express) {
 
       res.json({ data: subsWithProducts });
     } catch (error: any) {
+      if (error?.code === 'resource_missing') {
+        return res.json({ data: [] });
+      }
       console.error('Error listing subscriptions:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -356,6 +362,9 @@ export function registerRoutes(app: Express) {
       });
       res.json({ data: invoices.data });
     } catch (error: any) {
+      if (error?.code === 'resource_missing') {
+        return res.json({ data: [] });
+      }
       console.error('Error listing invoices:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
