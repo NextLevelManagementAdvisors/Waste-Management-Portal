@@ -3,6 +3,10 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './app.css';
 import App from './App.tsx';
+import { ErrorBoundary } from './shared/ErrorBoundary.tsx';
+import { installGlobalErrorHandlers } from './shared/errorReporter.ts';
+
+installGlobalErrorHandlers('main');
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -12,6 +16,8 @@ if (!rootElement) {
 const root = createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary spa="main">
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

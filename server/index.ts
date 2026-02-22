@@ -108,6 +108,25 @@ app.post(
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Request logging middleware
+import { logger, cleanOldLogs } from './logger';
+cleanOldLogs();
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    logger[level](`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      duration,
+    });
+  });
+  next();
+});
+
 app.use('/api/auth/login', authRateLimit);
 app.use('/api/auth/register', authRateLimit);
 app.use('/api/auth/forgot-password', authRateLimit);
@@ -117,8 +136,11 @@ registerAuthRoutes(app);
 const { registerRoutes } = await import('./routes');
 registerRoutes(app);
 
-const { registerAdminRoutes } = await import('./adminRoutes');
+const { registerAdminRoutes, requireAdmin } = await import('./adminRoutes');
 registerAdminRoutes(app);
+
+const { registerLogRoutes } = await import('./logRoutes');
+registerLogRoutes(app, requireAdmin);
 
 const { registerCommunicationRoutes } = await import('./communicationRoutes');
 registerCommunicationRoutes(app);
@@ -142,6 +164,18 @@ if (isProduction) {
     }
   });
 }
+
+// Global error handler — catches unhandled route errors
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error(`Unhandled server error: ${err.message}`, {
+    method: req.method,
+    url: req.originalUrl,
+    stack: err.stack,
+  });
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 const httpServer = http.createServer(app);
 

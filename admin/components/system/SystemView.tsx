@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import AuditLog from './AuditLog.tsx';
 import AdminRoles from './AdminRoles.tsx';
+import ErrorLogs from './ErrorLogs.tsx';
 
-type TabType = 'audit' | 'settings';
+type TabType = 'audit' | 'settings' | 'errors';
 
 const SystemView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('audit');
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'audit', label: 'Audit Log' },
+    { key: 'errors', label: 'Error Logs' },
     { key: 'settings', label: 'Admin Roles' },
   ];
 
@@ -31,6 +33,7 @@ const SystemView: React.FC = () => {
       </div>
 
       {activeTab === 'audit' && <AuditLog />}
+      {activeTab === 'errors' && <ErrorLogs />}
       {activeTab === 'settings' && <AdminRoles />}
     </div>
   );
