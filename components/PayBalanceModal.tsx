@@ -80,7 +80,7 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
                         {invoices.map(invoice => (
                             <div key={invoice.id} className="flex justify-between text-xs text-gray-600">
                                 <span>{invoice.description || 'Monthly Service'} ({invoice.date})</span>
-                                <span>${invoice.amount.toFixed(2)}</span>
+                                <span>${Number(invoice.amount).toFixed(2)}</span>
                             </div>
                         ))}
                     </div>

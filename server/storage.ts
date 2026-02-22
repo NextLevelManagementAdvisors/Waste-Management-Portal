@@ -1,156 +1,1195 @@
-/**
- * storage.ts — facade over domain repositories.
- *
- * All callers import `storage` from here as before; only this file needs to
- * know which repository implements each method.
- */
+import pg from 'pg';
 
-export { pool } from './db';
-export type { DbUser, DbProperty } from './db';
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-import { UserRepository } from './repositories/UserRepository';
-import { PropertyRepository } from './repositories/PropertyRepository';
-import { PasswordResetRepository } from './repositories/PasswordResetRepository';
-import { BillingRepository } from './repositories/BillingRepository';
-import { PickupRepository } from './repositories/PickupRepository';
-import { ReferralRepository } from './repositories/ReferralRepository';
-import { PropertyTransferRepository } from './repositories/PropertyTransferRepository';
-import { AdminRepository } from './repositories/AdminRepository';
-import { ConversationRepository } from './repositories/ConversationRepository';
-import { DriverRepository } from './repositories/DriverRepository';
+export { pool };
 
-class Storage {
-  private users = new UserRepository();
-  private properties = new PropertyRepository();
-  private passwordResets = new PasswordResetRepository();
-  private billing = new BillingRepository();
-  private pickups = new PickupRepository();
-  private referrals = new ReferralRepository();
-  private transfers = new PropertyTransferRepository();
-  private admin = new AdminRepository();
-  private conversations = new ConversationRepository();
-  private drivers = new DriverRepository();
+export interface DbUser {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  password_hash: string;
+  member_since: string;
+  autopay_enabled: boolean;
+  stripe_customer_id: string | null;
+  is_admin: boolean;
+  admin_role: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
-  // ── Users ──────────────────────────────────────────────────────────────────
-  createUser = this.users.createUser.bind(this.users);
-  getUserById = this.users.getUserById.bind(this.users);
-  getUserByEmail = this.users.getUserByEmail.bind(this.users);
-  updateUser = this.users.updateUser.bind(this.users);
-  getAllUsers = this.users.getAllUsers.bind(this.users);
-  setUserAdmin = this.users.setUserAdmin.bind(this.users);
-  searchUsers = this.users.searchUsers.bind(this.users);
-  getAllUsersPaginated = this.users.getAllUsersPaginated.bind(this.users);
-  updateUserAdmin = this.users.updateUserAdmin.bind(this.users);
-  getUsersForExport = this.users.getUsersForExport.bind(this.users);
-  globalSearch = this.users.globalSearch.bind(this.users);
-  getSignupTrends = this.users.getSignupTrends.bind(this.users);
+export interface DbProperty {
+  id: string;
+  user_id: string;
+  address: string;
+  service_type: string;
+  in_hoa: boolean;
+  community_name: string | null;
+  has_gate_code: boolean;
+  gate_code: string | null;
+  notes: string | null;
+  notification_preferences: any;
+  transfer_status: string | null;
+  pending_owner: any;
+  created_at: string;
+  updated_at: string;
+}
 
-  // ── Properties ─────────────────────────────────────────────────────────────
-  createProperty = this.properties.createProperty.bind(this.properties);
-  getPropertiesByUserId = this.properties.getPropertiesByUserId.bind(this.properties);
-  getPropertyById = this.properties.getPropertyById.bind(this.properties);
-  updateProperty = this.properties.updateProperty.bind(this.properties);
-  getAllProperties = this.properties.getAllProperties.bind(this.properties);
-  getPropertyStats = this.properties.getPropertyStats.bind(this.properties);
+export class Storage {
+  async query(text: string, params?: any[]) {
+    const result = await pool.query(text, params);
+    return result;
+  }
 
-  // ── Password resets ────────────────────────────────────────────────────────
-  createPasswordResetToken = this.passwordResets.createPasswordResetToken.bind(this.passwordResets);
-  getPasswordResetToken = this.passwordResets.getPasswordResetToken.bind(this.passwordResets);
-  markPasswordResetTokenUsed = this.passwordResets.markPasswordResetTokenUsed.bind(this.passwordResets);
+  async createUser(data: { firstName: string; lastName: string; phone: string; email: string; passwordHash: string; stripeCustomerId?: string }): Promise<DbUser> {
+    const result = await this.query(
+      `INSERT INTO users (first_name, last_name, phone, email, password_hash, stripe_customer_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [data.firstName, data.lastName, data.phone, data.email, data.passwordHash, data.stripeCustomerId || null]
+    );
+    return result.rows[0];
+  }
 
-  // ── Billing / Stripe ───────────────────────────────────────────────────────
-  getProduct = this.billing.getProduct.bind(this.billing);
-  listProducts = this.billing.listProducts.bind(this.billing);
-  listProductsWithPrices = this.billing.listProductsWithPrices.bind(this.billing);
-  getPrice = this.billing.getPrice.bind(this.billing);
-  listPrices = this.billing.listPrices.bind(this.billing);
-  getPricesForProduct = this.billing.getPricesForProduct.bind(this.billing);
-  getSubscription = this.billing.getSubscription.bind(this.billing);
-  listSubscriptions = this.billing.listSubscriptions.bind(this.billing);
-  getCustomer = this.billing.getCustomer.bind(this.billing);
-  listInvoices = this.billing.listInvoices.bind(this.billing);
-  getInvoice = this.billing.getInvoice.bind(this.billing);
-  listPaymentMethods = this.billing.listPaymentMethods.bind(this.billing);
+  async getUserByEmail(email: string): Promise<DbUser | null> {
+    const result = await this.query('SELECT * FROM users WHERE email = $1', [email]);
+    return result.rows[0] || null;
+  }
 
-  // ── Pickups, feedback, dismissals, alerts ──────────────────────────────────
-  getActiveServiceAlerts = this.pickups.getActiveServiceAlerts.bind(this.pickups);
-  createMissedPickupReport = this.pickups.createMissedPickupReport.bind(this.pickups);
-  getMissedPickupReports = this.pickups.getMissedPickupReports.bind(this.pickups);
-  updateMissedPickupStatus = this.pickups.updateMissedPickupStatus.bind(this.pickups);
-  createSpecialPickupRequest = this.pickups.createSpecialPickupRequest.bind(this.pickups);
-  getSpecialPickupRequests = this.pickups.getSpecialPickupRequests.bind(this.pickups);
-  getSpecialPickupServices = this.pickups.getSpecialPickupServices.bind(this.pickups);
-  upsertCollectionIntent = this.pickups.upsertCollectionIntent.bind(this.pickups);
-  deleteCollectionIntent = this.pickups.deleteCollectionIntent.bind(this.pickups);
-  getCollectionIntent = this.pickups.getCollectionIntent.bind(this.pickups);
-  upsertDriverFeedback = this.pickups.upsertDriverFeedback.bind(this.pickups);
-  getDriverFeedback = this.pickups.getDriverFeedback.bind(this.pickups);
-  getDriverFeedbackForProperty = this.pickups.getDriverFeedbackForProperty.bind(this.pickups);
-  getTipDismissal = this.pickups.getTipDismissal.bind(this.pickups);
-  createTipDismissal = this.pickups.createTipDismissal.bind(this.pickups);
-  getTipDismissalsForProperty = this.pickups.getTipDismissalsForProperty.bind(this.pickups);
+  async getUserById(id: string): Promise<DbUser | null> {
+    const result = await this.query('SELECT * FROM users WHERE id = $1', [id]);
+    return result.rows[0] || null;
+  }
 
-  // ── Referrals ──────────────────────────────────────────────────────────────
-  getOrCreateReferralCode = this.referrals.getOrCreateReferralCode.bind(this.referrals);
-  getReferralsByUser = this.referrals.getReferralsByUser.bind(this.referrals);
-  getReferralTotalRewards = this.referrals.getReferralTotalRewards.bind(this.referrals);
-  createReferral = this.referrals.createReferral.bind(this.referrals);
-  findReferrerByCode = this.referrals.findReferrerByCode.bind(this.referrals);
-  completeReferral = this.referrals.completeReferral.bind(this.referrals);
-  getPendingReferralForEmail = this.referrals.getPendingReferralForEmail.bind(this.referrals);
+  async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string }>): Promise<DbUser> {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+    fields.push(`updated_at = NOW()`);
+    values.push(id);
+    const result = await this.query(
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0];
+  }
 
-  // ── Property transfers ─────────────────────────────────────────────────────
-  initiateTransfer = this.transfers.initiateTransfer.bind(this.transfers);
-  getPropertyByTransferToken = this.transfers.getPropertyByTransferToken.bind(this.transfers);
-  completeTransfer = this.transfers.completeTransfer.bind(this.transfers);
-  cancelTransfer = this.transfers.cancelTransfer.bind(this.transfers);
+  async getPropertiesForUser(userId: string): Promise<DbProperty[]> {
+    const result = await this.query(
+      'SELECT * FROM properties WHERE user_id = $1 ORDER BY created_at',
+      [userId]
+    );
+    return result.rows;
+  }
 
-  // ── Admin / analytics ─────────────────────────────────────────────────────
-  getAdminStats = this.admin.getAdminStats.bind(this.admin);
-  createAuditLog = this.admin.createAuditLog.bind(this.admin);
-  getAuditLogs = this.admin.getAuditLogs.bind(this.admin);
-  createAdminNote = this.admin.createAdminNote.bind(this.admin);
-  getAdminNotes = this.admin.getAdminNotes.bind(this.admin);
-  deleteAdminNote = this.admin.deleteAdminNote.bind(this.admin);
+  async createProperty(data: { userId: string; address: string; serviceType: string; inHoa: boolean; communityName?: string; hasGateCode: boolean; gateCode?: string; notes?: string; notificationPreferences?: any }): Promise<DbProperty> {
+    const result = await this.query(
+      `INSERT INTO properties (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        data.userId, data.address, data.serviceType, data.inHoa,
+        data.communityName || null, data.hasGateCode, data.gateCode || null,
+        data.notes || null,
+        JSON.stringify(data.notificationPreferences || { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } })
+      ]
+    );
+    return result.rows[0];
+  }
 
-  // ── Conversations / messaging ──────────────────────────────────────────────
-  createConversation = this.conversations.createConversation.bind(this.conversations);
-  getConversations = this.conversations.getConversations.bind(this.conversations);
-  getAllConversations = this.conversations.getAllConversations.bind(this.conversations);
-  getConversationById = this.conversations.getConversationById.bind(this.conversations);
-  getConversationParticipants = this.conversations.getConversationParticipants.bind(this.conversations);
-  isParticipant = this.conversations.isParticipant.bind(this.conversations);
-  getMessages = this.conversations.getMessages.bind(this.conversations);
-  createMessage = this.conversations.createMessage.bind(this.conversations);
-  markConversationRead = this.conversations.markConversationRead.bind(this.conversations);
-  updateConversationStatus = this.conversations.updateConversationStatus.bind(this.conversations);
-  getConversationsForCustomer = this.conversations.getConversationsForCustomer.bind(this.conversations);
-  getUnreadCount = this.conversations.getUnreadCount.bind(this.conversations);
+  async getPropertyById(propertyId: string): Promise<DbProperty | null> {
+    const result = await this.query('SELECT * FROM properties WHERE id = $1', [propertyId]);
+    return result.rows[0] || null;
+  }
 
-  // ── Drivers / jobs / W9 ───────────────────────────────────────────────────
-  createDriver = this.drivers.createDriver.bind(this.drivers);
-  getDrivers = this.drivers.getDrivers.bind(this.drivers);
-  getDriverById = this.drivers.getDriverById.bind(this.drivers);
-  getDriverByEmail = this.drivers.getDriverByEmail.bind(this.drivers);
-  updateDriver = this.drivers.updateDriver.bind(this.drivers);
-  createW9 = this.drivers.createW9.bind(this.drivers);
-  getW9ByDriverId = this.drivers.getW9ByDriverId.bind(this.drivers);
-  getOpenJobs = this.drivers.getOpenJobs.bind(this.drivers);
-  getJobById = this.drivers.getJobById.bind(this.drivers);
-  getJobBids = this.drivers.getJobBids.bind(this.drivers);
-  createBid = this.drivers.createBid.bind(this.drivers);
-  deleteBid = this.drivers.deleteBid.bind(this.drivers);
-  getBidByJobAndDriver = this.drivers.getBidByJobAndDriver.bind(this.drivers);
-  updateJob = this.drivers.updateJob.bind(this.drivers);
-  getDriverJobs = this.drivers.getDriverJobs.bind(this.drivers);
-  getDriverSchedule = this.drivers.getDriverSchedule.bind(this.drivers);
+  async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any }>): Promise<DbProperty> {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(key === 'notification_preferences' || key === 'pending_owner' ? JSON.stringify(val) : val);
+        idx++;
+      }
+    }
+    fields.push(`updated_at = NOW()`);
+    values.push(propertyId);
+    const result = await this.query(
+      `UPDATE properties SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0];
+  }
 
-  // ── Raw query escape-hatch (for one-off queries not covered by repositories) ──
-  query = (text: string, params?: any[]) => this.users.query(text, params);
+  async deleteProperty(propertyId: string): Promise<void> {
+    await this.query('DELETE FROM properties WHERE id = $1', [propertyId]);
+  }
 
-  // ── Backward-compatible aliases ────────────────────────────────────────────
-  /** @deprecated use getPropertiesByUserId */
-  getPropertiesForUser = this.properties.getPropertiesByUserId.bind(this.properties);
+  async createPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
+    await this.query(
+      'UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false',
+      [userId]
+    );
+    await this.query(
+      `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userId, token, expiresAt]
+    );
+  }
+
+  async getValidResetToken(token: string): Promise<{ id: string; user_id: string; token: string; expires_at: string } | null> {
+    const result = await this.query(
+      `SELECT * FROM password_reset_tokens
+       WHERE token = $1 AND used = false AND expires_at > NOW()`,
+      [token]
+    );
+    return result.rows[0] || null;
+  }
+
+  async markResetTokenUsed(token: string): Promise<void> {
+    await this.query(
+      'UPDATE password_reset_tokens SET used = true WHERE token = $1',
+      [token]
+    );
+  }
+
+  async getProduct(productId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.products WHERE id = $1',
+      [productId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listProducts(active = true) {
+    const result = await this.query(
+      'SELECT * FROM stripe.products WHERE active = $1 ORDER BY created DESC',
+      [active]
+    );
+    return result.rows;
+  }
+
+  async listProductsWithPrices(active = true) {
+    const result = await this.query(
+      `SELECT 
+        p.id as product_id,
+        p.name as product_name,
+        p.description as product_description,
+        p.active as product_active,
+        p.metadata as product_metadata,
+        pr.id as price_id,
+        pr.unit_amount,
+        pr.currency,
+        pr.recurring,
+        pr.active as price_active,
+        pr.metadata as price_metadata
+      FROM stripe.products p
+      LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
+      WHERE p.active = $1
+      ORDER BY p.name, pr.unit_amount`,
+      [active]
+    );
+    return result.rows;
+  }
+
+  async getPrice(priceId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.prices WHERE id = $1',
+      [priceId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listPrices(active = true) {
+    const result = await this.query(
+      'SELECT * FROM stripe.prices WHERE active = $1',
+      [active]
+    );
+    return result.rows;
+  }
+
+  async getPricesForProduct(productId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.prices WHERE product = $1 AND active = true',
+      [productId]
+    );
+    return result.rows;
+  }
+
+  async getSubscription(subscriptionId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.subscriptions WHERE id = $1',
+      [subscriptionId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listSubscriptions(customerId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.subscriptions WHERE customer = $1 ORDER BY created DESC',
+      [customerId]
+    );
+    return result.rows;
+  }
+
+  async getCustomer(customerId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.customers WHERE id = $1',
+      [customerId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listInvoices(customerId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.invoices WHERE customer = $1 ORDER BY created DESC',
+      [customerId]
+    );
+    return result.rows;
+  }
+
+  async getInvoice(invoiceId: string) {
+    const result = await this.query(
+      'SELECT * FROM stripe.invoices WHERE id = $1',
+      [invoiceId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listPaymentMethods(customerId: string) {
+    const result = await this.query(
+      `SELECT pm.* FROM stripe.payment_methods pm
+       WHERE pm.customer = $1
+       ORDER BY pm.created DESC`,
+      [customerId]
+    );
+    return result.rows;
+  }
+
+  async getActiveServiceAlerts() {
+    const result = await this.query(
+      'SELECT * FROM service_alerts WHERE active = true ORDER BY created_at DESC'
+    );
+    return result.rows;
+  }
+
+  async createMissedPickupReport(data: { userId: string; propertyId: string; pickupDate: string; notes: string }) {
+    const result = await this.query(
+      `INSERT INTO missed_pickup_reports (user_id, property_id, pickup_date, notes)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [data.userId, data.propertyId, data.pickupDate, data.notes]
+    );
+    return result.rows[0];
+  }
+
+  async getMissedPickupReports(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM missed_pickup_reports WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async createSpecialPickupRequest(data: { userId: string; propertyId: string; serviceName: string; servicePrice: number; pickupDate: string }) {
+    const result = await this.query(
+      `INSERT INTO special_pickup_requests (user_id, property_id, service_name, service_price, pickup_date)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.userId, data.propertyId, data.serviceName, data.servicePrice, data.pickupDate]
+    );
+    return result.rows[0];
+  }
+
+  async getSpecialPickupRequests(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM special_pickup_requests WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async upsertCollectionIntent(data: { userId: string; propertyId: string; intent: string; pickupDate: string }) {
+    const result = await this.query(
+      `INSERT INTO collection_intents (user_id, property_id, intent, pickup_date)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (property_id, pickup_date) DO UPDATE SET intent = $3
+       RETURNING *`,
+      [data.userId, data.propertyId, data.intent, data.pickupDate]
+    );
+    return result.rows[0];
+  }
+
+  async deleteCollectionIntent(propertyId: string, pickupDate: string) {
+    await this.query(
+      'DELETE FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+  }
+
+  async getCollectionIntent(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async upsertDriverFeedback(data: { userId: string; propertyId: string; pickupDate: string; rating?: number; tipAmount?: number; note?: string }) {
+    const result = await this.query(
+      `INSERT INTO driver_feedback (user_id, property_id, pickup_date, rating, tip_amount, note)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (property_id, pickup_date) DO UPDATE SET rating = $4, tip_amount = $5, note = $6
+       RETURNING *`,
+      [data.userId, data.propertyId, data.pickupDate, data.rating || null, data.tipAmount || null, data.note || null]
+    );
+    return result.rows[0];
+  }
+
+  async getDriverFeedback(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM driver_feedback WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getDriverFeedbackForProperty(propertyId: string) {
+    const result = await this.query(
+      'SELECT * FROM driver_feedback WHERE property_id = $1 ORDER BY pickup_date DESC',
+      [propertyId]
+    );
+    return result.rows;
+  }
+
+  async getOrCreateReferralCode(userId: string, userName: string): Promise<string> {
+    const existing = await this.query('SELECT code FROM referral_codes WHERE user_id = $1', [userId]);
+    if (existing.rows.length > 0) return existing.rows[0].code;
+    const namePart = userName.replace(/[^A-Z]/gi, '').substring(0, 6).toUpperCase() || 'USER';
+    const randPart = Math.floor(1000 + Math.random() * 9000);
+    const code = `${namePart}-${randPart}`;
+    await this.query(
+      'INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING',
+      [userId, code]
+    );
+    return code;
+  }
+
+  async getReferralsByUser(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getReferralTotalRewards(userId: string): Promise<number> {
+    const result = await this.query(
+      "SELECT COALESCE(SUM(reward_amount), 0) as total FROM referrals WHERE referrer_user_id = $1 AND status = 'completed'",
+      [userId]
+    );
+    return parseFloat(result.rows[0].total);
+  }
+
+  async createReferral(referrerUserId: string, referredEmail: string, referredName: string) {
+    const result = await this.query(
+      'INSERT INTO referrals (referrer_user_id, referred_email, referred_name) VALUES ($1, $2, $3) RETURNING *',
+      [referrerUserId, referredEmail, referredName]
+    );
+    return result.rows[0];
+  }
+
+  async findReferrerByCode(code: string): Promise<string | null> {
+    const result = await this.query('SELECT user_id FROM referral_codes WHERE code = $1', [code]);
+    return result.rows[0]?.user_id || null;
+  }
+
+  async completeReferral(referrerUserId: string, referredEmail: string, rewardAmount: number = 10) {
+    await this.query(
+      "UPDATE referrals SET status = 'completed', completed_at = NOW(), reward_amount = $3 WHERE referrer_user_id = $1 AND referred_email = $2 AND status = 'pending'",
+      [referrerUserId, referredEmail, rewardAmount]
+    );
+  }
+
+  async getPendingReferralForEmail(email: string) {
+    const result = await this.query(
+      "SELECT r.*, rc.user_id as referrer_user_id FROM referrals r JOIN referral_codes rc ON r.referrer_user_id = rc.user_id WHERE r.referred_email = $1 AND r.status = 'pending' LIMIT 1",
+      [email]
+    );
+    return result.rows[0] || null;
+  }
+
+  async initiateTransfer(propertyId: string, newOwner: { firstName: string; lastName: string; email: string }, token: string, expiresAt: Date) {
+    await this.query(
+      `UPDATE properties SET transfer_status = 'pending', pending_owner = $1, transfer_token = $2, transfer_token_expires = $3 WHERE id = $4`,
+      [JSON.stringify(newOwner), token, expiresAt, propertyId]
+    );
+  }
+
+  async getPropertyByTransferToken(token: string): Promise<DbProperty | null> {
+    const result = await this.query(
+      "SELECT * FROM properties WHERE transfer_token = $1 AND transfer_status = 'pending' AND transfer_token_expires > NOW()",
+      [token]
+    );
+    return result.rows[0] || null;
+  }
+
+  async completeTransfer(propertyId: string, newUserId: string) {
+    await this.query(
+      `UPDATE properties SET user_id = $1, transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $2`,
+      [newUserId, propertyId]
+    );
+  }
+
+  async cancelTransfer(propertyId: string) {
+    await this.query(
+      `UPDATE properties SET transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $1`,
+      [propertyId]
+    );
+  }
+
+  async getAllUsers(): Promise<DbUser[]> {
+    const result = await this.query(
+      `SELECT * FROM users ORDER BY created_at DESC`
+    );
+    return result.rows;
+  }
+
+  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string })[]> {
+    const result = await this.query(
+      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
+       FROM properties p LEFT JOIN users u ON p.user_id = u.id
+       ORDER BY p.created_at DESC`
+    );
+    return result.rows;
+  }
+
+  async getAdminStats(): Promise<{
+    totalUsers: number;
+    totalProperties: number;
+    recentUsers: number;
+    activeTransfers: number;
+    totalReferrals: number;
+    pendingReferrals: number;
+  }> {
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs] = await Promise.all([
+      this.query('SELECT COUNT(*) as count FROM users'),
+      this.query('SELECT COUNT(*) as count FROM properties'),
+      this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
+      this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
+      this.query('SELECT COUNT(*) as count FROM referrals'),
+      this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
+    ]);
+    return {
+      totalUsers: parseInt(users.rows[0].count),
+      totalProperties: parseInt(properties.rows[0].count),
+      recentUsers: parseInt(recentUsers.rows[0].count),
+      activeTransfers: parseInt(transfers.rows[0].count),
+      totalReferrals: parseInt(referrals.rows[0].count),
+      pendingReferrals: parseInt(pendingRefs.rows[0].count),
+    };
+  }
+
+  async setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
+    await this.query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, userId]);
+  }
+
+  async getSpecialPickupServices() {
+    const result = await this.query(
+      'SELECT * FROM special_pickup_services WHERE active = true ORDER BY name'
+    );
+    return result.rows;
+  }
+
+  async getTipDismissal(propertyId: string, pickupDate: string) {
+    const result = await this.query(
+      'SELECT * FROM tip_dismissals WHERE property_id = $1 AND pickup_date = $2',
+      [propertyId, pickupDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async createTipDismissal(userId: string, propertyId: string, pickupDate: string) {
+    await this.query(
+      'INSERT INTO tip_dismissals (user_id, property_id, pickup_date) VALUES ($1, $2, $3) ON CONFLICT (property_id, pickup_date) DO NOTHING',
+      [userId, propertyId, pickupDate]
+    );
+  }
+
+  async getTipDismissalsForProperty(propertyId: string) {
+    const result = await this.query(
+      'SELECT pickup_date FROM tip_dismissals WHERE property_id = $1',
+      [propertyId]
+    );
+    return result.rows.map(r => r.pickup_date);
+  }
+
+  async searchUsers(query: string): Promise<DbUser[]> {
+    const result = await this.query(
+      `SELECT * FROM users WHERE 
+       LOWER(email) LIKE LOWER($1) OR 
+       LOWER(first_name || ' ' || last_name) LIKE LOWER($1)
+       ORDER BY created_at DESC LIMIT 50`,
+      [`%${query}%`]
+    );
+    return result.rows;
+  }
+
+  async createAuditLog(adminId: string, action: string, entityType?: string, entityId?: string, details?: any) {
+    await this.query(
+      `INSERT INTO audit_log (admin_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5)`,
+      [adminId, action, entityType || null, entityId || null, details ? JSON.stringify(details) : '{}']
+    );
+  }
+
+  async getAuditLogs(options: { limit?: number; offset?: number; adminId?: string; action?: string; entityType?: string; entityId?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.adminId) { conditions.push(`al.admin_id = $${idx++}`); params.push(options.adminId); }
+    if (options.action) { conditions.push(`al.action ILIKE $${idx++}`); params.push(`%${options.action}%`); }
+    if (options.entityType) { conditions.push(`al.entity_type = $${idx++}`); params.push(options.entityType); }
+    if (options.entityId) { conditions.push(`al.entity_id = $${idx++}`); params.push(options.entityId); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT al.*, u.first_name, u.last_name, u.email as admin_email
+       FROM audit_log al JOIN users u ON al.admin_id = u.id
+       ${where} ORDER BY al.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM audit_log al ${where}`, params.slice(0, -2));
+    return { logs: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async createAdminNote(customerId: string, adminId: string, note: string, tags: string[] = []) {
+    const result = await this.query(
+      `INSERT INTO admin_notes (customer_id, admin_id, note, tags) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [customerId, adminId, note, tags]
+    );
+    return result.rows[0];
+  }
+
+  async getAdminNotes(customerId: string) {
+    const result = await this.query(
+      `SELECT n.*, u.first_name as admin_first_name, u.last_name as admin_last_name
+       FROM admin_notes n JOIN users u ON n.admin_id = u.id
+       WHERE n.customer_id = $1 ORDER BY n.created_at DESC`,
+      [customerId]
+    );
+    return result.rows;
+  }
+
+  async deleteAdminNote(noteId: number, adminId: string) {
+    await this.query(`DELETE FROM admin_notes WHERE id = $1 AND admin_id = $2`, [noteId, adminId]);
+  }
+
+  async getSignupTrends(days: number = 90) {
+    const safeDays = Math.min(Math.max(Math.round(days), 1), 365);
+    const result = await this.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM users WHERE created_at > NOW() - ($1 || ' days')::INTERVAL
+       GROUP BY DATE(created_at) ORDER BY date`,
+      [safeDays.toString()]
+    );
+    return result.rows;
+  }
+
+  async getPropertyStats() {
+    const result = await this.query(
+      `SELECT service_type, COUNT(*) as count FROM properties GROUP BY service_type ORDER BY count DESC`
+    );
+    return result.rows;
+  }
+
+  async getAllUsersPaginated(options: { limit?: number; offset?: number; search?: string; sortBy?: string; sortDir?: string; serviceType?: string; hasStripe?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.search) {
+      conditions.push(`(LOWER(u.email) LIKE LOWER($${idx}) OR LOWER(u.first_name || ' ' || u.last_name) LIKE LOWER($${idx}))`);
+      params.push(`%${options.search}%`);
+      idx++;
+    }
+    if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
+    if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
+    if (options.serviceType) {
+      conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_type = $${idx})`);
+      params.push(options.serviceType);
+      idx++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const validSorts: Record<string, string> = { name: 'u.first_name', email: 'u.email', created_at: 'u.created_at', member_since: 'u.member_since' };
+    const sortCol = validSorts[options.sortBy || ''] || 'u.created_at';
+    const sortDir = options.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT u.*, (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count
+       FROM users u ${where} ORDER BY ${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM users u ${where}`, params.slice(0, -2));
+    return { users: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getAdminUsers() {
+    const result = await this.query(
+      `SELECT id, first_name, last_name, email, phone, is_admin, admin_role, created_at
+       FROM users WHERE is_admin = true ORDER BY created_at ASC`
+    );
+    return result.rows;
+  }
+
+  async updateAdminRole(userId: string, role: string | null) {
+    await this.query(
+      'UPDATE users SET admin_role = $1, updated_at = NOW() WHERE id = $2',
+      [role, userId]
+    );
+  }
+
+  async bulkUpdateAdminStatus(userIds: string[], isAdmin: boolean) {
+    if (userIds.length === 0) return;
+    const placeholders = userIds.map((_, i) => `$${i + 2}`).join(',');
+    await this.query(
+      `UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id IN (${placeholders})`,
+      [isAdmin, ...userIds]
+    );
+  }
+
+  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean; admin_role: string }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+    if (fields.length === 0) return;
+    fields.push(`updated_at = NOW()`);
+    values.push(userId);
+    await this.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+  }
+
+  async globalSearch(query: string) {
+    const searchParam = `%${query}%`;
+    const [users, properties] = await Promise.all([
+      this.query(
+        `SELECT id, first_name, last_name, email, 'user' as type FROM users
+         WHERE LOWER(email) LIKE LOWER($1) OR LOWER(first_name || ' ' || last_name) LIKE LOWER($1) LIMIT 10`,
+        [searchParam]
+      ),
+      this.query(
+        `SELECT p.id, p.address, p.service_type, u.first_name || ' ' || u.last_name as owner_name, 'property' as type
+         FROM properties p JOIN users u ON p.user_id = u.id
+         WHERE LOWER(p.address) LIKE LOWER($1) LIMIT 10`,
+        [searchParam]
+      ),
+    ]);
+    return { users: users.rows, properties: properties.rows };
+  }
+
+  async getMissedPickupReports(options: { status?: string; limit?: number; offset?: number }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.status) { conditions.push(`m.status = $${idx++}`); params.push(options.status); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT m.*, u.first_name, u.last_name, u.email, p.address
+       FROM missed_pickup_reports m
+       JOIN users u ON m.user_id = u.id
+       JOIN properties p ON m.property_id = p.id
+       ${where} ORDER BY m.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports m ${where}`, params.slice(0, -2));
+    return { reports: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async updateMissedPickupStatus(reportId: string, status: string, resolutionNotes?: string) {
+    await this.query(
+      `UPDATE missed_pickup_reports SET status = $1, resolution_notes = $2, updated_at = NOW() WHERE id = $3`,
+      [status, resolutionNotes || null, reportId]
+    );
+  }
+
+  async getSpecialPickupRequests(options: { status?: string; limit?: number; offset?: number }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.status) { conditions.push(`s.status = $${idx++}`); params.push(options.status); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+    const result = await this.query(
+      `SELECT s.*, u.first_name, u.last_name, u.email, p.address
+       FROM special_pickup_requests s
+       JOIN users u ON s.user_id = u.id
+       JOIN properties p ON s.property_id = p.id
+       ${where} ORDER BY s.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM special_pickup_requests s ${where}`, params.slice(0, -2));
+    return { requests: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getUsersForExport(options: { search?: string; serviceType?: string; hasStripe?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (options.search) {
+      conditions.push(`(LOWER(u.email) LIKE LOWER($${idx}) OR LOWER(u.first_name || ' ' || u.last_name) LIKE LOWER($${idx}))`);
+      params.push(`%${options.search}%`);
+      idx++;
+    }
+    if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
+    if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
+    if (options.serviceType) {
+      conditions.push(`EXISTS (SELECT 1 FROM properties p2 WHERE p2.user_id = u.id AND p2.service_type = $${idx})`);
+      params.push(options.serviceType);
+      idx++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.query(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id, u.is_admin, u.created_at,
+       (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
+       (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
+       FROM users u ${where} ORDER BY u.created_at DESC`,
+      params
+    );
+    return result.rows;
+  }
+  // ==================== Communications ====================
+
+  async createDriver(data: { name: string; email?: string; phone?: string; optimorouteDriverId?: string }) {
+    const result = await this.query(
+      `INSERT INTO drivers (name, email, phone, optimoroute_driver_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [data.name, data.email || null, data.phone || null, data.optimorouteDriverId || null]
+    );
+    return result.rows[0];
+  }
+
+  async getDrivers() {
+    const result = await this.query(`SELECT * FROM drivers WHERE status = 'active' ORDER BY name`);
+    return result.rows;
+  }
+
+  async getDriverById(id: string) {
+    const result = await this.query(`SELECT * FROM drivers WHERE id = $1`, [id]);
+    return result.rows[0] || null;
+  }
+
+  async createConversation(data: { subject?: string; type: string; createdById: string; createdByType: string; participants: { id: string; type: string; role: string }[] }) {
+    const conv = await this.query(
+      `INSERT INTO conversations (subject, type, created_by_id, created_by_type) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [data.subject || null, data.type, data.createdById, data.createdByType]
+    );
+    const conversation = conv.rows[0];
+    for (const p of data.participants) {
+      await this.query(
+        `INSERT INTO conversation_participants (conversation_id, participant_id, participant_type, role) VALUES ($1, $2, $3, $4)`,
+        [conversation.id, p.id, p.type, p.role]
+      );
+    }
+    return conversation;
+  }
+
+  async getConversations(participantId: string, participantType: string, options: { limit?: number; offset?: number; status?: string } = {}) {
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+
+    const listParams: any[] = [participantId, participantType, limit, offset];
+    const countParams: any[] = [participantId, participantType];
+    let statusFilter = '';
+    if (options.status && options.status !== 'all') {
+      statusFilter = `AND c.status = $5`;
+      listParams.push(options.status);
+      countParams.push(options.status);
+    }
+    const countStatusFilter = options.status && options.status !== 'all' ? `AND c.status = $3` : '';
+
+    const result = await this.query(
+      `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+        (SELECT sender_type FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_sender_type,
+        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')) as unread_count
+       FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = $2
+       ${statusFilter}
+       ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC
+       LIMIT $3 OFFSET $4`,
+      listParams
+    );
+
+    const countResult = await this.query(
+      `SELECT COUNT(*) FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = $2
+       ${countStatusFilter}`,
+      countParams
+    );
+
+    return { conversations: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getAllConversations(options: { limit?: number; offset?: number; status?: string } = {}) {
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (options.status && options.status !== 'all') {
+      conditions.push(`c.status = $${idx++}`);
+      params.push(options.status);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await this.query(
+      `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+        (SELECT sender_type FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_sender_type,
+        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at
+       FROM conversations c ${where}
+       ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC
+       LIMIT $${idx++} OFFSET $${idx++}`,
+      [...params, limit, offset]
+    );
+
+    const countResult = await this.query(
+      `SELECT COUNT(*) FROM conversations c ${where}`,
+      params
+    );
+
+    return { conversations: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getConversationById(conversationId: string) {
+    const result = await this.query(`SELECT * FROM conversations WHERE id = $1`, [conversationId]);
+    return result.rows[0] || null;
+  }
+
+  async getConversationParticipants(conversationId: string) {
+    const result = await this.query(
+      `SELECT cp.*,
+        CASE 
+          WHEN cp.participant_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
+          WHEN cp.participant_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
+          WHEN cp.participant_type = 'driver' THEN (SELECT name FROM drivers WHERE id = cp.participant_id)
+        END as participant_name,
+        CASE
+          WHEN cp.participant_type IN ('user', 'admin') THEN (SELECT email FROM users WHERE id = cp.participant_id)
+          WHEN cp.participant_type = 'driver' THEN (SELECT email FROM drivers WHERE id = cp.participant_id)
+        END as participant_email
+       FROM conversation_participants cp
+       WHERE cp.conversation_id = $1
+       ORDER BY cp.joined_at`,
+      [conversationId]
+    );
+    return result.rows;
+  }
+
+  async isParticipant(conversationId: string, participantId: string, participantType: string) {
+    const result = await this.query(
+      `SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND participant_id = $2 AND participant_type = $3`,
+      [conversationId, participantId, participantType]
+    );
+    return result.rows.length > 0;
+  }
+
+  async getMessages(conversationId: string, options: { limit?: number; before?: string } = {}) {
+    const limit = options.limit || 50;
+    const params: any[] = [conversationId, limit];
+    let beforeClause = '';
+    if (options.before) {
+      beforeClause = `AND m.created_at < $3`;
+      params.push(options.before);
+    }
+
+    const result = await this.query(
+      `SELECT m.*,
+        CASE
+          WHEN m.sender_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
+          WHEN m.sender_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
+          WHEN m.sender_type = 'driver' THEN (SELECT name FROM drivers WHERE id = m.sender_id)
+        END as sender_name
+       FROM messages m
+       WHERE m.conversation_id = $1 ${beforeClause}
+       ORDER BY m.created_at ASC
+       LIMIT $2`,
+      params
+    );
+    return result.rows;
+  }
+
+  async createMessage(data: { conversationId: string; senderId: string; senderType: string; body: string; messageType?: string }) {
+    const result = await this.query(
+      `INSERT INTO messages (conversation_id, sender_id, sender_type, body, message_type) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.conversationId, data.senderId, data.senderType, data.body, data.messageType || 'text']
+    );
+    await this.query(`UPDATE conversations SET updated_at = NOW() WHERE id = $1`, [data.conversationId]);
+    return result.rows[0];
+  }
+
+  async markConversationRead(conversationId: string, participantId: string, participantType: string) {
+    await this.query(
+      `UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = $1 AND participant_id = $2 AND participant_type = $3`,
+      [conversationId, participantId, participantType]
+    );
+  }
+
+  async updateConversationStatus(conversationId: string, status: string) {
+    await this.query(`UPDATE conversations SET status = $1, updated_at = NOW() WHERE id = $2`, [status, conversationId]);
+  }
+
+  async getConversationsForCustomer(userId: string) {
+    const result = await this.query(
+      `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')) as unread_count
+       FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = 'user'
+       WHERE c.status != 'archived'
+       ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getConversationsForDriver(driverId: string) {
+    const result = await this.query(
+      `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+        (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+        (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')) as unread_count
+       FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = 'driver'
+       WHERE c.status != 'archived'
+       ORDER BY COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) DESC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async getUnreadCount(participantId: string, participantType: string) {
+    const result = await this.query(
+      `SELECT COUNT(DISTINCT c.id) as count FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = $2
+       WHERE c.status = 'open'
+       AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01'))`,
+      [participantId, participantType]
+    );
+    return parseInt(result.rows[0].count);
+  }
+
+  async getDriverByEmail(email: string) {
+    const result = await this.query('SELECT * FROM drivers WHERE email = $1', [email]);
+    return result.rows[0] || null;
+  }
+
+  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(key === 'availability' ? JSON.stringify(val) : val);
+        idx++;
+      }
+    }
+    if (fields.length === 0) return null;
+    fields.push(`updated_at = NOW()`);
+    values.push(id);
+    const result = await this.query(
+      `UPDATE drivers SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async createW9(driverId: string, data: { legal_name: string; business_name?: string; federal_tax_classification: string; other_classification?: string; exempt_payee_code?: string; fatca_exemption_code?: string; address: string; city: string; state: string; zip: string; requester_name?: string; requester_address?: string; account_numbers?: string; ssn_last4?: string; ein?: string; tin_type: string; signature_data?: string; signature_date: string; certified?: boolean }) {
+    const result = await this.query(
+      `INSERT INTO driver_w9 (driver_id, legal_name, business_name, federal_tax_classification, other_classification, exempt_payee_code, fatca_exemption_code, address, city, state, zip, requester_name, requester_address, account_numbers, ssn_last4, ein, tin_type, signature_data, signature_date, certified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       RETURNING *`,
+      [driverId, data.legal_name, data.business_name || null, data.federal_tax_classification, data.other_classification || null, data.exempt_payee_code || null, data.fatca_exemption_code || null, data.address, data.city, data.state, data.zip, data.requester_name || null, data.requester_address || null, data.account_numbers || null, data.ssn_last4 || null, data.ein || null, data.tin_type, data.signature_data || null, data.signature_date, data.certified ?? false]
+    );
+    return result.rows[0];
+  }
+
+  async getW9ByDriverId(driverId: string) {
+    const result = await this.query('SELECT * FROM driver_w9 WHERE driver_id = $1', [driverId]);
+    return result.rows[0] || null;
+  }
+
+  async createRouteJob(data: {
+    title: string;
+    description?: string;
+    area?: string;
+    scheduled_date: string;
+    start_time?: string;
+    end_time?: string;
+    estimated_stops?: number;
+    estimated_hours?: number;
+    base_pay?: number;
+    notes?: string;
+    assigned_driver_id?: string;
+  }) {
+    const result = await this.query(
+      `INSERT INTO route_jobs
+         (title, description, area, scheduled_date, start_time, end_time,
+          estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       RETURNING *`,
+      [
+        data.title,
+        data.description ?? null,
+        data.area ?? null,
+        data.scheduled_date,
+        data.start_time ?? null,
+        data.end_time ?? null,
+        data.estimated_stops ?? null,
+        data.estimated_hours ?? null,
+        data.base_pay ?? null,
+        data.notes ?? null,
+        data.assigned_driver_id ?? null,
+        data.assigned_driver_id ? 'assigned' : 'open',
+      ]
+    );
+    return result.rows[0];
+  }
+
+  async getAllRouteJobs() {
+    const result = await this.query(
+      `SELECT rj.*, d.name AS driver_name
+       FROM route_jobs rj
+       LEFT JOIN drivers d ON rj.assigned_driver_id = d.id
+       ORDER BY rj.scheduled_date DESC, rj.created_at DESC`
+    );
+    return result.rows;
+  }
+
+  async getOpenJobs(filters?: { startDate?: string; endDate?: string }) {
+    const conditions: string[] = [`status IN ('open', 'bidding')`];
+    const params: any[] = [];
+    let idx = 1;
+    if (filters?.startDate) {
+      conditions.push(`scheduled_date >= $${idx++}`);
+      params.push(filters.startDate);
+    }
+    if (filters?.endDate) {
+      conditions.push(`scheduled_date <= $${idx++}`);
+      params.push(filters.endDate);
+    }
+    const result = await this.query(
+      `SELECT * FROM route_jobs WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
+      params
+    );
+    return result.rows;
+  }
+
+  async getJobById(jobId: string) {
+    const result = await this.query('SELECT * FROM route_jobs WHERE id = $1', [jobId]);
+    return result.rows[0] || null;
+  }
+
+  async getJobBids(jobId: string) {
+    const result = await this.query(
+      `SELECT jb.*, d.name as driver_name, d.rating as driver_rating
+       FROM job_bids jb
+       JOIN drivers d ON jb.driver_id = d.id
+       WHERE jb.job_id = $1
+       ORDER BY jb.created_at ASC`,
+      [jobId]
+    );
+    return result.rows;
+  }
+
+  async createBid(data: { jobId: string; driverId: string; bidAmount: number; message?: string; driverRatingAtBid: number }) {
+    const result = await this.query(
+      `INSERT INTO job_bids (job_id, driver_id, bid_amount, message, driver_rating_at_bid)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [data.jobId, data.driverId, data.bidAmount, data.message || null, data.driverRatingAtBid]
+    );
+    return result.rows[0];
+  }
+
+  async deleteBid(jobId: string, driverId: string) {
+    await this.query('DELETE FROM job_bids WHERE job_id = $1 AND driver_id = $2', [jobId, driverId]);
+  }
+
+  async getBidByJobAndDriver(jobId: string, driverId: string) {
+    const result = await this.query(
+      'SELECT * FROM job_bids WHERE job_id = $1 AND driver_id = $2',
+      [jobId, driverId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async updateJob(jobId: string, data: Partial<{ title: string; description: string; area: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        fields.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+    if (fields.length === 0) return null;
+    fields.push(`updated_at = NOW()`);
+    values.push(jobId);
+    const result = await this.query(
+      `UPDATE route_jobs SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async getDriverJobs(driverId: string) {
+    const result = await this.query(
+      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 ORDER BY scheduled_date DESC, start_time ASC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async getDriverSchedule(driverId: string, start: string, end: string) {
+    const result = await this.query(
+      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 AND scheduled_date >= $2 AND scheduled_date <= $3 ORDER BY scheduled_date ASC, start_time ASC`,
+      [driverId, start, end]
+    );
+    return result.rows;
+  }
 }
 
 export const storage = new Storage();

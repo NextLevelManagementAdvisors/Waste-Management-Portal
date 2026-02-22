@@ -118,7 +118,7 @@ const ProfileSettings: React.FC = () => {
                     </dl>
                     {isEditingProfile && (
                         <div className="flex justify-end gap-3 mt-6">
-                            <Button type="button" variant="secondary" onClick={() => setIsEditingProfile(false)} disabled={isSavingProfile}>Cancel</Button>
+                            <Button type="button" variant="secondary" onClick={handleCancelEditingProfile} disabled={isSavingProfile}>Cancel</Button>
                             <Button type="submit" disabled={isSavingProfile}>
                                 {isSavingProfile ? 'Saving...' : 'Save Changes'}
                             </Button>

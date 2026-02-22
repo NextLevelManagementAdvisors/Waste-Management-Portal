@@ -58,7 +58,7 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
             <div className="flex items-center justify-between border-t border-base-100 pt-4 mt-auto">
                 <div>
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">Monthly Total</p>
-                    <p className="text-xl font-black text-gray-900 mt-1">${property.monthlyTotal.toFixed(2)}</p>
+                    <p className="text-xl font-black text-gray-900 mt-1">${Number(property.monthlyTotal).toFixed(2)}</p>
                 </div>
                 <Button 
                     onClick={() => setSelectedPropertyId(property.id)} 

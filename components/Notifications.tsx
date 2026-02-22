@@ -13,6 +13,8 @@ const Notifications: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);
     const [notification, setNotification] = useState('');
+    const [msgEmailEnabled, setMsgEmailEnabled] = useState(false);
+    const [msgEmailSaving, setMsgEmailSaving] = useState(false);
 
     useEffect(() => {
         if (selectedProperty) {
@@ -23,6 +25,28 @@ const Notifications: React.FC = () => {
             setPrefs(null);
         }
     }, [selectedProperty]);
+
+    useEffect(() => {
+        fetch('/api/profile/message-notifications')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) setMsgEmailEnabled(d.message_email_notifications); })
+            .catch(() => {});
+    }, []);
+
+    const handleMsgEmailToggle = async () => {
+        const next = !msgEmailEnabled;
+        setMsgEmailSaving(true);
+        try {
+            await fetch('/api/profile/message-notifications', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: next }),
+            });
+            setMsgEmailEnabled(next);
+        } catch { /* ignore */ } finally {
+            setMsgEmailSaving(false);
+        }
+    };
 
     const handlePrefChange = useCallback((category: keyof NotificationPreferences, type: 'email' | 'sms') => {
         setPrefs(prev => {
@@ -97,17 +121,17 @@ const Notifications: React.FC = () => {
             <h3 className="text-xl font-black text-gray-900 tracking-tight">Communication</h3>
             <Card>
                 <div className="divide-y divide-gray-200">
-                    <NotificationCategory 
+                    <NotificationCategory
                         title="Pickup Reminders"
                         description="Get a reminder the day before your scheduled pickup."
                         categoryKey="pickupReminders"
                     />
-                     <NotificationCategory 
+                     <NotificationCategory
                         title="Schedule Changes"
                         description="Be notified about holiday schedule changes or cancellations."
                         categoryKey="scheduleChanges"
                     />
-                     <NotificationCategory 
+                     <NotificationCategory
                         title="Driver Updates"
                         description="Receive an alert if the driver is running late on pickup day."
                         categoryKey="driverUpdates"
@@ -120,6 +144,19 @@ const Notifications: React.FC = () => {
                     {isSaving ? 'Saving...' : 'Save Changes'}
                 </Button>
             </div>
+
+            <Card>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-2">
+                    <div>
+                        <h3 className="text-lg font-semibold text-neutral">Message Notifications</h3>
+                        <p className="text-sm text-gray-500 mt-1">Receive an email when you get a new message from our team.</p>
+                    </div>
+                    <div className="mt-4 sm:mt-0 flex items-center gap-3">
+                        {msgEmailSaving && <span className="text-xs text-gray-400">Saving…</span>}
+                        <ToggleSwitch checked={msgEmailEnabled} onChange={handleMsgEmailToggle} />
+                    </div>
+                </div>
+            </Card>
         </div>
     );
 };

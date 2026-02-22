@@ -44,7 +44,7 @@ const PayInvoiceModal: React.FC<{
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Pay Invoice ${invoice.id}`}>
              <div className="space-y-4">
-                <p className="text-lg text-center">Amount Due: <span className="font-bold text-primary">${invoice.amount.toFixed(2)}</span></p>
+                <p className="text-lg text-center">Amount Due: <span className="font-bold text-primary">${Number(invoice.amount).toFixed(2)}</span></p>
                 
                 <h4 className="font-semibold text-neutral">Select Payment Method:</h4>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
@@ -76,7 +76,7 @@ const PayInvoiceModal: React.FC<{
                  <div className="mt-6 flex justify-end gap-3">
                     <Button type="button" variant="secondary" onClick={onClose} disabled={isPaying}>Cancel</Button>
                     <Button type="button" onClick={handlePayment} disabled={isPaying || paymentMethods.length === 0} className="px-8">
-                        {isPaying ? 'Processing...' : `Confirm $${invoice.amount.toFixed(2)}`}
+                        {isPaying ? 'Processing...' : `Confirm $${Number(invoice.amount).toFixed(2)}`}
                     </Button>
                 </div>
             </div>
@@ -114,7 +114,7 @@ const InvoiceList: React.FC<{
                         </div>
                          <div>
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</p>
-                            <p className="font-black text-neutral text-lg text-right">${invoice.amount.toFixed(2)}</p>
+                            <p className="font-black text-neutral text-lg text-right">${Number(invoice.amount).toFixed(2)}</p>
                         </div>
                     </div>
 
@@ -165,7 +165,7 @@ const InvoiceTable: React.FC<{
                                 <p className="text-xs text-gray-400 mt-0.5">{invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : invoice.id}</p>
                             </td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-600">{invoice.date}</td>
-                            <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${invoice.amount.toFixed(2)}</td>
+                            <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${Number(invoice.amount).toFixed(2)}</td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm">
                                 <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
                                 {invoice.status === 'Paid' && invoice.paymentDate && (

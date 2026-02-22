@@ -319,7 +319,7 @@ const AdminDashboard: React.FC = () => {
                       <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                         <span className="text-sm text-gray-600">Balance</span>
                         <span className={`text-sm font-black ${selectedCustomer.stripe.balance < 0 ? 'text-green-600' : selectedCustomer.stripe.balance > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                          ${Math.abs(selectedCustomer.stripe.balance).toFixed(2)} {selectedCustomer.stripe.balance < 0 ? 'credit' : selectedCustomer.stripe.balance > 0 ? 'owed' : ''}
+                          ${Math.abs(Number(selectedCustomer.stripe.balance)).toFixed(2)} {selectedCustomer.stripe.balance < 0 ? 'credit' : selectedCustomer.stripe.balance > 0 ? 'owed' : ''}
                         </span>
                       </div>
 
@@ -359,7 +359,7 @@ const AdminDashboard: React.FC = () => {
                           <div key={inv.id} className="flex justify-between items-center py-1 text-sm">
                             <span className="text-gray-700">{inv.number || inv.id}</span>
                             <div className="flex items-center gap-3">
-                              <span className="font-bold">${inv.amount.toFixed(2)}</span>
+                              <span className="font-bold">${Number(inv.amount).toFixed(2)}</span>
                               <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${
                                 inv.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
                               }`}>{inv.status}</span>

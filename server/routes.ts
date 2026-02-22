@@ -576,4 +576,28 @@ export function registerRoutes(app: Express) {
       }
     }
   });
+
+  // Message email opt-in for customers
+  app.get('/api/profile/message-notifications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const result = await storage.query(`SELECT message_email_notifications FROM users WHERE id = $1`, [userId]);
+      const enabled = result.rows[0]?.message_email_notifications ?? false;
+      res.json({ message_email_notifications: enabled });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to get preference' });
+    }
+  });
+
+  app.put('/api/profile/message-notifications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { enabled } = req.body;
+      if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+      await storage.query(`UPDATE users SET message_email_notifications = $1, updated_at = NOW() WHERE id = $2`, [enabled, userId]);
+      res.json({ success: true, message_email_notifications: enabled });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to update preference' });
+    }
+  });
 }

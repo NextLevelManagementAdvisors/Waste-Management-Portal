@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(npm run dev:backend:*)",
+      "Bash(npm run dev:frontend:*)"
+    ]
+  }
+}

@@ -7,12 +7,16 @@ import {
   MagnifyingGlassIcon,
   ShieldCheckIcon,
 } from '../components/Icons.tsx';
-import DashboardView from './components/DashboardView.tsx';
-import CustomersView from './components/CustomersView.tsx';
-import BillingView from './components/BillingView.tsx';
-import OperationsView from './components/OperationsView.tsx';
-import SystemView from './components/SystemView.tsx';
-import CommunicationsView from './components/CommunicationsView.tsx';
+import DashboardView from './components/dashboard/DashboardView.tsx';
+import CustomersView from './components/customers/CustomersView.tsx';
+import BillingView from './components/billing/BillingView.tsx';
+import OperationsView from './components/operations/OperationsView.tsx';
+import SystemView from './components/system/SystemView.tsx';
+import CommunicationsView from './components/communications/CommunicationsView.tsx';
+import TeamView from './components/team/TeamView.tsx';
+import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
+import AdminLogin from './components/auth/AdminLogin.tsx';
+import type { NavFilter } from '../shared/types/index.ts';
 
 interface AdminUser {
   id: string;
@@ -22,7 +26,7 @@ interface AdminUser {
   isAdmin: boolean;
 }
 
-type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'communications' | 'system';
+type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'team' | 'communications' | 'system';
 
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -49,16 +53,16 @@ const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-export interface NavFilter {
-  tab?: string;
-  filter?: string;
-  sort?: string;
-  search?: string;
-}
+const PeopleIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+  </svg>
+);
 
 const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -70,6 +74,36 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentView(view);
   };
+
+  const handleAdminLogin = useCallback(async (email: string, password: string) => {
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setAuthError(json.error || 'Login failed');
+        return;
+      }
+
+      // Check if user is admin
+      if (!json.data?.isAdmin) {
+        setAuthError('You do not have admin privileges. Please use the Client Portal to sign in.');
+        return;
+      }
+
+      setUser(json.data);
+      setAuthChecked(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'An error occurred during login');
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -84,6 +118,11 @@ const AdminApp: React.FC = () => {
       })
       .catch(() => {})
       .finally(() => setAuthChecked(true));
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    setUser(null);
   }, []);
 
   const handleGlobalSearch = useCallback(async (q: string) => {
@@ -105,16 +144,9 @@ const AdminApp: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full p-8 text-center">
-          <ShieldCheckIcon className="w-16 h-16 text-teal-600 mx-auto mb-4" />
-          <h1 className="text-2xl font-black text-gray-900 mb-2">Admin Access Required</h1>
-          <p className="text-gray-500 mb-6">You need to be logged in with an admin account to access this portal.</p>
-          <a href="/" className="inline-block">
-            <Button>Go to Client Portal</Button>
-          </a>
-        </Card>
-      </div>
+      <AdminAuthLayout error={authError}>
+        <AdminLogin onLogin={handleAdminLogin} />
+      </AdminAuthLayout>
     );
   }
 
@@ -123,6 +155,7 @@ const AdminApp: React.FC = () => {
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
     { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
+    { view: 'team', label: 'Drivers', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
@@ -159,7 +192,7 @@ const AdminApp: React.FC = () => {
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black">
+            <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black flex-shrink-0">
               {user.firstName[0]}{user.lastName[0]}
             </div>
             <div className="flex-1 min-w-0">
@@ -167,9 +200,16 @@ const AdminApp: React.FC = () => {
               <p className="text-xs text-gray-400 truncate">{user.email}</p>
             </div>
           </div>
-          <a href="/" className="block text-center text-xs text-gray-400 hover:text-white transition-colors py-2 rounded-lg hover:bg-gray-800">
-            Switch to Client Portal
-          </a>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15m-3 0-3-3m0 0 3-3m-3 3H15" />
+            </svg>
+            Sign Out
+          </button>
         </div>
       </aside>
 
@@ -208,7 +248,7 @@ const AdminApp: React.FC = () => {
                       <div className="mb-2">
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Customers</p>
                         {searchResults.users.map((u: any) => (
-                          <button key={u.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={u.id} onClick={() => { navigateTo('customers', { search: u.email }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{u.first_name} {u.last_name}</p>
                             <p className="text-xs text-gray-400">{u.email}</p>
                           </button>
@@ -219,7 +259,7 @@ const AdminApp: React.FC = () => {
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
                         {searchResults.properties.map((p: any) => (
-                          <button key={p.id} onClick={() => { setCurrentView('customers'); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={p.id} onClick={() => { navigateTo('customers', { search: p.address }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{p.address}</p>
                             <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
                           </button>
@@ -237,10 +277,11 @@ const AdminApp: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} />}
+          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'customers' && <CustomersView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'team' && <TeamView />}
           {currentView === 'communications' && <CommunicationsView />}
           {currentView === 'system' && <SystemView />}
         </div>

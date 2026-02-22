@@ -166,7 +166,7 @@ const SpecialPickup: React.FC = () => {
                             <h3 className="text-xl font-black text-gray-900">{service.name}</h3>
                             <p className="text-sm text-gray-500 mt-2 font-medium leading-relaxed">{service.description}</p>
                             <div className="mt-8 flex items-baseline gap-1">
-                                <span className="text-3xl font-black text-gray-900">${service.price.toFixed(0)}</span>
+                                <span className="text-3xl font-black text-gray-900">${Number(service.price).toFixed(0)}</span>
                                 <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Flat Fee</span>
                             </div>
                             <Button onClick={() => handleScheduleClick(service)} className="w-full mt-6 rounded-2xl font-black uppercase tracking-widest text-xs py-4">
@@ -193,7 +193,7 @@ const SpecialPickup: React.FC = () => {
                                         <p className="font-black text-gray-900 uppercase text-xs tracking-tight">{req.serviceName}</p>
                                         <p className="text-sm font-bold text-primary mt-1">{new Date(req.date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })}</p>
                                     </div>
-                                    <p className="font-black text-lg text-gray-900">${req.price.toFixed(2)}</p>
+                                    <p className="font-black text-lg text-gray-900">${Number(req.price).toFixed(2)}</p>
                                 </div>
                             ))}
                         </div>
@@ -218,7 +218,7 @@ const SpecialPickup: React.FC = () => {
                                         <p className="font-bold text-gray-700 uppercase text-xs tracking-tight">{req.serviceName}</p>
                                         <p className="text-sm font-medium text-gray-400 mt-1">{new Date(req.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</p>
                                     </div>
-                                    <p className="font-bold text-gray-600">${req.price.toFixed(2)}</p>
+                                    <p className="font-bold text-gray-600">${Number(req.price).toFixed(2)}</p>
                                 </div>
                             ))}
                         </div>
@@ -238,7 +238,7 @@ const SpecialPickup: React.FC = () => {
                 >
                     <div className="space-y-6">
                         <p className="text-gray-500 font-medium text-sm leading-relaxed">
-                            Pickups are scheduled between <span className="font-bold text-gray-900">7:00 AM and 5:00 PM</span> on your selected date. A flat service fee of <span className="font-black text-primary">${selectedService.price.toFixed(2)}</span> will be added to your next statement.
+                            Pickups are scheduled between <span className="font-bold text-gray-900">7:00 AM and 5:00 PM</span> on your selected date. A flat service fee of <span className="font-black text-primary">${Number(selectedService.price).toFixed(2)}</span> will be added to your next statement.
                         </p>
                         <div>
                             <label htmlFor="pickupDate" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Target Date</label>

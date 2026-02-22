@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '../components/Card.tsx';
 import { Button } from '../components/Button.tsx';
+import TeamAuthLayout from './components/TeamAuthLayout';
+import TeamLogin from './components/TeamLogin';
+import TeamRegister from './components/TeamRegister';
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -58,7 +61,7 @@ interface Bid {
   created_at?: string;
 }
 
-type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'profile';
+type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'profile' | 'messages';
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
@@ -102,6 +105,12 @@ const ListIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const ChatBubbleIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+  </svg>
+);
+
 const StarRating: React.FC<{ rating: number; className?: string }> = ({ rating, className = '' }) => {
   const stars = [];
   for (let i = 1; i <= 5; i++) {
@@ -129,6 +138,15 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
       {status.replace('_', ' ')}
     </span>
   );
+};
+
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
 };
 
 function normalizeDriver(raw: any): Driver {
@@ -202,8 +220,7 @@ const SignaturePad: React.FC<{ onSignatureChange: (data: string) => void }> = ({
         ref={canvasRef}
         width={500}
         height={150}
-        className="border-2 border-gray-300 rounded-lg cursor-crosshair bg-white w-full"
-        style={{ touchAction: 'none' }}
+        className="border-2 border-gray-300 rounded-lg cursor-crosshair bg-white w-full touch-none"
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={stopDrawing}
@@ -239,11 +256,20 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
   const [w9Error, setW9Error] = useState('');
   const [w9Success, setW9Success] = useState(false);
 
-  const [stripeLoading, setStripeLoading] = useState(false);
-  const [stripeError, setStripeError] = useState('');
-  const [stripeCheckLoading, setStripeCheckLoading] = useState(false);
+  const [bankForm, setBankForm] = useState({
+    account_holder_name: '',
+    routing_number: '',
+    account_number: '',
+    account_type: 'checking' as 'checking' | 'savings',
+  });
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [bankSuccess, setBankSuccess] = useState(false);
+  const [depositMethod, setDepositMethod] = useState<'select' | 'manual' | 'skip' | null>(null);
+  const [skipLoading, setSkipLoading] = useState(false);
 
   const updateW9 = (field: string, value: any) => setW9Form(prev => ({ ...prev, [field]: value }));
+  const updateBank = (field: string, value: any) => setBankForm(prev => ({ ...prev, [field]: value }));
 
   const handleW9Submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,32 +327,72 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
     }
   };
 
-  const handleStripeConnect = async () => {
-    setStripeError('');
-    setStripeLoading(true);
+  const handleBankAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBankError('');
+
+    // Client-side validation
+    if (!bankForm.account_holder_name.trim()) {
+      setBankError('Account holder name is required');
+      return;
+    }
+    if (!bankForm.routing_number.trim()) {
+      setBankError('Routing number is required');
+      return;
+    }
+    if (!/^\d{9}$/.test(bankForm.routing_number)) {
+      setBankError('Routing number must be 9 digits');
+      return;
+    }
+    if (!bankForm.account_number.trim()) {
+      setBankError('Account number is required');
+      return;
+    }
+    if (!/^\d{1,17}$/.test(bankForm.account_number)) {
+      setBankError('Account number must be 1-17 digits');
+      return;
+    }
+
+    setBankLoading(true);
     try {
-      const res = await fetch('/api/team/onboarding/stripe-connect', {
+      const res = await fetch('/api/team/onboarding/bank-account', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({
+          account_holder_name: bankForm.account_holder_name,
+          routing_number: bankForm.routing_number,
+          account_number: bankForm.account_number,
+          account_type: bankForm.account_type,
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to start Stripe Connect');
-      const url = json.data?.url || json.url;
-      if (url) window.location.href = url;
+      if (!res.ok) throw new Error(json.error || 'Failed to submit bank account');
+      setBankSuccess(true);
+      onRefresh();
     } catch (err: any) {
-      setStripeError(err.message);
+      setBankError(err.message);
     } finally {
-      setStripeLoading(false);
+      setBankLoading(false);
     }
   };
 
-  const handleCheckStripeStatus = async () => {
-    setStripeCheckLoading(true);
+  const handleSkipDirectDeposit = async () => {
+    setSkipLoading(true);
     try {
-      await fetch('/api/team/onboarding/stripe-connect/status', { credentials: 'include' });
+      const res = await fetch('/api/team/onboarding/bank-account/skip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to skip direct deposit setup');
       onRefresh();
-    } catch {} finally {
-      setStripeCheckLoading(false);
+    } catch (err: any) {
+      setBankError(err.message);
+    } finally {
+      setSkipLoading(false);
     }
   };
 
@@ -349,6 +415,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
           {steps.map((step, idx) => (
             <React.Fragment key={step.num}>
               <button
+                type="button"
                 onClick={() => setCurrentStep(step.num)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-colors ${
                   currentStep === step.num
@@ -388,12 +455,12 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
 
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">1. Legal name (as shown on your income tax return) *</label>
-                    <input type="text" value={w9Form.legal_name} onChange={e => updateW9('legal_name', e.target.value)} required className={inputClass} />
+                    <input type="text" title="Legal name" value={w9Form.legal_name} onChange={e => updateW9('legal_name', e.target.value)} required className={inputClass} />
                   </div>
 
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">2. Business name/disregarded entity name, if different from above</label>
-                    <input type="text" value={w9Form.business_name} onChange={e => updateW9('business_name', e.target.value)} className={inputClass} />
+                    <input type="text" title="Business name" value={w9Form.business_name} onChange={e => updateW9('business_name', e.target.value)} className={inputClass} />
                   </div>
 
                   <div>
@@ -424,7 +491,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                     {w9Form.federal_tax_classification === 'llc' && (
                       <div className="mt-2 ml-6">
                         <label className="block text-xs font-bold text-gray-600 mb-1">LLC tax classification</label>
-                        <select value={w9Form.llc_classification} onChange={e => updateW9('llc_classification', e.target.value)} className={inputClass + ' max-w-xs'}>
+                        <select title="LLC tax classification" value={w9Form.llc_classification} onChange={e => updateW9('llc_classification', e.target.value)} className={inputClass + ' max-w-xs'}>
                           <option value="">Select...</option>
                           <option value="C">C - C Corporation</option>
                           <option value="S">S - S Corporation</option>
@@ -442,34 +509,34 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">4. Exempt payee code (if any)</label>
-                      <input type="text" value={w9Form.exempt_payee_code} onChange={e => updateW9('exempt_payee_code', e.target.value)} className={inputClass} />
+                      <input type="text" title="Exempt payee code" value={w9Form.exempt_payee_code} onChange={e => updateW9('exempt_payee_code', e.target.value)} className={inputClass} />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">FATCA exemption code (if any)</label>
-                      <input type="text" value={w9Form.fatca_exemption_code} onChange={e => updateW9('fatca_exemption_code', e.target.value)} className={inputClass} />
+                      <input type="text" title="FATCA exemption code" value={w9Form.fatca_exemption_code} onChange={e => updateW9('fatca_exemption_code', e.target.value)} className={inputClass} />
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">5. Address (number, street, and apt. or suite no.) *</label>
-                    <input type="text" value={w9Form.address} onChange={e => updateW9('address', e.target.value)} required className={inputClass} />
+                    <input type="text" title="Address" value={w9Form.address} onChange={e => updateW9('address', e.target.value)} required className={inputClass} />
                   </div>
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">6. City *</label>
-                      <input type="text" value={w9Form.city} onChange={e => updateW9('city', e.target.value)} required className={inputClass} />
+                      <input type="text" title="City" value={w9Form.city} onChange={e => updateW9('city', e.target.value)} required className={inputClass} />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">State *</label>
-                      <select value={w9Form.state} onChange={e => updateW9('state', e.target.value)} required className={inputClass}>
+                      <select title="State" value={w9Form.state} onChange={e => updateW9('state', e.target.value)} required className={inputClass}>
                         <option value="">Select...</option>
                         {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">ZIP code *</label>
-                      <input type="text" value={w9Form.zip} onChange={e => updateW9('zip', e.target.value)} required className={inputClass} />
+                      <input type="text" title="ZIP code" value={w9Form.zip} onChange={e => updateW9('zip', e.target.value)} required className={inputClass} />
                     </div>
                   </div>
 
@@ -524,7 +591,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
 
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Date</label>
-                    <input type="date" value={w9Form.signature_date} readOnly className={inputClass + ' bg-gray-50 max-w-xs'} />
+                    <input type="date" title="Signature date" value={w9Form.signature_date} readOnly className={inputClass + ' bg-gray-50 max-w-xs'} />
                   </div>
 
                   <Button type="submit" disabled={w9Loading} className="w-full">
@@ -543,32 +610,122 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                   <h2 className="text-xl font-bold text-gray-900 mb-2">Direct Deposit Setup Complete</h2>
                   <p className="text-gray-500">Your bank account is connected and ready to receive payments.</p>
                 </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-teal-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18v-.008Zm-12 0h.008v.008H6v-.008Z" />
-                    </svg>
+              ) : depositMethod === null || depositMethod === 'select' ? (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Set Up Direct Deposit</h2>
+                    <p className="text-gray-500 mb-6">Choose how you'd like to connect your bank account</p>
                   </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">Set Up Direct Deposit</h2>
-                  <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                    Connect your bank account through Stripe to receive payments directly. This is a secure process powered by Stripe.
-                  </p>
 
-                  {stripeError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4 max-w-md mx-auto">{stripeError}</div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setDepositMethod('manual')}
+                      className="p-4 border-2 border-teal-200 rounded-lg hover:border-teal-600 hover:bg-teal-50 transition-all text-left"
+                    >
+                      <h3 className="font-bold text-gray-900 mb-1">Enter Bank Account Manually</h3>
+                      <p className="text-sm text-gray-600">Securely enter your routing and account number</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDepositMethod('skip');
+                        handleSkipDirectDeposit();
+                      }}
+                      className="p-4 border-2 border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all text-left"
+                    >
+                      <h3 className="font-bold text-gray-900 mb-1">Set Up Later</h3>
+                      <p className="text-sm text-gray-600">Complete onboarding now, add bank details anytime</p>
+                    </button>
+                  </div>
+                </div>
+              ) : depositMethod === 'manual' ? (
+                <form onSubmit={handleBankAccountSubmit} className="space-y-5">
+                  <div className="border-b border-gray-200 pb-4 mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">Direct Deposit Setup</h2>
+                    <p className="text-xs text-gray-400 mt-1">Enter your bank account information to receive payments</p>
+                  </div>
+
+                  {bankError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{bankError}</div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                    <Button onClick={handleStripeConnect} disabled={stripeLoading}>
-                      {stripeLoading ? 'Connecting...' : 'Connect Your Bank Account'}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Account Holder Name *</label>
+                    <input
+                      type="text"
+                      value={bankForm.account_holder_name}
+                      onChange={e => updateBank('account_holder_name', e.target.value)}
+                      placeholder="John Doe"
+                      required
+                      className={inputClass}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Account Type *</label>
+                    <select
+                      title="Account type"
+                      value={bankForm.account_type}
+                      onChange={e => updateBank('account_type', e.target.value as 'checking' | 'savings')}
+                      className={inputClass}
+                    >
+                      <option value="checking">Checking</option>
+                      <option value="savings">Savings</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Routing Number *</label>
+                      <input
+                        type="text"
+                        value={bankForm.routing_number}
+                        onChange={e => updateBank('routing_number', e.target.value.replace(/\D/g, ''))}
+                        placeholder="000000000"
+                        maxLength={9}
+                        required
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">9-digit ABA routing number</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Account Number *</label>
+                      <input
+                        type="password"
+                        value={bankForm.account_number}
+                        onChange={e => updateBank('account_number', e.target.value.replace(/\D/g, ''))}
+                        placeholder="•••••••••••"
+                        required
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Up to 17 digits</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <p className="text-xs text-blue-700">
+                      <strong>Secure:</strong> Your bank account information is encrypted and stored securely. We never share this information with third parties.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setDepositMethod('select')}
+                      className="flex-1"
+                      disabled={bankLoading}
+                    >
+                      Back
                     </Button>
-                    <Button variant="secondary" onClick={handleCheckStripeStatus} disabled={stripeCheckLoading}>
-                      {stripeCheckLoading ? 'Checking...' : 'Check Status'}
+                    <Button type="submit" disabled={bankLoading} className="flex-1">
+                      {bankLoading ? 'Submitting...' : 'Submit Bank Account'}
                     </Button>
                   </div>
-                </>
-              )}
+                </form>
+              ) : null}
             </div>
           )}
         </Card>
@@ -582,30 +739,37 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
 };
 
 const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }> = ({ driver, onNavigate }) => {
-  const [profile, setProfile] = useState<any>(null);
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [completingJobId, setCompletingJobId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [profileRes, jobsRes, myJobsRes] = await Promise.all([
-          fetch('/api/team/profile', { credentials: 'include' }),
-          fetch('/api/team/jobs', { credentials: 'include' }),
-          fetch('/api/team/my-jobs', { credentials: 'include' }),
-        ]);
-        if (profileRes.ok) { const j = await profileRes.json(); setProfile(j.data); }
-        if (jobsRes.ok) { const j = await jobsRes.json(); setAvailableJobs(j.data || []); }
-        if (myJobsRes.ok) { const j = await myJobsRes.json(); setMyJobs(j.data || []); }
-      } catch {}
-      setLoading(false);
-    };
-    load();
+  const loadData = useCallback(async () => {
+    try {
+      const [jobsRes, myJobsRes] = await Promise.all([
+        fetch('/api/team/jobs', { credentials: 'include' }),
+        fetch('/api/team/my-jobs', { credentials: 'include' }),
+      ]);
+      if (jobsRes.ok) { const j = await jobsRes.json(); setAvailableJobs(j.data || []); }
+      if (myJobsRes.ok) { const j = await myJobsRes.json(); setMyJobs(j.data || []); }
+    } catch {}
+    setLoading(false);
   }, []);
 
-  const rating = parseFloat(profile?.rating) || 0;
-  const totalCompleted = profile?.total_jobs_completed || 0;
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleCompleteJob = async (jobId: string) => {
+    if (!window.confirm('Mark this job as complete?')) return;
+    setCompletingJobId(jobId);
+    try {
+      const res = await fetch(`/api/team/jobs/${jobId}/complete`, { method: 'POST', credentials: 'include' });
+      if (res.ok) await loadData();
+    } catch {}
+    setCompletingJobId(null);
+  };
+
+  const rating = parseFloat(driver.rating ?? '') || 0;
+  const totalCompleted = driver.total_jobs_completed || 0;
   const activeJobs = myJobs.filter(j => j.status === 'assigned' || j.status === 'in_progress');
   const upcomingJobs = myJobs
     .filter(j => j.status === 'assigned')
@@ -674,15 +838,24 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
           </div>
           <div className="space-y-3">
             {upcomingJobs.map(job => (
-              <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
+              <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+                <div className="min-w-0">
                   <p className="font-bold text-gray-900 text-sm">{job.title}</p>
                   <p className="text-xs text-gray-500">
-                    {job.scheduled_date} · {job.start_time}–{job.end_time}
+                    {formatDate(job.scheduled_date)} · {job.start_time}–{job.end_time}
                     {job.area && <> · {job.area}</>}
                   </p>
                 </div>
-                <StatusBadge status={job.status} />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <StatusBadge status={job.status} />
+                  <Button
+                    size="sm"
+                    onClick={() => handleCompleteJob(job.id)}
+                    disabled={completingJobId === job.id}
+                  >
+                    {completingJobId === job.id ? 'Completing…' : 'Complete'}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -696,17 +869,34 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
             <h3 className="text-lg font-bold text-gray-900">Available Jobs</h3>
           </div>
           {availableJobs.length > 0 && (
-            <button onClick={() => onNavigate('jobs')} className="text-sm font-bold text-teal-600 hover:underline">
+            <button type="button" onClick={() => onNavigate('jobs')} className="text-sm font-bold text-teal-600 hover:underline">
               View All →
             </button>
           )}
         </div>
-        {availableJobs.length > 0 ? (
-          <p className="text-gray-500 text-sm">
-            {availableJobs.length} job{availableJobs.length !== 1 ? 's' : ''} available for bidding.
-          </p>
+        {availableJobs.length === 0 ? (
+          <p className="text-gray-500 text-sm">No available jobs at the moment. Check back later.</p>
         ) : (
-          <p className="text-gray-500 text-sm">No available jobs at the moment. Check back later or view the job board for updates.</p>
+          <>
+            <div className="space-y-2">
+              {availableJobs.slice(0, 3).map(job => (
+                <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-900 text-sm truncate">{job.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {job.area && <>{job.area} · </>}
+                      {formatDate(job.scheduled_date)}
+                      {job.base_pay != null && <> · <span className="font-bold text-teal-700">${Number(job.base_pay).toFixed(2)}</span></>}
+                    </p>
+                  </div>
+                  <StatusBadge status={job.status} />
+                </div>
+              ))}
+            </div>
+            {availableJobs.length > 3 && (
+              <p className="text-xs text-gray-400 mt-2">+{availableJobs.length - 3} more on the job board</p>
+            )}
+          </>
         )}
       </Card>
     </div>
@@ -784,6 +974,7 @@ const JobBoard: React.FC = () => {
 
   const handleWithdrawBid = async () => {
     if (!selectedJob) return;
+    if (!window.confirm('Are you sure you want to withdraw your bid? This cannot be undone.')) return;
     setBidLoading(true);
     try {
       const res = await fetch(`/api/team/jobs/${selectedJob.id}/bid`, { method: 'DELETE', credentials: 'include' });
@@ -819,16 +1010,27 @@ const JobBoard: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-black text-gray-900 mb-1">Available Jobs</h2>
-      <p className="text-gray-500 mb-6">Browse and bid on available jobs in your area.</p>
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-gray-500">Browse and bid on available jobs in your area.</p>
+        <button
+          type="button"
+          onClick={fetchJobs}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex-shrink-0"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Refresh
+        </button>
+      </div>
 
       <div className="flex flex-wrap gap-3 mb-6">
-        <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+        <select title="Sort jobs" value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
           <option value="date">Sort by Date</option>
           <option value="area">Sort by Area</option>
           <option value="pay">Sort by Pay (High to Low)</option>
         </select>
-        <select value={filterArea} onChange={e => setFilterArea(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+        <select title="Filter by area" value={filterArea} onChange={e => setFilterArea(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
           <option value="">All Areas</option>
           {areas.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
@@ -850,12 +1052,12 @@ const JobBoard: React.FC = () => {
               </div>
               <div className="space-y-1 text-sm text-gray-500 mb-4">
                 {job.area && <p className="flex items-center gap-1"><MapPinIcon className="w-4 h-4" />{job.area}</p>}
-                {job.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{job.scheduled_date}</p>}
+                {job.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(job.scheduled_date)}</p>}
                 {(job.start_time || job.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{job.start_time}–{job.end_time}</p>}
                 <div className="flex gap-4 mt-2">
                   {job.estimated_stops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_stops} stops</span>}
                   {job.estimated_hours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_hours}h est.</span>}
-                  {job.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${job.base_pay.toFixed(2)}</span>}
+                  {job.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(job.base_pay).toFixed(2)}</span>}
                 </div>
               </div>
               <Button size="sm" onClick={() => openJobDetail(job.id)} className="w-full">
@@ -871,7 +1073,7 @@ const JobBoard: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900">{selectedJob.title}</h3>
-              <button onClick={() => setSelectedJob(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
+              <button type="button" title="Close" onClick={() => setSelectedJob(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
             </div>
 
             {jobDetailLoading ? (
@@ -888,11 +1090,11 @@ const JobBoard: React.FC = () => {
                 {selectedJob.description && <p className="text-sm text-gray-600">{selectedJob.description}</p>}
 
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  {selectedJob.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{selectedJob.scheduled_date}</span></div>}
+                  {selectedJob.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedJob.scheduled_date)}</span></div>}
                   {(selectedJob.start_time || selectedJob.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedJob.start_time}–{selectedJob.end_time}</span></div>}
                   {selectedJob.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedJob.estimated_stops}</span></div>}
                   {selectedJob.estimated_hours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedJob.estimated_hours}</span></div>}
-                  {selectedJob.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${selectedJob.base_pay.toFixed(2)}</span></div>}
+                  {selectedJob.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedJob.base_pay).toFixed(2)}</span></div>}
                 </div>
 
                 {selectedJob.bids && selectedJob.bids.length > 0 && (
@@ -905,12 +1107,12 @@ const JobBoard: React.FC = () => {
                           <div key={bid.id} className={`p-3 rounded-lg text-sm ${isMyBid ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50'}`}>
                             <div className="flex items-center justify-between">
                               <span className="font-bold">{isMyBid ? 'Your Bid' : `Driver #${idx + 1}`}</span>
-                              <span className="font-bold text-teal-700">${bid.bid_amount.toFixed(2)}</span>
+                              <span className="font-bold text-teal-700">${Number(bid.bid_amount).toFixed(2)}</span>
                             </div>
                             {bid.driver_rating_at_bid != null && (
                               <div className="flex items-center gap-1 mt-1">
                                 <StarRating rating={bid.driver_rating_at_bid} className="w-3 h-3" />
-                                <span className="text-xs text-gray-400">{bid.driver_rating_at_bid.toFixed(1)}</span>
+                                <span className="text-xs text-gray-400">{Number(bid.driver_rating_at_bid).toFixed(1)}</span>
                               </div>
                             )}
                             {bid.message && <p className="text-xs text-gray-500 mt-1">{bid.message}</p>}
@@ -928,7 +1130,7 @@ const JobBoard: React.FC = () => {
                 {myBid ? (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
                     <p className="text-sm font-bold text-teal-800 mb-2">You have already bid on this job</p>
-                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${myBid.bid_amount.toFixed(2)}</span></p>
+                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${Number(myBid.bid_amount).toFixed(2)}</span></p>
                     <Button variant="secondary" size="sm" onClick={handleWithdrawBid} disabled={bidLoading} className="mt-3">
                       {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
                     </Button>
@@ -943,8 +1145,9 @@ const JobBoard: React.FC = () => {
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                           <input
                             type="number"
+                            title="Bid amount"
                             step="0.01"
-                            min="0"
+                            min="0.01"
                             value={bidAmount}
                             onChange={e => setBidAmount(e.target.value)}
                             className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -961,7 +1164,7 @@ const JobBoard: React.FC = () => {
                           placeholder="Add a note to your bid..."
                         />
                       </div>
-                      <Button onClick={handleBid} disabled={bidLoading || !bidAmount} className="w-full">
+                      <Button onClick={handleBid} disabled={bidLoading || !bidAmount || parseFloat(bidAmount) <= 0} className="w-full">
                         {bidLoading ? 'Submitting...' : 'Submit Bid'}
                       </Button>
                     </div>
@@ -986,6 +1189,8 @@ const Schedule: React.FC = () => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
+  const [completingJobId, setCompletingJobId] = useState<string | null>(null);
+
   const fetchSchedule = useCallback(async () => {
     setLoading(true);
     const start = new Date(year, month, 1);
@@ -998,6 +1203,16 @@ const Schedule: React.FC = () => {
     } catch {}
     setLoading(false);
   }, [year, month]);
+
+  const handleCompleteJob = useCallback(async (jobId: string) => {
+    if (!window.confirm('Mark this job as complete?')) return;
+    setCompletingJobId(jobId);
+    try {
+      const res = await fetch(`/api/team/jobs/${jobId}/complete`, { method: 'POST', credentials: 'include' });
+      if (res.ok) await fetchSchedule();
+    } catch {}
+    setCompletingJobId(null);
+  }, [fetchSchedule]);
 
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
 
@@ -1032,18 +1247,19 @@ const Schedule: React.FC = () => {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 mb-1">My Schedule</h2>
-          <p className="text-gray-500">View your upcoming jobs and schedule.</p>
-        </div>
+        <p className="text-gray-500">View your upcoming jobs and schedule.</p>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            title="Calendar view"
             onClick={() => setViewMode('calendar')}
             className={`p-2 rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-teal-100 text-teal-700' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <CalendarDaysIcon className="w-5 h-5" />
           </button>
           <button
+            type="button"
+            title="List view"
             onClick={() => setViewMode('list')}
             className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-teal-100 text-teal-700' : 'text-gray-400 hover:text-gray-600'}`}
           >
@@ -1060,12 +1276,12 @@ const Schedule: React.FC = () => {
         <>
           <Card className="p-6 mb-6">
             <div className="flex items-center justify-between mb-6">
-              <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeftIcon className="w-5 h-5 text-gray-600" /></button>
+              <button type="button" title="Previous month" onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeftIcon className="w-5 h-5 text-gray-600" /></button>
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-bold text-gray-900">{monthName}</h3>
-                <button onClick={goToday} className="text-xs font-bold text-teal-600 hover:underline px-2 py-1 bg-teal-50 rounded">Today</button>
+                <button type="button" onClick={goToday} className="text-xs font-bold text-teal-600 hover:underline px-2 py-1 bg-teal-50 rounded">Today</button>
               </div>
-              <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRightIcon className="w-5 h-5 text-gray-600" /></button>
+              <button type="button" title="Next month" onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRightIcon className="w-5 h-5 text-gray-600" /></button>
             </div>
 
             <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden">
@@ -1084,6 +1300,7 @@ const Schedule: React.FC = () => {
 
                 return (
                   <button
+                    type="button"
                     key={day}
                     onClick={() => setSelectedDay(dateStr === selectedDay ? null : dateStr)}
                     className={`bg-white p-2 min-h-[80px] text-left transition-colors hover:bg-gray-50 ${isSelected ? 'ring-2 ring-teal-500 ring-inset' : ''}`}
@@ -1127,6 +1344,16 @@ const Schedule: React.FC = () => {
                         {(job.start_time || job.end_time) && <p>Time: {job.start_time}–{job.end_time}</p>}
                         {job.estimated_stops != null && <p>Estimated stops: {job.estimated_stops}</p>}
                       </div>
+                      {(job.status === 'assigned' || job.status === 'in_progress') && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleCompleteJob(job.id)}
+                          disabled={completingJobId === job.id}
+                          className="mt-2"
+                        >
+                          {completingJobId === job.id ? 'Completing…' : 'Mark Complete'}
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1144,22 +1371,243 @@ const Schedule: React.FC = () => {
           ) : (
             <div className="space-y-3">
               {allJobsSorted.map(job => (
-                <div key={job.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
+                <div key={job.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg gap-3">
+                  <div className="min-w-0">
                     <p className="font-bold text-gray-900 text-sm">{job.title}</p>
                     <p className="text-xs text-gray-500">
-                      {job.scheduled_date} · {job.start_time}–{job.end_time}
+                      {formatDate(job.scheduled_date)} · {job.start_time}–{job.end_time}
                       {job.area && <> · {job.area}</>}
                       {job.estimated_stops != null && <> · {job.estimated_stops} stops</>}
                     </p>
                   </div>
-                  <StatusBadge status={job.status} />
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <StatusBadge status={job.status} />
+                    {(job.status === 'assigned' || job.status === 'in_progress') && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleCompleteJob(job.id)}
+                        disabled={completingJobId === job.id}
+                      >
+                        {completingJobId === job.id ? 'Completing…' : 'Complete'}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </Card>
       )}
+    </div>
+  );
+};
+
+function parseTaxClass(stored: string) {
+  if (stored?.startsWith('LLC (')) {
+    return { federal_tax_classification: 'llc', llc_classification: stored.slice(5, -1), other_classification: '' };
+  }
+  if (stored?.startsWith('Other: ')) {
+    return { federal_tax_classification: 'other', llc_classification: '', other_classification: stored.slice(7) };
+  }
+  return { federal_tax_classification: stored || '', llc_classification: '', other_classification: '' };
+}
+
+const W9UpdateModal: React.FC<{ existingW9: any | null; onClose: () => void; onSuccess: () => void }> = ({ existingW9, onClose, onSuccess }) => {
+  const parsed = parseTaxClass(existingW9?.federal_tax_classification);
+  const [form, setForm] = useState({
+    legal_name: existingW9?.legal_name || '',
+    business_name: existingW9?.business_name || '',
+    federal_tax_classification: parsed.federal_tax_classification,
+    llc_classification: parsed.llc_classification,
+    other_classification: parsed.other_classification,
+    exempt_payee_code: existingW9?.exempt_payee_code || '',
+    fatca_exemption_code: existingW9?.fatca_exemption_code || '',
+    address: existingW9?.address || '',
+    city: existingW9?.city || '',
+    state: existingW9?.state || '',
+    zip: existingW9?.zip || '',
+    tin_type: (existingW9?.tin_type as 'ssn' | 'ein') || 'ssn',
+    certification: false,
+    signature_data: '',
+    signature_date: new Date().toISOString().split('T')[0],
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const update = (field: string, value: any) => setForm(prev => ({ ...prev, [field]: value }));
+  const inputClass = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!form.legal_name || !form.federal_tax_classification || !form.address || !form.city || !form.state || !form.zip) {
+      setError('Please fill in all required fields.'); return;
+    }
+    if (!form.certification) { setError('You must certify the information is correct.'); return; }
+    if (!form.signature_data) { setError('Please provide your signature.'); return; }
+
+    const federal_tax_classification = form.federal_tax_classification === 'llc'
+      ? `LLC (${form.llc_classification})`
+      : form.federal_tax_classification === 'other'
+        ? `Other: ${form.other_classification}`
+        : form.federal_tax_classification;
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/team/onboarding/w9', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          legal_name: form.legal_name, business_name: form.business_name,
+          federal_tax_classification,
+          exempt_payee_code: form.exempt_payee_code, fatca_exemption_code: form.fatca_exemption_code,
+          address: form.address, city: form.city, state: form.state, zip: form.zip,
+          tin_type: form.tin_type, certification: form.certification,
+          signature_data: form.signature_data, signature_date: form.signature_date,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update W9');
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 overflow-y-auto" onClick={onClose}>
+      <div className="min-h-full flex items-start justify-center p-4 py-8">
+        <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-lg font-black text-gray-900">Update W9 Form</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Fields are pre-filled from your last submission. Re-sign to save.</p>
+            </div>
+            <button type="button" title="Close" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">1. Legal name *</label>
+              <input type="text" title="Legal name" value={form.legal_name} onChange={e => update('legal_name', e.target.value)} required className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">2. Business name (if different)</label>
+              <input type="text" title="Business name" value={form.business_name} onChange={e => update('business_name', e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">3. Federal tax classification *</label>
+              <div className="space-y-2">
+                {[
+                  { value: 'individual', label: 'Individual/sole proprietor or single-member LLC' },
+                  { value: 'c_corp', label: 'C Corporation' },
+                  { value: 's_corp', label: 'S Corporation' },
+                  { value: 'partnership', label: 'Partnership' },
+                  { value: 'trust_estate', label: 'Trust/estate' },
+                  { value: 'llc', label: 'Limited liability company (LLC)' },
+                  { value: 'other', label: 'Other' },
+                ].map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 text-sm">
+                    <input type="radio" name="w9_update_tax_class" value={opt.value} checked={form.federal_tax_classification === opt.value} onChange={e => update('federal_tax_classification', e.target.value)} className="text-teal-600 focus:ring-teal-500" />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              {form.federal_tax_classification === 'llc' && (
+                <div className="mt-2 ml-6">
+                  <label className="block text-xs font-bold text-gray-600 mb-1">LLC tax classification</label>
+                  <select title="LLC tax classification" value={form.llc_classification} onChange={e => update('llc_classification', e.target.value)} className={inputClass + ' max-w-xs'}>
+                    <option value="">Select...</option>
+                    <option value="C">C - C Corporation</option>
+                    <option value="S">S - S Corporation</option>
+                    <option value="P">P - Partnership</option>
+                  </select>
+                </div>
+              )}
+              {form.federal_tax_classification === 'other' && (
+                <div className="mt-2 ml-6">
+                  <input type="text" title="Other classification" placeholder="Specify..." value={form.other_classification} onChange={e => update('other_classification', e.target.value)} className={inputClass + ' max-w-xs'} />
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">4. Exempt payee code</label>
+                <input type="text" title="Exempt payee code" value={form.exempt_payee_code} onChange={e => update('exempt_payee_code', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">FATCA exemption code</label>
+                <input type="text" title="FATCA exemption code" value={form.fatca_exemption_code} onChange={e => update('fatca_exemption_code', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">5. Address *</label>
+              <input type="text" title="Address" value={form.address} onChange={e => update('address', e.target.value)} required className={inputClass} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">City *</label>
+                <input type="text" title="City" value={form.city} onChange={e => update('city', e.target.value)} required className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">State *</label>
+                <select title="State" value={form.state} onChange={e => update('state', e.target.value)} required className={inputClass}>
+                  <option value="">Select...</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">ZIP *</label>
+                <input type="text" title="ZIP code" value={form.zip} onChange={e => update('zip', e.target.value)} required className={inputClass} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">TIN type</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" name="w9_update_tin_type" value="ssn" checked={form.tin_type === 'ssn'} onChange={() => update('tin_type', 'ssn')} className="text-teal-600 focus:ring-teal-500" />
+                  Social Security Number (SSN)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" name="w9_update_tin_type" value="ein" checked={form.tin_type === 'ein'} onChange={() => update('tin_type', 'ein')} className="text-teal-600 focus:ring-teal-500" />
+                  Employer Identification Number (EIN)
+                </label>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="flex items-start gap-3 text-sm">
+                <input type="checkbox" checked={form.certification} onChange={e => update('certification', e.target.checked)} className="mt-1 text-teal-600 focus:ring-teal-500" />
+                <span className="text-gray-700 leading-relaxed">
+                  Under penalties of perjury, I certify that the information on this form is correct and I am a U.S. citizen or other U.S. person.
+                </span>
+              </label>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Signature *</label>
+              <SignaturePad onSignatureChange={(data) => update('signature_data', data)} />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Date</label>
+              <input type="date" title="Signature date" value={form.signature_date} readOnly className={inputClass + ' bg-gray-50 max-w-xs'} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} disabled={loading} className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-bold hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {loading ? 'Saving...' : 'Save W9'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };
@@ -1176,25 +1624,99 @@ const Profile: React.FC = () => {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
+  // W9 update state
+  const [showW9Modal, setShowW9Modal] = useState(false);
+  const [w9Data, setW9Data] = useState<any>(null);
+  const [w9Msg, setW9Msg] = useState('');
+
+  // Message email opt-in
+  const [msgEmailEnabled, setMsgEmailEnabled] = useState(false);
+
+  // Bank account state
+  const [bankInfo, setBankInfo] = useState<{ has_bank_account: boolean; account_holder_name?: string; masked_account?: string; account_type?: string } | null>(null);
+  const [showBankForm, setShowBankForm] = useState(false);
+  const [bankForm, setBankForm] = useState({ account_holder_name: '', routing_number: '', account_number: '', account_type: 'checking' as 'checking' | 'savings' });
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [bankMsg, setBankMsg] = useState('');
+
+  const loadBankInfo = async () => {
+    try {
+      const res = await fetch('/api/team/profile/bank-account', { credentials: 'include' });
+      if (res.ok) setBankInfo(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('/api/team/profile', { credentials: 'include' });
-        if (res.ok) {
-          const j = await res.json();
+        const [profileRes] = await Promise.all([
+          fetch('/api/team/profile', { credentials: 'include' }),
+        ]);
+        if (profileRes.ok) {
+          const j = await profileRes.json();
           const d = j.data;
           setProfile(d);
           setEditName(d.name || '');
           setEditPhone(d.phone || '');
           if (d.availability) {
-            setAvailability(typeof d.availability === 'string' ? JSON.parse(d.availability) : d.availability);
+            const av = typeof d.availability === 'string' ? JSON.parse(d.availability) : d.availability;
+            setAvailability({
+              days: Array.isArray(av.days) ? av.days : [],
+              start_time: av.start_time || '08:00',
+              end_time: av.end_time || '17:00',
+            });
           }
         }
+      } catch {}
+      await loadBankInfo();
+      // Load message email preference
+      try {
+        const pref = await fetch('/api/team/profile/message-notifications', { credentials: 'include' });
+        if (pref.ok) { const j = await pref.json(); setMsgEmailEnabled(j.message_email_notifications ?? false); }
       } catch {}
       setLoading(false);
     };
     load();
   }, []);
+
+  const openW9Modal = async () => {
+    if (!w9Data) {
+      try {
+        const res = await fetch('/api/team/onboarding/w9', { credentials: 'include' });
+        if (res.ok) { const j = await res.json(); setW9Data(j.data); }
+      } catch {}
+    }
+    setShowW9Modal(true);
+  };
+
+  const handleBankSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBankError('');
+    if (!bankForm.account_holder_name.trim()) { setBankError('Account holder name is required'); return; }
+    if (!/^\d{9}$/.test(bankForm.routing_number)) { setBankError('Routing number must be 9 digits'); return; }
+    if (!/^\d{1,17}$/.test(bankForm.account_number)) { setBankError('Account number must be 1-17 digits'); return; }
+    setBankSaving(true);
+    try {
+      const res = await fetch('/api/team/onboarding/bank-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(bankForm),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to save bank account');
+      await loadBankInfo();
+      setShowBankForm(false);
+      setBankForm({ account_holder_name: '', routing_number: '', account_number: '', account_type: 'checking' });
+      setBankMsg('Bank account updated successfully.');
+      setTimeout(() => setBankMsg(''), 4000);
+    } catch (err: any) {
+      setBankError(err.message);
+    } finally {
+      setBankSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaveLoading(true);
@@ -1242,7 +1764,6 @@ const Profile: React.FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-black text-gray-900 mb-1">Profile Settings</h2>
       <p className="text-gray-500 mb-6">Manage your account and preferences.</p>
 
       {saveMsg && (
@@ -1257,7 +1778,7 @@ const Profile: React.FC = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900">Personal Information</h3>
               {!editing && (
-                <button onClick={() => setEditing(true)} className="text-sm font-bold text-teal-600 hover:underline">Edit</button>
+                <button type="button" onClick={() => setEditing(true)} className="text-sm font-bold text-teal-600 hover:underline">Edit</button>
               )}
             </div>
 
@@ -1265,15 +1786,15 @@ const Profile: React.FC = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-                  <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <input type="text" title="Full name" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Email (read-only)</label>
-                  <input type="email" value={profile.email || ''} readOnly className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500" />
+                  <input type="email" title="Email" value={profile.email || ''} readOnly className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Phone</label>
-                  <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <input type="tel" title="Phone" value={editPhone} onChange={e => setEditPhone(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
                 <div className="flex gap-3">
                   <Button onClick={handleSave} disabled={saveLoading} size="sm">
@@ -1321,6 +1842,7 @@ const Profile: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
                     <button
+                      type="button"
                       key={day}
                       onClick={() => toggleDay(day)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
@@ -1337,11 +1859,11 @@ const Profile: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Preferred Start Time</label>
-                  <input type="time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <input type="time" title="Preferred start time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Preferred End Time</label>
-                  <input type="time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <input type="time" title="Preferred end time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
               </div>
               <Button onClick={handleSave} disabled={saveLoading} size="sm">
@@ -1352,8 +1874,17 @@ const Profile: React.FC = () => {
         </div>
 
         <div className="space-y-6">
+          {/* W9 Card */}
           <Card className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">W9 Status</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold text-gray-900">W9 Form</h3>
+              {profile.w9_completed && (
+                <button type="button" onClick={openW9Modal} className="text-sm font-bold text-teal-600 hover:underline">
+                  Update
+                </button>
+              )}
+            </div>
+            {w9Msg && <p className="text-xs text-green-600 mb-2">{w9Msg}</p>}
             {profile.w9_completed ? (
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircleIcon className="w-5 h-5" />
@@ -1367,40 +1898,540 @@ const Profile: React.FC = () => {
             )}
           </Card>
 
+          {/* Bank Account Card */}
           <Card className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Direct Deposit</h3>
-            {profile.direct_deposit_completed || profile.stripe_connect_onboarded ? (
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircleIcon className="w-5 h-5" />
-                <span className="text-sm font-bold">Connected</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-yellow-600">
-                <ClockIcon className="w-5 h-5" />
-                <span className="text-sm font-bold">Not Connected</span>
-              </div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold text-gray-900">Bank Account</h3>
+              {bankInfo?.has_bank_account && !showBankForm && (
+                <button type="button" onClick={() => { setShowBankForm(true); setBankError(''); }} className="text-sm font-bold text-teal-600 hover:underline">
+                  Update
+                </button>
+              )}
+            </div>
+            {bankMsg && <p className="text-xs text-green-600 mb-2">{bankMsg}</p>}
+
+            {!showBankForm && (
+              bankInfo?.has_bank_account ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-green-600 mb-2">
+                    <CheckCircleIcon className="w-5 h-5" />
+                    <span className="text-sm font-bold">Connected</span>
+                  </div>
+                  {bankInfo.account_holder_name && (
+                    <p className="text-xs text-gray-500">{bankInfo.account_holder_name}</p>
+                  )}
+                  {bankInfo.masked_account && (
+                    <p className="text-xs text-gray-500 font-mono">{bankInfo.masked_account} · {bankInfo.account_type}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-yellow-600">
+                    <ClockIcon className="w-5 h-5" />
+                    <span className="text-sm font-bold">Not Connected</span>
+                  </div>
+                  <button type="button" onClick={() => { setShowBankForm(true); setBankError(''); }} className="text-sm font-bold text-teal-600 hover:underline">
+                    Add bank account →
+                  </button>
+                </div>
+              )
+            )}
+
+            {showBankForm && (
+              <form onSubmit={handleBankSave} className="space-y-4 mt-2">
+                {bankError && <p className="text-xs text-red-600">{bankError}</p>}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Account Holder Name *</label>
+                  <input
+                    type="text"
+                    title="Account holder name"
+                    value={bankForm.account_holder_name}
+                    onChange={e => setBankForm(p => ({ ...p, account_holder_name: e.target.value }))}
+                    placeholder="John Doe"
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Account Type *</label>
+                  <select
+                    title="Account type"
+                    value={bankForm.account_type}
+                    onChange={e => setBankForm(p => ({ ...p, account_type: e.target.value as 'checking' | 'savings' }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="checking">Checking</option>
+                    <option value="savings">Savings</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Routing Number *</label>
+                  <input
+                    type="text"
+                    title="Routing number"
+                    value={bankForm.routing_number}
+                    onChange={e => setBankForm(p => ({ ...p, routing_number: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="000000000"
+                    maxLength={9}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-0.5">9-digit ABA routing number</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Account Number *</label>
+                  <input
+                    type="password"
+                    title="Account number"
+                    value={bankForm.account_number}
+                    onChange={e => setBankForm(p => ({ ...p, account_number: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="•••••••••••"
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-0.5">Up to 17 digits</p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setShowBankForm(false); setBankError(''); setBankForm({ account_holder_name: '', routing_number: '', account_number: '', account_type: 'checking' }); }}
+                    disabled={bankSaving}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bankSaving}
+                    className="flex-1 px-3 py-2 bg-teal-500 text-white rounded-lg text-xs font-bold hover:bg-teal-600 disabled:opacity-50"
+                  >
+                    {bankSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </form>
             )}
           </Card>
 
+          {/* Message Notifications */}
           <Card className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Onboarding</h3>
-            <div className="flex items-center gap-2">
-              {profile.onboarding_status === 'completed' ? (
-                <>
-                  <CheckCircleIcon className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-bold text-green-600">Completed</span>
-                </>
-              ) : (
-                <>
-                  <ClockIcon className="w-5 h-5 text-yellow-600" />
-                  <span className="text-sm font-bold text-yellow-600">{profile.onboarding_status || 'Pending'}</span>
-                </>
-              )}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Message Notifications</h3>
+                <p className="text-sm text-gray-500 mt-1">Receive an email when you get a new message from dispatch.</p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !msgEmailEnabled;
+                  setMsgEmailEnabled(next);
+                  try {
+                    await fetch('/api/team/profile/message-notifications', {
+                      method: 'PUT',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ enabled: next }),
+                    });
+                  } catch { setMsgEmailEnabled(!next); }
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${msgEmailEnabled ? 'bg-teal-500' : 'bg-gray-200'}`}
+                aria-label="Toggle message email notifications"
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${msgEmailEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
             </div>
           </Card>
+
         </div>
       </div>
+
+      {showW9Modal && (
+        <W9UpdateModal
+          existingW9={w9Data}
+          onClose={() => setShowW9Modal(false)}
+          onSuccess={() => { setW9Msg('W9 updated successfully.'); setTimeout(() => setW9Msg(''), 4000); }}
+        />
+      )}
     </div>
+  );
+};
+
+interface Conversation {
+  id: string;
+  subject?: string;
+  type: string;
+  status: string;
+  last_message?: string;
+  last_message_at?: string;
+  unread_count: number;
+  message_count: number;
+}
+
+interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_type: string;
+  sender_name?: string;
+  body: string;
+  created_at: string;
+}
+
+const DriverMessages: React.FC = () => {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // New conversation compose state
+  const [showCompose, setShowCompose] = useState(false);
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [composeError, setComposeError] = useState('');
+  const [composeSending, setComposeSending] = useState(false);
+
+  const formatMsgDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+  };
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/team/conversations', { credentials: 'include' });
+      if (res.ok) setConversations(await res.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  const loadMessages = useCallback(async (convId: string) => {
+    setMsgLoading(true);
+    try {
+      const res = await fetch(`/api/team/conversations/${convId}/messages`, { credentials: 'include' });
+      if (res.ok) setMessages(await res.json());
+      await fetch(`/api/team/conversations/${convId}/read`, { method: 'PUT', credentials: 'include' });
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, unread_count: 0 } : c));
+    } catch {}
+    setMsgLoading(false);
+  }, []);
+
+  useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  useEffect(() => {
+    if (selectedId) loadMessages(selectedId);
+  }, [selectedId, loadMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+
+    ws.onmessage = (evt) => {
+      try {
+        const { event, data } = JSON.parse(evt.data);
+        if (event === 'message:new') {
+          setSelectedId(current => {
+            if (data.conversationId === current) {
+              setMessages(prev => prev.some(m => m.id === data.message.id) ? prev : [...prev, data.message]);
+              fetch(`/api/team/conversations/${data.conversationId}/read`, { method: 'PUT', credentials: 'include' });
+            } else {
+              setConversations(prev => {
+                const exists = prev.find(c => c.id === data.conversationId);
+                if (exists) {
+                  return prev.map(c => c.id === data.conversationId
+                    ? { ...c, unread_count: (c.unread_count || 0) + 1, last_message: data.message.body, last_message_at: data.message.created_at }
+                    : c
+                  );
+                }
+                // New conversation we haven't loaded yet — reload list
+                return prev;
+              });
+              // Reload if the conv isn't in our list yet
+              fetch('/api/team/conversations', { credentials: 'include' })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setConversations(data); })
+                .catch(() => {});
+            }
+            return current;
+          });
+        }
+        if (event === 'conversation:new') {
+          // Admin started a new conversation with us — reload list
+          loadConversations();
+        }
+      } catch {}
+    };
+
+    return () => { ws.close(); };
+  }, [loadConversations]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedId || sending) return;
+    setSending(true);
+    setSendError('');
+    try {
+      const res = await fetch(`/api/team/conversations/${selectedId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ body: newMessage.trim() }),
+      });
+      if (res.ok) {
+        const msg = await res.json();
+        setMessages(prev => [...prev, msg]);
+        setNewMessage('');
+        setConversations(prev => prev.map(c => c.id === selectedId
+          ? { ...c, last_message: msg.body, last_message_at: msg.created_at }
+          : c
+        ));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setSendError(json.error || `Error ${res.status}: failed to send`);
+      }
+    } catch {
+      setSendError('Network error — please try again');
+    }
+    setSending(false);
+  };
+
+  const handleCompose = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!composeBody.trim()) { setComposeError('Message is required'); return; }
+    setComposeSending(true);
+    setComposeError('');
+    try {
+      const res = await fetch('/api/team/conversations/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ subject: composeSubject.trim() || undefined, body: composeBody.trim() }),
+      });
+      if (res.ok) {
+        const { conversation } = await res.json();
+        setShowCompose(false);
+        setComposeSubject('');
+        setComposeBody('');
+        await loadConversations();
+        setSelectedId(conversation.id);
+      } else {
+        const json = await res.json();
+        setComposeError(json.error || 'Failed to send message');
+      }
+    } catch {
+      setComposeError('Failed to send message');
+    }
+    setComposeSending(false);
+  };
+
+  const selectedConv = conversations.find(c => c.id === selectedId);
+
+  if (loading) return <div className="flex items-center justify-center py-20 text-gray-400">Loading...</div>;
+
+  return (
+    <>
+    <div className="flex gap-4 h-[calc(100vh-12rem)]">
+      {/* Conversation list */}
+      <div className={`${selectedId ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 bg-white rounded-xl border border-gray-200 overflow-hidden flex-shrink-0`}>
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="text-sm font-black uppercase tracking-widest text-gray-500">Messages</h3>
+          <button
+            type="button"
+            onClick={() => setShowCompose(true)}
+            className="flex items-center gap-1 text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+          {conversations.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <ChatBubbleIcon className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+              <p className="text-sm text-gray-400 mb-3">No conversations yet</p>
+              <button
+                type="button"
+                onClick={() => setShowCompose(true)}
+                className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-bold hover:bg-teal-600 transition-colors"
+              >
+                Contact Support
+              </button>
+            </div>
+          ) : conversations.map(conv => (
+            <button
+              type="button"
+              key={conv.id}
+              onClick={() => setSelectedId(conv.id)}
+              className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${selectedId === conv.id ? 'bg-teal-50 border-l-2 border-teal-500' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-bold text-gray-900 truncate flex-1">{conv.subject || 'Support'}</p>
+                {conv.unread_count > 0 && (
+                  <span className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-black">
+                    {conv.unread_count}
+                  </span>
+                )}
+              </div>
+              {conv.last_message && (
+                <p className="text-xs text-gray-400 truncate mt-0.5">{conv.last_message}</p>
+              )}
+              {conv.last_message_at && (
+                <p className="text-[10px] text-gray-300 mt-0.5">{formatMsgDate(conv.last_message_at)}</p>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Thread */}
+      {selectedId ? (
+        <div className="flex-1 flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden min-w-0">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+            <button type="button" onClick={() => setSelectedId(null)} title="Back to conversations" className="lg:hidden text-gray-400 hover:text-gray-700">
+              <ChevronLeftIcon className="w-5 h-5" />
+            </button>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-gray-900 truncate">{selectedConv?.subject || 'Support'}</h3>
+            </div>
+            {selectedConv?.status && (
+              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                selectedConv.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+              }`}>{selectedConv.status}</span>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {msgLoading ? (
+              <div className="text-center text-sm text-gray-400 py-8">Loading messages...</div>
+            ) : messages.length === 0 ? (
+              <div className="text-center text-sm text-gray-400 py-8">No messages yet</div>
+            ) : messages.map(msg => {
+              const isDriver = msg.sender_type === 'driver';
+              return (
+                <div key={msg.id} className={`flex ${isDriver ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isDriver ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                    {!isDriver && (
+                      <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-gray-500">
+                        {msg.sender_name || (msg.sender_type === 'admin' ? 'Admin' : msg.sender_type)}
+                      </p>
+                    )}
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                    <p className={`text-[10px] mt-1 ${isDriver ? 'text-teal-200' : 'text-gray-400'}`}>{formatMsgDate(msg.created_at)}</p>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {selectedConv?.status === 'closed' ? (
+            <div className="px-4 py-3 border-t border-gray-100 text-center text-sm text-gray-400">
+              This conversation has been closed by support.
+            </div>
+          ) : (
+            <div className="border-t border-gray-100">
+              {sendError && (
+                <div className="px-4 pt-2 text-xs text-red-600">{sendError}</div>
+              )}
+            <form onSubmit={handleSend} className="px-4 py-3 flex gap-2 items-end">
+              <textarea
+                value={newMessage}
+                onChange={e => setNewMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e as any); } }}
+                placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+                rows={1}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none max-h-[120px] overflow-y-auto"
+              />
+              <button
+                type="submit"
+                disabled={!newMessage.trim() || sending}
+                className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-bold hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+              >
+                {sending ? '...' : 'Send'}
+              </button>
+            </form>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="hidden lg:flex flex-1 flex-col items-center justify-center gap-4 text-gray-400 bg-white rounded-xl border border-gray-200">
+          <ChatBubbleIcon className="w-12 h-12 text-gray-200" />
+          <div className="text-center">
+            <p className="text-sm font-bold text-gray-500 mb-1">Select a conversation</p>
+            <p className="text-xs text-gray-400">or start a new one to contact support</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCompose(true)}
+            className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-bold hover:bg-teal-600 transition-colors"
+          >
+            New Message
+          </button>
+        </div>
+      )}
+    </div>
+
+    {/* Compose modal */}
+    {showCompose && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setShowCompose(false)} />
+        <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-6">
+          <h2 className="text-lg font-black text-gray-900 mb-1">New Message</h2>
+          <p className="text-sm text-gray-400 mb-4">Send a message to the support team</p>
+          {composeError && <p className="text-sm text-red-600 mb-3">{composeError}</p>}
+          <form onSubmit={handleCompose} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Subject <span className="font-normal text-gray-400">(optional)</span></label>
+              <input
+                type="text"
+                value={composeSubject}
+                onChange={e => setComposeSubject(e.target.value)}
+                placeholder="e.g. Question about my schedule"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Message</label>
+              <textarea
+                value={composeBody}
+                onChange={e => setComposeBody(e.target.value)}
+                placeholder="Describe your question or issue..."
+                rows={4}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none"
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => { setShowCompose(false); setComposeError(''); }}
+                disabled={composeSending}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={composeSending || !composeBody.trim()}
+                className="flex-1 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-bold hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {composeSending ? 'Sending...' : 'Send Message'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 
@@ -1411,18 +2442,13 @@ const TeamApp: React.FC = () => {
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonatedBy, setImpersonatedBy] = useState('');
+  const [msgUnreadCount, setMsgUnreadCount] = useState(0);
+
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
-
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-
-  const [regName, setRegName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPhone, setRegPhone] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regConfirm, setRegConfirm] = useState('');
 
   const checkSession = async () => {
     try {
@@ -1430,6 +2456,10 @@ const TeamApp: React.FC = () => {
       if (!res.ok) throw new Error('Not authenticated');
       const json = await res.json();
       setCurrentDriver(normalizeDriver(json.data || json.driver));
+      if (json.impersonating) {
+        setImpersonating(true);
+        setImpersonatedBy(json.impersonatedBy || 'Admin');
+      }
       await checkOnboarding();
     } catch {
       setCurrentDriver(null);
@@ -1452,53 +2482,18 @@ const TeamApp: React.FC = () => {
     checkSession();
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/team/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
-      setCurrentDriver(normalizeDriver(json.data || json.driver));
-      await checkOnboarding();
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    if (regPassword !== regConfirm) {
-      setAuthError('Passwords do not match');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/team/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ full_name: regName, email: regEmail, phone: regPhone, password: regPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
-      setCurrentDriver(normalizeDriver(json.data || json.driver));
-      await checkOnboarding();
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!currentDriver) return;
+    const fetchUnread = async () => {
+      try {
+        const res = await fetch('/api/team/conversations/unread-count', { credentials: 'include' });
+        if (res.ok) { const d = await res.json(); setMsgUnreadCount(d.count || 0); }
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => clearInterval(interval);
+  }, [currentDriver]);
 
   const handleLogout = async () => {
     try {
@@ -1507,6 +2502,15 @@ const TeamApp: React.FC = () => {
     setCurrentDriver(null);
     setOnboardingStatus(null);
     setCurrentView('dashboard');
+  };
+
+  const handleStopImpersonation = async () => {
+    try {
+      await fetch('/api/admin/stop-impersonate-driver', { method: 'POST', credentials: 'include' });
+      window.location.href = '/admin/';
+    } catch {
+      alert('Failed to exit driver view');
+    }
   };
 
   if (loading) {
@@ -1519,126 +2523,70 @@ const TeamApp: React.FC = () => {
 
   if (!currentDriver) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full p-8">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center mx-auto mb-4">
-              <BriefcaseIcon className="w-8 h-8 text-teal-600" />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900">Team Portal</h1>
-            <p className="text-gray-500 text-sm mt-1">Driver & Contractor Access</p>
-          </div>
-
-          {authError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
-              {authError}
-            </div>
-          )}
-
-          {authMode === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Signing in...' : 'Sign In'}
-              </Button>
-              <p className="text-center text-sm text-gray-500">
-                Don't have an account?{' '}
-                <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); }} className="text-teal-600 font-bold hover:underline">
-                  Register
-                </button>
-              </p>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={regName}
-                  onChange={e => setRegName(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="John Doe"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={regEmail}
-                  onChange={e => setRegEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={regPhone}
-                  onChange={e => setRegPhone(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="(555) 123-4567"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={regPassword}
-                  onChange={e => setRegPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Confirm Password</label>
-                <input
-                  type="password"
-                  value={regConfirm}
-                  onChange={e => setRegConfirm(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="••••••••"
-                />
-              </div>
-              <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Creating account...' : 'Create Account'}
-              </Button>
-              <p className="text-center text-sm text-gray-500">
-                Already have an account?{' '}
-                <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); }} className="text-teal-600 font-bold hover:underline">
-                  Sign In
-                </button>
-              </p>
-            </form>
-          )}
-        </Card>
-      </div>
+      <TeamAuthLayout error={authError}>
+        {authMode === 'login' ? (
+          <TeamLogin
+            onLogin={async (email, password) => {
+              setAuthError('');
+              setAuthLoading(true);
+              try {
+                const res = await fetch('/api/team/auth/login', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ email, password }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
+                setCurrentDriver(normalizeDriver(json.data || json.driver));
+                await checkOnboarding();
+              } catch (err: any) {
+                setAuthError(err.message);
+              } finally {
+                setAuthLoading(false);
+              }
+            }}
+            switchToRegister={() => {
+              setAuthMode('register');
+              setAuthError('');
+            }}
+            isLoading={authLoading}
+          />
+        ) : (
+          <TeamRegister
+            onRegister={async (data) => {
+              setAuthError('');
+              setAuthLoading(true);
+              try {
+                const res = await fetch('/api/team/auth/register', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    full_name: data.full_name,
+                    email: data.email,
+                    phone: data.phone,
+                    password: data.password,
+                  }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
+                setCurrentDriver(normalizeDriver(json.data || json.driver));
+                await checkOnboarding();
+              } catch (err: any) {
+                setAuthError(err.message);
+              } finally {
+                setAuthLoading(false);
+              }
+            }}
+            switchToLogin={() => {
+              setAuthMode('login');
+              setAuthError('');
+            }}
+            isLoading={authLoading}
+          />
+        )}
+      </TeamAuthLayout>
     );
   }
 
@@ -1646,16 +2594,32 @@ const TeamApp: React.FC = () => {
     return <OnboardingFlow status={onboardingStatus} onRefresh={checkOnboarding} />;
   }
 
-  const navItems: { view: TeamView; label: string; icon: React.ReactNode }[] = [
+  const navItems: { view: TeamView; label: string; icon: React.ReactNode; badge?: number }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
     { view: 'jobs', label: 'Available Jobs', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
+    { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {impersonating && (
+        <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between z-50 relative">
+          <span className="text-sm font-bold">
+            Viewing as driver: {currentDriver?.full_name} (signed in by {impersonatedBy})
+          </span>
+          <button
+            type="button"
+            onClick={handleStopImpersonation}
+            className="px-4 py-1 bg-white text-indigo-700 rounded-lg text-sm font-bold hover:bg-indigo-50 transition-colors"
+          >
+            Back to Admin
+          </button>
+        </div>
+      )}
+      <div className="flex-1 flex">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${impersonating ? 'lg:top-[40px]' : ''}`}>
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
             <BriefcaseIcon className="w-8 h-8 text-teal-400" />
@@ -1669,8 +2633,9 @@ const TeamApp: React.FC = () => {
         <nav className="p-4 space-y-1">
           {navItems.map(item => (
             <button
+              type="button"
               key={item.view}
-              onClick={() => { setCurrentView(item.view); setSidebarOpen(false); }}
+              onClick={() => { setCurrentView(item.view); setSidebarOpen(false); if (item.view === 'messages') setMsgUnreadCount(0); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${
                 currentView === item.view
                   ? 'bg-teal-600 text-white'
@@ -1678,7 +2643,12 @@ const TeamApp: React.FC = () => {
               }`}
             >
               {item.icon}
-              {item.label}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.badge !== undefined && (
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-400 text-white text-[10px] font-black">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -1694,6 +2664,7 @@ const TeamApp: React.FC = () => {
             </div>
           </div>
           <button
+            type="button"
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-white transition-colors py-2 rounded-lg hover:bg-gray-800"
           >
@@ -1709,7 +2680,7 @@ const TeamApp: React.FC = () => {
 
       <main className="flex-1 min-w-0">
         <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
-          <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-900">
+          <button type="button" title="Open menu" onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-900">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
           <h2 className="text-lg font-black text-gray-900">
@@ -1721,9 +2692,11 @@ const TeamApp: React.FC = () => {
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'jobs' && <JobBoard />}
           {currentView === 'schedule' && <Schedule />}
+          {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}
         </div>
       </main>
+      </div>
     </div>
   );
 };

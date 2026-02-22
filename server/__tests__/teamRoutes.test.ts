@@ -1,0 +1,983 @@
+/**
+ * Integration tests for teamRoutes.ts
+ * Covers every route handler registered by registerTeamRoutes().
+ * (Google OAuth routes are excluded — they require live network calls to Google.)
+ */
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import supertest from 'supertest';
+import express from 'express';
+import session from 'express-session';
+import bcrypt from 'bcrypt';
+import { registerTeamRoutes } from '../teamRoutes';
+import { storage } from '../storage';
+import { getUncachableStripeClient } from '../stripeClient';
+import { encrypt } from '../encryption';
+
+// ---------------------------------------------------------------------------
+// Module mocks
+// ---------------------------------------------------------------------------
+vi.mock('../storage', () => ({
+  storage: {
+    getDriverByEmail: vi.fn(),
+    getDriverById: vi.fn(),
+    createDriver: vi.fn(),
+    updateDriver: vi.fn(),
+    getW9ByDriverId: vi.fn(),
+    createW9: vi.fn(),
+    getOpenJobs: vi.fn(),
+    getDriverJobs: vi.fn(),
+    getJobById: vi.fn(),
+    getJobBids: vi.fn(),
+    getBidByJobAndDriver: vi.fn(),
+    createBid: vi.fn(),
+    updateJob: vi.fn(),
+    deleteBid: vi.fn(),
+    getDriverSchedule: vi.fn(),
+    getUserById: vi.fn(),
+    query: vi.fn(),
+  },
+  pool: {},
+}));
+
+vi.mock('../stripeClient', () => ({
+  getUncachableStripeClient: vi.fn(),
+  getStripePublishableKey: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
+// Test fixtures
+// ---------------------------------------------------------------------------
+const mockDriver = {
+  id: 'driver-1',
+  name: 'Test Driver',
+  email: 'driver@test.com',
+  phone: '555-0001',
+  status: 'active',
+  onboarding_status: 'completed',
+  rating: '5.00',
+  total_jobs_completed: 3,
+  w9_completed: true,
+  direct_deposit_completed: true,
+  stripe_connect_onboarded: false,
+  stripe_connect_account_id: null as string | null,
+  password_hash: null as string | null,
+  availability: null,
+  message_email_notifications: false,
+  created_at: new Date().toISOString(),
+};
+
+const mockW9 = {
+  id: 'w9-1',
+  driver_id: 'driver-1',
+  legal_name: 'Test Driver',
+  federal_tax_classification: 'individual',
+  address: '123 Main St',
+  city: 'Anytown',
+  state: 'CA',
+  zip: '90210',
+  tin_type: 'ssn',
+  signature_date: '2024-01-01',
+  signature_data: 'data:image/png;base64,abc',
+  certification: true,
+  account_number_encrypted: null as string | null,
+  routing_number_encrypted: null as string | null,
+  account_holder_name: null as string | null,
+  account_type: null as string | null,
+};
+
+const mockJob = {
+  id: 'job-1',
+  status: 'open',
+  assigned_driver_id: null as string | null,
+  address: '456 Elm St',
+  scheduled_date: '2024-12-01',
+  service_type: 'pickup',
+};
+
+const assignedJob = {
+  ...mockJob,
+  id: 'job-2',
+  status: 'assigned',
+  assigned_driver_id: 'driver-1',
+};
+
+const mockBid = {
+  id: 'bid-1',
+  job_id: 'job-1',
+  driver_id: 'driver-1',
+  bid_amount: 50,
+  message: null,
+};
+
+function mockStripe() {
+  return {
+    accounts: {
+      create: vi.fn().mockResolvedValue({ id: 'acct_test123' }),
+      retrieve: vi.fn().mockResolvedValue({
+        id: 'acct_test123',
+        charges_enabled: true,
+        payouts_enabled: true,
+      }),
+    },
+    accountLinks: {
+      create: vi.fn().mockResolvedValue({ url: 'https://connect.stripe.com/setup' }),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// App factories
+// ---------------------------------------------------------------------------
+function createApp() {
+  const app = express();
+  app.use(express.json());
+  app.use(session({ secret: 'test', resave: false, saveUninitialized: false }));
+  registerTeamRoutes(app);
+  return app;
+}
+
+function createDriverAuthApp(driverId = 'driver-1') {
+  const app = express();
+  app.use(express.json());
+  app.use(session({ secret: 'test', resave: false, saveUninitialized: false }));
+  app.use((req: any, _res: any, next: any) => {
+    req.session.driverId = driverId;
+    next();
+  });
+  registerTeamRoutes(app);
+  return app;
+}
+
+// ---------------------------------------------------------------------------
+// Shared setup
+// ---------------------------------------------------------------------------
+let testPasswordHash: string;
+
+beforeAll(async () => {
+  testPasswordHash = await bcrypt.hash('correctpassword', 1);
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+
+  // Defaults — most tests use a completed driver
+  vi.mocked(storage.getDriverById).mockResolvedValue({ ...mockDriver } as any);
+  vi.mocked(storage.getDriverByEmail).mockResolvedValue(null as any);
+  vi.mocked(storage.createDriver).mockResolvedValue({ ...mockDriver } as any);
+  vi.mocked(storage.updateDriver).mockResolvedValue({ ...mockDriver } as any);
+  vi.mocked(storage.getW9ByDriverId).mockResolvedValue(null as any);
+  vi.mocked(storage.createW9).mockResolvedValue({ ...mockW9 } as any);
+  vi.mocked(storage.getOpenJobs).mockResolvedValue([] as any);
+  vi.mocked(storage.getDriverJobs).mockResolvedValue([] as any);
+  vi.mocked(storage.getJobById).mockResolvedValue({ ...mockJob } as any);
+  vi.mocked(storage.getJobBids).mockResolvedValue([] as any);
+  vi.mocked(storage.getBidByJobAndDriver).mockResolvedValue(null as any);
+  vi.mocked(storage.createBid).mockResolvedValue({ ...mockBid } as any);
+  vi.mocked(storage.updateJob).mockResolvedValue(undefined as any);
+  vi.mocked(storage.deleteBid).mockResolvedValue(undefined as any);
+  vi.mocked(storage.getDriverSchedule).mockResolvedValue([] as any);
+  vi.mocked(storage.getUserById).mockResolvedValue(null as any);
+  vi.mocked(storage.query).mockResolvedValue({ rows: [] } as any);
+  vi.mocked(getUncachableStripeClient).mockResolvedValue(mockStripe() as any);
+});
+
+// ===========================================================================
+// POST /api/team/auth/register
+// ===========================================================================
+describe('POST /api/team/auth/register', () => {
+  it('returns 400 if name is missing', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/auth/register')
+      .send({ email: 'x@x.com', password: 'abc123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if email is missing', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/auth/register')
+      .send({ name: 'Bob', password: 'abc123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 409 if email already exists', async () => {
+    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({ ...mockDriver } as any);
+    const res = await supertest(createApp())
+      .post('/api/team/auth/register')
+      .send({ name: 'Bob', email: 'driver@test.com', password: 'abc123' });
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 201 and driver data on success', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/auth/register')
+      .send({ name: 'Bob', email: 'new@test.com', password: 'abc123' });
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ id: 'driver-1' });
+  });
+});
+
+// ===========================================================================
+// POST /api/team/auth/login
+// ===========================================================================
+describe('POST /api/team/auth/login', () => {
+  it('returns 400 if email is missing', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/auth/login')
+      .send({ password: 'abc123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 if driver not found', async () => {
+    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce(null as any);
+    const res = await supertest(createApp())
+      .post('/api/team/auth/login')
+      .send({ email: 'no@one.com', password: 'abc123' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 if driver has no password hash', async () => {
+    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({ ...mockDriver, password_hash: null } as any);
+    const res = await supertest(createApp())
+      .post('/api/team/auth/login')
+      .send({ email: 'driver@test.com', password: 'abc123' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 if password is wrong', async () => {
+    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({
+      ...mockDriver,
+      password_hash: testPasswordHash,
+    } as any);
+    const res = await supertest(createApp())
+      .post('/api/team/auth/login')
+      .send({ email: 'driver@test.com', password: 'wrongpassword' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 and driver data on success', async () => {
+    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({
+      ...mockDriver,
+      password_hash: testPasswordHash,
+    } as any);
+    const res = await supertest(createApp())
+      .post('/api/team/auth/login')
+      .send({ email: 'driver@test.com', password: 'correctpassword' });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ id: 'driver-1' });
+  });
+});
+
+// ===========================================================================
+// POST /api/team/auth/logout
+// ===========================================================================
+describe('POST /api/team/auth/logout', () => {
+  it('returns 200', async () => {
+    const res = await supertest(createApp()).post('/api/team/auth/logout');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/auth/me
+// ===========================================================================
+describe('GET /api/team/auth/me', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/auth/me');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 if driver not found in DB', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/auth/me');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 with driver data', async () => {
+    const res = await supertest(createDriverAuthApp()).get('/api/team/auth/me');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ id: 'driver-1', name: 'Test Driver' });
+  });
+});
+
+// ===========================================================================
+// POST /api/team/onboarding/w9
+// ===========================================================================
+const validW9Body = {
+  legal_name: 'Test Driver',
+  federal_tax_classification: 'individual',
+  address: '123 Main St',
+  city: 'Anytown',
+  state: 'CA',
+  zip: '90210',
+  tin_type: 'ssn',
+  signature_date: '2024-01-01',
+  certification: true,
+  signature_data: 'data:image/png;base64,abc',
+};
+
+describe('POST /api/team/onboarding/w9', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).post('/api/team/onboarding/w9').send(validW9Body);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 if required fields are missing', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/w9')
+      .send({ legal_name: 'Only This' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 409 if W9 already submitted', async () => {
+    vi.mocked(storage.getW9ByDriverId).mockResolvedValueOnce({ ...mockW9 } as any);
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/w9')
+      .send(validW9Body);
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 201 and W9 data on success', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/w9')
+      .send(validW9Body);
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ driver_id: 'driver-1' });
+  });
+});
+
+// ===========================================================================
+// GET /api/team/onboarding/w9
+// ===========================================================================
+describe('GET /api/team/onboarding/w9', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/onboarding/w9');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns data: null when no W9 on file', async () => {
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/w9');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toBeNull();
+  });
+
+  it('returns W9 data without encrypted fields', async () => {
+    vi.mocked(storage.getW9ByDriverId).mockResolvedValueOnce({
+      ...mockW9,
+      account_number_encrypted: 'secret',
+      routing_number_encrypted: 'secret',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/w9');
+    expect(res.status).toBe(200);
+    expect(res.body.data.legal_name).toBe('Test Driver');
+    expect(res.body.data.account_number_encrypted).toBeUndefined();
+    expect(res.body.data.routing_number_encrypted).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// PUT /api/team/onboarding/w9
+// ===========================================================================
+describe('PUT /api/team/onboarding/w9', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).put('/api/team/onboarding/w9').send(validW9Body);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 if required fields are missing', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/onboarding/w9')
+      .send({ legal_name: 'Only This' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if certification is missing', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/onboarding/w9')
+      .send({ ...validW9Body, certification: undefined });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if signature_data is missing', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/onboarding/w9')
+      .send({ ...validW9Body, signature_data: undefined });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 200 using query when existing W9', async () => {
+    vi.mocked(storage.getW9ByDriverId).mockResolvedValueOnce({ ...mockW9 } as any);
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/onboarding/w9')
+      .send(validW9Body);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('returns 200 using createW9 when no existing W9', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/onboarding/w9')
+      .send(validW9Body);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// POST /api/team/onboarding/bank-account
+// ===========================================================================
+const validBankBody = {
+  account_holder_name: 'Test Driver',
+  routing_number: '021000021', // valid Chase ABA
+  account_number: '123456789',
+  account_type: 'checking',
+};
+
+describe('POST /api/team/onboarding/bank-account', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/onboarding/bank-account')
+      .send(validBankBody);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 if account_holder_name is missing', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/bank-account')
+      .send({ ...validBankBody, account_holder_name: '' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if routing number is invalid', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/bank-account')
+      .send({ ...validBankBody, routing_number: '123456789' }); // fails checksum
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if account number is invalid', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/bank-account')
+      .send({ ...validBankBody, account_number: 'abc' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 if account type is invalid', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/bank-account')
+      .send({ ...validBankBody, account_type: 'investment' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 200 with masked account on success', async () => {
+    // Calls storage.query 3x + getDriverById; default mocks handle this
+    vi.mocked(storage.getDriverById).mockResolvedValue({
+      ...mockDriver,
+      w9_completed: true,
+      direct_deposit_completed: false,
+    } as any);
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/onboarding/bank-account')
+      .send(validBankBody);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.masked_account).toBe('****6789');
+  });
+});
+
+// ===========================================================================
+// GET /api/team/profile/bank-account
+// ===========================================================================
+describe('GET /api/team/profile/bank-account', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/profile/bank-account');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns has_bank_account: false when no row', async () => {
+    vi.mocked(storage.query).mockResolvedValueOnce({ rows: [] } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile/bank-account');
+    expect(res.status).toBe(200);
+    expect(res.body.has_bank_account).toBe(false);
+  });
+
+  it('returns masked account data when row exists', async () => {
+    const encryptedAcct = encrypt('1234567890');
+    vi.mocked(storage.query).mockResolvedValueOnce({
+      rows: [{
+        account_holder_name: 'Test Driver',
+        account_number_encrypted: encryptedAcct,
+        account_type: 'checking',
+      }],
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile/bank-account');
+    expect(res.status).toBe(200);
+    expect(res.body.has_bank_account).toBe(true);
+    expect(res.body.masked_account).toBe('****7890');
+    expect(res.body.account_type).toBe('checking');
+  });
+});
+
+// ===========================================================================
+// POST /api/team/onboarding/bank-account/skip
+// ===========================================================================
+describe('POST /api/team/onboarding/bank-account/skip', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).post('/api/team/onboarding/bank-account/skip');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 on success', async () => {
+    const res = await supertest(createDriverAuthApp()).post('/api/team/onboarding/bank-account/skip');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// POST /api/team/onboarding/stripe-connect
+// ===========================================================================
+describe('POST /api/team/onboarding/stripe-connect', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).post('/api/team/onboarding/stripe-connect');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 with new Stripe Connect account', async () => {
+    // driver has no stripe_connect_account_id
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: null,
+    } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/onboarding/stripe-connect');
+    expect(res.status).toBe(200);
+    expect(res.body.data.url).toBe('https://connect.stripe.com/setup');
+    expect(res.body.data.accountId).toBe('acct_test123');
+  });
+
+  it('returns 200 creating new account link for existing account', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: 'acct_existing',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/onboarding/stripe-connect');
+    expect(res.status).toBe(200);
+    expect(res.body.data.url).toBe('https://connect.stripe.com/setup');
+  });
+});
+
+// ===========================================================================
+// GET /api/team/onboarding/stripe-connect/status
+// ===========================================================================
+describe('GET /api/team/onboarding/stripe-connect/status', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/onboarding/stripe-connect/status');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns onboarded: false if no accountId on driver', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: null,
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/stripe-connect/status');
+    expect(res.status).toBe(200);
+    expect(res.body.data.onboarded).toBe(false);
+  });
+
+  it('returns onboarded: true when charges and payouts enabled', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: 'acct_test123',
+      w9_completed: true,
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/stripe-connect/status');
+    expect(res.status).toBe(200);
+    expect(res.body.data.onboarded).toBe(true);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/onboarding/stripe-connect/return
+// ===========================================================================
+describe('GET /api/team/onboarding/stripe-connect/return', () => {
+  it('redirects to /team/ (no auth required)', async () => {
+    const res = await supertest(createApp()).get('/api/team/onboarding/stripe-connect/return');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/team/');
+  });
+});
+
+// ===========================================================================
+// GET /api/team/onboarding/stripe-connect/refresh
+// ===========================================================================
+describe('GET /api/team/onboarding/stripe-connect/refresh', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/onboarding/stripe-connect/refresh');
+    expect(res.status).toBe(401);
+  });
+
+  it('redirects to /team/ if driver has no Stripe account', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: null,
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/stripe-connect/refresh');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/team/');
+  });
+
+  it('redirects to Stripe URL on success', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      stripe_connect_account_id: 'acct_test123',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/stripe-connect/refresh');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('https://connect.stripe.com/setup');
+  });
+});
+
+// ===========================================================================
+// GET /api/team/jobs
+// ===========================================================================
+describe('GET /api/team/jobs', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/jobs');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 if not onboarded', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      onboarding_status: 'w9_pending',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 200 with jobs list', async () => {
+    vi.mocked(storage.getOpenJobs).mockResolvedValueOnce([mockJob] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/my-jobs
+// ===========================================================================
+describe('GET /api/team/my-jobs', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/my-jobs');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 if not onboarded', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      onboarding_status: 'deposit_pending',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/my-jobs');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 200 with driver jobs', async () => {
+    vi.mocked(storage.getDriverJobs).mockResolvedValueOnce([assignedJob] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/my-jobs');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/jobs/:jobId
+// ===========================================================================
+describe('GET /api/team/jobs/:jobId', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/jobs/job-1');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 if job not found', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs/nope');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 200 with job and bids', async () => {
+    vi.mocked(storage.getJobBids).mockResolvedValueOnce([mockBid] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs/job-1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.id).toBe('job-1');
+    expect(res.body.data.bids).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// POST /api/team/jobs/:jobId/bid
+// ===========================================================================
+describe('POST /api/team/jobs/:jobId/bid', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp())
+      .post('/api/team/jobs/job-1/bid')
+      .send({ bid_amount: 50 });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 if bid_amount is missing or zero', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/jobs/job-1/bid')
+      .send({ bid_amount: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 if job not found', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/jobs/nope/bid')
+      .send({ bid_amount: 50 });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 if job is not open or bidding', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce({
+      ...mockJob,
+      status: 'completed',
+    } as any);
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/jobs/job-1/bid')
+      .send({ bid_amount: 50 });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 409 if driver already bid on this job', async () => {
+    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/jobs/job-1/bid')
+      .send({ bid_amount: 50 });
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 201 with bid data on success', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .post('/api/team/jobs/job-1/bid')
+      .send({ bid_amount: 75, message: 'I can do it!' });
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ id: 'bid-1' });
+  });
+});
+
+// ===========================================================================
+// DELETE /api/team/jobs/:jobId/bid
+// ===========================================================================
+describe('DELETE /api/team/jobs/:jobId/bid', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).delete('/api/team/jobs/job-1/bid');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 if bid not found', async () => {
+    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).delete('/api/team/jobs/job-1/bid');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 200 on success', async () => {
+    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
+    const res = await supertest(createDriverAuthApp()).delete('/api/team/jobs/job-1/bid');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// POST /api/team/jobs/:jobId/complete
+// ===========================================================================
+describe('POST /api/team/jobs/:jobId/complete', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).post('/api/team/jobs/job-2/complete');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 if job not found', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/nope/complete');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 403 if driver is not assigned', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce({
+      ...assignedJob,
+      assigned_driver_id: 'other-driver',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 400 if job status is not assigned/in_progress', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce({
+      ...assignedJob,
+      status: 'completed',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 200 on success', async () => {
+    vi.mocked(storage.getJobById).mockResolvedValueOnce({ ...assignedJob } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/schedule
+// ===========================================================================
+describe('GET /api/team/schedule', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/schedule');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 if not onboarded', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+      ...mockDriver,
+      onboarding_status: 'w9_pending',
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/schedule');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 200 with schedule', async () => {
+    vi.mocked(storage.getDriverSchedule).mockResolvedValueOnce([assignedJob] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/schedule');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// GET /api/team/profile
+// ===========================================================================
+describe('GET /api/team/profile', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/profile');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 if driver not found', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 200 with driver profile', async () => {
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ id: 'driver-1', name: 'Test Driver' });
+  });
+});
+
+// ===========================================================================
+// PUT /api/team/profile
+// ===========================================================================
+describe('PUT /api/team/profile', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).put('/api/team/profile').send({ name: 'New Name' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 with updated profile', async () => {
+    vi.mocked(storage.updateDriver).mockResolvedValueOnce({
+      ...mockDriver,
+      name: 'New Name',
+    } as any);
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/profile')
+      .send({ name: 'New Name' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.name).toBe('New Name');
+  });
+});
+
+// ===========================================================================
+// GET /api/team/onboarding/status
+// ===========================================================================
+describe('GET /api/team/onboarding/status', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/onboarding/status');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 if driver not found', async () => {
+    vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/status');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 200 with onboarding status fields', async () => {
+    const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/status');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      w9_completed: true,
+      direct_deposit_completed: true,
+      onboarding_status: 'completed',
+    });
+  });
+});
+
+// ===========================================================================
+// GET /api/team/profile/message-notifications
+// ===========================================================================
+describe('GET /api/team/profile/message-notifications', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp()).get('/api/team/profile/message-notifications');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the preference value from DB', async () => {
+    vi.mocked(storage.query).mockResolvedValueOnce({
+      rows: [{ message_email_notifications: true }],
+    } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile/message-notifications');
+    expect(res.status).toBe(200);
+    expect(res.body.message_email_notifications).toBe(true);
+  });
+
+  it('defaults to false when no row', async () => {
+    vi.mocked(storage.query).mockResolvedValueOnce({ rows: [] } as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/profile/message-notifications');
+    expect(res.status).toBe(200);
+    expect(res.body.message_email_notifications).toBe(false);
+  });
+});
+
+// ===========================================================================
+// PUT /api/team/profile/message-notifications
+// ===========================================================================
+describe('PUT /api/team/profile/message-notifications', () => {
+  it('returns 401 without auth', async () => {
+    const res = await supertest(createApp())
+      .put('/api/team/profile/message-notifications')
+      .send({ enabled: true });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 if enabled is not a boolean', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/profile/message-notifications')
+      .send({ enabled: 'yes' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 200 and echoes the new preference', async () => {
+    const res = await supertest(createDriverAuthApp())
+      .put('/api/team/profile/message-notifications')
+      .send({ enabled: true });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.message_email_notifications).toBe(true);
+  });
+});

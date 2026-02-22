@@ -45,17 +45,48 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
         const w = 500, h = 600;
         const left = window.screenX + (window.outerWidth - w) / 2;
         const top = window.screenY + (window.outerHeight - h) / 2;
-        window.open(url, 'google-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+        const popup = window.open(url, 'google-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+        if (popup) {
+            popup.focus();
+        }
     }, [formData.referralCode, pendingQueryString]);
 
     useEffect(() => {
         const handler = (e: MessageEvent) => {
+            // Verify origin for security
+            if (e.origin !== window.location.origin) return;
+
             if (e.data?.type === 'google-oauth-success') {
                 onGoogleAuthSuccess?.();
+            } else if (e.data?.type === 'google-oauth-error') {
+                console.error('Google OAuth error from popup');
             }
         };
+
         window.addEventListener('message', handler);
-        return () => window.removeEventListener('message', handler);
+
+        // Fallback: listen for localStorage changes (when popup loses parent reference)
+        const storageHandler = (e: StorageEvent) => {
+            if (e.key === 'google-oauth-success' && e.newValue) {
+                try {
+                    const data = JSON.parse(e.newValue);
+                    // Only accept recent tokens (within 5 seconds)
+                    if (Date.now() - data.timestamp < 5000) {
+                        onGoogleAuthSuccess?.();
+                        localStorage.removeItem('google-oauth-success');
+                    }
+                } catch (err) {
+                    console.error('Failed to parse google-oauth-success from localStorage');
+                }
+            }
+        };
+
+        window.addEventListener('storage', storageHandler);
+
+        return () => {
+            window.removeEventListener('message', handler);
+            window.removeEventListener('storage', storageHandler);
+        };
     }, [onGoogleAuthSuccess]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

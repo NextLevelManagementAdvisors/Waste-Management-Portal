@@ -9,6 +9,11 @@ import * as optimoRoute from './optimoRouteClient';
 import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
+
+// In-memory failed login tracking for account lockout
+const failedLogins = new Map<string, { count: number; lockedUntil: number }>();
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
 
@@ -21,6 +26,8 @@ declare module 'express-session' {
     googleOAuthPopup?: boolean;
     impersonatingUserId?: string;
     originalAdminUserId?: string;
+    impersonatingDriverId?: string;
+    originalAdminForDriver?: string;
   }
 }
 
@@ -152,7 +159,13 @@ export function registerAuthRoutes(app: Express) {
 
       req.session.userId = user.id;
 
-      res.status(201).json({ data: formatUserForClient(user, []) });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during registration:', err);
+          return res.status(500).json({ error: 'Registration failed' });
+        }
+        res.status(201).json({ data: formatUserForClient(user, []) });
+      });
     } catch (error: any) {
       console.error('Registration error:', error);
       res.status(500).json({ error: 'Registration failed' });
@@ -167,15 +180,31 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      let user = await storage.getUserByEmail(email.toLowerCase());
+      const emailKey = email.toLowerCase();
+      const loginAttempt = failedLogins.get(emailKey);
+      if (loginAttempt && loginAttempt.lockedUntil > Date.now()) {
+        const remainingMinutes = Math.ceil((loginAttempt.lockedUntil - Date.now()) / 60000);
+        return res.status(429).json({ error: `Account temporarily locked due to too many failed attempts. Try again in ${remainingMinutes} minute(s).` });
+      }
+
+      let user = await storage.getUserByEmail(emailKey);
       if (!user) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
       const valid = await bcrypt.compare(password, user.password_hash);
       if (!valid) {
+        const current = failedLogins.get(emailKey) || { count: 0, lockedUntil: 0 };
+        const newCount = current.count + 1;
+        failedLogins.set(emailKey, {
+          count: newCount,
+          lockedUntil: newCount >= MAX_FAILED_ATTEMPTS ? Date.now() + LOCKOUT_MS : 0,
+        });
         return res.status(401).json({ error: 'Invalid email or password' });
       }
+
+      // Successful login — clear failed attempt record
+      failedLogins.delete(emailKey);
 
       user = await ensureStripeCustomer(user);
 
@@ -183,7 +212,13 @@ export function registerAuthRoutes(app: Express) {
 
       req.session.userId = user.id;
 
-      res.json({ data: formatUserForClient(user, properties) });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during login:', err);
+          return res.status(500).json({ error: 'Login failed' });
+        }
+        res.json({ data: formatUserForClient(user, properties) });
+      });
     } catch (error: any) {
       console.error('Login error:', error);
       res.status(500).json({ error: 'Login failed' });
@@ -331,6 +366,10 @@ export function registerAuthRoutes(app: Express) {
         return res.status(404).json({ error: 'User not found' });
       }
 
+      if (!newPassword || newPassword.length < 12) {
+        return res.status(400).json({ error: 'Password must be at least 12 characters' });
+      }
+
       const valid = await bcrypt.compare(currentPassword, user.password_hash);
       if (!valid) {
         return res.status(401).json({ error: 'Current password is incorrect' });
@@ -471,11 +510,14 @@ export function registerAuthRoutes(app: Express) {
       }
 
       const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
       if (replitDomain) {
         redirectUri = `https://${replitDomain}/api/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
-        const host = req.get('host') || 'localhost:5000';
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
         const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
         redirectUri = `${protocol}://${host}/api/auth/google/callback`;
       }
@@ -524,11 +566,14 @@ export function registerAuthRoutes(app: Express) {
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
       const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
       if (replitDomain) {
         redirectUri = `https://${replitDomain}/api/auth/google/callback`;
+      } else if (appDomain) {
+        redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
-        const host = req.get('host') || 'localhost:5000';
+        const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
         const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
         redirectUri = `${protocol}://${host}/api/auth/google/callback`;
       }
@@ -644,28 +689,49 @@ export function registerAuthRoutes(app: Express) {
       const popupMode = req.session.googleOAuthPopup;
       delete req.session.googleOAuthPopup;
 
-      if (popupMode) {
-        res.send(`<!DOCTYPE html><html><body><script>
-          if (window.opener) {
-            window.opener.postMessage({ type: 'google-oauth-success', redirect: ${JSON.stringify(redirectUrl)} }, '*');
-            window.close();
-          } else {
-            window.location.href = ${JSON.stringify(redirectUrl)};
-          }
-        </script></body></html>`);
-      } else {
-        res.redirect(redirectUrl);
-      }
+      req.session.save((saveErr) => {
+        if (saveErr) console.error('Session save error during Google OAuth callback:', saveErr);
+
+        if (popupMode) {
+          const appOrigin = process.env.APP_DOMAIN || (() => {
+            const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
+            const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+            return `${protocol}://${host}`;
+          })();
+          res.send(`<!DOCTYPE html><html><body><script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'google-oauth-success', redirect: ${JSON.stringify(redirectUrl)} }, ${JSON.stringify(appOrigin)});
+              window.close();
+            } else {
+              // Popup lost reference to parent - try to notify via localStorage and close
+              try {
+                localStorage.setItem('google-oauth-success', JSON.stringify({ redirect: ${JSON.stringify(redirectUrl)}, timestamp: Date.now() }));
+              } catch (e) {}
+              window.close();
+              alert('Login successful! Please close this window and refresh the main window.');
+            }
+          </script></body></html>`);
+        } else {
+          res.redirect(redirectUrl);
+        }
+      });
     } catch (error: any) {
       console.error('Google OAuth callback error:', error);
       const popupMode = req.session?.googleOAuthPopup;
       if (popupMode) {
+        const appOrigin = process.env.APP_DOMAIN || (() => {
+          const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
+          const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+          return `${protocol}://${host}`;
+        })();
         res.send(`<!DOCTYPE html><html><body><script>
           if (window.opener) {
-            window.opener.postMessage({ type: 'google-oauth-error' }, '*');
+            window.opener.postMessage({ type: 'google-oauth-error' }, ${JSON.stringify(appOrigin)});
             window.close();
           } else {
-            window.location.href = '/?error=google_auth_failed';
+            // Popup lost reference to parent - close and notify user
+            window.close();
+            alert('Google login failed. Please try again or use email/password login.');
           }
         </script></body></html>`);
       } else {

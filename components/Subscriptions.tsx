@@ -45,7 +45,7 @@ const SubscriptionCard: React.FC<{
                             <div className="flex-1">
                                 <p className="text-sm text-gray-500">Next charge on <span className="font-bold text-gray-900">{sub.nextBillingDate}</span></p>
                                 <div className="flex items-baseline gap-2 mt-1">
-                                    <p className="text-2xl font-black text-primary">${sub.totalPrice.toFixed(2)}</p>
+                                    <p className="text-2xl font-black text-primary">${Number(sub.totalPrice).toFixed(2)}</p>
                                     {isNew && setupFee > 0 && (
                                         <span className="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-1 rounded-full animate-in fade-in">
                                             + ${setupFee.toFixed(2)} Setup Fee

@@ -163,11 +163,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <div className="flex flex-col sm:flex-row gap-4">
                         <button type="button" onClick={() => setCurrentView('myservice')} className="flex-1 p-6 bg-primary/5 rounded-2xl border border-primary/10 text-left hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group">
                             <p className="text-xs font-bold text-primary uppercase tracking-wider group-hover:text-teal-700">Total Monthly Cost</p>
-                            <p className="text-3xl font-black text-gray-900 mt-1">${data.health.totalMonthlyCost.toFixed(2)}</p>
+                            <p className="text-3xl font-black text-gray-900 mt-1">${Number(data.health.totalMonthlyCost).toFixed(2)}</p>
                         </button>
                         <button type="button" onClick={() => setIsPayBalanceModalOpen(true)} className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100 text-left hover:shadow-md hover:border-red-300 transition-all cursor-pointer group">
                             <p className="text-xs font-bold text-red-600 uppercase tracking-wider group-hover:text-red-700">Outstanding Balance</p>
-                            <p className="text-3xl font-black text-red-800 mt-1">${data.health.outstandingBalance.toFixed(2)}</p>
+                            <p className="text-3xl font-black text-red-800 mt-1">${Number(data.health.outstandingBalance).toFixed(2)}</p>
                         </button>
                     </div>
                 </Card>

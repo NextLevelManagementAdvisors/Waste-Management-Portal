@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import type { IncomingMessage } from 'http';
+import { pool } from './storage';
 
 interface AuthenticatedSocket extends WebSocket {
   userId?: string;
@@ -29,7 +30,7 @@ export function broadcastToParticipants(participantKeys: string[], event: string
 }
 
 export function setupWebSocket(server: Server, sessionMiddleware: any) {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws: AuthenticatedSocket) => {
@@ -49,15 +50,22 @@ export function setupWebSocket(server: Server, sessionMiddleware: any) {
     ws.on('pong', () => { ws.isAlive = true; });
 
     const mockRes = { end: () => {}, setHeader: () => {}, getHeader: () => '' } as any;
-    sessionMiddleware(req, mockRes, () => {
+    sessionMiddleware(req, mockRes, async () => {
       const session = (req as any).session;
-      if (!session?.userId) {
+
+      // Support both user sessions (userId) and driver sessions (driverId)
+      if (session?.driverId) {
+        ws.userId = session.driverId;
+        ws.userType = 'driver';
+      } else if (session?.userId) {
+        const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [session.userId]);
+        const isAdmin = result.rows[0]?.is_admin ?? false;
+        ws.userId = session.userId;
+        ws.userType = isAdmin ? 'admin' : 'user';
+      } else {
         ws.close(4001, 'Unauthorized');
         return;
       }
-
-      ws.userId = session.userId;
-      ws.userType = session.isAdmin ? 'admin' : 'user';
 
       const key = getClientKey(ws.userId!, ws.userType!);
       if (!clients.has(key)) {
