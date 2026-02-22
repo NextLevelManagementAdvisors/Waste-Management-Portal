@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
 import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
-import { CreditCardIcon, BanknotesIcon, TrashIcon, CheckCircleIcon, HomeModernIcon, TruckIcon, SunIcon } from './Icons.tsx';
-import ToggleSwitch from './ToggleSwitch.tsx';
+import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { getCustomerId } from '../services/stripeService.ts';
+import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
 
 interface ServiceSelection {
     serviceId: string;
@@ -46,44 +46,8 @@ const StepIndicator: React.FC<{ currentStep: number }> = ({ currentStep }) => (
     </div>
 );
 
-const QuantitySelector: React.FC<{
-    quantity: number;
-    onIncrement: () => void;
-    onDecrement: () => void;
-    isUpdating: boolean;
-}> = ({ quantity, onIncrement, onDecrement, isUpdating }) => {
-    return (
-        <div className="flex items-center gap-1">
-            <Button
-                size="sm"
-                variant="secondary"
-                onClick={onDecrement}
-                disabled={isUpdating || quantity <= 0}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
-                aria-label="Decrease quantity"
-            >
-                {quantity > 1 ? <span className="text-xl font-thin">-</span> : <TrashIcon className="w-4 h-4 text-red-500" /> }
-            </Button>
-            <div
-                className="w-10 h-8 flex items-center justify-center text-base font-bold text-neutral"
-                aria-live="polite"
-            >
-                {isUpdating ? <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-primary"></div> : quantity}
-            </div>
-            <Button
-                size="sm"
-                variant="secondary"
-                onClick={onIncrement}
-                disabled={isUpdating}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
-                aria-label="Increase quantity"
-            >
-                <span className="text-xl font-thin">+</span>
-            </Button>
-        </div>
-    );
-};
-
+const AT_HOUSE_ID = 'prod_TOvyKnOx4KLBc2';
+const LINER_ID = 'prod_TOx5lSdv97AAGb';
 
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
     const [step, setStep] = useState(1);
@@ -103,7 +67,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const [loadingMethods, setLoadingMethods] = useState(false);
     const [billingChoice, setBillingChoice] = useState<'existing' | 'new'>('existing');
     const [selectedMethodId, setSelectedMethodId] = useState('');
-    
+
      useEffect(() => {
         if (step === 3 && availableServices.length === 0) {
             getServices().then(setAvailableServices);
@@ -153,7 +117,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (step !== 4) return;
-        
+
         setIsProcessing(true);
         setSetupError(null);
         try {
@@ -208,7 +172,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             } else if (billingChoice === 'existing' && selectedMethodId) {
                 await setPrimaryPaymentMethod(selectedMethodId);
             }
-            
+
             await onCompleteSetup(formData, selectedServices);
 
         } catch (error) {
@@ -217,12 +181,12 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             setIsProcessing(false);
         }
     };
-    
+
     // --- Step 3 Service Selection Logic ---
 
     const baseFeeService = useMemo(() => availableServices.find(s => s.category === 'base_fee'), [availableServices]);
-    const atHouseService = useMemo(() => availableServices.find(s => s.id === 'prod_TOvyKnOx4KLBc2'), [availableServices]);
-    const linerService = useMemo(() => availableServices.find(s => s.id === 'prod_TOx5lSdv97AAGb'), [availableServices]);
+    const atHouseService = useMemo(() => availableServices.find(s => s.id === AT_HOUSE_ID), [availableServices]);
+    const linerService = useMemo(() => availableServices.find(s => s.id === LINER_ID), [availableServices]);
 
     const totalBaseServiceCans = useMemo(() => {
         if (!availableServices.length) return 0;
@@ -236,8 +200,13 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         if (!atHouseService) return false;
         return selectedServices.some(s => s.serviceId === atHouseService.id);
     }, [selectedServices, atHouseService]);
-    
-     const { monthlyTotal, setupTotal } = useMemo(() => {
+
+    const isLinerSelected = useMemo(() => {
+        if (!linerService) return false;
+        return selectedServices.some(s => s.serviceId === linerService.id);
+    }, [selectedServices, linerService]);
+
+    const { monthlyTotal, setupTotal } = useMemo(() => {
         let monthly = 0;
         let setup = 0;
         selectedServices.forEach(sel => {
@@ -256,24 +225,24 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         setSelectedServices(prev => {
             const hasBaseFee = prev.some(s => s.serviceId === baseFeeService.id);
             const linerSub = prev.find(s => s.serviceId === linerService.id);
-            
+
             let nextState = [...prev];
             let hasChanged = false;
-    
+
             // Manage base fee
             if (totalBaseServiceCans > 0 && !hasBaseFee) {
                 nextState.push({ serviceId: baseFeeService.id, quantity: 1, useSticker: false });
                 hasChanged = true;
             } else if (totalBaseServiceCans === 0) {
                 const initialLength = nextState.length;
-                nextState = nextState.filter(s => 
-                    s.serviceId !== baseFeeService.id && 
+                nextState = nextState.filter(s =>
+                    s.serviceId !== baseFeeService.id &&
                     s.serviceId !== atHouseService?.id &&
                     s.serviceId !== linerService.id
                 );
                 if (nextState.length !== initialLength) hasChanged = true;
             }
-    
+
             // Sync or remove liner service
             if (linerSub) {
                 if (totalBaseServiceCans > 0 && linerSub.quantity !== totalBaseServiceCans) {
@@ -284,7 +253,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     hasChanged = true;
                 }
             }
-    
+
             return hasChanged ? nextState : prev;
         });
     }, [totalBaseServiceCans, baseFeeService, atHouseService, linerService]);
@@ -297,7 +266,16 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             setSelectedServices(prev => [...prev, { serviceId: atHouseService.id, quantity: 1, useSticker: false }]);
         }
     };
-    
+
+    const handleLinerToggle = () => {
+        if (!linerService || totalBaseServiceCans === 0) return;
+        if (isLinerSelected) {
+            setSelectedServices(prev => prev.filter(s => s.serviceId !== linerService.id));
+        } else {
+            setSelectedServices(prev => [...prev, { serviceId: linerService.id, quantity: totalBaseServiceCans, useSticker: false }]);
+        }
+    };
+
     const handleServiceQuantityChange = (serviceId: string, change: 'increment' | 'decrement') => {
         const existing = selectedServices.find(s => s.serviceId === serviceId);
         const currentQty = existing?.quantity || 0;
@@ -331,7 +309,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         required
                     />
                 </div>
-                
+
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <label htmlFor="city" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">City</label>
@@ -353,17 +331,17 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     </div>
                 </div>
                 <div className="mt-8 pt-6 border-t border-base-200 flex justify-between items-stretch gap-3">
-                    <Button 
-                        type="button" 
-                        variant="secondary" 
-                        className="rounded-lg px-8 font-bold uppercase" 
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        className="rounded-lg px-8 font-bold uppercase"
                         onClick={onCancel}>
                         Cancel
                     </Button>
-                    <Button 
-                        type="button" 
-                        className="flex-grow rounded-lg py-3 px-6 shadow-lg shadow-primary/30 text-center" 
-                        onClick={handleNext} 
+                    <Button
+                        type="button"
+                        className="flex-grow rounded-lg py-3 px-6 shadow-lg shadow-primary/30 text-center"
+                        onClick={handleNext}
                         disabled={!canProceed}>
                         <div className="leading-tight">
                             <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
@@ -374,16 +352,16 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             </div>
         );
     }
-    
+
     const renderStep2 = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
             <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Service Type</label>
                 <div className="relative">
-                    <select 
-                        name="serviceType" 
-                        value={formData.serviceType} 
-                        onChange={handleChange} 
+                    <select
+                        name="serviceType"
+                        value={formData.serviceType}
+                        onChange={handleChange}
                         className="appearance-none w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all cursor-pointer"
                     >
                         <option value="personal">Personal Residence</option>
@@ -404,11 +382,11 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Is the address in a HOA or gated community?</label>
                 <div className="flex gap-6">
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">Yes</span>
                     </label>
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">No</span>
                     </label>
                 </div>
@@ -420,16 +398,16 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     <input type="text" name="communityName" id="communityName" value={formData.communityName} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
                 </div>
             )}
-            
+
             <div className="space-y-3">
                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Is there a gate code?</label>
                 <div className="flex gap-6">
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">Yes</span>
                     </label>
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">No</span>
                     </label>
                 </div>
@@ -503,133 +481,28 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             );
         }
 
-        const baseServices = availableServices.filter(s => s.category === 'base_service');
-        const upgradeServices = availableServices.filter(s => s.category === 'upgrade' && s.id !== atHouseService?.id && s.id !== linerService?.id);
-        const isLinerSelected = selectedServices.some(s => s.serviceId === linerService?.id);
-
-        const handleLinerToggle = () => {
-            if (!linerService || totalBaseServiceCans === 0) return;
-            if (isLinerSelected) {
-                setSelectedServices(prev => prev.filter(s => s.serviceId !== linerService.id));
-            } else {
-                setSelectedServices(prev => [...prev, { serviceId: linerService.id, quantity: totalBaseServiceCans, useSticker: false }]);
-            }
-        };
-
         return (
             <div className="space-y-8 animate-in fade-in duration-300">
-                 <Card className="p-0 overflow-hidden">
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Equipment & Frequency</h2>
-                     <div className="divide-y divide-base-200">
-                        {baseServices.map(service => {
-                            const selection = selectedServices.find(s => s.serviceId === service.id);
-                            return (
-                                <div key={service.id} className="p-6 flex flex-row justify-between items-center gap-4">
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
-                                        <div>
-                                            <h3 className="font-bold text-gray-900">{service.name}</h3>
-                                            <p className="text-xs text-gray-500">{service.description}</p>
-                                            <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}/mo</p>
-                                        </div>
-                                    </div>
-                                    <QuantitySelector
-                                        quantity={selection?.quantity || 0}
-                                        onIncrement={() => handleServiceQuantityChange(service.id, 'increment')}
-                                        onDecrement={() => handleServiceQuantityChange(service.id, 'decrement')}
-                                        isUpdating={false}
-                                    />
-                                </div>
-                            )
-                        })}
-                    </div>
-                </Card>
-
-                 {(atHouseService || linerService) && (
-                    <Card className="p-0 overflow-hidden">
-                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
-                        <div className="divide-y divide-base-200">
-                            {atHouseService && (
-                                <div className="p-6 flex justify-between items-center">
-                                    <div className="flex-1 pr-4">
-                                        <h4 className="font-bold">{atHouseService.name}</h4>
-                                        <p className="text-xs text-gray-500">{atHouseService.description}</p>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary shrink-0">+${Number(atHouseService.price).toFixed(2)}/mo</p>
-                                        <ToggleSwitch 
-                                            checked={isAtHouseSelected}
-                                            onChange={handleCollectionMethodToggle}
-                                            disabled={totalBaseServiceCans === 0}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                            {linerService && (
-                                <div className="p-6 flex justify-between items-center">
-                                    <div className="flex-1 pr-4">
-                                        <h4 className="font-bold">{linerService.name}</h4>
-                                        <p className="text-xs text-gray-500">{linerService.description}</p>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
-                                            +${(Number(linerService.price) * totalBaseServiceCans).toFixed(2)}/mo
-                                        </p>
-                                        <ToggleSwitch 
-                                            checked={isLinerSelected}
-                                            onChange={handleLinerToggle}
-                                            disabled={totalBaseServiceCans === 0}
-                                        />
-                                    </div>
-                                </div>
-                            )}
+                <ServiceSelector
+                    services={availableServices}
+                    getQuantity={(serviceId) => selectedServices.find(s => s.serviceId === serviceId)?.quantity || 0}
+                    onIncrement={(service) => handleServiceQuantityChange(service.id, 'increment')}
+                    onDecrement={(service) => handleServiceQuantityChange(service.id, 'decrement')}
+                    isUpdating={() => false}
+                    isAtHouseActive={isAtHouseSelected}
+                    onAtHouseToggle={handleCollectionMethodToggle}
+                    isLinerActive={isLinerSelected}
+                    onLinerToggle={handleLinerToggle}
+                    totalBaseServiceCans={totalBaseServiceCans}
+                    monthlyTotal={monthlyTotal}
+                    setupTotal={setupTotal}
+                    footerAction={
+                        <div className="flex justify-between gap-3">
+                            <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
+                            <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
                         </div>
-                    </Card>
-                )}
-
-                {upgradeServices.length > 0 && (
-                    <Card className="p-0 overflow-hidden">
-                        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Other Available Services</h2>
-                        <div className="divide-y divide-base-200">
-                            {upgradeServices.map(service => {
-                                const selection = selectedServices.find(s => s.serviceId === service.id);
-                                return (
-                                    <div key={service.id} className="p-6 flex justify-between items-center">
-                                        <div>
-                                            <h4 className="font-bold">{service.name}</h4>
-                                            <p className="text-xs text-gray-500">{service.description}</p>
-                                            <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}/mo</p>
-                                        </div>
-                                        <QuantitySelector
-                                            quantity={selection?.quantity || 0}
-                                            onIncrement={() => handleServiceQuantityChange(service.id, 'increment')}
-                                            onDecrement={() => handleServiceQuantityChange(service.id, 'decrement')}
-                                            isUpdating={false}
-                                        />
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </Card>
-                )}
-
-                <div className="mt-8 pt-6 border-t border-base-200">
-                    <div className="space-y-3 mb-6">
-                        <div className="flex justify-between items-center">
-                            <p className="text-sm font-medium text-gray-500">One-Time Setup Fees</p>
-                            <p className="text-sm font-semibold text-gray-500">${setupTotal.toFixed(2)}</p>
-                        </div>
-                        <div className="flex justify-between items-baseline">
-                            <p className="text-lg font-bold text-gray-800">Total Monthly Bill</p>
-                            <p className="text-3xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
-                        </div>
-                    </div>
-
-                    <div className="flex justify-between gap-3">
-                        <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                        <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
-                    </div>
-                </div>
+                    }
+                />
             </div>
         );
     };
@@ -663,7 +536,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                              ))}
                         </div>
                      )}
-                     
+
                     <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Add New Payment Method</label>
                         <div onClick={() => setBillingChoice('new')} className={`p-4 border rounded-lg cursor-pointer ${billingChoice === 'new' ? 'border-primary ring-1 ring-primary bg-teal-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
@@ -687,7 +560,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     {setupError}
                 </div>
             )}
-            
+
             <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
                 <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
                 <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing || (billingChoice === 'new' && !stripe)}>
@@ -696,7 +569,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             </div>
         </div>
     );
-    
+
     const renderContent = () => {
         switch (step) {
             case 1: return renderStep1();
