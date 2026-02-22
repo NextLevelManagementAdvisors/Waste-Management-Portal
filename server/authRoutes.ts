@@ -701,11 +701,16 @@ export function registerAuthRoutes(app: Express) {
           res.send(`<!DOCTYPE html><html><body><script>
             if (window.opener) {
               window.opener.postMessage({ type: 'google-oauth-success', redirect: ${JSON.stringify(redirectUrl)} }, ${JSON.stringify(appOrigin)});
-              window.close();
             } else {
-              // Popup lost reference to parent - redirect directly
-              window.location.href = ${JSON.stringify(redirectUrl)};
+              try {
+                localStorage.setItem('google-oauth-success', JSON.stringify({ redirect: ${JSON.stringify(redirectUrl)}, timestamp: Date.now() }));
+              } catch (e) {}
             }
+            window.close();
+            // If window.close() was blocked, show a simple message
+            setTimeout(function() {
+              document.body.innerHTML = '<div style="text-align:center;padding:60px;font-family:system-ui,sans-serif"><h2 style="color:#333">Login successful!</h2><p style="color:#666">You can close this tab and return to the app.</p></div>';
+            }, 300);
           </script></body></html>`);
         } else {
           res.redirect(redirectUrl);

@@ -46,8 +46,6 @@ const StepIndicator: React.FC<{ currentStep: number }> = ({ currentStep }) => (
     </div>
 );
 
-const AT_HOUSE_ID = 'prod_TOvyKnOx4KLBc2';
-const LINER_ID = 'prod_TOx5lSdv97AAGb';
 
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
     const [step, setStep] = useState(1);
@@ -185,8 +183,8 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     // --- Step 3 Service Selection Logic ---
 
     const baseFeeService = useMemo(() => availableServices.find(s => s.category === 'base_fee'), [availableServices]);
-    const atHouseService = useMemo(() => availableServices.find(s => s.id === AT_HOUSE_ID), [availableServices]);
-    const linerService = useMemo(() => availableServices.find(s => s.id === LINER_ID), [availableServices]);
+    const atHouseService = useMemo(() => availableServices.find(s => s.name.toLowerCase().includes('at house')), [availableServices]);
+    const linerService = useMemo(() => availableServices.find(s => s.name.toLowerCase().includes('liner')), [availableServices]);
 
     const totalBaseServiceCans = useMemo(() => {
         if (!availableServices.length) return 0;

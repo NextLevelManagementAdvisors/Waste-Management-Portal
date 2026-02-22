@@ -7,8 +7,6 @@ import { useProperty } from '../PropertyContext.tsx';
 import { ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
 import ServiceSelector, { EquipmentChoiceModal } from './ServiceSelector.tsx';
 
-const AT_HOUSE_ID = 'prod_TOvyKnOx4KLBc2';
-const LINER_ID = 'prod_TOx5lSdv97AAGb';
 
 interface ServicesProps {
     onNavigate: (tabId: 'billing') => void;
@@ -42,8 +40,8 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
         fetchData();
     }, []);
 
-    const atHouseService = useMemo(() => services.find(s => s.id === AT_HOUSE_ID), [services]);
-    const linerService = useMemo(() => services.find(s => s.id === LINER_ID), [services]);
+    const atHouseService = useMemo(() => services.find(s => s.name.toLowerCase().includes('at house')), [services]);
+    const linerService = useMemo(() => services.find(s => s.name.toLowerCase().includes('liner')), [services]);
 
     const totalBaseServiceCans = useMemo(() => {
         if (!selectedProperty) return 0;

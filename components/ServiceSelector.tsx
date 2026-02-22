@@ -106,9 +106,6 @@ interface ServiceSelectorProps {
     footerAction?: React.ReactNode;
 }
 
-const AT_HOUSE_ID = 'prod_TOvyKnOx4KLBc2';
-const LINER_ID = 'prod_TOx5lSdv97AAGb';
-
 const ServiceSelector: React.FC<ServiceSelectorProps> = ({
     services,
     getQuantity,
@@ -125,9 +122,11 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
     footerAction,
 }) => {
     const baseServices = services.filter(s => s.category === 'base_service');
-    const atHouseService = services.find(s => s.id === AT_HOUSE_ID);
-    const linerService = services.find(s => s.id === LINER_ID);
-    const upgradeServices = services.filter(s => s.category === 'upgrade' && s.id !== AT_HOUSE_ID && s.id !== LINER_ID);
+    const atHouseService = services.find(s => s.name.toLowerCase().includes('at house'));
+    const linerService = services.find(s => s.name.toLowerCase().includes('liner'));
+    const atHouseId = atHouseService?.id;
+    const linerId = linerService?.id;
+    const upgradeServices = services.filter(s => s.category === 'upgrade' && s.id !== atHouseId && s.id !== linerId);
 
     return (
         <div className="space-y-6">
