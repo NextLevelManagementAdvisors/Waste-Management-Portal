@@ -1,0 +1,16 @@
+[Unit]
+Description=Waste Management Portal
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=portal
+WorkingDirectory=/opt/waste-portal
+EnvironmentFile=/opt/waste-portal/.env
+ExecStart=/usr/bin/npx tsx server/index.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
