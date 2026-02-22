@@ -703,12 +703,8 @@ export function registerAuthRoutes(app: Express) {
               window.opener.postMessage({ type: 'google-oauth-success', redirect: ${JSON.stringify(redirectUrl)} }, ${JSON.stringify(appOrigin)});
               window.close();
             } else {
-              // Popup lost reference to parent - try to notify via localStorage and close
-              try {
-                localStorage.setItem('google-oauth-success', JSON.stringify({ redirect: ${JSON.stringify(redirectUrl)}, timestamp: Date.now() }));
-              } catch (e) {}
-              window.close();
-              alert('Login successful! Please close this window and refresh the main window.');
+              // Popup lost reference to parent - redirect directly
+              window.location.href = ${JSON.stringify(redirectUrl)};
             }
           </script></body></html>`);
         } else {
