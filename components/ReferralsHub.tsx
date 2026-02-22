@@ -63,7 +63,7 @@ const ReferralsHub: React.FC = () => {
                             </div>
                             <div>
                                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.1em]">Total Rewards Earned</h3>
-                                <p className="text-3xl font-black text-gray-900 leading-none mt-1">${referralInfo.totalRewards.toFixed(2)}</p>
+                                <p className="text-3xl font-black text-gray-900 leading-none mt-1">${Number(referralInfo.totalRewards).toFixed(2)}</p>
                             </div>
                         </div>
                     </Card>

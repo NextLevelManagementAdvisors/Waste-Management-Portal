@@ -148,7 +148,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                                 <div>
                                     <p className="font-bold text-gray-900">{sub.serviceName}</p>
                                     <p className="text-sm text-gray-500">
-                                        {sub.status === 'active' ? 'Active' : 'Paused'} &bull; ${sub.totalPrice?.toFixed(2) || sub.price?.toFixed(2)}/mo
+                                        {sub.status === 'active' ? 'Active' : 'Paused'} &bull; ${Number(sub.totalPrice ?? sub.price ?? 0).toFixed(2)}/mo
                                     </p>
                                 </div>
                                 <span className={`px-3 py-1 rounded-full text-xs font-bold ${sub.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>

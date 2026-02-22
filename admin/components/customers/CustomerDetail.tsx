@@ -167,7 +167,7 @@ const CustomerDetailPanel: React.FC<{
                 <Card className="p-4">
                   <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1">Balance</p>
                   <p className={`text-2xl font-black ${customer.stripe.balance < 0 ? 'text-green-600' : customer.stripe.balance > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                    ${Math.abs(customer.stripe.balance).toFixed(2)}
+                    ${Math.abs(Number(customer.stripe.balance)).toFixed(2)}
                   </p>
                   <p className="text-xs text-gray-400">{customer.stripe.balance < 0 ? 'credit' : customer.stripe.balance > 0 ? 'owed' : 'zero balance'}</p>
                 </Card>
@@ -231,7 +231,7 @@ const CustomerDetailPanel: React.FC<{
                             <p className="text-xs text-gray-400">{formatDate(inv.created)}</p>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-sm font-black text-gray-900">${inv.amount.toFixed(2)}</span>
+                            <span className="text-sm font-black text-gray-900">${Number(inv.amount).toFixed(2)}</span>
                             <StatusBadge status={inv.status} />
                           </div>
                         </div>

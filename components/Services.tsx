@@ -315,7 +315,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <div className="text-right">
-                                            <p className="font-bold text-lg text-gray-900 leading-none">${service.price.toFixed(2)}</p>
+                                            <p className="font-bold text-lg text-gray-900 leading-none">${Number(service.price).toFixed(2)}</p>
                                             <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Per Can</p>
                                         </div>
                                         <QuantitySelector
@@ -346,7 +346,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                                             <p className="text-xs text-gray-500">{atHouseService.description}</p>
                                         </div>
                                         <div className="flex items-center gap-4">
-                                            <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
+                                            <p className="text-sm font-bold text-primary shrink-0">+${Number(atHouseService.price).toFixed(2)}/mo</p>
                                             <ToggleSwitch
                                                 checked={isAtHouseSubscribed}
                                                 onChange={() => handleSubscriptionChange(atHouseService, isAtHouseSubscribed ? 'decrement' : 'increment')}
@@ -363,7 +363,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
-                                                +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
+                                                +${(Number(linerService.price) * totalBaseServiceCans).toFixed(2)}/mo
                                             </p>
                                             <ToggleSwitch
                                                 checked={isLinerSubscribed}

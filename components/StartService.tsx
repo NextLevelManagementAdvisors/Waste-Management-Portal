@@ -481,7 +481,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                             <div>
                                                 <h3 className="font-bold text-gray-900">{service.name}</h3>
                                                 <p className="text-xs text-gray-500">{service.description}</p>
-                                                <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}</p>
+                                                <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}</p>
                                             </div>
                                         </div>
                                         <QuantitySelector
@@ -530,7 +530,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                         <div>
                                             <h3 className="font-bold text-gray-900">{service.name}</h3>
                                             <p className="text-xs text-gray-500">{service.description}</p>
-                                            <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
+                                            <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}/mo</p>
                                         </div>
                                     </div>
                                     <QuantitySelector
@@ -556,7 +556,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                         <p className="text-xs text-gray-500">{atHouseService.description}</p>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <p className="text-sm font-bold text-primary shrink-0">+${atHouseService.price.toFixed(2)}/mo</p>
+                                        <p className="text-sm font-bold text-primary shrink-0">+${Number(atHouseService.price).toFixed(2)}/mo</p>
                                         <ToggleSwitch 
                                             checked={isAtHouseSelected}
                                             onChange={handleCollectionMethodToggle}
@@ -573,7 +573,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
-                                            +${(linerService.price * totalBaseServiceCans).toFixed(2)}/mo
+                                            +${(Number(linerService.price) * totalBaseServiceCans).toFixed(2)}/mo
                                         </p>
                                         <ToggleSwitch 
                                             checked={isLinerSelected}
@@ -598,7 +598,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                         <div>
                                             <h4 className="font-bold">{service.name}</h4>
                                             <p className="text-xs text-gray-500">{service.description}</p>
-                                            <p className="text-sm font-bold text-primary mt-1">${service.price.toFixed(2)}/mo</p>
+                                            <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}/mo</p>
                                         </div>
                                         <QuantitySelector
                                             quantity={selection?.quantity || 0}

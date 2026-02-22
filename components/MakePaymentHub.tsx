@@ -111,7 +111,7 @@ const MakePaymentHub: React.FC = () => {
                         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                             <div>
                                 <h3 className="font-black text-lg text-primary tracking-tight">Total Outstanding Balance</h3>
-                                <p className="text-4xl font-black text-gray-900">${totalOutstandingBalance.toFixed(2)}</p>
+                                <p className="text-4xl font-black text-gray-900">${Number(totalOutstandingBalance).toFixed(2)}</p>
                             </div>
                             <Button onClick={() => handlePayClick(undefined)} className="rounded-xl font-black uppercase text-xs tracking-widest h-14 px-8">
                                 Pay Full Balance
@@ -130,7 +130,7 @@ const MakePaymentHub: React.FC = () => {
                                 <div className="flex justify-between items-end">
                                     <div>
                                         <p className="text-sm text-red-600 font-bold">Due by: {new Date(info.earliestDueDate).toLocaleDateString()}</p>
-                                        <p className="text-3xl font-black text-neutral">${info.totalDue.toFixed(2)}</p>
+                                        <p className="text-3xl font-black text-neutral">${Number(info.totalDue).toFixed(2)}</p>
                                     </div>
                                     <Button onClick={() => handlePayClick(info.property.id)} variant="secondary" className="rounded-lg">
                                         Pay Now

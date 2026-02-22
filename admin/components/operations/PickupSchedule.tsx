@@ -113,7 +113,7 @@ const PickupSchedule: React.FC = () => {
                       <div className="text-sm text-gray-700">{request.serviceName}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-semibold text-gray-900">${request.servicePrice.toFixed(2)}</div>
+                      <div className="text-sm font-semibold text-gray-900">${Number(request.servicePrice).toFixed(2)}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{formatDate(request.pickupDate)}</div>

@@ -886,7 +886,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
                     <p className="text-xs text-gray-500">
                       {job.area && <>{job.area} · </>}
                       {formatDate(job.scheduled_date)}
-                      {job.base_pay != null && <> · <span className="font-bold text-teal-700">${job.base_pay.toFixed(2)}</span></>}
+                      {job.base_pay != null && <> · <span className="font-bold text-teal-700">${Number(job.base_pay).toFixed(2)}</span></>}
                     </p>
                   </div>
                   <StatusBadge status={job.status} />
@@ -1057,7 +1057,7 @@ const JobBoard: React.FC = () => {
                 <div className="flex gap-4 mt-2">
                   {job.estimated_stops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_stops} stops</span>}
                   {job.estimated_hours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_hours}h est.</span>}
-                  {job.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${job.base_pay.toFixed(2)}</span>}
+                  {job.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(job.base_pay).toFixed(2)}</span>}
                 </div>
               </div>
               <Button size="sm" onClick={() => openJobDetail(job.id)} className="w-full">
@@ -1094,7 +1094,7 @@ const JobBoard: React.FC = () => {
                   {(selectedJob.start_time || selectedJob.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedJob.start_time}–{selectedJob.end_time}</span></div>}
                   {selectedJob.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedJob.estimated_stops}</span></div>}
                   {selectedJob.estimated_hours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedJob.estimated_hours}</span></div>}
-                  {selectedJob.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${selectedJob.base_pay.toFixed(2)}</span></div>}
+                  {selectedJob.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedJob.base_pay).toFixed(2)}</span></div>}
                 </div>
 
                 {selectedJob.bids && selectedJob.bids.length > 0 && (
@@ -1107,12 +1107,12 @@ const JobBoard: React.FC = () => {
                           <div key={bid.id} className={`p-3 rounded-lg text-sm ${isMyBid ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50'}`}>
                             <div className="flex items-center justify-between">
                               <span className="font-bold">{isMyBid ? 'Your Bid' : `Driver #${idx + 1}`}</span>
-                              <span className="font-bold text-teal-700">${bid.bid_amount.toFixed(2)}</span>
+                              <span className="font-bold text-teal-700">${Number(bid.bid_amount).toFixed(2)}</span>
                             </div>
                             {bid.driver_rating_at_bid != null && (
                               <div className="flex items-center gap-1 mt-1">
                                 <StarRating rating={bid.driver_rating_at_bid} className="w-3 h-3" />
-                                <span className="text-xs text-gray-400">{bid.driver_rating_at_bid.toFixed(1)}</span>
+                                <span className="text-xs text-gray-400">{Number(bid.driver_rating_at_bid).toFixed(1)}</span>
                               </div>
                             )}
                             {bid.message && <p className="text-xs text-gray-500 mt-1">{bid.message}</p>}
@@ -1130,7 +1130,7 @@ const JobBoard: React.FC = () => {
                 {myBid ? (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
                     <p className="text-sm font-bold text-teal-800 mb-2">You have already bid on this job</p>
-                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${myBid.bid_amount.toFixed(2)}</span></p>
+                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${Number(myBid.bid_amount).toFixed(2)}</span></p>
                     <Button variant="secondary" size="sm" onClick={handleWithdrawBid} disabled={bidLoading} className="mt-3">
                       {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
                     </Button>
