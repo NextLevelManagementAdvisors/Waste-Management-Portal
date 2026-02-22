@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
 import type { RouteJob } from '../../../shared/types/index.ts';
 import CreateJobModal from './CreateJobModal.tsx';
+import EditJobModal from './EditJobModal.tsx';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-blue-100 text-blue-700',
@@ -30,6 +31,7 @@ const RouteJobsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
+  const [editingJob, setEditingJob] = useState<RouteJob | null>(null);
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -102,6 +104,7 @@ const RouteJobsList: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pay</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Driver</th>
+                <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-widest text-gray-400">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -138,6 +141,15 @@ const RouteJobsList: React.FC = () => {
                   <td className="px-4 py-3">
                     <div className="text-sm text-gray-700">{job.driver_name ?? '—'}</div>
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setEditingJob(job)}
+                      className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -150,6 +162,17 @@ const RouteJobsList: React.FC = () => {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
+            loadJobs();
+          }}
+        />
+      )}
+
+      {editingJob && (
+        <EditJobModal
+          job={editingJob}
+          onClose={() => setEditingJob(null)}
+          onUpdated={() => {
+            setEditingJob(null);
             loadJobs();
           }}
         />

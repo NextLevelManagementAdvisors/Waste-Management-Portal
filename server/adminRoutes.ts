@@ -22,7 +22,7 @@ function hasPermission(role: AdminRole | null, permission: string): boolean {
   return false;
 }
 
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
@@ -520,6 +520,28 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json({ job });
     } catch (error) {
       res.status(500).json({ error: 'Failed to create job' });
+    }
+  });
+
+  app.put('/api/admin/jobs/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const existing = await storage.getJobById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      const { title, description, area, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes } = req.body;
+      if (!title || !scheduled_date) {
+        return res.status(400).json({ error: 'title and scheduled_date are required' });
+      }
+      const updated = await storage.updateJob(req.params.id, {
+        title, description, area, scheduled_date, start_time, end_time,
+        estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
+      });
+      await audit(req, 'update_job', 'route_job', req.params.id, req.body);
+      res.json({ job: updated });
+    } catch (error) {
+      console.error('Failed to update job:', error);
+      res.status(500).json({ error: 'Failed to update job' });
     }
   });
 
