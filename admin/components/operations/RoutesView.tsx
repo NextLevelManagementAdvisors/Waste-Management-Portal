@@ -35,6 +35,7 @@ interface DriverEvent {
   driverName?: string;
   driverSerial?: string;
   orderNo?: string;
+  orderId?: string;
 }
 
 interface CompletionData {
@@ -67,7 +68,7 @@ interface ConnectionStatus {
   error?: string;
   date?: string;
   routeCount?: number;
-  drivers?: { serial: string; name: string }[];
+  drivers?: { driverKey: string; name: string }[];
   locations?: { address: string; name?: string }[];
 }
 
@@ -112,23 +113,25 @@ const RoutesView: React.FC = () => {
         setRoutes(fetchedRoutes);
 
         // Fetch completion details for all stops to determine actual statuses
-        const allOrderNos = fetchedRoutes
-          .flatMap(r => (r.stops || []).map(s => s.orderNo))
+        // Use stop.id (OptimoRoute's internal ID) as the key since orderNo may be empty
+        const allStopIds = fetchedRoutes
+          .flatMap(r => (r.stops || []).map(s => s.id || s.orderNo))
           .filter(Boolean);
-        if (allOrderNos.length > 0) {
+        if (allStopIds.length > 0) {
           try {
             const compRes = await fetch(
-              `/api/admin/optimoroute/completion?orderNos=${allOrderNos.join(',')}`,
+              `/api/admin/optimoroute/completion?ids=${allStopIds.join(',')}`,
               { credentials: 'include' }
             );
             if (compRes.ok) {
               const compData = await compRes.json();
-              const orders: { orderNo: string; data?: { status?: string } }[] = compData.orders || [];
-              // Build stop status map from completion data
+              const orders: { orderNo?: string; id?: string; data?: { status?: string } }[] = compData.orders || [];
+              // Build stop status map from completion data keyed by id
               const newStopStatuses: Record<string, string> = {};
               for (const order of orders) {
-                if (order.orderNo && order.data?.status) {
-                  newStopStatuses[order.orderNo] = order.data.status;
+                const key = order.id || order.orderNo || '';
+                if (key && order.data?.status) {
+                  newStopStatuses[key] = order.data.status;
                 }
               }
               setStopStatuses(prev => ({ ...newStopStatuses, ...prev }));
@@ -136,11 +139,11 @@ const RoutesView: React.FC = () => {
               // Derive driver statuses from stop completion data
               const newDriverStatuses: Record<string, string> = {};
               for (const route of fetchedRoutes) {
-                const serial = route.driverSerial || '';
-                if (!serial) continue;
+                const driverKey = route.driverName || route.driverSerial || '';
+                if (!driverKey) continue;
                 const stops = route.stops || [];
                 if (stops.length === 0) continue;
-                const stopStates = stops.map(s => newStopStatuses[s.orderNo] || 'scheduled');
+                const stopStates = stops.map(s => newStopStatuses[s.id || s.orderNo] || 'scheduled');
                 const terminalStatuses = new Set(['success', 'failed', 'rejected', 'cancelled']);
                 const activeStatuses = new Set(['on_route', 'servicing', 'start_service']);
                 const allTerminal = stopStates.every(s => terminalStatuses.has(s));
@@ -148,9 +151,9 @@ const RoutesView: React.FC = () => {
                 const anyCompleted = stopStates.some(s => terminalStatuses.has(s));
 
                 if (allTerminal) {
-                  newDriverStatuses[serial] = 'completed';
+                  newDriverStatuses[driverKey] = 'completed';
                 } else if (anyActive || anyCompleted) {
-                  newDriverStatuses[serial] = 'in_progress';
+                  newDriverStatuses[driverKey] = 'in_progress';
                 }
               }
               setDriverStatuses(prev => ({ ...newDriverStatuses, ...prev }));
@@ -184,18 +187,19 @@ const RoutesView: React.FC = () => {
             setEvents(prev => [...prev, ...data.events].slice(-200));
             // Update statuses from events
             for (const evt of data.events) {
-              if (evt.driverSerial) {
+              const driverKey = evt.driverName || evt.driverSerial;
+              if (driverKey) {
                 if (evt.event === 'start_route' || evt.event === 'on_duty') {
-                  setDriverStatuses(prev => ({ ...prev, [evt.driverSerial!]: 'in_progress' }));
+                  setDriverStatuses(prev => ({ ...prev, [driverKey]: 'in_progress' }));
                 } else if (evt.event === 'end_route' || evt.event === 'off_duty') {
-                  setDriverStatuses(prev => ({ ...prev, [evt.driverSerial!]: 'completed' }));
+                  setDriverStatuses(prev => ({ ...prev, [driverKey]: 'completed' }));
                 } else if (['start_service', 'success', 'failed', 'rejected'].includes(evt.event)) {
-                  // These events imply the driver has started their route
-                  setDriverStatuses(prev => prev[evt.driverSerial!] === 'completed' ? prev : { ...prev, [evt.driverSerial!]: 'in_progress' });
+                  setDriverStatuses(prev => prev[driverKey] === 'completed' ? prev : { ...prev, [driverKey]: 'in_progress' });
                 }
               }
-              if (evt.orderNo) {
-                setStopStatuses(prev => ({ ...prev, [evt.orderNo!]: evt.event }));
+              const stopKey = evt.orderId || evt.orderNo;
+              if (stopKey) {
+                setStopStatuses(prev => ({ ...prev, [stopKey]: evt.event }));
               }
             }
           }
@@ -208,19 +212,21 @@ const RoutesView: React.FC = () => {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, []);
 
-  const fetchCompletion = async (orderNo: string) => {
-    setCompletionModal({ orderNo, data: null, loading: true });
+  const fetchCompletion = async (stop: RouteStop) => {
+    const stopKey = stop.id || stop.orderNo;
+    const param = stop.id ? `ids=${stop.id}` : `orderNos=${stop.orderNo}`;
+    setCompletionModal({ orderNo: stopKey, data: null, loading: true });
     try {
-      const res = await fetch(`/api/admin/optimoroute/completion?orderNos=${orderNo}`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/optimoroute/completion?${param}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        const order = data.orders?.find((o: any) => o.orderNo === orderNo || o.success);
-        setCompletionModal({ orderNo, data: order?.data || null, loading: false });
+        const order = data.orders?.find((o: any) => o.id === stop.id || o.orderNo === stop.orderNo || o.success);
+        setCompletionModal({ orderNo: stopKey, data: order?.data || null, loading: false });
       } else {
-        setCompletionModal({ orderNo, data: null, loading: false });
+        setCompletionModal({ orderNo: stopKey, data: null, loading: false });
       }
     } catch {
-      setCompletionModal({ orderNo, data: null, loading: false });
+      setCompletionModal({ orderNo: stopKey, data: null, loading: false });
     }
   };
 
@@ -229,7 +235,7 @@ const RoutesView: React.FC = () => {
   const totalDuration = routes.reduce((sum, r) => sum + (r.duration || 0), 0);
 
   const getStopAddress = (stop: RouteStop) => stop.address || stop.location?.address || stop.locationName || stop.location?.locationName || 'Unknown';
-  const getStopStatus = (stop: RouteStop) => stopStatuses[stop.orderNo] || 'scheduled';
+  const getStopStatus = (stop: RouteStop) => stopStatuses[stop.id || stop.orderNo] || 'scheduled';
 
   const formatDuration = (minutes: number) => {
     const h = Math.floor(minutes / 60);
@@ -285,9 +291,9 @@ const RoutesView: React.FC = () => {
                   <p className="text-[10px] font-black uppercase text-green-600 mb-1">Drivers ({connectionStatus.drivers!.length})</p>
                   <div className="bg-white rounded-lg border border-green-100 divide-y divide-green-50">
                     {connectionStatus.drivers!.map(d => (
-                      <div key={d.serial} className="px-3 py-1.5 flex justify-between">
+                      <div key={d.driverKey} className="px-3 py-1.5 flex justify-between">
                         <span className="text-xs font-bold text-gray-900">{d.name}</span>
-                        <span className="text-xs text-gray-400 font-mono">{d.serial}</span>
+                        <span className="text-xs text-gray-400 font-mono">{d.driverKey}</span>
                       </div>
                     ))}
                   </div>
@@ -364,20 +370,20 @@ const RoutesView: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {routes.map((route, idx) => {
-            const serial = route.driverSerial || `route-${idx}`;
-            const isExpanded = expandedDriver === serial;
-            const driverStatus = driverStatuses[serial] || 'not_started';
+            const driverKey = route.driverName || route.driverSerial || `route-${idx}`;
+            const isExpanded = expandedDriver === driverKey;
+            const driverStatus = driverStatuses[driverKey] || 'not_started';
             const completedStops = (route.stops || []).filter(s => getStopStatus(s) === 'success').length;
 
             return (
-              <div key={serial} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div key={driverKey} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <button
-                  onClick={() => setExpandedDriver(isExpanded ? null : serial)}
+                  onClick={() => setExpandedDriver(isExpanded ? null : driverKey)}
                   className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors text-left"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-black text-gray-900">{route.driverName || `Driver ${serial}`}</span>
+                      <span className="font-black text-gray-900">{route.driverName || `Driver ${driverKey}`}</span>
                       <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${STATUS_COLORS[driverStatus]}`}>
                         {driverStatus.replace(/_/g, ' ')}
                       </span>
@@ -426,9 +432,9 @@ const RoutesView: React.FC = () => {
                                 </span>
                               </td>
                               <td className="px-4 py-2">
-                                {!isBreak && stop.orderNo && (
+                                {!isBreak && (stop.id || stop.orderNo) && (
                                   <button
-                                    onClick={() => fetchCompletion(stop.orderNo)}
+                                    onClick={() => fetchCompletion(stop)}
                                     className="text-xs font-bold text-teal-600 hover:text-teal-800"
                                   >
                                     Details

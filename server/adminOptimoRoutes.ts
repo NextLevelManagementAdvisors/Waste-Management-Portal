@@ -186,9 +186,11 @@ export function registerAdminOptimoRoutes(app: Express) {
   app.get('/api/admin/optimoroute/completion', requireAdmin, async (req: Request, res: Response) => {
     try {
       const orderNosParam = req.query.orderNos as string;
-      if (!orderNosParam) return res.status(400).json({ error: 'orderNos parameter required (comma-separated)' });
-      const orderNos = orderNosParam.split(',').map(s => s.trim()).filter(Boolean);
-      const result = await optimo.getCompletionDetailsFull(orderNos);
+      const idsParam = req.query.ids as string;
+      if (!orderNosParam && !idsParam) return res.status(400).json({ error: 'orderNos or ids parameter required (comma-separated)' });
+      const byId = !!idsParam;
+      const identifiers = (idsParam || orderNosParam)!.split(',').map(s => s.trim()).filter(Boolean);
+      const result = await optimo.getCompletionDetailsFull(identifiers, byId);
       res.json(result);
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error fetching completion details:', error);

@@ -324,9 +324,9 @@ export async function getEvents(afterTag?: string): Promise<EventsResult> {
   return apiGet('get_events', params);
 }
 
-export async function getCompletionDetailsFull(orderNos: string[]): Promise<any> {
+export async function getCompletionDetailsFull(identifiers: string[], byId = false): Promise<any> {
   return apiPost('get_completion_details', {
-    orders: orderNos.map(orderNo => ({ orderNo })),
+    orders: identifiers.map(val => byId ? { id: val } : { orderNo: val }),
   });
 }
 
