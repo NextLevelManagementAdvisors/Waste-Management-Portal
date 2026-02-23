@@ -41,11 +41,19 @@ export function registerInvitationRoutes(app: Express) {
   // Admin: Create invitation
   app.post('/api/admin/invitations', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { email, roles, adminRole } = req.body;
+      const { email, phone, name, roles, adminRole } = req.body;
       const invitedBy = req.session.userId!;
 
-      if (!email || !roles || !Array.isArray(roles) || roles.length === 0) {
-        return res.status(400).json({ error: 'email and roles[] are required' });
+      if (!roles || !Array.isArray(roles) || roles.length === 0) {
+        return res.status(400).json({ error: 'roles[] is required' });
+      }
+
+      const trimmedEmail = email?.trim() || null;
+      const trimmedPhone = phone?.trim() || null;
+      const trimmedName = name?.trim() || null;
+
+      if (!trimmedEmail && !trimmedPhone) {
+        return res.status(400).json({ error: 'At least one of email or phone is required' });
       }
 
       const validRoles = ['customer', 'driver', 'admin'];
@@ -59,38 +67,51 @@ export function registerInvitationRoutes(app: Express) {
         return res.status(400).json({ error: 'adminRole is required when inviting an admin' });
       }
 
-      // Check for existing pending invitation
-      const existing = await pool.query(
-        `SELECT id FROM invitations WHERE LOWER(email) = LOWER($1) AND status = 'pending' AND expires_at > NOW()`,
-        [email]
-      );
-      if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'A pending invitation already exists for this email' });
+      // Check for existing pending invitation by email or phone
+      if (trimmedEmail) {
+        const existing = await pool.query(
+          `SELECT id FROM invitations WHERE LOWER(email) = LOWER($1) AND status = 'pending' AND expires_at > NOW()`,
+          [trimmedEmail]
+        );
+        if (existing.rows.length > 0) {
+          return res.status(409).json({ error: 'A pending invitation already exists for this email' });
+        }
+      }
+      if (trimmedPhone) {
+        const existing = await pool.query(
+          `SELECT id FROM invitations WHERE phone = $1 AND status = 'pending' AND expires_at > NOW()`,
+          [trimmedPhone]
+        );
+        if (existing.rows.length > 0) {
+          return res.status(409).json({ error: 'A pending invitation already exists for this phone number' });
+        }
       }
 
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
       const result = await pool.query(
-        `INSERT INTO invitations (email, roles, admin_role, invited_by, token, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [email.toLowerCase(), roles, adminRole || null, invitedBy, token, expiresAt]
+        `INSERT INTO invitations (email, phone, name, roles, admin_role, invited_by, token, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [trimmedEmail?.toLowerCase() || null, trimmedPhone, trimmedName, roles, adminRole || null, invitedBy, token, expiresAt]
       );
 
-      // Send invitation email
-      try {
-        const inviter = await storage.getUserById(invitedBy);
-        const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
+      // Send invitation email (only if email provided)
+      if (trimmedEmail) {
+        try {
+          const inviter = await storage.getUserById(invitedBy);
+          const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
 
-        const appDomain = process.env.APP_DOMAIN || (() => {
-          const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
-          return domain ? `https://${domain}` : 'http://localhost:5000';
-        })();
+          const appDomain = process.env.APP_DOMAIN || (() => {
+            const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
+            return domain ? `https://${domain}` : 'http://localhost:5000';
+          })();
 
-        const html = invitationEmailTemplate(inviterName, roles, token, appDomain);
-        await sendEmail(email, `You're invited to join ${APP_NAME}`, html);
-      } catch (emailErr) {
-        console.error('Failed to send invitation email (invitation still created):', emailErr);
+          const html = invitationEmailTemplate(inviterName, roles, token, appDomain);
+          await sendEmail(trimmedEmail, `You're invited to join ${APP_NAME}`, html);
+        } catch (emailErr) {
+          console.error('Failed to send invitation email (invitation still created):', emailErr);
+        }
       }
 
       res.status(201).json(result.rows[0]);
@@ -165,7 +186,7 @@ export function registerInvitationRoutes(app: Express) {
       if (new Date(invite.expires_at) < new Date()) {
         return res.status(410).json({ error: 'Invitation has expired' });
       }
-      res.json({ email: invite.email, roles: invite.roles, adminRole: invite.admin_role });
+      res.json({ email: invite.email, phone: invite.phone, name: invite.name, roles: invite.roles, adminRole: invite.admin_role });
     } catch (error) {
       console.error('Get invitation error:', error);
       res.status(500).json({ error: 'Failed to get invitation' });

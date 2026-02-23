@@ -192,7 +192,9 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
 -- Invitations
 CREATE TABLE IF NOT EXISTS invitations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email VARCHAR(255) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  name VARCHAR(255),
   roles TEXT[] NOT NULL,
   admin_role VARCHAR(50),
   invited_by UUID NOT NULL REFERENCES users(id),
@@ -205,6 +207,14 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email);
 CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
+
+-- Migration: add name/phone columns if missing
+DO $$ BEGIN
+  ALTER TABLE invitations ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+  ALTER TABLE invitations ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+  ALTER TABLE invitations ALTER COLUMN email DROP NOT NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 -- Driver profiles (role-specific extension of users)
 CREATE TABLE IF NOT EXISTS driver_profiles (

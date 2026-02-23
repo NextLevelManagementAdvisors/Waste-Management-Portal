@@ -7,7 +7,9 @@ interface InviteDialogProps {
 }
 
 const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [roles, setRoles] = useState<string[]>(['customer']);
   const [adminRole, setAdminRole] = useState('full_admin');
   const [sending, setSending] = useState(false);
@@ -20,9 +22,11 @@ const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
     );
   };
 
+  const hasContact = email.trim() || phone.trim();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || roles.length === 0) return;
+    if (!hasContact || roles.length === 0) return;
 
     setSending(true);
     setError('');
@@ -32,7 +36,9 @@ const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          email: email.trim(),
+          name: name.trim() || undefined,
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
           roles,
           adminRole: roles.includes('admin') ? adminRole : undefined,
         }),
@@ -64,12 +70,25 @@ const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
             </div>
-            <p className="font-bold text-gray-900">Invitation Sent!</p>
-            <p className="text-sm text-gray-500 mt-1">An email has been sent to {email}</p>
+            <p className="font-bold text-gray-900">Invitation Created!</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {email.trim() ? `An email has been sent to ${email}` : `Invitation created for ${name.trim() || phone}`}
+            </p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="John Doe"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+            </div>
 
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">Email Address</label>
@@ -78,9 +97,22 @@ const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="person@example.com"
-                required
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="(555) 123-4567"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+              {!hasContact && (
+                <p className="text-xs text-amber-600 mt-1">At least one of email or phone is required</p>
+              )}
             </div>
 
             <div>
@@ -119,7 +151,7 @@ const InviteDialog: React.FC<InviteDialogProps> = ({ onClose, onInvited }) => {
               <Button type="button" variant="secondary" onClick={onClose} disabled={sending}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={sending || !email.trim() || roles.length === 0}>
+              <Button type="submit" disabled={sending || !hasContact || roles.length === 0}>
                 {sending ? 'Sending...' : 'Send Invitation'}
               </Button>
             </div>
