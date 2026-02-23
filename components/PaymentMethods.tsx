@@ -157,9 +157,10 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
         fetch('/api/setup-intent', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ customerId }),
         })
-            .then(res => res.json())
+            .then(res => { if (!res.ok) throw new Error('Server error'); return res.json(); })
             .then(json => { setClientSecret(json.data.clientSecret); setLoading(false); })
             .catch(() => { setError('Failed to initialize payment form.'); setLoading(false); });
     }, []);

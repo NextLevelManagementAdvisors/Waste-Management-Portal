@@ -150,9 +150,10 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             fetch('/api/setup-intent', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ customerId }),
             })
-                .then(res => res.json())
+                .then(res => { if (!res.ok) throw new Error('Server error'); return res.json(); })
                 .then(json => setClientSecret(json.data.clientSecret))
                 .catch(err => console.error('Failed to create setup intent:', err));
         }

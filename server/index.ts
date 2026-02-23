@@ -19,6 +19,19 @@ const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = isProduction ? 5000 : 3001;
 
+// Startup env checks — warn early instead of cryptic 500s later
+const requiredEnv = ['DATABASE_URL', 'SESSION_SECRET'];
+const recommendedEnv = ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'GOOGLE_MAPS_API_KEY', 'ENCRYPTION_KEY'];
+for (const key of requiredEnv) {
+  if (!process.env[key]) console.error(`[STARTUP] MISSING REQUIRED: ${key} — server will not function correctly`);
+}
+for (const key of recommendedEnv) {
+  if (!process.env[key]) console.warn(`[STARTUP] Missing optional: ${key} — related features will be unavailable`);
+}
+if (isProduction && !process.env.ALLOWED_ORIGINS) {
+  console.warn(`[STARTUP] Missing ALLOWED_ORIGINS — CORS will block all cross-origin API requests`);
+}
+
 app.use(helmet({
   contentSecurityPolicy: false, // disabled to allow inline scripts from React build; tighten in future
   crossOriginEmbedderPolicy: false,

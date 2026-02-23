@@ -199,8 +199,11 @@ export function registerRoutes(app: Express) {
 
   app.post('/api/setup-intent', async (req: Request, res: Response) => {
     try {
-      const stripe = await getUncachableStripeClient();
       const { customerId } = req.body;
+      if (!customerId) {
+        return res.status(400).json({ error: 'customerId is required' });
+      }
+      const stripe = await getUncachableStripeClient();
       const setupIntent = await stripe.setupIntents.create({
         customer: customerId,
         automatic_payment_methods: { enabled: true },
@@ -208,7 +211,7 @@ export function registerRoutes(app: Express) {
       res.json({ data: { clientSecret: setupIntent.client_secret } });
     } catch (error: any) {
       console.error('Error creating setup intent:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Failed to create setup intent' });
     }
   });
 
