@@ -38,7 +38,8 @@ export class RoleRepository {
       `SELECT admin_role FROM user_roles WHERE user_id = $1 AND role = 'admin'`,
       [userId]
     );
-    return result.rows[0]?.admin_role || null;
+    if (result.rows.length === 0) return null;
+    return result.rows[0].admin_role || 'full_admin';
   }
 
   async updateAdminRole(userId: string, adminRole: string): Promise<void> {
