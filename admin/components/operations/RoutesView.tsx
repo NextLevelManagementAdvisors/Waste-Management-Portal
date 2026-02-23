@@ -348,7 +348,7 @@ const RoutesView: React.FC = () => {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {[
           { label: 'Routes', value: routes.length },
           { label: 'Total Stops', value: totalStops },
@@ -402,14 +402,14 @@ const RoutesView: React.FC = () => {
                 </button>
 
                 {isExpanded && (
-                  <div className="border-t border-gray-100">
+                  <div className="border-t border-gray-100 overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 text-left">
                           <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400">#</th>
                           <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400">Address</th>
-                          <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400">Scheduled</th>
-                          <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400">Order</th>
+                          <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hidden sm:table-cell">Scheduled</th>
+                          <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hidden sm:table-cell">Order</th>
                           <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400">Status</th>
                           <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400"></th>
                         </tr>
@@ -424,8 +424,8 @@ const RoutesView: React.FC = () => {
                               <td className="px-4 py-2 text-gray-900 max-w-[250px] truncate">
                                 {isBreak ? <span className="italic text-gray-400">{stop.type === 'break' ? 'Break' : 'Depot'}</span> : getStopAddress(stop)}
                               </td>
-                              <td className="px-4 py-2 text-gray-600">{stop.scheduledAt || '—'}</td>
-                              <td className="px-4 py-2 text-gray-500 font-mono text-xs">{stop.orderNo || '—'}</td>
+                              <td className="px-4 py-2 text-gray-600 hidden sm:table-cell">{stop.scheduledAt || '—'}</td>
+                              <td className="px-4 py-2 text-gray-500 font-mono text-xs hidden sm:table-cell">{stop.orderNo || '—'}</td>
                               <td className="px-4 py-2">
                                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${STATUS_COLORS[status] || STATUS_COLORS.scheduled}`}>
                                   {status}

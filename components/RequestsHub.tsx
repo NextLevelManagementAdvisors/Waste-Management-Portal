@@ -23,7 +23,7 @@ const Tabs: React.FC<{
 
     return (
         <div className="border-b border-base-200">
-            <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+            <nav className="-mb-px flex space-x-3 sm:space-x-6" aria-label="Tabs">
                 {tabs.map(tab => (
                     <button
                         key={tab.id}

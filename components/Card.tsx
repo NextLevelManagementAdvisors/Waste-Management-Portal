@@ -19,7 +19,7 @@ export const Card: React.FC<CardProps> = ({ children, className = '', onClick })
         ${!hasBg ? 'bg-white' : ''} 
         ${!hasBorder ? 'border border-base-200' : ''} 
         ${!hasShadow ? 'shadow-[0_8px_30px_rgb(0,0,0,0.04)]' : ''}
-        rounded-[1.5rem] p-8 transition-all duration-300 
+        rounded-[1.5rem] p-4 sm:p-6 lg:p-8 transition-all duration-300
         ${className}
       `}
       // Pass the optional onClick prop to the container div

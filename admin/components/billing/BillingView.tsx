@@ -230,8 +230,8 @@ const PaymentHistoryTab: React.FC<{ customerId: string; initialStatusFilter?: st
               <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Date</th>
               <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Amount</th>
               <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Description</th>
-              <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Payment Method</th>
+              <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600 hidden sm:table-cell">Description</th>
+              <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600 hidden sm:table-cell">Payment Method</th>
               <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Receipt</th>
             </tr>
           </thead>
@@ -243,8 +243,8 @@ const PaymentHistoryTab: React.FC<{ customerId: string; initialStatusFilter?: st
                 <td className="px-4 py-3 text-sm">
                   <StatusBadge status={payment.status} />
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-600">{payment.description || '-'}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{payment.paymentMethod || '-'}</td>
+                <td className="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">{payment.description || '-'}</td>
+                <td className="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">{payment.paymentMethod || '-'}</td>
                 <td className="px-4 py-3 text-sm">
                   {payment.receiptUrl ? (
                     <a
@@ -561,7 +561,7 @@ const SubscriptionManagement: React.FC<{
               </div>
             </div>
 
-            <div className="flex gap-2 pt-4 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-gray-200">
               <Button
                 variant="secondary"
                 size="sm"

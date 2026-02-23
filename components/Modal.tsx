@@ -20,7 +20,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
       role="dialog"
     >
       <div 
-        className="bg-white rounded-lg shadow-xl w-full max-w-md m-4 transform transition-all" 
+        className="bg-white rounded-lg shadow-xl w-full max-w-md m-4 max-h-[calc(100vh-2rem)] overflow-y-auto transform transition-all"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center p-4 border-b">

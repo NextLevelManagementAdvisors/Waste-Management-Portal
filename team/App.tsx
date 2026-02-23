@@ -523,7 +523,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">4. Exempt payee code (if any)</label>
                       <input type="text" title="Exempt payee code" value={w9Form.exempt_payee_code} onChange={e => updateW9('exempt_payee_code', e.target.value)} className={inputClass} />
@@ -539,7 +539,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
                     <input type="text" title="Address" value={w9Form.address} onChange={e => updateW9('address', e.target.value)} required className={inputClass} />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">6. City *</label>
                       <input type="text" title="City" value={w9Form.city} onChange={e => updateW9('city', e.target.value)} required className={inputClass} />
@@ -1106,7 +1106,7 @@ const JobBoard: React.FC = () => {
 
                 {selectedJob.description && <p className="text-sm text-gray-600">{selectedJob.description}</p>}
 
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   {selectedJob.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedJob.scheduled_date)}</span></div>}
                   {(selectedJob.start_time || selectedJob.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedJob.start_time}–{selectedJob.end_time}</span></div>}
                   {selectedJob.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedJob.estimated_stops}</span></div>}
@@ -1301,7 +1301,7 @@ const Schedule: React.FC = () => {
               <button type="button" title="Next month" onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRightIcon className="w-5 h-5 text-gray-600" /></button>
             </div>
 
-            <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden">
+            <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden overflow-x-auto min-w-0" style={{ minWidth: '500px' }}>
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                 <div key={day} className="bg-gray-50 p-2 text-center text-xs font-bold text-gray-500">{day}</div>
               ))}
@@ -2254,7 +2254,7 @@ const DriverMessages: React.FC = () => {
 
   return (
     <>
-    <div className="flex gap-4 h-[calc(100vh-12rem)]">
+    <div className="flex gap-4 h-[calc(100vh-8rem)] sm:h-[calc(100vh-12rem)]">
       {/* Conversation list */}
       <div className={`${selectedId ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 bg-white rounded-xl border border-gray-200 overflow-hidden flex-shrink-0`}>
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -2335,7 +2335,7 @@ const DriverMessages: React.FC = () => {
               const isDriver = msg.sender_type === 'driver';
               return (
                 <div key={msg.id} className={`flex ${isDriver ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isDriver ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                  <div className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 ${isDriver ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
                     {!isDriver && (
                       <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-gray-500">
                         {msg.sender_name || (msg.sender_type === 'admin' ? 'Admin' : msg.sender_type)}

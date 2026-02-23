@@ -122,7 +122,7 @@ const SpecialPickup: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                     {properties.map(prop => (
                         <PortfolioPickupCard 
                             key={prop.id} 
@@ -157,7 +157,7 @@ const SpecialPickup: React.FC = () => {
 
             <Card className="border-none ring-1 ring-base-200">
                 <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Available Specialty Services</h2>
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
                     {services.map(service => (
                         <div key={service.id} className="group relative flex flex-col p-6 rounded-3xl bg-gray-50 border border-transparent hover:border-primary/20 hover:bg-white hover:shadow-xl transition-all duration-300">
                             <div className="w-16 h-16 rounded-2xl bg-white shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
@@ -177,7 +177,7 @@ const SpecialPickup: React.FC = () => {
                 </div>
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
                 <Card className="border-none ring-1 ring-base-200">
                     <div className="flex items-center justify-between mb-8">
                         <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Upcoming Schedule</h3>

@@ -16,7 +16,7 @@ const SystemView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-2 border-b border-gray-200 sticky top-0 bg-white z-10 pb-0">
+      <div className="flex gap-2 overflow-x-auto border-b border-gray-200 sticky top-0 bg-white z-10 pb-0">
         {tabs.map(tab => (
           <button
             key={tab.key}

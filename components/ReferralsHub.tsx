@@ -46,7 +46,7 @@ const ReferralsHub: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
                 <div className="lg:col-span-1 space-y-8">
                     <Card className="bg-primary/5 border-primary/10 text-center">
                         <GiftIcon className="w-12 h-12 text-primary mx-auto mb-4" />

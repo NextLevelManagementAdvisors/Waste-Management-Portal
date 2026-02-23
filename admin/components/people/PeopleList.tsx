@@ -242,8 +242,8 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
               };
               return (
                 <Card key={inv.id} className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-4 min-w-0 flex-wrap">
                       <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
                         <span className="text-gray-500 font-bold text-sm">
                           {(inv.name || inv.email || inv.phone || '?').charAt(0).toUpperCase()}
@@ -296,8 +296,8 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
             <div className="grid gap-3">
               {people.map((person: any) => (
                 <Card key={person.id} className="p-4 hover:border-teal-200 transition-colors cursor-pointer" onClick={() => onSelectPerson(person.id)}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-4 min-w-0 flex-wrap">
                       <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0">
                         <span className="text-teal-700 font-bold text-sm">
                           {(person.firstName || '?').charAt(0).toUpperCase()}
