@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
-import type { RouteJob } from '../../../shared/types/index.ts';
+import type { RouteJob, JobBid } from '../../../shared/types/index.ts';
 import CreateJobModal from './CreateJobModal.tsx';
 import EditJobModal from './EditJobModal.tsx';
 
@@ -26,12 +26,61 @@ const formatDate = (dateStr: string) => {
   }
 };
 
+const formatDateTime = (dateStr: string) => {
+  try {
+    return new Date(dateStr).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+  } catch {
+    return dateStr;
+  }
+};
+
+const BidRow: React.FC<{ bid: JobBid; basePay?: number }> = ({ bid, basePay }) => {
+  const delta = basePay != null ? bid.bidAmount - basePay : null;
+
+  return (
+    <tr className="bg-gray-50/80">
+      <td className="px-4 py-2 pl-10" colSpan={2}>
+        <div className="text-sm font-medium text-gray-900">{bid.driverName}</div>
+        {bid.driverRating != null && (
+          <div className="text-xs text-gray-400">Current rating: {bid.driverRating.toFixed(1)}</div>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        <div className="text-xs text-gray-500">{formatDateTime(bid.createdAt)}</div>
+      </td>
+      <td className="px-4 py-2">
+        {bid.driverRatingAtBid != null && (
+          <div className="text-sm text-gray-600">{bid.driverRatingAtBid.toFixed(1)}</div>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        <div className="text-sm font-semibold text-teal-700">${bid.bidAmount.toFixed(2)}</div>
+        {delta != null && delta !== 0 && (
+          <div className={`text-xs ${delta > 0 ? 'text-red-500' : 'text-green-600'}`}>
+            {delta > 0 ? '+' : ''}${delta.toFixed(2)}
+          </div>
+        )}
+      </td>
+      <td className="px-4 py-2" colSpan={3}>
+        {bid.message && (
+          <div className="text-sm text-gray-600 italic max-w-xs truncate" title={bid.message}>
+            "{bid.message}"
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+};
+
 const RouteJobsList: React.FC = () => {
   const [jobs, setJobs] = useState<RouteJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [editingJob, setEditingJob] = useState<RouteJob | null>(null);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [bidsMap, setBidsMap] = useState<Record<string, JobBid[]>>({});
+  const [loadingBids, setLoadingBids] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -51,6 +100,27 @@ const RouteJobsList: React.FC = () => {
   useEffect(() => {
     loadJobs();
   }, [loadJobs]);
+
+  const toggleBids = async (jobId: string) => {
+    if (expandedJobId === jobId) {
+      setExpandedJobId(null);
+      return;
+    }
+    setExpandedJobId(jobId);
+    if (bidsMap[jobId]) return;
+    setLoadingBids(jobId);
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/bids`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setBidsMap(prev => ({ ...prev, [jobId]: data.bids ?? [] }));
+      }
+    } catch (e) {
+      console.error('Failed to load bids:', e);
+    } finally {
+      setLoadingBids(null);
+    }
+  };
 
   const filtered = statusFilter === 'all'
     ? jobs
@@ -98,7 +168,7 @@ const RouteJobsList: React.FC = () => {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Title</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Area</th>
+                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Address</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Date</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Stops</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pay</th>
@@ -108,50 +178,98 @@ const RouteJobsList: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filtered.map(job => (
-                <tr key={job.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-semibold text-gray-900">{job.title}</div>
-                    {job.start_time && (
-                      <div className="text-xs text-gray-500">{job.start_time}{job.end_time ? ` – ${job.end_time}` : ''}</div>
+              {filtered.map(job => {
+                const isExpanded = expandedJobId === job.id;
+                const bids = bidsMap[job.id];
+                const bidCount = job.bid_count ?? 0;
+
+                return (
+                  <React.Fragment key={job.id}>
+                    <tr className={`hover:bg-gray-50 transition-colors ${isExpanded ? 'bg-gray-50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-semibold text-gray-900">{job.title}</div>
+                        {job.start_time && (
+                          <div className="text-xs text-gray-500">{job.start_time}{job.end_time ? ` – ${job.end_time}` : ''}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-700">{job.area ?? '—'}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-700">{formatDate(job.scheduled_date)}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-700">
+                          {job.estimated_stops != null ? job.estimated_stops : '—'}
+                          {job.estimated_hours != null && (
+                            <span className="text-xs text-gray-400 ml-1">({job.estimated_hours}h)</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-semibold text-gray-900">
+                          {job.base_pay != null ? `$${Number(job.base_pay).toFixed(2)}` : '—'}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusChip status={job.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-700">{job.driver_name ?? '—'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right space-x-2">
+                        {bidCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleBids(job.id)}
+                            className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                              isExpanded
+                                ? 'text-white bg-teal-600'
+                                : 'text-teal-700 bg-teal-50 hover:bg-teal-100'
+                            }`}
+                          >
+                            {bidCount} Bid{bidCount !== 1 ? 's' : ''} {isExpanded ? '▲' : '▼'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setEditingJob(job)}
+                          className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+
+                    {isExpanded && (
+                      loadingBids === job.id ? (
+                        <tr className="bg-gray-50/80">
+                          <td colSpan={8} className="px-4 py-4 text-center">
+                            <div className="text-sm text-gray-400">Loading bids...</div>
+                          </td>
+                        </tr>
+                      ) : bids && bids.length > 0 ? (
+                        <>
+                          <tr className="bg-gray-100/60">
+                            <td colSpan={2} className="px-4 py-2 pl-10 text-xs font-black uppercase tracking-widest text-gray-400">Driver</td>
+                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Bid Date</td>
+                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Rating</td>
+                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Bid Amount</td>
+                            <td colSpan={3} className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Message</td>
+                          </tr>
+                          {bids.map(bid => (
+                            <BidRow key={bid.id} bid={bid} basePay={job.base_pay != null ? Number(job.base_pay) : undefined} />
+                          ))}
+                        </>
+                      ) : (
+                        <tr className="bg-gray-50/80">
+                          <td colSpan={8} className="px-4 py-3 text-center text-sm text-gray-400">No bids yet</td>
+                        </tr>
+                      )
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-gray-700">{job.area ?? '—'}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-gray-700">{formatDate(job.scheduled_date)}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-gray-700">
-                      {job.estimated_stops != null ? job.estimated_stops : '—'}
-                      {job.estimated_hours != null && (
-                        <span className="text-xs text-gray-400 ml-1">({job.estimated_hours}h)</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-semibold text-gray-900">
-                      {job.base_pay != null ? `$${Number(job.base_pay).toFixed(2)}` : '—'}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusChip status={job.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-gray-700">{job.driver_name ?? '—'}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setEditingJob(job)}
-                      className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

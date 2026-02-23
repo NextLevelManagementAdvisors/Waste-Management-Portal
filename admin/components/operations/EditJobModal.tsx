@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Driver, RouteJob } from '../../../shared/types/index.ts';
+import AddressAutocomplete from '../../../components/AddressAutocomplete.tsx';
 
 interface EditJobModalProps {
   job: RouteJob;
@@ -107,15 +108,15 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
             />
           </div>
 
-          {/* Area + Date */}
+          {/* Address + Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Area</label>
-              <input
-                type="text"
+              <label className="block text-xs font-bold text-gray-500 mb-1">Address</label>
+              <AddressAutocomplete
                 value={form.area}
-                onChange={set('area')}
-                placeholder="e.g. North Zone"
+                onChange={(val) => setForm(prev => ({ ...prev, area: val }))}
+                onAddressSelect={(addr) => setForm(prev => ({ ...prev, area: `${addr.street}, ${addr.city}, ${addr.state} ${addr.zip}`.replace(/^, |, $/g, '') }))}
+                placeholder="e.g. 123 Main St"
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
               />
             </div>

@@ -1088,9 +1088,11 @@ export class Storage {
 
   async getAllRouteJobs() {
     const result = await this.query(
-      `SELECT rj.*, d.name AS driver_name
+      `SELECT rj.*, d.name AS driver_name,
+              COALESCE(bc.bid_count, 0)::int AS bid_count
        FROM route_jobs rj
        LEFT JOIN drivers d ON rj.assigned_driver_id = d.id
+       LEFT JOIN (SELECT job_id, COUNT(*) AS bid_count FROM job_bids GROUP BY job_id) bc ON bc.job_id = rj.id
        ORDER BY rj.scheduled_date DESC, rj.created_at DESC`
     );
     return result.rows;
@@ -1189,6 +1191,94 @@ export class Storage {
       [driverId, start, end]
     );
     return result.rows;
+  }
+
+  async getAllBidsPaginated(options: {
+    driverId?: string;
+    jobStatus?: string;
+    search?: string;
+    sortBy?: string;
+    sortDir?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (options.driverId) {
+      conditions.push(`jb.driver_id = $${idx++}`);
+      params.push(options.driverId);
+    }
+    if (options.jobStatus && options.jobStatus !== 'all') {
+      conditions.push(`rj.status = $${idx++}`);
+      params.push(options.jobStatus);
+    }
+    if (options.search) {
+      conditions.push(`(LOWER(rj.title) LIKE LOWER($${idx}) OR LOWER(d.name) LIKE LOWER($${idx}))`);
+      params.push(`%${options.search}%`);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const validSorts: Record<string, string> = {
+      bid_date: 'jb.created_at',
+      bid_amount: 'jb.bid_amount',
+      job_date: 'rj.scheduled_date',
+      driver_name: 'd.name',
+      job_title: 'rj.title',
+    };
+    const sortCol = validSorts[options.sortBy || ''] || 'jb.created_at';
+    const sortDir = options.sortDir === 'asc' ? 'ASC' : 'DESC';
+
+    const limit = options.limit || 50;
+    const offset = options.offset || 0;
+
+    const countResult = await this.query(
+      `SELECT COUNT(*) as count
+       FROM job_bids jb
+       JOIN route_jobs rj ON jb.job_id = rj.id
+       JOIN drivers d ON jb.driver_id = d.id
+       ${where}`,
+      params
+    );
+
+    const result = await this.query(
+      `SELECT jb.id, jb.job_id, jb.driver_id, jb.bid_amount, jb.message,
+              jb.driver_rating_at_bid, jb.created_at,
+              rj.title AS job_title, rj.status AS job_status,
+              rj.scheduled_date AS job_scheduled_date, rj.area AS job_area,
+              rj.base_pay AS job_base_pay,
+              d.name AS driver_name, d.rating AS driver_rating
+       FROM job_bids jb
+       JOIN route_jobs rj ON jb.job_id = rj.id
+       JOIN drivers d ON jb.driver_id = d.id
+       ${where}
+       ORDER BY ${sortCol} ${sortDir}
+       LIMIT $${idx++} OFFSET $${idx}`,
+      [...params, limit, offset]
+    );
+
+    return { bids: result.rows, total: parseInt(countResult.rows[0].count) };
+  }
+
+  async getBidStats() {
+    const result = await this.query(`
+      SELECT
+        COUNT(*) AS total_bids,
+        COUNT(DISTINCT job_id) AS jobs_with_bids,
+        COALESCE(AVG(bid_amount), 0) AS avg_bid_amount,
+        COUNT(DISTINCT driver_id) AS unique_bidders
+      FROM job_bids
+    `);
+    const row = result.rows[0];
+    return {
+      totalBids: parseInt(row.total_bids),
+      jobsWithBids: parseInt(row.jobs_with_bids),
+      avgBidAmount: parseFloat(row.avg_bid_amount),
+      uniqueBidders: parseInt(row.unique_bidders),
+    };
   }
 }
 

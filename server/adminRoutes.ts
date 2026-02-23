@@ -509,6 +509,27 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.get('/api/admin/jobs/:id/bids', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const bids = await storage.getJobBids(req.params.id);
+      res.json({
+        bids: bids.map((b: any) => ({
+          id: b.id,
+          driverId: b.driver_id,
+          driverName: b.driver_name,
+          driverRating: b.driver_rating ? Number(b.driver_rating) : null,
+          bidAmount: Number(b.bid_amount),
+          message: b.message,
+          driverRatingAtBid: b.driver_rating_at_bid ? Number(b.driver_rating_at_bid) : null,
+          createdAt: b.created_at,
+        })),
+      });
+    } catch (error) {
+      console.error('Failed to fetch job bids:', error);
+      res.status(500).json({ error: 'Failed to fetch bids' });
+    }
+  });
+
   app.post('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { title, scheduled_date, ...rest } = req.body;
@@ -542,6 +563,54 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to update job:', error);
       res.status(500).json({ error: 'Failed to update job' });
+    }
+  });
+
+  // Bids
+  app.get('/api/admin/bids/stats', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const stats = await storage.getBidStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Admin bid stats error:', error);
+      res.status(500).json({ error: 'Failed to fetch bid stats' });
+    }
+  });
+
+  app.get('/api/admin/bids', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const options = {
+        driverId: (req.query.driverId as string) || undefined,
+        jobStatus: (req.query.jobStatus as string) || undefined,
+        search: (req.query.search as string) || undefined,
+        sortBy: (req.query.sortBy as string) || 'bid_date',
+        sortDir: (req.query.sortDir as string) || 'desc',
+        limit: parseInt(req.query.limit as string) || 50,
+        offset: parseInt(req.query.offset as string) || 0,
+      };
+      const result = await storage.getAllBidsPaginated(options);
+      res.json({
+        bids: result.bids.map((b: any) => ({
+          id: b.id,
+          jobId: b.job_id,
+          jobTitle: b.job_title,
+          jobStatus: b.job_status,
+          jobScheduledDate: b.job_scheduled_date,
+          jobArea: b.job_area,
+          jobBasePay: b.job_base_pay ? Number(b.job_base_pay) : null,
+          driverId: b.driver_id,
+          driverName: b.driver_name,
+          driverRating: b.driver_rating ? Number(b.driver_rating) : null,
+          bidAmount: Number(b.bid_amount),
+          message: b.message,
+          driverRatingAtBid: b.driver_rating_at_bid ? Number(b.driver_rating_at_bid) : null,
+          createdAt: b.created_at,
+        })),
+        total: result.total,
+      });
+    } catch (error) {
+      console.error('Admin bids error:', error);
+      res.status(500).json({ error: 'Failed to fetch bids' });
     }
   });
 

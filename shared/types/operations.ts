@@ -47,4 +47,16 @@ export interface RouteJob {
   driver_name?: string;
   notes?: string;
   created_at: string;
+  bid_count?: number;
+}
+
+export interface JobBid {
+  id: string;
+  driverId: string;
+  driverName: string;
+  driverRating: number | null;
+  bidAmount: number;
+  message: string | null;
+  driverRatingAtBid: number | null;
+  createdAt: string;
 }
