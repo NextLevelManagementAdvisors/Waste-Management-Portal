@@ -23,7 +23,7 @@ interface SectionConfig {
   category: string;
   title: string;
   description: string;
-  guide: React.ReactNode;
+  guide: React.ReactNode | 'gmail';
 }
 
 const ExtLink: React.FC<{ href: string; children: React.ReactNode }> = ({ href, children }) => (
@@ -59,28 +59,7 @@ const SECTIONS: SectionConfig[] = [
     category: 'gmail',
     title: 'Gmail (Email)',
     description: 'Email sending via OAuth or service account',
-    guide: (
-      <div className="space-y-3">
-        <div className="rounded-lg border border-sky-200 overflow-hidden">
-          <div className="bg-sky-100 px-3 py-2 font-bold text-gray-800 text-sm">Option A &mdash; OAuth (personal Gmail)</div>
-          <ol className="list-decimal list-inside space-y-1 px-3 py-2">
-            <li>Create OAuth credentials at <ExtLink href="https://console.cloud.google.com/apis/credentials">Cloud Console &gt; Credentials</ExtLink></li>
-            <li>Enable the <ExtLink href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Gmail API</ExtLink></li>
-            <li>Use the <ExtLink href="https://developers.google.com/oauthplayground/">OAuth Playground</ExtLink> to generate a refresh token (select the <code className="bg-gray-100 px-1 rounded text-xs">gmail.send</code> scope)</li>
-            <li>Fill in <strong>OAuth Client ID</strong>, <strong>OAuth Client Secret</strong>, and <strong>OAuth Refresh Token</strong> below</li>
-          </ol>
-        </div>
-        <div className="rounded-lg border border-sky-200 overflow-hidden">
-          <div className="bg-sky-100 px-3 py-2 font-bold text-gray-800 text-sm">Option B &mdash; Service Account (Google Workspace)</div>
-          <ol className="list-decimal list-inside space-y-1 px-3 py-2">
-            <li>Create a service account at <ExtLink href="https://console.cloud.google.com/iam-admin/serviceaccounts">IAM &gt; Service Accounts</ExtLink></li>
-            <li>Enable domain-wide delegation and add the <code className="bg-gray-100 px-1 rounded text-xs">gmail.send</code> scope</li>
-            <li>Download the JSON key file and upload it below using the upload button</li>
-            <li>Set <strong>Sender Email</strong> to the Gmail address to send from</li>
-          </ol>
-        </div>
-      </div>
-    ),
+    guide: 'gmail', // rendered dynamically based on gmailMode
   },
   {
     category: 'google_maps',
@@ -139,6 +118,8 @@ const IntegrationsPanel: React.FC = () => {
   const [integrationStatus, setIntegrationStatus] = useState<Record<string, IntegrationTestResult>>({});
   const [testingAll, setTestingAll] = useState(false);
   const [testingOne, setTestingOne] = useState<string | null>(null);
+  const [gmailMode, setGmailMode] = useState<'oauth' | 'service_account'>('oauth');
+  const [gmailAuthorizing, setGmailAuthorizing] = useState(false);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -158,6 +139,43 @@ const IntegrationsPanel: React.FC = () => {
   };
 
   useEffect(() => { fetchSettings(); }, []);
+
+  // Auto-detect gmail mode from which credentials are configured
+  useEffect(() => {
+    const hasServiceAcct = settings.some(s => s.key === 'GMAIL_SERVICE_ACCOUNT_JSON' && s.value && s.value !== '••••');
+    const hasOAuth = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••');
+    if (hasServiceAcct && !hasOAuth) setGmailMode('service_account');
+    else if (hasOAuth) setGmailMode('oauth');
+  }, [settings]);
+
+  // Handle gmail_auth callback param from OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmailAuth = params.get('gmail_auth');
+    if (!gmailAuth) return;
+    // Clean the URL param
+    params.delete('gmail_auth');
+    const newUrl = params.toString()
+      ? `${window.location.pathname}?${params.toString()}`
+      : window.location.pathname;
+    window.history.replaceState({}, '', newUrl);
+
+    if (gmailAuth === 'success') {
+      setSuccessMsg('Gmail authorized successfully! Refresh token has been saved.');
+      setTimeout(() => setSuccessMsg(null), 5000);
+      fetchSettings();
+    } else {
+      const messages: Record<string, string> = {
+        denied: 'Gmail authorization was denied.',
+        state_mismatch: 'Authorization failed (state mismatch). Please try again.',
+        missing_credentials: 'OAuth Client ID or Secret is missing.',
+        no_refresh_token: 'No refresh token returned. Please try again.',
+        error: 'Gmail authorization failed. Please try again.',
+      };
+      setError(messages[gmailAuth] || 'Gmail authorization failed.');
+      setTimeout(() => setError(null), 5000);
+    }
+  }, []);
 
   const handleSave = async (key: string) => {
     setSaving(true);
@@ -239,8 +257,39 @@ const IntegrationsPanel: React.FC = () => {
     finally { setTestingOne(null); }
   };
 
-  const getSettingsForCategory = (category: string) =>
-    settings.filter(s => s.category === category);
+  const authorizeGmail = async () => {
+    setGmailAuthorizing(true);
+    try {
+      const res = await fetch('/api/admin/gmail/authorize', { credentials: 'include' });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to start Gmail authorization');
+        return;
+      }
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch {
+      alert('Failed to start Gmail authorization');
+    } finally {
+      setGmailAuthorizing(false);
+    }
+  };
+
+  const gmailHasClientCreds = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••')
+    && settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_SECRET' && s.value && s.value !== '••••');
+  const gmailHasRefreshToken = settings.some(s => s.key === 'GMAIL_REFRESH_TOKEN' && s.value && s.value !== '••••');
+
+  const GMAIL_OAUTH_KEYS = ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'];
+  const GMAIL_SA_KEYS = ['GMAIL_SERVICE_ACCOUNT_JSON', 'GMAIL_SENDER_EMAIL'];
+
+  const getSettingsForCategory = (category: string) => {
+    let filtered = settings.filter(s => s.category === category);
+    if (category === 'gmail') {
+      const visibleKeys = gmailMode === 'oauth' ? GMAIL_OAUTH_KEYS : GMAIL_SA_KEYS;
+      filtered = filtered.filter(s => visibleKeys.includes(s.key));
+    }
+    return filtered;
+  };
 
   const hasValue = (setting: SettingItem) =>
     setting.value && setting.value !== '' && setting.value !== '••••';
@@ -330,7 +379,63 @@ const IntegrationsPanel: React.FC = () => {
 
             {guideOpen && (
               <div className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm text-gray-700">
-                {section.guide}
+                {section.guide === 'gmail' ? (
+                  gmailMode === 'oauth' ? (
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Create OAuth credentials at <ExtLink href="https://console.cloud.google.com/apis/credentials">Cloud Console &gt; Credentials</ExtLink> (type: Web application)</li>
+                      <li>Add <code className="bg-gray-100 px-1 rounded text-xs">{window.location.origin}/api/admin/gmail/callback</code> as an authorized redirect URI</li>
+                      <li>Enable the <ExtLink href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Gmail API</ExtLink></li>
+                      <li>Enter the <strong>Client ID</strong> and <strong>Client Secret</strong> below, then click <strong>Authorize Gmail</strong> to sign in and generate the refresh token automatically</li>
+                    </ol>
+                  ) : (
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Create a service account at <ExtLink href="https://console.cloud.google.com/iam-admin/serviceaccounts">IAM &gt; Service Accounts</ExtLink></li>
+                      <li>Enable domain-wide delegation and add the <code className="bg-gray-100 px-1 rounded text-xs">gmail.send</code> scope</li>
+                      <li>Download the JSON key file and upload it below using the upload button</li>
+                      <li>Set <strong>Sender Email</strong> to the Gmail address to send from</li>
+                    </ol>
+                  )
+                ) : section.guide}
+              </div>
+            )}
+
+            {section.category === 'gmail' && (
+              <div className="mb-4 space-y-3">
+                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                  <button
+                    onClick={() => setGmailMode('oauth')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'oauth' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    OAuth
+                  </button>
+                  <button
+                    onClick={() => setGmailMode('service_account')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'service_account' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Service Account
+                  </button>
+                </div>
+                {gmailMode === 'oauth' && gmailHasClientCreds && (
+                  <div className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {gmailHasRefreshToken ? 'Re-authorize Gmail' : 'Authorize Gmail'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {gmailHasRefreshToken
+                          ? 'Click to generate a new refresh token (replaces the existing one).'
+                          : 'Sign in with Google to automatically generate a refresh token.'}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={authorizeGmail}
+                      disabled={gmailAuthorizing}
+                    >
+                      {gmailAuthorizing ? 'Redirecting...' : gmailHasRefreshToken ? 'Re-authorize' : 'Authorize Gmail'}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 

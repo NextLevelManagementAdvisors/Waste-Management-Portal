@@ -1,4 +1,6 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
+import crypto from 'crypto';
+import { google } from 'googleapis';
 import { storage } from './storage';
 import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
@@ -7,6 +9,12 @@ import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNoti
 import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
+
+declare module 'express-session' {
+  interface SessionData {
+    gmailOAuthState?: string;
+  }
+}
 
 type AdminRole = 'full_admin' | 'support' | 'viewer';
 
@@ -1446,6 +1454,95 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Integration status check error:', error);
       res.status(500).json({ error: 'Failed to check integration status' });
+    }
+  });
+
+  // ── Gmail OAuth Authorization Flow ──
+
+  function getGmailRedirectUri(req: Request): string {
+    const appDomain = process.env.APP_DOMAIN;
+    if (appDomain) return `${appDomain}/api/admin/gmail/callback`;
+    const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    return `${protocol}://${host}/api/admin/gmail/callback`;
+  }
+
+  app.get('/api/admin/gmail/authorize', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ error: 'Set OAuth Client ID and Client Secret first' });
+      }
+
+      const redirectUri = getGmailRedirectUri(req);
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+      const state = crypto.randomBytes(32).toString('hex');
+      req.session.gmailOAuthState = state;
+
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+          return res.status(500).json({ error: 'Session error' });
+        }
+
+        const authUrl = oauth2Client.generateAuthUrl({
+          access_type: 'offline',
+          prompt: 'consent',
+          scope: ['https://www.googleapis.com/auth/gmail.send'],
+          state,
+        });
+
+        res.json({ url: authUrl });
+      });
+    } catch (error) {
+      console.error('Gmail authorize error:', error);
+      res.status(500).json({ error: 'Failed to generate authorization URL' });
+    }
+  });
+
+  app.get('/api/admin/gmail/callback', async (req: Request, res: Response) => {
+    try {
+      const code = req.query.code as string;
+      const state = req.query.state as string;
+      const error = req.query.error as string;
+
+      if (error || !code) {
+        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=denied');
+      }
+
+      const expectedState = req.session.gmailOAuthState;
+      delete req.session.gmailOAuthState;
+
+      if (!expectedState || state !== expectedState) {
+        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=state_mismatch');
+      }
+
+      const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=missing_credentials');
+      }
+
+      const redirectUri = getGmailRedirectUri(req);
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+      const { tokens } = await oauth2Client.getToken(code);
+      if (!tokens.refresh_token) {
+        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=no_refresh_token');
+      }
+
+      // Save the refresh token via settings system
+      const userId = req.session.userId!;
+      await saveSetting('GMAIL_REFRESH_TOKEN', tokens.refresh_token, 'gmail', true, userId);
+
+      req.session.save(() => {
+        res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=success');
+      });
+    } catch (error) {
+      console.error('Gmail callback error:', error);
+      res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=error');
     }
   });
 }
