@@ -6,6 +6,7 @@ import { rateLimit } from 'express-rate-limit';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
+import fs from 'fs';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { registerAuthRoutes } from './authRoutes';
@@ -195,6 +196,20 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Run schema.sql on startup (all statements are idempotent with IF NOT EXISTS)
+async function initSchema() {
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  try {
+    const sql = fs.readFileSync(schemaPath, 'utf-8');
+    await pool.query(sql);
+    console.log('Database schema initialized');
+  } catch (error) {
+    console.error('Failed to initialize database schema:', error);
+  }
+}
+
+await initSchema();
 
 const httpServer = http.createServer(app);
 
