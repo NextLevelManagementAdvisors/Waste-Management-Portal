@@ -56,7 +56,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-5 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${
+            className={`px-3 sm:px-5 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'text-teal-700 border-teal-600'
                 : 'text-gray-400 border-transparent hover:text-gray-600'

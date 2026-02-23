@@ -167,12 +167,12 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
     <div className="space-y-6">
       {/* Header with tabs and actions */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {roleTabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => { setRoleFilter(tab.key); setPage(1); }}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap flex-shrink-0 ${
                 roleFilter === tab.key
                   ? 'bg-teal-600 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'

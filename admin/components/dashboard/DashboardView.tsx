@@ -357,7 +357,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
     <div className="space-y-8">
       {stats ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
             <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
             <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('people', { sort: 'newest' })} />
@@ -365,7 +365,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('billing', { filter: 'active' })} />
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('billing', { filter: 'open' })} />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('operations', { tab: 'address-review' })} />
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
