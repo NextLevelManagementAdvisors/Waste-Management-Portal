@@ -203,7 +203,7 @@ export function registerRoutes(app: Express) {
       const { customerId } = req.body;
       const setupIntent = await stripe.setupIntents.create({
         customer: customerId,
-        payment_method_types: ['card', 'us_bank_account'],
+        automatic_payment_methods: { enabled: true },
       });
       res.json({ data: { clientSecret: setupIntent.client_secret } });
     } catch (error: any) {
@@ -394,7 +394,6 @@ export function registerRoutes(app: Express) {
 
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
-        payment_method_types: ['card', 'us_bank_account'],
         line_items: [{ price: priceId, quantity: quantity || 1 }],
         mode: 'subscription',
         success_url: successUrl,

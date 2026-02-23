@@ -28,7 +28,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : [];
 
-app.use(cors({
+app.use('/api', cors({
   origin: isProduction
     ? (origin, cb) => {
         if (!origin || allowedOrigins.includes(origin)) {
