@@ -13,6 +13,7 @@
     "stop": "npx kill-port 5000 || true",
     "start": "NODE_ENV=production npx tsx server/index.ts",
     "restart": "npm run stop && npm run start",
+    "deploy": "bash deploy.sh",
     "test": "vitest run",
     "test:watch": "vitest"
   },
