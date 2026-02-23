@@ -205,22 +205,20 @@ export async function sendMessageNotificationEmail(
   messageBody: string,
   conversationSubject?: string,
 ): Promise<void> {
-  let recipientEmail: string | undefined;
-  let recipientFirstName: string | undefined;
+  // After unified people migration, all recipient IDs are users.id
+  const user = await storage.getUserById(recipientId);
+  if (!user) return;
+
+  let recipientEmail = user.email;
+  let recipientFirstName = user.first_name;
   let optedIn: boolean | undefined;
 
-  if (recipientType === 'user') {
-    const user = await storage.getUserById(recipientId);
-    if (!user) return;
-    optedIn = (user as any).message_email_notifications;
-    recipientEmail = user.email;
-    recipientFirstName = user.first_name;
+  if (recipientType === 'driver') {
+    // Check driver_profiles for notification preference
+    const driverProfile = await storage.getDriverProfileByUserId(recipientId);
+    optedIn = driverProfile?.message_email_notifications;
   } else {
-    const driver = await storage.getDriverById(recipientId);
-    if (!driver) return;
-    optedIn = (driver as any).message_email_notifications;
-    recipientEmail = driver.email;
-    recipientFirstName = driver.name?.split(' ')[0];
+    optedIn = (user as any).message_email_notifications;
   }
 
   if (!optedIn || !recipientEmail) return;

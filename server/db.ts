@@ -21,8 +21,10 @@ export interface DbUser {
   autopay_enabled: boolean;
   stripe_customer_id: string | null;
   is_admin: boolean;
+  admin_role: string | null;
   created_at: string;
   updated_at: string;
+  roles?: string[];
 }
 
 export interface DbProperty {

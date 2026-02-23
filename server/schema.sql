@@ -176,13 +176,41 @@ CREATE TABLE IF NOT EXISTS admin_notes (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Drivers
-CREATE TABLE IF NOT EXISTS drivers (
+-- User roles (multi-role support)
+CREATE TABLE IF NOT EXISTS user_roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role VARCHAR(50) NOT NULL,
+  admin_role VARCHAR(50),
+  granted_by UUID REFERENCES users(id),
+  granted_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (user_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
+
+-- Invitations
+CREATE TABLE IF NOT EXISTS invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) NOT NULL,
+  roles TEXT[] NOT NULL,
+  admin_role VARCHAR(50),
+  invited_by UUID NOT NULL REFERENCES users(id),
+  token VARCHAR(255) NOT NULL UNIQUE,
+  status VARCHAR(50) DEFAULT 'pending',
+  accepted_by UUID REFERENCES users(id),
+  accepted_at TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email);
+CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
+
+-- Driver profiles (role-specific extension of users)
+CREATE TABLE IF NOT EXISTS driver_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
   name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) UNIQUE,
-  phone VARCHAR(30),
-  password_hash VARCHAR(255),
   optimoroute_driver_id VARCHAR(255),
   status VARCHAR(50) DEFAULT 'active',
   onboarding_status VARCHAR(50) DEFAULT 'pending',
@@ -196,11 +224,12 @@ CREATE TABLE IF NOT EXISTS drivers (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_profiles_user_id ON driver_profiles(user_id);
 
 -- Driver W9
 CREATE TABLE IF NOT EXISTS driver_w9 (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  driver_id UUID NOT NULL UNIQUE REFERENCES drivers(id) ON DELETE CASCADE,
+  driver_id UUID NOT NULL UNIQUE REFERENCES driver_profiles(id) ON DELETE CASCADE,
   legal_name VARCHAR(255) NOT NULL,
   business_name VARCHAR(255),
   federal_tax_classification VARCHAR(100) NOT NULL,
@@ -236,7 +265,7 @@ CREATE TABLE IF NOT EXISTS route_jobs (
   estimated_hours NUMERIC(4,2),
   base_pay NUMERIC(10,2),
   status VARCHAR(50) DEFAULT 'open',
-  assigned_driver_id UUID REFERENCES drivers(id),
+  assigned_driver_id UUID REFERENCES driver_profiles(id),
   notes TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -246,7 +275,7 @@ CREATE TABLE IF NOT EXISTS route_jobs (
 CREATE TABLE IF NOT EXISTS job_bids (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id UUID NOT NULL REFERENCES route_jobs(id) ON DELETE CASCADE,
-  driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
   bid_amount NUMERIC(10,2) NOT NULL,
   message TEXT,
   driver_rating_at_bid NUMERIC(3,2),
@@ -300,4 +329,4 @@ ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_type VARCHAR(20);
 
 -- Message email opt-in
 ALTER TABLE users ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
-ALTER TABLE drivers ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;

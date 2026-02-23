@@ -1,5 +1,7 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import { storage } from './storage';
+import { pool } from './db';
+import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
 
@@ -29,12 +31,16 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   try {
     const adminCheckId = req.session.originalAdminUserId || req.session.userId;
     const user = await storage.getUserById(adminCheckId);
-    if (!user || !user.is_admin) {
+    if (!user) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const adminRole = await roleRepo.getAdminRole(adminCheckId);
+    if (!adminRole) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     (req as any).adminUser = user;
-    const rawRole = user.admin_role || 'full_admin';
-    (req as any).adminRole = (rawRole === 'superadmin' ? 'full_admin' : rawRole) as AdminRole;
+    (req as any).adminRole = adminRole as AdminRole;
     next();
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -272,10 +278,12 @@ export function registerAdminRoutes(app: Express) {
       if (lastName !== undefined) updateData.last_name = lastName;
       if (phone !== undefined) updateData.phone = phone;
       if (email !== undefined) updateData.email = email;
-      if (isAdmin !== undefined) updateData.is_admin = isAdmin;
 
       await storage.updateUserAdmin(req.params.id, updateData);
-      await audit(req, 'edit_customer', 'user', req.params.id, updateData);
+      if (isAdmin !== undefined) {
+        await storage.setUserAdmin(req.params.id, isAdmin);
+      }
+      await audit(req, 'edit_customer', 'user', req.params.id, { ...updateData, isAdmin });
       res.json({ success: true });
     } catch (error) {
       console.error('Admin edit customer error:', error);
@@ -948,25 +956,26 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/impersonate-driver/:driverId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const driverId = req.params.driverId;
-      const driver = await storage.getDriverById(driverId);
-      if (!driver) {
+      const driverProfileId = req.params.driverId;
+      const driverProfile = await storage.getDriverById(driverProfileId);
+      if (!driverProfile || !driverProfile.user_id) {
         return res.status(404).json({ error: 'Driver not found' });
       }
 
-      const adminUserId = req.session.originalAdminForDriver || req.session.userId;
-      req.session.originalAdminForDriver = adminUserId;
-      req.session.impersonatingDriverId = driverId;
-      req.session.driverId = driverId;
+      // Use unified impersonation: set userId to the driver's user_id
+      const adminUserId = req.session.originalAdminUserId || req.session.userId;
+      req.session.originalAdminUserId = adminUserId;
+      req.session.impersonatingUserId = driverProfile.user_id;
+      req.session.userId = driverProfile.user_id;
 
-      await audit(req, 'impersonate_driver', 'driver', driverId, { driverName: driver.name, driverEmail: driver.email });
+      await audit(req, 'impersonate_driver', 'driver', driverProfileId, { driverName: driverProfile.name });
 
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during driver impersonation:', err);
           return res.status(500).json({ error: 'Failed to start driver impersonation' });
         }
-        res.json({ success: true, driver: { id: driver.id, name: driver.name, email: driver.email } });
+        res.json({ success: true, driver: { id: driverProfile.id, name: driverProfile.name, userId: driverProfile.user_id } });
       });
     } catch (error) {
       console.error('Driver impersonation error:', error);
@@ -974,18 +983,18 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Keep backward-compat endpoint — redirects to unified stop-impersonate
   app.post('/api/admin/stop-impersonate-driver', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      if (!req.session?.originalAdminForDriver) {
-        return res.status(400).json({ error: 'Not currently impersonating a driver' });
+      if (!req.session?.originalAdminUserId) {
+        return res.status(400).json({ error: 'Not currently impersonating' });
       }
 
-      const driverId = req.session.impersonatingDriverId;
-      await audit(req, 'stop_impersonate_driver', 'driver', driverId || undefined, {});
+      await audit(req, 'stop_impersonate_driver', 'driver', req.session.impersonatingUserId || undefined, {});
 
-      delete req.session.driverId;
-      delete req.session.impersonatingDriverId;
-      delete req.session.originalAdminForDriver;
+      req.session.userId = req.session.originalAdminUserId;
+      delete req.session.impersonatingUserId;
+      delete req.session.originalAdminUserId;
 
       req.session.save((err) => {
         if (err) {
@@ -997,6 +1006,127 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Stop driver impersonation error:', error);
       res.status(500).json({ error: 'Failed to stop driver impersonation' });
+    }
+  });
+
+  // ==================== Unified People API ====================
+
+  app.get('/api/admin/people', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
+    try {
+      const role = req.query.role as string | undefined;
+      const search = req.query.search as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortDir = req.query.sortDir as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const page = parseInt(req.query.page as string) || 1;
+      const offset = (page - 1) * limit;
+
+      const result = await roleRepo.getAllPeoplePaginated({
+        role: role || undefined,
+        search: search || undefined,
+        sortBy,
+        sortDir,
+        limit,
+        offset,
+      });
+
+      res.json({
+        users: result.users.map((u: any) => ({
+          id: u.id,
+          firstName: u.first_name,
+          lastName: u.last_name,
+          email: u.email,
+          phone: u.phone,
+          roles: u.roles || [],
+          isAdmin: (u.roles || []).includes('admin'),
+          createdAt: u.created_at,
+          propertyCount: parseInt(u.property_count) || 0,
+          driverRating: u.driver_rating ? parseFloat(u.driver_rating) : null,
+          driverOnboardingStatus: u.driver_onboarding_status || null,
+          driverJobsCompleted: u.driver_jobs_completed || null,
+          driverStripeConnected: u.driver_stripe_connected || false,
+        })),
+        total: result.total,
+        page,
+        limit,
+      });
+    } catch (error) {
+      console.error('Get people error:', error);
+      res.status(500).json({ error: 'Failed to get people' });
+    }
+  });
+
+  app.get('/api/admin/people/:userId', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUserById(req.params.userId);
+      if (!user) {
+        return res.status(404).json({ error: 'Person not found' });
+      }
+
+      const roles = await roleRepo.getUserRoles(user.id);
+      const properties = await storage.getPropertiesForUser(user.id);
+      let driverProfile = null;
+      if (roles.includes('driver')) {
+        driverProfile = await storage.getDriverProfileByUserId(user.id);
+      }
+      const adminRole = roles.includes('admin') ? await roleRepo.getAdminRole(user.id) : null;
+
+      res.json({
+        id: user.id,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        email: user.email,
+        phone: user.phone,
+        roles,
+        adminRole,
+        isAdmin: roles.includes('admin'),
+        createdAt: user.created_at,
+        properties,
+        driverProfile,
+      });
+    } catch (error) {
+      console.error('Get person error:', error);
+      res.status(500).json({ error: 'Failed to get person details' });
+    }
+  });
+
+  app.put('/api/admin/people/:userId/roles', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const { role, action, adminRole } = req.body;
+
+      if (!role || !action || !['add', 'remove'].includes(action)) {
+        return res.status(400).json({ error: 'role and action (add|remove) are required' });
+      }
+
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (action === 'add') {
+        await roleRepo.addRole(userId, role, req.session.userId, adminRole);
+        // If adding driver role, create driver_profile if missing
+        if (role === 'driver') {
+          const existingProfile = await storage.getDriverProfileByUserId(userId);
+          if (!existingProfile) {
+            await storage.createDriverProfile({
+              userId,
+              name: `${user.first_name} ${user.last_name}`.trim(),
+            });
+          }
+        }
+      } else {
+        await roleRepo.removeRole(userId, role);
+      }
+
+      await audit(req, `${action}_role`, 'user', userId, { role, adminRole });
+
+      const updatedRoles = await roleRepo.getUserRoles(userId);
+      res.json({ success: true, roles: updatedRoles });
+    } catch (error) {
+      console.error('Update roles error:', error);
+      res.status(500).json({ error: 'Failed to update roles' });
     }
   });
 

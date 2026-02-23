@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import session from 'express-session';
 import { storage, type DbUser, type DbProperty } from './storage';
+import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
@@ -26,8 +27,6 @@ declare module 'express-session' {
     googleOAuthPopup?: boolean;
     impersonatingUserId?: string;
     originalAdminUserId?: string;
-    impersonatingDriverId?: string;
-    originalAdminForDriver?: string;
   }
 }
 
@@ -41,7 +40,7 @@ function formatUserForClient(user: DbUser, properties: DbProperty[]) {
     memberSince: user.member_since,
     autopayEnabled: user.autopay_enabled,
     stripeCustomerId: user.stripe_customer_id,
-    isAdmin: user.is_admin || false,
+    isAdmin: false, // Derived from roles in auth/me response
     properties: properties.map(formatPropertyForClient),
   };
 }
@@ -146,6 +145,33 @@ export function registerAuthRoutes(app: Express) {
         stripeCustomerId,
       });
 
+      // Assign customer role
+      await pool.query(
+        `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
+        [user.id]
+      );
+
+      // Check for pending invitations and auto-apply additional roles
+      const pendingInvites = await pool.query(
+        `SELECT id, roles, admin_role FROM invitations
+         WHERE LOWER(email) = LOWER($1) AND status = 'pending' AND expires_at > NOW()`,
+        [email]
+      );
+      for (const invite of pendingInvites.rows) {
+        for (const role of invite.roles) {
+          await pool.query(
+            `INSERT INTO user_roles (user_id, role, admin_role)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, role) DO UPDATE SET admin_role = COALESCE($3, user_roles.admin_role)`,
+            [user.id, role, role === 'admin' ? invite.admin_role : null]
+          );
+        }
+        await pool.query(
+          `UPDATE invitations SET status = 'accepted', accepted_by = $1, accepted_at = NOW() WHERE id = $2`,
+          [user.id, invite.id]
+        );
+      }
+
       if (referralCode) {
         try {
           const referrerId = await storage.findReferrerByCode(referralCode);
@@ -212,12 +238,19 @@ export function registerAuthRoutes(app: Express) {
 
       req.session.userId = user.id;
 
-      req.session.save((err) => {
+      req.session.save(async (err) => {
         if (err) {
           console.error('Session save error during login:', err);
           return res.status(500).json({ error: 'Login failed' });
         }
-        res.json({ data: formatUserForClient(user, properties) });
+        const clientData: any = formatUserForClient(user, properties);
+        const rolesResult = await pool.query(
+          'SELECT role FROM user_roles WHERE user_id = $1',
+          [user.id]
+        );
+        clientData.roles = rolesResult.rows.map((r: any) => r.role);
+        clientData.isAdmin = clientData.roles.includes('admin');
+        res.json({ data: clientData });
       });
     } catch (error: any) {
       console.error('Login error:', error);
@@ -252,6 +285,14 @@ export function registerAuthRoutes(app: Express) {
       const properties = await storage.getPropertiesForUser(user.id);
 
       const clientData: any = formatUserForClient(user, properties);
+
+      // Include roles
+      const rolesResult = await pool.query(
+        'SELECT role FROM user_roles WHERE user_id = $1',
+        [user.id]
+      );
+      clientData.roles = rolesResult.rows.map((r: any) => r.role);
+      clientData.isAdmin = clientData.roles.includes('admin');
 
       if (req.session.impersonatingUserId) {
         clientData.impersonating = true;
@@ -659,6 +700,33 @@ export function registerAuthRoutes(app: Express) {
           passwordHash,
           stripeCustomerId,
         });
+
+        // Assign customer role
+        await pool.query(
+          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
+          [user.id]
+        );
+
+        // Check for pending invitations and auto-apply roles
+        const pendingInvites = await pool.query(
+          `SELECT id, roles, admin_role FROM invitations
+           WHERE LOWER(email) = LOWER($1) AND status = 'pending' AND expires_at > NOW()`,
+          [email]
+        );
+        for (const invite of pendingInvites.rows) {
+          for (const role of invite.roles) {
+            await pool.query(
+              `INSERT INTO user_roles (user_id, role, admin_role)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, role) DO UPDATE SET admin_role = COALESCE($3, user_roles.admin_role)`,
+              [user.id, role, role === 'admin' ? invite.admin_role : null]
+            );
+          }
+          await pool.query(
+            `UPDATE invitations SET status = 'accepted', accepted_by = $1, accepted_at = NOW() WHERE id = $2`,
+            [user.id, invite.id]
+          );
+        }
 
         const savedReferralCode = req.session.googleOAuthReferralCode;
         if (savedReferralCode) {

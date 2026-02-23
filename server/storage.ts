@@ -20,6 +20,26 @@ export interface DbUser {
   admin_role: string | null;
   created_at: string;
   updated_at: string;
+  roles?: string[];
+}
+
+export interface DbDriverProfile {
+  id: string;
+  user_id: string;
+  name: string;
+  optimoroute_driver_id: string | null;
+  status: string;
+  onboarding_status: string;
+  rating: number;
+  total_jobs_completed: number;
+  stripe_connect_account_id: string | null;
+  stripe_connect_onboarded: boolean;
+  w9_completed: boolean;
+  direct_deposit_completed: boolean;
+  availability: any;
+  message_email_notifications: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface DbProperty {
@@ -501,7 +521,15 @@ export class Storage {
   }
 
   async setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
-    await this.query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, userId]);
+    if (isAdmin) {
+      await this.query(
+        `INSERT INTO user_roles (user_id, role, admin_role) VALUES ($1, 'admin', 'full_admin')
+         ON CONFLICT (user_id, role) DO UPDATE SET admin_role = 'full_admin'`,
+        [userId]
+      );
+    } else {
+      await this.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'admin'`, [userId]);
+    }
   }
 
   async getSpecialPickupServices() {
@@ -648,29 +676,43 @@ export class Storage {
 
   async getAdminUsers() {
     const result = await this.query(
-      `SELECT id, first_name, last_name, email, phone, is_admin, admin_role, created_at
-       FROM users WHERE is_admin = true ORDER BY created_at ASC`
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.created_at,
+              ur.admin_role, true as is_admin
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.id AND ur.role = 'admin'
+       ORDER BY u.created_at ASC`
     );
     return result.rows;
   }
 
   async updateAdminRole(userId: string, role: string | null) {
-    await this.query(
-      'UPDATE users SET admin_role = $1, updated_at = NOW() WHERE id = $2',
-      [role, userId]
-    );
+    if (role) {
+      await this.query(
+        `INSERT INTO user_roles (user_id, role, admin_role) VALUES ($1, 'admin', $2)
+         ON CONFLICT (user_id, role) DO UPDATE SET admin_role = $2`,
+        [userId, role]
+      );
+    } else {
+      await this.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'admin'`, [userId]);
+    }
   }
 
   async bulkUpdateAdminStatus(userIds: string[], isAdmin: boolean) {
     if (userIds.length === 0) return;
-    const placeholders = userIds.map((_, i) => `$${i + 2}`).join(',');
-    await this.query(
-      `UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id IN (${placeholders})`,
-      [isAdmin, ...userIds]
-    );
+    for (const userId of userIds) {
+      if (isAdmin) {
+        await this.query(
+          `INSERT INTO user_roles (user_id, role, admin_role) VALUES ($1, 'admin', 'full_admin')
+           ON CONFLICT (user_id, role) DO UPDATE SET admin_role = 'full_admin'`,
+          [userId]
+        );
+      } else {
+        await this.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'admin'`, [userId]);
+      }
+    }
   }
 
-  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean; admin_role: string }>) {
+  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -772,7 +814,9 @@ export class Storage {
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id, u.is_admin, u.created_at,
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id,
+       EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role = 'admin') as is_admin,
+       u.created_at,
        (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
        (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
        FROM users u ${where} ORDER BY u.created_at DESC`,
@@ -780,23 +824,50 @@ export class Storage {
     );
     return result.rows;
   }
+  async getUserRoles(userId: string): Promise<string[]> {
+    const result = await this.query('SELECT role FROM user_roles WHERE user_id = $1', [userId]);
+    return result.rows.map((r: any) => r.role);
+  }
+
+  async addUserRole(userId: string, role: string, adminRole?: string, grantedBy?: string): Promise<void> {
+    await this.query(
+      `INSERT INTO user_roles (user_id, role, admin_role, granted_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, role) DO UPDATE SET admin_role = COALESCE($3, user_roles.admin_role)`,
+      [userId, role, adminRole || null, grantedBy || null]
+    );
+  }
+
+  async removeUserRole(userId: string, role: string): Promise<void> {
+    await this.query('DELETE FROM user_roles WHERE user_id = $1 AND role = $2', [userId, role]);
+  }
+
   // ==================== Communications ====================
 
   async createDriver(data: { name: string; email?: string; phone?: string; optimorouteDriverId?: string }) {
     const result = await this.query(
-      `INSERT INTO drivers (name, email, phone, optimoroute_driver_id) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [data.name, data.email || null, data.phone || null, data.optimorouteDriverId || null]
+      `INSERT INTO driver_profiles (name, optimoroute_driver_id) VALUES ($1, $2) RETURNING *`,
+      [data.name, data.optimorouteDriverId || null]
+    );
+    return result.rows[0];
+  }
+
+  async createDriverProfile(data: { userId: string; name: string; optimorouteDriverId?: string }) {
+    const result = await this.query(
+      `INSERT INTO driver_profiles (user_id, name, optimoroute_driver_id, onboarding_status)
+       VALUES ($1, $2, $3, 'w9_pending') RETURNING *`,
+      [data.userId, data.name, data.optimorouteDriverId || null]
     );
     return result.rows[0];
   }
 
   async getDrivers() {
-    const result = await this.query(`SELECT * FROM drivers WHERE status = 'active' ORDER BY name`);
+    const result = await this.query(`SELECT dp.*, u.first_name, u.last_name, u.email as user_email, u.phone as user_phone FROM driver_profiles dp JOIN users u ON dp.user_id = u.id WHERE dp.status = 'active' ORDER BY dp.name`);
     return result.rows;
   }
 
   async getDriverById(id: string) {
-    const result = await this.query(`SELECT * FROM drivers WHERE id = $1`, [id]);
+    const result = await this.query(`SELECT * FROM driver_profiles WHERE id = $1`, [id]);
     return result.rows[0] || null;
   }
 
@@ -895,15 +966,8 @@ export class Storage {
   async getConversationParticipants(conversationId: string) {
     const result = await this.query(
       `SELECT cp.*,
-        CASE 
-          WHEN cp.participant_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
-          WHEN cp.participant_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
-          WHEN cp.participant_type = 'driver' THEN (SELECT name FROM drivers WHERE id = cp.participant_id)
-        END as participant_name,
-        CASE
-          WHEN cp.participant_type IN ('user', 'admin') THEN (SELECT email FROM users WHERE id = cp.participant_id)
-          WHEN cp.participant_type = 'driver' THEN (SELECT email FROM drivers WHERE id = cp.participant_id)
-        END as participant_email
+        (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id) as participant_name,
+        (SELECT email FROM users WHERE id = cp.participant_id) as participant_email
        FROM conversation_participants cp
        WHERE cp.conversation_id = $1
        ORDER BY cp.joined_at`,
@@ -931,11 +995,7 @@ export class Storage {
 
     const result = await this.query(
       `SELECT m.*,
-        CASE
-          WHEN m.sender_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
-          WHEN m.sender_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
-          WHEN m.sender_type = 'driver' THEN (SELECT name FROM drivers WHERE id = m.sender_id)
-        END as sender_name
+        (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id) as sender_name
        FROM messages m
        WHERE m.conversation_id = $1 ${beforeClause}
        ORDER BY m.created_at ASC
@@ -1009,7 +1069,18 @@ export class Storage {
   }
 
   async getDriverByEmail(email: string) {
-    const result = await this.query('SELECT * FROM drivers WHERE email = $1', [email]);
+    const result = await this.query(
+      `SELECT dp.*, u.email, u.phone, u.password_hash, u.first_name, u.last_name
+       FROM driver_profiles dp
+       JOIN users u ON dp.user_id = u.id
+       WHERE LOWER(u.email) = LOWER($1)`,
+      [email]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getDriverProfileByUserId(userId: string) {
+    const result = await this.query('SELECT * FROM driver_profiles WHERE user_id = $1', [userId]);
     return result.rows[0] || null;
   }
 
@@ -1028,7 +1099,7 @@ export class Storage {
     fields.push(`updated_at = NOW()`);
     values.push(id);
     const result = await this.query(
-      `UPDATE drivers SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE driver_profiles SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
@@ -1091,7 +1162,7 @@ export class Storage {
       `SELECT rj.*, d.name AS driver_name,
               COALESCE(bc.bid_count, 0)::int AS bid_count
        FROM route_jobs rj
-       LEFT JOIN drivers d ON rj.assigned_driver_id = d.id
+       LEFT JOIN driver_profiles d ON rj.assigned_driver_id = d.id
        LEFT JOIN (SELECT job_id, COUNT(*) AS bid_count FROM job_bids GROUP BY job_id) bc ON bc.job_id = rj.id
        ORDER BY rj.scheduled_date DESC, rj.created_at DESC`
     );
@@ -1126,7 +1197,7 @@ export class Storage {
     const result = await this.query(
       `SELECT jb.*, d.name as driver_name, d.rating as driver_rating
        FROM job_bids jb
-       JOIN drivers d ON jb.driver_id = d.id
+       JOIN driver_profiles d ON jb.driver_id = d.id
        WHERE jb.job_id = $1
        ORDER BY jb.created_at ASC`,
       [jobId]
@@ -1239,7 +1310,7 @@ export class Storage {
       `SELECT COUNT(*) as count
        FROM job_bids jb
        JOIN route_jobs rj ON jb.job_id = rj.id
-       JOIN drivers d ON jb.driver_id = d.id
+       JOIN driver_profiles d ON jb.driver_id = d.id
        ${where}`,
       params
     );
@@ -1253,7 +1324,7 @@ export class Storage {
               d.name AS driver_name, d.rating AS driver_rating
        FROM job_bids jb
        JOIN route_jobs rj ON jb.job_id = rj.id
-       JOIN drivers d ON jb.driver_id = d.id
+       JOIN driver_profiles d ON jb.driver_id = d.id
        ${where}
        ORDER BY ${sortCol} ${sortDir}
        LIMIT $${idx++} OFFSET $${idx}`,

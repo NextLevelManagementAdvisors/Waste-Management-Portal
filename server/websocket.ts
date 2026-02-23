@@ -53,25 +53,34 @@ export function setupWebSocket(server: Server, sessionMiddleware: any) {
     sessionMiddleware(req, mockRes, async () => {
       const session = (req as any).session;
 
-      // Support both user sessions (userId) and driver sessions (driverId)
-      if (session?.driverId) {
-        ws.userId = session.driverId;
-        ws.userType = 'driver';
-      } else if (session?.userId) {
-        const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [session.userId]);
-        const isAdmin = result.rows[0]?.is_admin ?? false;
-        ws.userId = session.userId;
-        ws.userType = isAdmin ? 'admin' : 'user';
-      } else {
+      if (!session?.userId) {
         ws.close(4001, 'Unauthorized');
         return;
       }
 
-      const key = getClientKey(ws.userId!, ws.userType!);
-      if (!clients.has(key)) {
-        clients.set(key, new Set());
+      ws.userId = session.userId;
+
+      // Determine participant types from roles and register under all of them
+      const rolesResult = await pool.query(
+        'SELECT role FROM user_roles WHERE user_id = $1',
+        [session.userId]
+      );
+      const userRoles = rolesResult.rows.map((r: any) => r.role);
+
+      const participantTypes: string[] = [];
+      if (userRoles.includes('admin')) participantTypes.push('admin');
+      if (userRoles.includes('driver')) participantTypes.push('driver');
+      if (userRoles.includes('customer') || participantTypes.length === 0) participantTypes.push('user');
+
+      ws.userType = participantTypes[0];
+      (ws as any)._registeredKeys = [] as string[];
+
+      for (const pType of participantTypes) {
+        const key = getClientKey(ws.userId!, pType);
+        if (!clients.has(key)) clients.set(key, new Set());
+        clients.get(key)!.add(ws);
+        (ws as any)._registeredKeys.push(key);
       }
-      clients.get(key)!.add(ws);
 
       ws.send(JSON.stringify({ event: 'connected', data: { userId: ws.userId, userType: ws.userType } }));
 
@@ -85,11 +94,12 @@ export function setupWebSocket(server: Server, sessionMiddleware: any) {
       });
 
       ws.on('close', () => {
-        const clientKey = getClientKey(ws.userId!, ws.userType!);
-        const set = clients.get(clientKey);
-        if (set) {
-          set.delete(ws);
-          if (set.size === 0) clients.delete(clientKey);
+        for (const key of ((ws as any)._registeredKeys || [])) {
+          const set = clients.get(key);
+          if (set) {
+            set.delete(ws);
+            if (set.size === 0) clients.delete(key);
+          }
         }
       });
     });

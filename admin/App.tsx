@@ -8,12 +8,11 @@ import {
   ShieldCheckIcon,
 } from '../components/Icons.tsx';
 import DashboardView from './components/dashboard/DashboardView.tsx';
-import CustomersView from './components/customers/CustomersView.tsx';
+import PeopleView from './components/people/PeopleView.tsx';
 import BillingView from './components/billing/BillingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
 import SystemView from './components/system/SystemView.tsx';
 import CommunicationsView from './components/communications/CommunicationsView.tsx';
-import TeamView from './components/team/TeamView.tsx';
 import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
 import AdminLogin from './components/auth/AdminLogin.tsx';
 import type { NavFilter } from '../shared/types/index.ts';
@@ -26,7 +25,7 @@ interface AdminUser {
   isAdmin: boolean;
 }
 
-type AdminView = 'dashboard' | 'customers' | 'billing' | 'operations' | 'team' | 'communications' | 'system';
+type AdminView = 'dashboard' | 'people' | 'billing' | 'operations' | 'communications' | 'system';
 
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -152,10 +151,9 @@ const AdminApp: React.FC = () => {
 
   const navItems: { view: AdminView; label: string; icon: React.ReactNode }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-5 h-5" /> },
-    { view: 'customers', label: 'Customers', icon: <UsersIcon className="w-5 h-5" /> },
+    { view: 'people', label: 'People', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
-    { view: 'team', label: 'Drivers', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
@@ -248,7 +246,7 @@ const AdminApp: React.FC = () => {
                       <div className="mb-2">
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Customers</p>
                         {searchResults.users.map((u: any) => (
-                          <button key={u.id} onClick={() => { navigateTo('customers', { search: u.email }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={u.id} onClick={() => { navigateTo('people', { search: u.email }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{u.first_name} {u.last_name}</p>
                             <p className="text-xs text-gray-400">{u.email}</p>
                           </button>
@@ -259,7 +257,7 @@ const AdminApp: React.FC = () => {
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
                         {searchResults.properties.map((p: any) => (
-                          <button key={p.id} onClick={() => { navigateTo('customers', { search: p.address }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                          <button key={p.id} onClick={() => { navigateTo('people', { search: p.address }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{p.address}</p>
                             <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
                           </button>
@@ -278,10 +276,9 @@ const AdminApp: React.FC = () => {
 
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
-          {currentView === 'customers' && <CustomersView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
-          {currentView === 'team' && <TeamView />}
           {currentView === 'communications' && <CommunicationsView />}
           {currentView === 'system' && <SystemView />}
         </div>

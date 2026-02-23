@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { storage } from './storage';
+import { pool } from './db';
 import { broadcastToParticipants } from './websocket';
 import { sendMessageNotificationEmail } from './notificationService';
 import { requireAdmin } from './adminRoutes';
@@ -9,6 +10,25 @@ function requireAuth(req: Request, res: Response, next: Function) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   next();
+}
+
+async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    const roleCheck = await pool.query(
+      'SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2',
+      [userId, 'driver']
+    );
+    if (roleCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Driver access required' });
+    }
+    next();
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 export function registerCommunicationRoutes(app: Express) {
@@ -28,9 +48,44 @@ export function registerCommunicationRoutes(app: Express) {
       if (!name) return res.status(400).json({ error: 'Name is required' });
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email format' });
       if (phone && !/^[\d\s()+\-]{7,20}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number format' });
-      const driver = await storage.createDriver({ name, email, phone, optimorouteDriverId });
-      res.json(driver);
+
+      // Check if user with email already exists
+      let userId: string;
+      if (email) {
+        const existing = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+        if (existing.rows.length > 0) {
+          userId = existing.rows[0].id;
+        } else {
+          const nameParts = name.trim().split(/\s+/);
+          const result = await pool.query(
+            `INSERT INTO users (first_name, last_name, email, phone, password_hash)
+             VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
+            [nameParts[0], nameParts.slice(1).join(' ') || '', email.toLowerCase(), phone || '']
+          );
+          userId = result.rows[0].id;
+        }
+      } else {
+        const nameParts = name.trim().split(/\s+/);
+        const result = await pool.query(
+          `INSERT INTO users (first_name, last_name, email, phone, password_hash)
+           VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
+          [nameParts[0], nameParts.slice(1).join(' ') || '', '', phone || '']
+        );
+        userId = result.rows[0].id;
+      }
+
+      // Create driver profile
+      const driverProfile = await storage.createDriverProfile({ userId, name, optimorouteDriverId });
+
+      // Add driver role
+      await pool.query(
+        `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+        [userId]
+      );
+
+      res.json({ ...driverProfile, user_id: userId });
     } catch (e) {
+      console.error('Failed to create driver:', e);
       res.status(500).json({ error: 'Failed to create driver' });
     }
   });
@@ -208,7 +263,9 @@ export function registerCommunicationRoutes(app: Express) {
       const { subject, body } = req.body;
       if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
 
-      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
+      const admins = await storage.query(
+        `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.role = 'admin' LIMIT 1`
+      );
       if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
 
       const participants = [
@@ -382,18 +439,13 @@ export function registerCommunicationRoutes(app: Express) {
   });
 
   // --- Driver (Team Portal) Conversation Routes ---
-
-  function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
-    if (!(req.session as any)?.driverId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-    next();
-  }
+  // After migration, participant_id values are users.id, participant_type stays 'driver'
 
   app.get('/api/team/conversations', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
-      const conversations = await storage.getConversationsForDriver(driverId);
+      const userId = (req.session as any).userId;
+      // After migration, driver conversation participants use users.id with type 'driver'
+      const conversations = await storage.getConversations(userId, 'driver');
       res.json(conversations);
     } catch (e) {
       res.status(500).json({ error: 'Failed to fetch conversations' });
@@ -402,8 +454,8 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.get('/api/team/conversations/unread-count', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
-      const count = await storage.getUnreadCount(driverId, 'driver');
+      const userId = (req.session as any).userId;
+      const count = await storage.getUnreadCount(userId, 'driver');
       res.json({ count });
     } catch (e) {
       res.status(500).json({ error: 'Failed to get unread count' });
@@ -412,8 +464,8 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.get('/api/team/conversations/:id/messages', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
-      const isParticipant = await storage.isParticipant(req.params.id, driverId, 'driver');
+      const userId = (req.session as any).userId;
+      const isParticipant = await storage.isParticipant(req.params.id, userId, 'driver');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
       const messages = await storage.getMessages(req.params.id, {
@@ -428,40 +480,42 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.post('/api/team/conversations/new', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
+      const userId = (req.session as any).userId;
       const { subject, body } = req.body;
       if (!body?.trim()) return res.status(400).json({ error: 'Message is required' });
 
-      const admins = await storage.query(`SELECT id FROM users WHERE is_admin = true LIMIT 1`);
+      const admins = await storage.query(
+        `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.role = 'admin' LIMIT 1`
+      );
       if (admins.rows.length === 0) return res.status(500).json({ error: 'No admin available' });
 
       const participants = [
-        { id: driverId, type: 'driver', role: 'driver' },
+        { id: userId, type: 'driver', role: 'driver' },
         { id: admins.rows[0].id, type: 'admin', role: 'admin' },
       ];
 
       const conversation = await storage.createConversation({
         subject: subject?.trim() || 'Driver Support Request',
         type: 'direct',
-        createdById: driverId,
+        createdById: userId,
         createdByType: 'driver',
         participants,
       });
 
       const message = await storage.createMessage({
         conversationId: conversation.id,
-        senderId: driverId,
+        senderId: userId,
         senderType: 'driver',
         body: body.trim(),
       });
 
-      await storage.markConversationRead(conversation.id, driverId, 'driver');
+      await storage.markConversationRead(conversation.id, userId, 'driver');
 
-      const driver = await storage.getDriverById(driverId);
+      const user = await storage.getUserById(userId);
       broadcastToParticipants(
         [`admin:${admins.rows[0].id}`],
         'conversation:new',
-        { conversationId: conversation.id, driverName: driver ? driver.name : 'Driver' }
+        { conversationId: conversation.id, driverName: user ? `${user.first_name} ${user.last_name}` : 'Driver' }
       );
 
       res.json({ conversation, message });
@@ -473,8 +527,8 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.post('/api/team/conversations/:id/messages', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
-      const isParticipant = await storage.isParticipant(req.params.id, driverId, 'driver');
+      const userId = (req.session as any).userId;
+      const isParticipant = await storage.isParticipant(req.params.id, userId, 'driver');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
       const { body } = req.body;
@@ -482,18 +536,18 @@ export function registerCommunicationRoutes(app: Express) {
 
       const message = await storage.createMessage({
         conversationId: req.params.id,
-        senderId: driverId,
+        senderId: userId,
         senderType: 'driver',
         body: body.trim(),
       });
 
-      const driver = await storage.getDriverById(driverId);
+      const user = await storage.getUserById(userId);
       const messageWithSender = {
         ...message,
-        sender_name: driver ? driver.name : 'Driver',
+        sender_name: user ? `${user.first_name} ${user.last_name}` : 'Driver',
       };
 
-      await storage.markConversationRead(req.params.id, driverId, 'driver');
+      await storage.markConversationRead(req.params.id, userId, 'driver');
 
       const participants = await storage.getConversationParticipants(req.params.id);
       const participantKeys = participants.map((p: any) => `${p.participant_type}:${p.participant_id}`);
@@ -504,10 +558,10 @@ export function registerCommunicationRoutes(app: Express) {
 
       // Email opt-in notifications for user participants
       const driverConv = await storage.getConversationById(req.params.id);
-      const driverSenderName = driver ? driver.name : 'Driver';
+      const senderName = user ? `${user.first_name} ${user.last_name}` : 'Driver';
       for (const p of participants) {
         if (p.participant_type === 'user') {
-          sendMessageNotificationEmail(p.participant_id, 'user', driverSenderName, body.trim(), driverConv?.subject).catch(e => console.error('Message notification email failed:', e));
+          sendMessageNotificationEmail(p.participant_id, 'user', senderName, body.trim(), driverConv?.subject).catch(e => console.error('Message notification email failed:', e));
         }
       }
 
@@ -520,8 +574,8 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.put('/api/team/conversations/:id/read', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = (req.session as any).driverId;
-      await storage.markConversationRead(req.params.id, driverId, 'driver');
+      const userId = (req.session as any).userId;
+      await storage.markConversationRead(req.params.id, userId, 'driver');
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });

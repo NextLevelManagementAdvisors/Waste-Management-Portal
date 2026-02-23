@@ -88,11 +88,11 @@ export class ConversationRepository extends BaseRepository {
         CASE
           WHEN cp.participant_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
           WHEN cp.participant_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = cp.participant_id)
-          WHEN cp.participant_type = 'driver' THEN (SELECT name FROM drivers WHERE id = cp.participant_id)
+          WHEN cp.participant_type = 'driver' THEN (SELECT name FROM driver_profiles WHERE id = cp.participant_id)
         END as participant_name,
         CASE
           WHEN cp.participant_type IN ('user', 'admin') THEN (SELECT email FROM users WHERE id = cp.participant_id)
-          WHEN cp.participant_type = 'driver' THEN (SELECT email FROM drivers WHERE id = cp.participant_id)
+          WHEN cp.participant_type = 'driver' THEN (SELECT email FROM users WHERE id = cp.participant_id)
         END as participant_email
        FROM conversation_participants cp
        WHERE cp.conversation_id = $1
@@ -123,7 +123,7 @@ export class ConversationRepository extends BaseRepository {
         CASE
           WHEN m.sender_type = 'user' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
           WHEN m.sender_type = 'admin' THEN (SELECT first_name || ' ' || last_name FROM users WHERE id = m.sender_id)
-          WHEN m.sender_type = 'driver' THEN (SELECT name FROM drivers WHERE id = m.sender_id)
+          WHEN m.sender_type = 'driver' THEN (SELECT name FROM driver_profiles WHERE id = m.sender_id)
         END as sender_name
        FROM messages m
        WHERE m.conversation_id = $1 ${beforeClause}

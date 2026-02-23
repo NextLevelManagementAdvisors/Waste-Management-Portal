@@ -356,9 +356,9 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
       {stats ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('customers')} />
-            <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('customers')} />
-            <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('customers', { sort: 'newest' })} />
+            <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
+            <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
+            <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('people', { sort: 'newest' })} />
             <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('billing')} />
             <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('billing', { filter: 'active' })} />
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('billing', { filter: 'open' })} />

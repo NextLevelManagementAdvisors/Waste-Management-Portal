@@ -2,6 +2,7 @@ import { type Express, type Request, type Response, type NextFunction } from 'ex
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { storage } from './storage';
+import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
 
@@ -11,22 +12,38 @@ const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-con
 
 declare module 'express-session' {
   interface SessionData {
-    driverId?: string;
     teamGoogleOAuthState?: string;
   }
 }
 
-function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.driverId) {
+async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  next();
+  try {
+    const userId = req.session.userId;
+    const roleCheck = await pool.query(
+      'SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2',
+      [userId, 'driver']
+    );
+    if (roleCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Driver access required' });
+    }
+    const driverProfile = await storage.getDriverProfileByUserId(userId);
+    if (!driverProfile) {
+      return res.status(404).json({ error: 'Driver profile not found' });
+    }
+    res.locals.driverProfile = driverProfile;
+    next();
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 async function requireOnboarded(req: Request, res: Response, next: NextFunction) {
   try {
-    const driver = await storage.getDriverById(req.session.driverId!);
-    if (!driver || driver.onboarding_status !== 'completed') {
+    const driverProfile = res.locals.driverProfile;
+    if (!driverProfile || driverProfile.onboarding_status !== 'completed') {
       return res.status(403).json({ error: 'Onboarding not completed' });
     }
     next();
@@ -171,16 +188,46 @@ export function registerTeamRoutes(app: Express) {
       }
 
       const email = userInfo.email.toLowerCase();
-      let driver = await storage.getDriverByEmail(email);
+      const firstName = userInfo.given_name || userInfo.name?.split(' ')[0] || 'Driver';
+      const lastName = userInfo.family_name || userInfo.name?.split(' ').slice(1).join(' ') || '';
+      const fullName = userInfo.name || `${firstName} ${lastName}`.trim();
 
-      if (!driver) {
-        const name = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim() || 'Driver';
-        driver = await storage.createDriver({ name, email });
-        await storage.updateDriver(driver.id, { onboarding_status: 'w9_pending' });
-        driver = await storage.getDriverById(driver.id);
+      // Check if user already exists
+      const existingUser = await pool.query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+      let userId: string;
+
+      if (existingUser.rows.length > 0) {
+        userId = existingUser.rows[0].id;
+        // Ensure driver profile exists
+        let driverProfile = await storage.getDriverProfileByUserId(userId);
+        if (!driverProfile) {
+          driverProfile = await storage.createDriverProfile({ userId, name: fullName });
+        }
+        // Ensure driver role exists
+        await pool.query(
+          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+          [userId]
+        );
+      } else {
+        // Create new user
+        const userResult = await pool.query(
+          `INSERT INTO users (first_name, last_name, email, phone, password_hash)
+           VALUES ($1, $2, $3, '', NULL) RETURNING id`,
+          [firstName, lastName, email]
+        );
+        userId = userResult.rows[0].id;
+        await storage.createDriverProfile({ userId, name: fullName });
+        await pool.query(
+          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+          [userId]
+        );
+        await pool.query(
+          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
+          [userId]
+        );
       }
 
-      req.session.driverId = driver!.id;
+      req.session.userId = userId;
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during team Google OAuth callback:', err);
@@ -203,34 +250,46 @@ export function registerTeamRoutes(app: Express) {
         return res.status(400).json({ error: 'Name, email, and password are required' });
       }
 
-      const existing = await storage.getDriverByEmail(email.toLowerCase());
-      if (existing) {
+      const existingUser = await pool.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]
+      );
+      if (existingUser.rows.length > 0) {
         return res.status(409).json({ error: 'An account with this email already exists' });
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
+      const nameParts = driverName.trim().split(/\s+/);
+      const firstName = nameParts[0] || driverName;
+      const lastName = nameParts.slice(1).join(' ') || '';
 
-      const driver = await storage.createDriver({
-        name: driverName,
-        email: email.toLowerCase(),
-        phone: phone || '',
-      });
+      const userResult = await pool.query(
+        `INSERT INTO users (first_name, last_name, email, phone, password_hash)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [firstName, lastName, email.toLowerCase(), phone || '', passwordHash]
+      );
+      const userId = userResult.rows[0].id;
 
-      await storage.updateDriver(driver.id, {
-        password_hash: passwordHash,
-        onboarding_status: 'w9_pending',
-      });
+      const driverProfile = await storage.createDriverProfile({ userId, name: driverName });
 
-      const updatedDriver = await storage.getDriverById(driver.id);
+      await pool.query(
+        `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+        [userId]
+      );
+      await pool.query(
+        `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
+        [userId]
+      );
 
-      req.session.driverId = driver.id;
+      req.session.userId = userId;
 
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during driver registration:', err);
           return res.status(500).json({ error: 'Registration failed' });
         }
-        res.status(201).json({ data: formatDriverForClient(updatedDriver) });
+        res.status(201).json({
+          data: formatDriverForClient(driverProfile, { first_name: firstName, last_name: lastName, email: email.toLowerCase(), phone: phone || '' }),
+        });
       });
     } catch (error: any) {
       console.error('Driver registration error:', error);
@@ -246,24 +305,43 @@ export function registerTeamRoutes(app: Express) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      const driver = await storage.getDriverByEmail(email.toLowerCase());
-      if (!driver || !driver.password_hash) {
+      // Look up user by email
+      const userResult = await pool.query(
+        'SELECT id, first_name, last_name, email, phone, password_hash FROM users WHERE LOWER(email) = LOWER($1)',
+        [email]
+      );
+      const user = userResult.rows[0];
+      if (!user || !user.password_hash) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      const valid = await bcrypt.compare(password, driver.password_hash);
+      const valid = await bcrypt.compare(password, user.password_hash);
       if (!valid) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      req.session.driverId = driver.id;
+      // Verify driver role
+      const roleCheck = await pool.query(
+        'SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2',
+        [user.id, 'driver']
+      );
+      if (roleCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'No driver account found. Please register as a team member first.' });
+      }
+
+      const driverProfile = await storage.getDriverProfileByUserId(user.id);
+      if (!driverProfile) {
+        return res.status(404).json({ error: 'Driver profile not found' });
+      }
+
+      req.session.userId = user.id;
 
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during driver login:', err);
           return res.status(500).json({ error: 'Login failed' });
         }
-        res.json({ data: formatDriverForClient(driver) });
+        res.json({ data: formatDriverForClient(driverProfile, user) });
       });
     } catch (error: any) {
       console.error('Driver login error:', error);
@@ -284,14 +362,22 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/auth/me', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driver = await storage.getDriverById(req.session.driverId!);
-      if (!driver) {
-        return res.status(401).json({ error: 'Driver not found' });
+      const driverProfile = res.locals.driverProfile;
+      const user = await storage.getUserById(req.session.userId!);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
       }
-      const clientData: any = { data: formatDriverForClient(driver) };
-      if (req.session.impersonatingDriverId) {
+      const roles = await pool.query(
+        'SELECT role FROM user_roles WHERE user_id = $1',
+        [user.id]
+      );
+      const clientData: any = {
+        data: formatDriverForClient(driverProfile, user),
+        roles: roles.rows.map((r: any) => r.role),
+      };
+      if (req.session.impersonatingUserId) {
         clientData.impersonating = true;
-        const admin = await storage.getUserById(req.session.originalAdminForDriver!);
+        const admin = await storage.getUserById(req.session.originalAdminUserId!);
         if (admin) {
           clientData.impersonatedBy = `${admin.first_name} ${admin.last_name}`;
         }
@@ -305,7 +391,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.post('/api/team/onboarding/w9', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const w9Data = req.body;
 
       if (!w9Data.legal_name || !w9Data.federal_tax_classification || !w9Data.address || !w9Data.city || !w9Data.state || !w9Data.zip || !w9Data.tin_type || !w9Data.signature_date) {
@@ -336,7 +422,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/onboarding/w9', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const w9 = await storage.getW9ByDriverId(req.session.driverId!);
+      const w9 = await storage.getW9ByDriverId(res.locals.driverProfile.id);
       if (!w9) return res.json({ data: null });
       // Return safe fields only (no encrypted bank data)
       const { account_number_encrypted, routing_number_encrypted, ...safeW9 } = w9;
@@ -349,7 +435,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.put('/api/team/onboarding/w9', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const d = req.body;
 
       if (!d.legal_name || !d.federal_tax_classification || !d.address || !d.city || !d.state || !d.zip || !d.tin_type || !d.signature_date) {
@@ -393,7 +479,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.post('/api/team/onboarding/stripe-connect', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const driver = await storage.getDriverById(driverId);
 
       if (driver.stripe_connect_account_id) {
@@ -413,18 +499,19 @@ export function registerTeamRoutes(app: Express) {
       }
 
       const stripe = await getUncachableStripeClient();
+      const user = await storage.getUserById(req.session.userId!);
 
       const account = await stripe.accounts.create({
         type: 'express',
-        email: driver.email || undefined,
+        email: user?.email || undefined,
         capabilities: {
           transfers: { requested: true },
         },
         business_type: 'individual',
         individual: {
-          first_name: driver.name.split(' ')[0],
-          last_name: driver.name.split(' ').slice(1).join(' ') || undefined,
-          email: driver.email || undefined,
+          first_name: user?.first_name || driver.name.split(' ')[0],
+          last_name: user?.last_name || driver.name.split(' ').slice(1).join(' ') || undefined,
+          email: user?.email || undefined,
         },
       });
 
@@ -452,7 +539,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/onboarding/stripe-connect/status', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const driver = await storage.getDriverById(driverId);
 
       if (!driver.stripe_connect_account_id) {
@@ -495,7 +582,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/onboarding/stripe-connect/refresh', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const driver = await storage.getDriverById(driverId);
 
       if (!driver.stripe_connect_account_id) {
@@ -525,7 +612,7 @@ export function registerTeamRoutes(app: Express) {
   app.post('/api/team/onboarding/bank-account', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const { account_holder_name, routing_number, account_number, account_type } = req.body;
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
 
       // Validation
       if (!account_holder_name || !account_holder_name.trim()) {
@@ -583,7 +670,7 @@ export function registerTeamRoutes(app: Express) {
 
       // Update driver to mark direct deposit as completed
       const updateDriverQuery = `
-        UPDATE drivers
+        UPDATE driver_profiles
         SET
           direct_deposit_completed = true,
           updated_at = NOW()
@@ -596,7 +683,7 @@ export function registerTeamRoutes(app: Express) {
       const updatedDriver = await storage.getDriverById(driverId);
       if (updatedDriver.w9_completed && updatedDriver.direct_deposit_completed) {
         const completeQuery = `
-          UPDATE drivers
+          UPDATE driver_profiles
           SET onboarding_status = 'completed', updated_at = NOW()
           WHERE id = $1
         `;
@@ -624,7 +711,7 @@ export function registerTeamRoutes(app: Express) {
     try {
       const result = await storage.query(
         `SELECT account_holder_name, account_number_encrypted, account_type FROM driver_w9 WHERE driver_id = $1`,
-        [req.session.driverId!]
+        [res.locals.driverProfile.id]
       );
       const row = result.rows[0];
       if (!row || !row.account_number_encrypted) {
@@ -645,11 +732,11 @@ export function registerTeamRoutes(app: Express) {
   // Skip direct deposit setup for now - team member can complete later
   app.post('/api/team/onboarding/bank-account/skip', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
 
       // Update driver to mark direct deposit as completed (deferred)
       const updateDriverQuery = `
-        UPDATE drivers
+        UPDATE driver_profiles
         SET
           direct_deposit_completed = true,
           onboarding_status = 'completed',
@@ -687,7 +774,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/my-jobs', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobs = await storage.getDriverJobs(req.session.driverId!);
+      const jobs = await storage.getDriverJobs(res.locals.driverProfile.id);
       res.json({ data: jobs });
     } catch (error: any) {
       console.error('Get my jobs error:', error);
@@ -715,7 +802,7 @@ export function registerTeamRoutes(app: Express) {
   app.post('/api/team/jobs/:jobId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const jobId = req.params.jobId;
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const { bid_amount, message } = req.body;
 
       if (!bid_amount || bid_amount <= 0) {
@@ -760,7 +847,7 @@ export function registerTeamRoutes(app: Express) {
   app.delete('/api/team/jobs/:jobId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const jobId = req.params.jobId;
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
 
       const existingBid = await storage.getBidByJobAndDriver(jobId, driverId);
       if (!existingBid) {
@@ -779,7 +866,7 @@ export function registerTeamRoutes(app: Express) {
   app.post('/api/team/jobs/:jobId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const jobId = req.params.jobId;
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
 
       const job = await storage.getJobById(jobId);
       if (!job) {
@@ -810,7 +897,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/schedule', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const start = (req.query.start as string) || new Date().toISOString().split('T')[0];
       const end = (req.query.end as string) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -824,11 +911,9 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/profile', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driver = await storage.getDriverById(req.session.driverId!);
-      if (!driver) {
-        return res.status(404).json({ error: 'Driver not found' });
-      }
-      res.json({ data: formatDriverForClient(driver) });
+      const driverProfile = res.locals.driverProfile;
+      const user = await storage.getUserById(req.session.userId!);
+      res.json({ data: formatDriverForClient(driverProfile, user) });
     } catch (error: any) {
       console.error('Get profile error:', error);
       res.status(500).json({ error: 'Failed to get profile' });
@@ -837,16 +922,22 @@ export function registerTeamRoutes(app: Express) {
 
   app.put('/api/team/profile', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const { name, phone, availability } = req.body;
 
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
-      if (phone !== undefined) updateData.phone = phone;
+      if (phone !== undefined) {
+        // Update phone on the users table (canonical source)
+        await pool.query('UPDATE users SET phone = $1 WHERE id = $2', [phone, req.session.userId!]);
+      }
       if (availability !== undefined) updateData.availability = availability;
 
-      const updated = await storage.updateDriver(driverId, updateData);
-      res.json({ data: formatDriverForClient(updated) });
+      const updated = Object.keys(updateData).length > 0
+        ? await storage.updateDriver(driverId, updateData)
+        : res.locals.driverProfile;
+      const user = await storage.getUserById(req.session.userId!);
+      res.json({ data: formatDriverForClient(updated || res.locals.driverProfile, user) });
     } catch (error: any) {
       console.error('Update profile error:', error);
       res.status(500).json({ error: 'Failed to update profile' });
@@ -855,7 +946,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/onboarding/status', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driver = await storage.getDriverById(req.session.driverId!);
+      const driver = await storage.getDriverById(res.locals.driverProfile.id);
       if (!driver) {
         return res.status(404).json({ error: 'Driver not found' });
       }
@@ -875,10 +966,10 @@ export function registerTeamRoutes(app: Express) {
   // Message email opt-in toggle for drivers
   app.put('/api/team/profile/message-notifications', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
+      const driverId = res.locals.driverProfile.id;
       const { enabled } = req.body;
       if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
-      await storage.query(`UPDATE drivers SET message_email_notifications = $1, updated_at = NOW() WHERE id = $2`, [enabled, driverId]);
+      await storage.query(`UPDATE driver_profiles SET message_email_notifications = $1, updated_at = NOW() WHERE id = $2`, [enabled, driverId]);
       res.json({ success: true, message_email_notifications: enabled });
     } catch (e) {
       res.status(500).json({ error: 'Failed to update preference' });
@@ -888,8 +979,8 @@ export function registerTeamRoutes(app: Express) {
   // Get message notification preference for drivers
   app.get('/api/team/profile/message-notifications', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const driverId = req.session.driverId!;
-      const result = await storage.query(`SELECT message_email_notifications FROM drivers WHERE id = $1`, [driverId]);
+      const driverId = res.locals.driverProfile.id;
+      const result = await storage.query(`SELECT message_email_notifications FROM driver_profiles WHERE id = $1`, [driverId]);
       const enabled = result.rows[0]?.message_email_notifications ?? false;
       res.json({ message_email_notifications: enabled });
     } catch (e) {
@@ -898,20 +989,21 @@ export function registerTeamRoutes(app: Express) {
   });
 }
 
-function formatDriverForClient(driver: any) {
+function formatDriverForClient(driverProfile: any, user?: any) {
   return {
-    id: driver.id,
-    name: driver.name,
-    email: driver.email,
-    phone: driver.phone,
-    status: driver.status,
-    onboarding_status: driver.onboarding_status,
-    rating: driver.rating,
-    total_jobs_completed: driver.total_jobs_completed,
-    w9_completed: driver.w9_completed || false,
-    direct_deposit_completed: driver.direct_deposit_completed || false,
-    stripe_connect_onboarded: driver.stripe_connect_onboarded || false,
-    availability: driver.availability,
-    created_at: driver.created_at,
+    id: driverProfile.id,
+    userId: driverProfile.user_id,
+    name: driverProfile.name,
+    email: user?.email || driverProfile.email || driverProfile.user_email,
+    phone: user?.phone || driverProfile.phone || driverProfile.user_phone,
+    status: driverProfile.status,
+    onboarding_status: driverProfile.onboarding_status,
+    rating: driverProfile.rating,
+    total_jobs_completed: driverProfile.total_jobs_completed,
+    w9_completed: driverProfile.w9_completed || false,
+    direct_deposit_completed: driverProfile.direct_deposit_completed || false,
+    stripe_connect_onboarded: driverProfile.stripe_connect_onboarded || false,
+    availability: driverProfile.availability,
+    created_at: driverProfile.created_at,
   };
 }

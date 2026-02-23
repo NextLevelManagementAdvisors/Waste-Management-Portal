@@ -1,7 +1,7 @@
 import { BaseRepository, DbUser } from '../db';
 
 const ALLOWED_USER_FIELDS = new Set(['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id']);
-const ALLOWED_ADMIN_USER_FIELDS = new Set(['first_name', 'last_name', 'phone', 'email', 'is_admin']);
+const ALLOWED_ADMIN_USER_FIELDS = new Set(['first_name', 'last_name', 'phone', 'email']);
 
 export class UserRepository extends BaseRepository {
   async createUser(data: { firstName: string; lastName: string; phone: string; email: string; passwordHash: string; stripeCustomerId?: string }): Promise<DbUser> {
@@ -48,7 +48,15 @@ export class UserRepository extends BaseRepository {
   }
 
   async setUserAdmin(userId: string, isAdmin: boolean) {
-    await this.query(`UPDATE users SET is_admin = $1 WHERE id = $2`, [isAdmin, userId]);
+    if (isAdmin) {
+      await this.query(
+        `INSERT INTO user_roles (user_id, role, admin_role) VALUES ($1, 'admin', 'full_admin')
+         ON CONFLICT (user_id, role) DO UPDATE SET admin_role = 'full_admin'`,
+        [userId]
+      );
+    } else {
+      await this.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'admin'`, [userId]);
+    }
   }
 
   async searchUsers(query: string) {
@@ -93,7 +101,7 @@ export class UserRepository extends BaseRepository {
     return { users: result.rows, total: parseInt(countResult.rows[0].count) };
   }
 
-  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; is_admin: boolean }>) {
+  async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -129,7 +137,9 @@ export class UserRepository extends BaseRepository {
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id, u.is_admin, u.created_at,
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id,
+       EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role = 'admin') as is_admin,
+       u.created_at,
        (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
        (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
        FROM users u ${where} ORDER BY u.created_at DESC`,

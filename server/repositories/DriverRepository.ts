@@ -1,30 +1,34 @@
 import { BaseRepository } from '../db';
 
 export class DriverRepository extends BaseRepository {
-  async createDriver(data: { name: string; email?: string; phone?: string; optimorouteDriverId?: string }) {
+  async createDriver(data: { name: string; userId: string; optimorouteDriverId?: string }) {
     const result = await this.query(
-      `INSERT INTO drivers (name, email, phone, optimoroute_driver_id) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [data.name, data.email || null, data.phone || null, data.optimorouteDriverId || null]
+      `INSERT INTO driver_profiles (name, user_id, optimoroute_driver_id) VALUES ($1, $2, $3) RETURNING *`,
+      [data.name, data.userId, data.optimorouteDriverId || null]
     );
     return result.rows[0];
   }
 
   async getDrivers() {
-    const result = await this.query(`SELECT * FROM drivers WHERE status = 'active' ORDER BY name`);
+    const result = await this.query(
+      `SELECT dp.*, u.email, u.phone FROM driver_profiles dp
+       JOIN users u ON u.id = dp.user_id
+       WHERE dp.status = 'active' ORDER BY dp.name`
+    );
     return result.rows;
   }
 
   async getDriverById(id: string) {
-    const result = await this.query(`SELECT * FROM drivers WHERE id = $1`, [id]);
+    const result = await this.query(`SELECT * FROM driver_profiles WHERE id = $1`, [id]);
     return result.rows[0] || null;
   }
 
-  async getDriverByEmail(email: string) {
-    const result = await this.query('SELECT * FROM drivers WHERE email = $1', [email]);
+  async getDriverByUserId(userId: string) {
+    const result = await this.query('SELECT * FROM driver_profiles WHERE user_id = $1', [userId]);
     return result.rows[0] || null;
   }
 
-  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any }>) {
+  async updateDriver(id: string, data: Partial<{ name: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -39,7 +43,7 @@ export class DriverRepository extends BaseRepository {
     fields.push(`updated_at = NOW()`);
     values.push(id);
     const result = await this.query(
-      `UPDATE drivers SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE driver_profiles SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
@@ -84,7 +88,7 @@ export class DriverRepository extends BaseRepository {
     const result = await this.query(
       `SELECT jb.*, d.name as driver_name, d.rating as driver_rating
        FROM job_bids jb
-       JOIN drivers d ON jb.driver_id = d.id
+       JOIN driver_profiles d ON jb.driver_id = d.id
        WHERE jb.job_id = $1
        ORDER BY jb.created_at ASC`,
       [jobId]
