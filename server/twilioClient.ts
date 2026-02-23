@@ -1,8 +1,29 @@
 import twilio from 'twilio';
 
-let connectionSettings: any;
+interface TwilioCredentials {
+  accountSid: string;
+  authToken?: string;
+  apiKey?: string;
+  apiKeySecret?: string;
+  phoneNumber: string;
+}
 
-async function getCredentials() {
+let cachedCredentials: TwilioCredentials | null = null;
+
+async function getCredentials(): Promise<TwilioCredentials> {
+  if (cachedCredentials) return cachedCredentials;
+
+  // Priority 1: Direct env vars (production VPS)
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+    cachedCredentials = {
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+      phoneNumber: process.env.TWILIO_PHONE_NUMBER,
+    };
+    return cachedCredentials;
+  }
+
+  // Priority 2: Replit connector
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -11,10 +32,10 @@ async function getCredentials() {
     : null;
 
   if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+    throw new Error('Twilio not configured: set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars');
   }
 
-  connectionSettings = await fetch(
+  const connectionSettings = await fetch(
     'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=twilio',
     {
       headers: {
@@ -25,46 +46,30 @@ async function getCredentials() {
   ).then(res => res.json()).then(data => data.items?.[0]);
 
   if (!connectionSettings || (!connectionSettings.settings.account_sid || !connectionSettings.settings.api_key || !connectionSettings.settings.api_key_secret)) {
-    throw new Error('Twilio not connected');
+    throw new Error('Twilio not connected via Replit connector');
   }
-  return {
+
+  cachedCredentials = {
     accountSid: connectionSettings.settings.account_sid,
     apiKey: connectionSettings.settings.api_key,
     apiKeySecret: connectionSettings.settings.api_key_secret,
-    phoneNumber: connectionSettings.settings.phone_number
+    phoneNumber: connectionSettings.settings.phone_number,
   };
-}
-
-export async function getTwilioClient() {
-  const { accountSid, apiKey, apiKeySecret } = await getCredentials();
-  return twilio(apiKey, apiKeySecret, {
-    accountSid: accountSid
-  });
-}
-
-export async function getTwilioFromPhoneNumber() {
-  const { phoneNumber } = await getCredentials();
-  return phoneNumber;
+  return cachedCredentials;
 }
 
 export async function sendSms(to: string, body: string): Promise<void> {
-  try {
-    const client = await getTwilioClient();
-    const fromNumber = await getTwilioFromPhoneNumber();
+  const creds = await getCredentials();
 
-    if (!fromNumber) {
-      throw new Error('No Twilio phone number configured');
-    }
+  const client = creds.authToken
+    ? twilio(creds.accountSid, creds.authToken)
+    : twilio(creds.apiKey!, creds.apiKeySecret!, { accountSid: creds.accountSid });
 
-    const formatted = to.startsWith('+') ? to : `+1${to.replace(/\D/g, '')}`;
+  const formatted = to.startsWith('+') ? to : `+1${to.replace(/\D/g, '')}`;
 
-    await client.messages.create({
-      body,
-      from: fromNumber,
-      to: formatted,
-    });
-  } catch (error) {
-    console.error('Failed to send SMS:', error);
-    throw error;
-  }
+  await client.messages.create({
+    body,
+    from: creds.phoneNumber,
+    to: formatted,
+  });
 }

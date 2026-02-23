@@ -4,6 +4,7 @@ import { pool } from './db';
 import { storage } from './storage';
 import { requireAdmin } from './adminRoutes';
 import { sendEmail } from './gmailClient';
+import { sendSms } from './twilioClient';
 
 const APP_NAME = 'Zip-A-Dee Services';
 
@@ -96,21 +97,33 @@ export function registerInvitationRoutes(app: Express) {
         [trimmedEmail?.toLowerCase() || null, trimmedPhone, trimmedName, roles, adminRole || null, invitedBy, token, expiresAt]
       );
 
-      // Send invitation email (only if email provided)
+      // Build shared context for notifications
+      const inviter = await storage.getUserById(invitedBy);
+      const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
+      const appDomain = process.env.APP_DOMAIN || (() => {
+        const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
+        return domain ? `https://${domain}` : 'http://localhost:5000';
+      })();
+      const registerUrl = roles.includes('driver')
+        ? `${appDomain}/team/register?invite=${token}`
+        : `${appDomain}/register?invite=${token}`;
+
+      // Send invitation email
       if (trimmedEmail) {
         try {
-          const inviter = await storage.getUserById(invitedBy);
-          const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
-
-          const appDomain = process.env.APP_DOMAIN || (() => {
-            const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
-            return domain ? `https://${domain}` : 'http://localhost:5000';
-          })();
-
           const html = invitationEmailTemplate(inviterName, roles, token, appDomain);
           await sendEmail(trimmedEmail, `You're invited to join ${APP_NAME}`, html);
         } catch (emailErr) {
           console.error('Failed to send invitation email (invitation still created):', emailErr);
+        }
+      }
+
+      // Send invitation SMS
+      if (trimmedPhone) {
+        try {
+          await sendSms(trimmedPhone, `${inviterName} invited you to join ${APP_NAME}. Sign up here: ${registerUrl}`);
+        } catch (smsErr) {
+          console.error('Failed to send invitation SMS (invitation still created):', smsErr);
         }
       }
 
