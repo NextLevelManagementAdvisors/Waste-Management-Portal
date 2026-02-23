@@ -13,6 +13,12 @@ interface SettingItem {
   updated_at: string | null;
 }
 
+interface IntegrationTestResult {
+  status: 'connected' | 'not_configured' | 'error';
+  message: string;
+  latencyMs?: number;
+}
+
 interface SectionConfig {
   category: string;
   title: string;
@@ -130,6 +136,9 @@ const IntegrationsPanel: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [openGuide, setOpenGuide] = useState<string | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<Record<string, IntegrationTestResult>>({});
+  const [testingAll, setTestingAll] = useState(false);
+  const [testingOne, setTestingOne] = useState<string | null>(null);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -206,6 +215,30 @@ const IntegrationsPanel: React.FC = () => {
     e.target.value = ''; // reset so same file can be re-selected
   };
 
+  const testAllConnections = async () => {
+    setTestingAll(true);
+    try {
+      const res = await fetch('/api/admin/integrations/status', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setIntegrationStatus(data.results);
+      }
+    } catch { /* ignore */ }
+    finally { setTestingAll(false); }
+  };
+
+  const testSingleConnection = async (category: string) => {
+    setTestingOne(category);
+    try {
+      const res = await fetch(`/api/admin/integrations/status?integration=${category}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setIntegrationStatus(prev => ({ ...prev, ...data.results }));
+      }
+    } catch { /* ignore */ }
+    finally { setTestingOne(null); }
+  };
+
   const getSettingsForCategory = (category: string) =>
     settings.filter(s => s.category === category);
 
@@ -229,7 +262,12 @@ const IntegrationsPanel: React.FC = () => {
           <h3 className="text-lg font-black text-gray-900">Integrations</h3>
           <p className="text-sm text-gray-500 mt-1">Configure third-party service credentials. Changes take effect immediately.</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={fetchSettings}>Refresh</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={testAllConnections} disabled={testingAll}>
+            {testingAll ? 'Testing...' : 'Test All'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={fetchSettings}>Refresh</Button>
+        </div>
       </div>
 
       {successMsg && (
@@ -248,6 +286,24 @@ const IntegrationsPanel: React.FC = () => {
             <div className="mb-4">
               <div className="flex items-center gap-3">
                 <h4 className="text-base font-black text-gray-900">{section.title}</h4>
+                {(() => {
+                  const st = integrationStatus[section.category];
+                  const isTesting = testingAll || testingOne === section.category;
+                  if (isTesting) return (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex items-center gap-1">
+                      <span className="animate-spin inline-block w-2.5 h-2.5 border-2 border-gray-300 border-t-gray-600 rounded-full" />
+                      Testing
+                    </span>
+                  );
+                  if (!st) return null;
+                  const styles = { connected: 'bg-green-100 text-green-800', not_configured: 'bg-yellow-100 text-yellow-800', error: 'bg-red-100 text-red-800' };
+                  const labels = { connected: 'Connected', not_configured: 'Not Configured', error: 'Error' };
+                  return (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${styles[st.status]} cursor-help`} title={st.message + (st.latencyMs ? ` (${st.latencyMs}ms)` : '')}>
+                      {labels[st.status]}
+                    </span>
+                  );
+                })()}
                 <button
                   onClick={() => setOpenGuide(guideOpen ? null : section.category)}
                   className="text-xs font-semibold text-teal-600 hover:text-teal-800 flex items-center gap-1"
@@ -255,8 +311,21 @@ const IntegrationsPanel: React.FC = () => {
                   <svg className={`w-3.5 h-3.5 transition-transform ${guideOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                   Setup Guide
                 </button>
+                <button
+                  onClick={() => testSingleConnection(section.category)}
+                  disabled={testingAll || testingOne === section.category}
+                  className="ml-auto text-xs font-semibold text-gray-500 hover:text-teal-600 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  Test
+                </button>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">{section.description}</p>
+              {integrationStatus[section.category]?.status === 'error' && (
+                <div className="mt-1 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                  {integrationStatus[section.category].message}
+                </div>
+              )}
             </div>
 
             {guideOpen && (

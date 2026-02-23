@@ -6,6 +6,7 @@ import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
 import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
+import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 
 type AdminRole = 'full_admin' | 'support' | 'viewer';
 
@@ -1428,6 +1429,23 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Update setting error:', error);
       res.status(500).json({ error: 'Failed to update setting' });
+    }
+  });
+
+  // ── Integration Status Checks ──
+
+  app.get('/api/admin/integrations/status', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const target = req.query.integration as string | undefined;
+      if (target) {
+        const result = await testSingleIntegration(target);
+        return res.json({ results: { [target]: result } });
+      }
+      const results = await testAllIntegrations();
+      res.json({ results });
+    } catch (error) {
+      console.error('Integration status check error:', error);
+      res.status(500).json({ error: 'Failed to check integration status' });
     }
   });
 }
