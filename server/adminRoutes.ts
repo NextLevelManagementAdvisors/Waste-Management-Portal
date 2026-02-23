@@ -4,6 +4,7 @@ import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
+import * as optimo from './optimoRouteClient';
 
 type AdminRole = 'full_admin' | 'support' | 'viewer';
 
@@ -1130,6 +1131,53 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Delete a user (full_admin only)
+  app.delete('/api/admin/people/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+
+      // Prevent self-deletion
+      if (userId === req.session.userId) {
+        return res.status(400).json({ error: 'Cannot delete your own account' });
+      }
+
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const userName = `${user.first_name} ${user.last_name}`.trim();
+
+      // Log before deletion (audit_log cascades with user)
+      await audit(req, 'delete_user', 'user', userId, { name: userName, email: user.email });
+
+      // Transaction: clean up non-cascading FKs, then delete
+      await storage.query('BEGIN');
+      try {
+        // Unlink route_jobs assigned to this user's driver profile
+        await storage.query(
+          `UPDATE route_jobs SET assigned_driver_id = NULL WHERE assigned_driver_id IN (SELECT id FROM driver_profiles WHERE user_id = $1)`,
+          [userId]
+        );
+        // Delete driver_profiles (no ON DELETE CASCADE on user_id FK)
+        await storage.query('DELETE FROM driver_profiles WHERE user_id = $1', [userId]);
+        // Clean invitations (invited_by / accepted_by have no CASCADE)
+        await storage.query('DELETE FROM invitations WHERE invited_by = $1 OR accepted_by = $1', [userId]);
+        // Delete user — CASCADE handles everything else
+        await storage.query('DELETE FROM users WHERE id = $1', [userId]);
+        await storage.query('COMMIT');
+      } catch (txErr) {
+        await storage.query('ROLLBACK');
+        throw txErr;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Delete user error:', error);
+      res.status(500).json({ error: 'Failed to delete user' });
+    }
+  });
+
   // Special Pickup Services CRUD
   app.get('/api/admin/special-pickup-services', requireAdmin, async (_req: Request, res: Response) => {
     try {
@@ -1179,6 +1227,130 @@ export function registerAdminRoutes(app: Express) {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete special pickup service' });
+    }
+  });
+
+  // ── Address Serviceability Review ──
+
+  app.get('/api/admin/address-reviews', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const properties = await storage.getPendingReviewProperties();
+      res.json({
+        properties: properties.map(p => ({
+          id: p.id,
+          address: p.address,
+          serviceType: p.service_type,
+          customerName: `${p.first_name} ${p.last_name}`,
+          customerEmail: p.email,
+          customerPhone: p.phone,
+          serviceStatus: p.service_status,
+          submittedAt: p.created_at,
+          notes: p.notes,
+          inHoa: p.in_hoa,
+          communityName: p.community_name,
+          hasGateCode: p.has_gate_code,
+        })),
+      });
+    } catch (error) {
+      console.error('Get address reviews error:', error);
+      res.status(500).json({ error: 'Failed to fetch pending reviews' });
+    }
+  });
+
+  app.post('/api/admin/address-reviews/:propertyId/check-feasibility', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const propertyId = req.params.propertyId as string;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property) return res.status(404).json({ error: 'Property not found' });
+
+      const tempOrderNo = `FEASIBILITY-${property.id.substring(0, 8).toUpperCase()}-${Date.now()}`;
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      // Skip weekends
+      while (tomorrow.getDay() === 0 || tomorrow.getDay() === 6) {
+        tomorrow.setDate(tomorrow.getDate() + 1);
+      }
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Step 1: Create temporary order
+      await optimo.createOrder({
+        orderNo: tempOrderNo,
+        type: 'P',
+        date: dateStr,
+        address: property.address,
+        locationName: 'Feasibility Check',
+        duration: 10,
+        notes: 'Temporary order for address feasibility check',
+      });
+
+      // Step 2: Start planning with this order
+      const planResult = await optimo.startPlanning({
+        date: dateStr,
+        useOrders: [tempOrderNo],
+        startWith: 'CURRENT',
+      });
+
+      let feasibilityResult: { feasible: boolean; reason: string } = { feasible: false, reason: 'unknown' };
+
+      if (planResult.ordersWithInvalidLocation?.includes(tempOrderNo)) {
+        feasibilityResult = { feasible: false, reason: 'invalid_address' };
+      } else if (planResult.planningId) {
+        // Step 3: Poll planning status until complete
+        let status = await optimo.getPlanningStatus(planResult.planningId);
+        let attempts = 0;
+        while (status.status === 'R' && attempts < 30) {
+          await new Promise(r => setTimeout(r, 2000));
+          status = await optimo.getPlanningStatus(planResult.planningId);
+          attempts++;
+        }
+
+        if (status.status === 'F') {
+          // Step 4: Check if order got scheduled
+          const schedInfo = await optimo.getSchedulingInfo(tempOrderNo);
+          feasibilityResult = schedInfo.orderScheduled
+            ? { feasible: true, reason: 'scheduled' }
+            : { feasible: false, reason: 'not_schedulable' };
+        } else {
+          feasibilityResult = { feasible: false, reason: 'planning_timeout' };
+        }
+      }
+
+      // Step 5: Cleanup
+      try {
+        await optimo.deleteOrder(tempOrderNo, true);
+      } catch (e) {
+        console.error('Failed to cleanup feasibility check order:', e);
+      }
+
+      await audit(req, 'check_feasibility', 'property', property.id, feasibilityResult);
+      res.json(feasibilityResult);
+    } catch (error) {
+      console.error('Feasibility check error:', error);
+      res.status(500).json({ error: 'Failed to check route feasibility' });
+    }
+  });
+
+  app.put('/api/admin/address-reviews/:propertyId/decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const propertyId = req.params.propertyId as string;
+      const { decision, notes } = req.body;
+      if (!decision || !['approved', 'denied'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be approved or denied' });
+      }
+      const property = await storage.getPropertyById(propertyId);
+      if (!property) return res.status(404).json({ error: 'Property not found' });
+
+      await storage.updateServiceStatus(propertyId, decision, notes || null);
+      await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
+
+      // TODO: Send notification to customer when notification system is ready
+      // await sendServiceUpdate(property.user_id, 'Address Review Update',
+      //   `Your address at ${property.address} has been ${decision}.`);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Address review decision error:', error);
+      res.status(500).json({ error: 'Failed to update address review' });
     }
   });
 }

@@ -330,3 +330,9 @@ ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_type VARCHAR(20);
 -- Message email opt-in
 ALTER TABLE users ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
 ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
+
+-- Address serviceability review workflow
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status VARCHAR(50) DEFAULT 'approved';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_updated_at TIMESTAMP;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
+CREATE INDEX IF NOT EXISTS idx_properties_service_status ON properties(service_status);

@@ -158,15 +158,15 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
             </button>
         </div>
 
-          <div 
-            className="p-8 border-t border-base-100 bg-gray-50/50 lg:hidden cursor-pointer hover:bg-gray-100 transition-colors"
-            onClick={() => onLinkClick('profile-settings')}
-            role="button"
-            tabIndex={0}
-            onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') onLinkClick('profile-settings'); }}
-            aria-label="Open profile settings"
-          >
-           <div className="flex items-center gap-4">
+          <div className="p-5 border-t border-base-100 bg-gray-50/50 lg:hidden">
+           <div
+             className="flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-gray-100 transition-colors"
+             onClick={() => onLinkClick('profile-settings')}
+             role="button"
+             tabIndex={0}
+             onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') onLinkClick('profile-settings'); }}
+             aria-label="Open profile settings"
+           >
                <div className="w-10 h-10 rounded-2xl bg-white shadow-sm border border-base-200 flex items-center justify-center">
                    <UserIcon className="w-5 h-5 text-gray-500" />
                </div>
@@ -175,6 +175,13 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Platinum Member</p>
                </div>
            </div>
+           <button
+             onClick={onLogout}
+             className="flex items-center w-full mt-2 px-4 py-3 rounded-2xl text-sm text-red-600 hover:bg-red-50 transition-colors font-bold"
+           >
+               <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-red-400" />
+               Sign Out
+           </button>
          </div>
        </div>
     );

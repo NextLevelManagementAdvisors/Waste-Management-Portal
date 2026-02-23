@@ -50,6 +50,7 @@ function formatPropertyForClient(p: DbProperty) {
     id: p.id,
     address: p.address,
     serviceType: p.service_type,
+    serviceStatus: p.service_status || 'approved',
     inHOA: p.in_hoa,
     communityName: p.community_name || undefined,
     hasGateCode: p.has_gate_code,

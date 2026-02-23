@@ -11,6 +11,7 @@ import DashboardView from './components/dashboard/DashboardView.tsx';
 import PeopleView from './components/people/PeopleView.tsx';
 import BillingView from './components/billing/BillingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
+import type { OpsTabType } from './components/operations/OperationsView.tsx';
 import SystemView from './components/system/SystemView.tsx';
 import CommunicationsView from './components/communications/CommunicationsView.tsx';
 import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
@@ -40,16 +41,36 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
   Object.entries(VIEW_TO_PATH).map(([view, path]) => [path, view as AdminView])
 ) as Record<string, AdminView>;
 
-function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; } {
+const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
+  'address-review': '/admin/operations/address-review',
+  routes: '/admin/operations',
+  orders: '/admin/operations/orders',
+  'route-jobs': '/admin/operations/jobs',
+  'missed-pickups': '/admin/operations/missed',
+  'pickup-schedule': '/admin/operations/schedule',
+  'customer-sync': '/admin/operations/customer-sync',
+};
+
+const OPS_PATH_TO_TAB: Record<string, OpsTabType> = Object.fromEntries(
+  Object.entries(OPS_TAB_TO_PATH).map(([tab, path]) => [path, tab as OpsTabType])
+) as Record<string, OpsTabType>;
+
+function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null } {
   const normalized = pathname.replace(/\/+$/, '') || '/admin';
   // Check /admin/people/:id
   const personMatch = normalized.match(/^\/admin\/people\/([a-f0-9-]+)$/i);
-  if (personMatch) return { view: 'people', personId: personMatch[1] };
-  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null };
+  if (personMatch) return { view: 'people', personId: personMatch[1], opsTab: null };
+  // Check /admin/operations/* sub-paths
+  if (normalized.startsWith('/admin/operations')) {
+    const opsTab = OPS_PATH_TO_TAB[normalized] || 'routes';
+    return { view: 'operations', personId: null, opsTab };
+  }
+  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null, opsTab: null };
 }
 
-function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null }): string {
+function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null }): string {
   if (view === 'people' && opts?.personId) return `/admin/people/${opts.personId}`;
+  if (view === 'operations' && opts?.opsTab) return OPS_TAB_TO_PATH[opts.opsTab] || '/admin/operations';
   const base = VIEW_TO_PATH[view] || '/admin';
   if (opts?.search) return `${base}?search=${encodeURIComponent(opts.search)}`;
   return base;
@@ -94,10 +115,11 @@ const AdminApp: React.FC = () => {
   const initialSearch = new URLSearchParams(window.location.search).get('search');
   const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
+  const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'routes');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(initialSearch ? { search: initialSearch } : null);
   const [pendingDeepLink] = useState(() => {
     const parsed = parseAdminPath(window.location.pathname);
-    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch };
+    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab };
     return null;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -109,8 +131,17 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentViewRaw(view);
     setSelectedPersonIdRaw(null);
+    if (view === 'operations') {
+      setOpsTabRaw('routes');
+    }
     const url = buildAdminUrl(view, { search: filter?.search });
     window.history.pushState({ view }, '', url);
+  }, []);
+
+  const handleOpsTabChange = useCallback((tab: OpsTabType) => {
+    setOpsTabRaw(tab);
+    const url = OPS_TAB_TO_PATH[tab] || '/admin/operations';
+    window.history.pushState({ view: 'operations', opsTab: tab }, '', url);
   }, []);
 
   const selectPerson = useCallback((id: string) => {
@@ -129,6 +160,7 @@ const AdminApp: React.FC = () => {
       const parsed = parseAdminPath(window.location.pathname);
       setCurrentViewRaw(parsed.view);
       setSelectedPersonIdRaw(parsed.personId);
+      if (parsed.opsTab) setOpsTabRaw(parsed.opsTab);
       const search = new URLSearchParams(window.location.search).get('search');
       setNavFilter(search ? { search } : null);
     };
@@ -164,6 +196,7 @@ const AdminApp: React.FC = () => {
         setCurrentViewRaw(pendingDeepLink.view);
         setSelectedPersonIdRaw(pendingDeepLink.personId);
         if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
+        if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
       }
       setAuthChecked(true);
     } catch (error) {
@@ -189,6 +222,7 @@ const AdminApp: React.FC = () => {
         setCurrentViewRaw(pendingDeepLink.view);
         setSelectedPersonIdRaw(pendingDeepLink.personId);
         if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
+        if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
       }
       setAuthChecked(true);
     } catch {
@@ -375,7 +409,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} />}
           {currentView === 'communications' && <CommunicationsView />}
           {currentView === 'system' && <SystemView />}
         </div>

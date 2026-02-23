@@ -717,10 +717,16 @@ export function registerTeamRoutes(app: Express) {
       if (!row || !row.account_number_encrypted) {
         return res.json({ has_bank_account: false });
       }
+      let maskedAccount: string;
+      try {
+        maskedAccount = maskAccountNumber(decrypt(row.account_number_encrypted));
+      } catch {
+        return res.json({ has_bank_account: true, account_holder_name: row.account_holder_name, masked_account: '****', account_type: row.account_type });
+      }
       res.json({
         has_bank_account: true,
         account_holder_name: row.account_holder_name,
-        masked_account: maskAccountNumber(decrypt(row.account_number_encrypted)),
+        masked_account: maskedAccount,
         account_type: row.account_type,
       });
     } catch (error: any) {
@@ -971,7 +977,11 @@ export function registerTeamRoutes(app: Express) {
       if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
       await storage.query(`UPDATE driver_profiles SET message_email_notifications = $1, updated_at = NOW() WHERE id = $2`, [enabled, driverId]);
       res.json({ success: true, message_email_notifications: enabled });
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes('column') || e?.code === '42703') {
+        return res.json({ success: false, message_email_notifications: false, error: 'Feature not yet available' });
+      }
+      console.error('Update message notification preference error:', e);
       res.status(500).json({ error: 'Failed to update preference' });
     }
   });
@@ -983,7 +993,12 @@ export function registerTeamRoutes(app: Express) {
       const result = await storage.query(`SELECT message_email_notifications FROM driver_profiles WHERE id = $1`, [driverId]);
       const enabled = result.rows[0]?.message_email_notifications ?? false;
       res.json({ message_email_notifications: enabled });
-    } catch (e) {
+    } catch (e: any) {
+      // Column may not exist if migration hasn't run yet — return default
+      if (e?.message?.includes('column') || e?.code === '42703') {
+        return res.json({ message_email_notifications: false });
+      }
+      console.error('Get message notification preference error:', e);
       res.status(500).json({ error: 'Failed to get preference' });
     }
   });

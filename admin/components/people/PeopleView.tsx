@@ -59,6 +59,7 @@ const PeopleView: React.FC<PeopleViewProps> = ({ navFilter, onFilterConsumed, se
         person={personData}
         onBack={handleBack}
         onPersonUpdated={(updated) => setPersonData(updated)}
+        onPersonDeleted={handleBack}
       />
     );
   }

@@ -1,28 +1,39 @@
 const API_KEY = process.env.OPTIMOROUTE_API_KEY || '';
 const BASE_URL = 'https://api.optimoroute.com/v1';
 
+// ── Data interfaces ──
+
 export interface OptimoOrder {
   id?: string;
   orderNo: string;
   date: string;
-  type?: string;
+  type?: string; // D=Delivery, P=Pickup, T=Task
   location?: {
     locationNo?: string;
     address?: string;
     locationName?: string;
     latitude?: number;
     longitude?: number;
+    valid?: boolean;
     notes?: string;
   };
   timeWindows?: { twFrom: string; twTo: string }[];
   assignedTo?: { externalId?: string; serial?: string };
   notes?: string;
   duration?: number;
+  priority?: string; // L, M, H, C
+  load1?: number;
+  load2?: number;
+  load3?: number;
+  load4?: number;
+  email?: string;
+  phone?: string;
   customField1?: string;
   customField2?: string;
   customField3?: string;
   customField4?: string;
   customField5?: string;
+  customFields?: Record<string, any>;
 }
 
 export interface ScheduleInfo {
@@ -38,22 +49,56 @@ export interface ScheduleInfo {
   travelTime?: number;
 }
 
+export interface OptimoTimeObject {
+  unixTimestamp: number;
+  utcTime: string;
+  localTime: string;
+}
+
+export interface CompletionForm {
+  note?: string;
+  signature?: { type: string; url: string };
+  images?: { type: string; url: string }[];
+  barcode?: { barcode: string; scanInfo?: { status: string; scanned?: string; type?: string } }[];
+  barcode_collections?: any[];
+}
+
 export interface CompletionDetail {
   orderNo: string;
   id?: string;
+  success?: boolean;
+  code?: string;
+  message?: string;
+  data?: {
+    status?: string; // unscheduled | scheduled | on_route | servicing | success | failed | rejected | cancelled
+    startTime?: OptimoTimeObject;
+    endTime?: OptimoTimeObject;
+    form?: CompletionForm;
+    tracking_url?: string;
+  };
+  // Legacy flat fields (from our existing helper functions)
   status?: string;
   completionTime?: string;
   completionTimeDt?: string;
   driverName?: string;
   notes?: string;
-  data?: any;
 }
 
 export interface RouteStop {
+  stopNumber?: number;
   orderNo: string;
   id?: string;
+  locationNo?: string;
+  locationName?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   scheduledAt?: string;
   scheduledAtDt?: string;
+  arrivalTimeDt?: string;
+  travelTime?: number; // seconds from previous stop
+  distance?: number; // meters from previous stop
+  type?: string; // 'break' | 'depot'
   location?: {
     address?: string;
     locationName?: string;
@@ -67,8 +112,110 @@ export interface Route {
   driverSerial?: string;
   driverName?: string;
   driverExternalId?: string;
+  vehicleRegistration?: string;
+  vehicleLabel?: string;
+  duration?: number; // total route time in minutes
+  distance?: number; // total distance in km
+  load1?: number;
+  load2?: number;
+  load3?: number;
+  load4?: number;
   stops?: RouteStop[];
+  routePolyline?: string;
   [key: string]: any;
+}
+
+// ── Planning interfaces ──
+
+export interface SelectedDriver {
+  driverExternalId?: string;
+  driverSerial?: string;
+}
+
+export interface PlanningOptions {
+  date?: string;
+  dateRange?: { from: string; to: string };
+  balancing?: 'OFF' | 'ON' | 'ON_FORCE';
+  balanceBy?: 'WT' | 'NUM';
+  balancingFactor?: number;
+  startWith?: 'EMPTY' | 'CURRENT';
+  lockType?: 'NONE' | 'ROUTES' | 'RESOURCES';
+  depotTrips?: boolean;
+  depotVisitDuration?: number;
+  clustering?: boolean;
+  useDrivers?: SelectedDriver[];
+  useOrders?: string[];
+  includeScheduledOrders?: boolean;
+}
+
+export interface PlanningResult {
+  success: boolean;
+  code?: string;
+  planningId?: number;
+  missingOrders?: string[];
+  missingDrivers?: SelectedDriver[];
+  ordersWithInvalidLocation?: string[];
+}
+
+export interface PlanningStatus {
+  success: boolean;
+  code?: string;
+  status?: 'N' | 'R' | 'C' | 'F' | 'E'; // New, Running, Cancelled, Finished, Error
+  percentageComplete?: number;
+}
+
+// ── Event interfaces ──
+
+export interface DriverEvent {
+  event: 'on_duty' | 'off_duty' | 'start_service' | 'success' | 'failed' | 'rejected' | 'start_route' | 'end_route' | 'start_time_changed';
+  unixTimestamp: number;
+  utcTime: string;
+  localTime: string;
+  driverName?: string;
+  driverSerial?: string;
+  driverExternalId?: string;
+  orderNo?: string;
+  orderId?: string;
+  plannedStartTime?: OptimoTimeObject;
+}
+
+export interface EventsResult {
+  success: boolean;
+  events: DriverEvent[];
+  tag: string;
+  remainingEvents: number;
+}
+
+// ── Driver parameter interfaces ──
+
+export interface DriverParameters {
+  externalId?: string;
+  serial?: string;
+  date: string;
+  enabled?: boolean;
+  workTimeFrom?: string;
+  workTimeTo?: string;
+  assignedVehicle?: string;
+  vehicleCapacity1?: number;
+  vehicleCapacity2?: number;
+  vehicleCapacity3?: number;
+  vehicleCapacity4?: number;
+  startLatitude?: number;
+  startLongitude?: number;
+  endLatitude?: number;
+  endLongitude?: number;
+}
+
+// ── Completion update interfaces ──
+
+export interface CompletionUpdate {
+  orderNo?: string;
+  id?: string;
+  data: {
+    status: string;
+    startTime?: { unixTimestamp?: number; utcTime?: string; localTime?: string };
+    endTime?: { unixTimestamp?: number; utcTime?: string; localTime?: string };
+  };
 }
 
 async function apiGet(endpoint: string, params: Record<string, string> = {}): Promise<any> {
@@ -146,6 +293,56 @@ export async function createOrder(data: {
     notes: data.notes || '',
   });
 }
+
+// ── New API functions ──
+
+export async function getOrders(orderNos: string[]): Promise<any> {
+  return apiPost('get_orders', {
+    orders: orderNos.map(orderNo => ({ orderNo })),
+  });
+}
+
+export async function deleteOrder(orderNo: string, forceDelete = false): Promise<{ success: boolean; code?: string; message?: string }> {
+  return apiPost('delete_order', { orderNo, forceDelete });
+}
+
+export async function startPlanning(opts: PlanningOptions): Promise<PlanningResult> {
+  return apiPost('start_planning', opts);
+}
+
+export async function stopPlanning(planningId: number): Promise<{ success: boolean; code?: string }> {
+  return apiPost('stop_planning', { planningId });
+}
+
+export async function getPlanningStatus(planningId: number): Promise<PlanningStatus> {
+  return apiGet('get_planning_status', { planningId: String(planningId) });
+}
+
+export async function getEvents(afterTag?: string): Promise<EventsResult> {
+  const params: Record<string, string> = {};
+  if (afterTag !== undefined) params.after_tag = afterTag;
+  return apiGet('get_events', params);
+}
+
+export async function getCompletionDetailsFull(orderNos: string[]): Promise<any> {
+  return apiPost('get_completion_details', {
+    orders: orderNos.map(orderNo => ({ orderNo })),
+  });
+}
+
+export async function updateCompletionDetails(updates: CompletionUpdate[]): Promise<any> {
+  return apiPost('update_completion_details', { updates });
+}
+
+export async function updateDriverParams(params: DriverParameters): Promise<{ success: boolean; code?: string }> {
+  return apiPost('update_driver_parameters', params);
+}
+
+export async function updateDriverParamsBulk(drivers: any[]): Promise<any> {
+  return apiPost('update_drivers_parameters', { drivers });
+}
+
+// ── Existing helper functions ──
 
 export async function findOrdersForAddress(address: string, fromDate: string, toDate: string): Promise<OptimoOrder[]> {
   try {

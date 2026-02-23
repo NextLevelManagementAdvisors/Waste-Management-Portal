@@ -5,6 +5,8 @@ import { MagnifyingGlassIcon, ArrowRightIcon } from '../../../components/Icons.t
 import { LoadingSpinner, Pagination, EmptyState, StatusBadge } from '../ui/index.ts';
 import type { NavFilter } from '../../../shared/types/index.ts';
 import InviteDialog from './InviteDialog.tsx';
+import CreateDriverDialog from './CreateDriverDialog.tsx';
+import DriverSyncPanel from '../operations/DriverSyncPanel.tsx';
 
 const formatDate = (dateStr: string) => {
   try {
@@ -43,6 +45,8 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [sortBy, setSortBy] = useState('newest');
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
+  const [showCreateDriver, setShowCreateDriver] = useState(false);
+  const [showDriverSync, setShowDriverSync] = useState(false);
 
   useEffect(() => {
     if (navFilter) {
@@ -139,6 +143,18 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
         </div>
         <div className="flex items-center gap-3">
           <p className="text-sm text-gray-500">{total} contact{total !== 1 ? 's' : ''}</p>
+          {roleFilter === 'driver' && (
+            <>
+              <Button size="sm" onClick={() => setShowCreateDriver(true)}>+ Create Driver</Button>
+              <Button
+                variant={showDriverSync ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setShowDriverSync(!showDriverSync)}
+              >
+                OptimoRoute Sync
+              </Button>
+            </>
+          )}
           <Button onClick={() => setShowInvite(true)}>+ Invite</Button>
         </div>
       </div>
@@ -236,10 +252,21 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
         />
       )}
 
+      {roleFilter === 'driver' && showDriverSync && (
+        <DriverSyncPanel />
+      )}
+
       {showInvite && (
         <InviteDialog
           onClose={() => setShowInvite(false)}
           onInvited={() => { setShowInvite(false); loadPeople(); }}
+        />
+      )}
+
+      {showCreateDriver && (
+        <CreateDriverDialog
+          onClose={() => setShowCreateDriver(false)}
+          onCreated={() => { setShowCreateDriver(false); loadPeople(); }}
         />
       )}
     </div>

@@ -40,6 +40,9 @@ export interface DbProperty {
   notification_preferences: any;
   transfer_status: string | null;
   pending_owner: any;
+  service_status: string | null;
+  service_status_updated_at: string | null;
+  service_status_notes: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -33,15 +33,34 @@ const PersonDetail: React.FC<{
   person: any;
   onBack: () => void;
   onPersonUpdated: (updated: any) => void;
-}> = ({ person, onBack, onPersonUpdated }) => {
+  onPersonDeleted?: () => void;
+}> = ({ person, onBack, onPersonUpdated, onPersonDeleted }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [impersonating, setImpersonating] = useState(false);
   const [editingRoles, setEditingRoles] = useState(false);
+
+  // Inline edit state
+  const [editingContact, setEditingContact] = useState(false);
+  const [editForm, setEditForm] = useState({
+    firstName: person.firstName || '',
+    lastName: person.lastName || '',
+    email: person.email || '',
+    phone: person.phone || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const roles: string[] = person.roles || [];
   const isDriver = roles.includes('driver');
   const isCustomer = roles.includes('customer');
   const isAdmin = roles.includes('admin');
+  const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
 
   const handleImpersonateCustomer = async () => {
     setImpersonating(true);
@@ -77,12 +96,78 @@ const PersonDetail: React.FC<{
         body: JSON.stringify({ role, action }),
       });
       if (res.ok) {
-        // Reload person detail
         const detailRes = await fetch(`/api/admin/people/${person.id}`, { credentials: 'include' });
         if (detailRes.ok) onPersonUpdated(await detailRes.json());
       }
     } catch (e) {
       console.error('Failed to update role:', e);
+    }
+  };
+
+  const handleEditSave = async () => {
+    setSaving(true);
+    setEditError('');
+    try {
+      const res = await fetch(`/api/admin/customers/${person.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(editForm),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setEditError(data.error || 'Failed to save');
+        return;
+      }
+      setEditingContact(false);
+      // Reload person detail
+      const detailRes = await fetch(`/api/admin/people/${person.id}`, { credentials: 'include' });
+      if (detailRes.ok) {
+        const updated = await detailRes.json();
+        onPersonUpdated(updated);
+        setEditForm({
+          firstName: updated.firstName || '',
+          lastName: updated.lastName || '',
+          email: updated.email || '',
+          phone: updated.phone || '',
+        });
+      }
+    } catch {
+      setEditError('Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditCancel = () => {
+    setEditingContact(false);
+    setEditError('');
+    setEditForm({
+      firstName: person.firstName || '',
+      lastName: person.lastName || '',
+      email: person.email || '',
+      phone: person.phone || '',
+    });
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/admin/people/${person.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error || 'Failed to delete');
+        return;
+      }
+      onPersonDeleted?.();
+    } catch {
+      setDeleteError('Network error');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -97,7 +182,7 @@ const PersonDetail: React.FC<{
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" onClick={onBack} className="text-sm">
-        ← Back to contacts
+        &larr; Back to contacts
       </Button>
 
       {/* Header */}
@@ -168,22 +253,77 @@ const PersonDetail: React.FC<{
       {/* Tab content */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Contact Info — editable */}
           <Card className="p-6">
-            <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-4">Contact Info</h3>
-            <dl className="space-y-3">
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Email</dt>
-                <dd className="text-sm font-medium text-gray-900">{person.email}</dd>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider">Contact Info</h3>
+              {!editingContact ? (
+                <Button size="sm" variant="ghost" onClick={() => setEditingContact(true)}>Edit</Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={handleEditCancel} disabled={saving}>Cancel</Button>
+                  <Button size="sm" onClick={handleEditSave} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              )}
+            </div>
+            {editError && <p className="text-xs text-red-600 mb-3">{editError}</p>}
+            {editingContact ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    value={editForm.firstName}
+                    onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    value={editForm.lastName}
+                    onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={editForm.phone}
+                    onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
               </div>
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Phone</dt>
-                <dd className="text-sm font-medium text-gray-900">{person.phone || 'Not set'}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-sm text-gray-500">Joined</dt>
-                <dd className="text-sm font-medium text-gray-900">{formatDate(person.createdAt)}</dd>
-              </div>
-            </dl>
+            ) : (
+              <dl className="space-y-3">
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Email</dt>
+                  <dd className="text-sm font-medium text-gray-900">{person.email}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Phone</dt>
+                  <dd className="text-sm font-medium text-gray-900">{person.phone || 'Not set'}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-sm text-gray-500">Joined</dt>
+                  <dd className="text-sm font-medium text-gray-900">{formatDate(person.createdAt)}</dd>
+                </div>
+              </dl>
+            )}
           </Card>
 
           <Card className="p-6">
@@ -231,6 +371,62 @@ const PersonDetail: React.FC<{
 
           <div className="lg:col-span-2">
             <CustomerNotes customerId={person.id} />
+          </div>
+
+          {/* Delete User */}
+          <div className="lg:col-span-2">
+            <Card className="p-6 border-red-200">
+              <h3 className="text-sm font-black text-red-600 uppercase tracking-wider mb-2">Danger Zone</h3>
+              {!showDeleteConfirm ? (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">Permanently delete this user and all their data.</p>
+                  <Button
+                    size="sm"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    Delete User
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-700">
+                    This will permanently delete <strong>{fullName}</strong> and all associated data (properties, roles, driver profile, notes, etc.). This action cannot be undone.
+                  </p>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Type <strong>{fullName}</strong> to confirm
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmName}
+                      onChange={e => setDeleteConfirmName(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                      placeholder={fullName}
+                    />
+                  </div>
+                  {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmName(''); setDeleteError(''); }}
+                      disabled={deleting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={handleDelete}
+                      disabled={deleting || deleteConfirmName !== fullName}
+                    >
+                      {deleting ? 'Deleting...' : 'Permanently Delete'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
           </div>
         </div>
       )}

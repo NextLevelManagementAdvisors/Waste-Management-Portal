@@ -148,6 +148,9 @@ registerCommunicationRoutes(app);
 const { registerTeamRoutes } = await import('./teamRoutes');
 registerTeamRoutes(app);
 
+const { registerAdminOptimoRoutes } = await import('./adminOptimoRoutes');
+registerAdminOptimoRoutes(app);
+
 const { registerInvitationRoutes } = await import('./invitationRoutes');
 registerInvitationRoutes(app);
 

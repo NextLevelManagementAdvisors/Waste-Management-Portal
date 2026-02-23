@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import crypto from 'node:crypto';
 import { storage } from './storage';
 import { pool } from './db';
 import { broadcastToParticipants } from './websocket';
@@ -66,10 +67,12 @@ export function registerCommunicationRoutes(app: Express) {
         }
       } else {
         const nameParts = name.trim().split(/\s+/);
+        // Generate a unique placeholder email since users.email has a UNIQUE constraint
+        const placeholderEmail = `driver-${crypto.randomUUID()}@placeholder.local`;
         const result = await pool.query(
           `INSERT INTO users (first_name, last_name, email, phone, password_hash)
            VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
-          [nameParts[0], nameParts.slice(1).join(' ') || '', '', phone || '']
+          [nameParts[0], nameParts.slice(1).join(' ') || '', placeholderEmail, phone || '']
         );
         userId = result.rows[0].id;
       }

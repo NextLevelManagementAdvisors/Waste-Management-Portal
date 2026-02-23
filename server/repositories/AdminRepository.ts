@@ -8,14 +8,16 @@ export class AdminRepository extends BaseRepository {
     activeTransfers: number;
     totalReferrals: number;
     pendingReferrals: number;
+    pendingReviews: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs] = await Promise.all([
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
       this.query('SELECT COUNT(*) as count FROM properties'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
       this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
       this.query('SELECT COUNT(*) as count FROM referrals'),
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
@@ -24,6 +26,7 @@ export class AdminRepository extends BaseRepository {
       activeTransfers: parseInt(transfers.rows[0].count),
       totalReferrals: parseInt(referrals.rows[0].count),
       pendingReferrals: parseInt(pendingRefs.rows[0].count),
+      pendingReviews: parseInt(pendingReviews.rows[0].count),
     };
   }
 

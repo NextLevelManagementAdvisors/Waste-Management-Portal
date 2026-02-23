@@ -27,6 +27,7 @@ export interface Property {
   id: string;
   address: string;
   serviceType: ServiceType;
+  serviceStatus?: 'pending_review' | 'approved' | 'denied';
   inHOA: boolean;
   communityName?: string;
   hasGateCode: boolean;

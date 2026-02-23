@@ -55,6 +55,9 @@ export interface DbProperty {
   notification_preferences: any;
   transfer_status: string | null;
   pending_owner: any;
+  service_status: string | null;
+  service_status_updated_at: string | null;
+  service_status_notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -115,8 +118,8 @@ export class Storage {
 
   async createProperty(data: { userId: string; address: string; serviceType: string; inHoa: boolean; communityName?: string; hasGateCode: boolean; gateCode?: string; notes?: string; notificationPreferences?: any }): Promise<DbProperty> {
     const result = await this.query(
-      `INSERT INTO properties (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO properties (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences, service_status, service_status_updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending_review', NOW())
        RETURNING *`,
       [
         data.userId, data.address, data.serviceType, data.inHoa,
@@ -501,14 +504,16 @@ export class Storage {
     activeTransfers: number;
     totalReferrals: number;
     pendingReferrals: number;
+    pendingReviews: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs] = await Promise.all([
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
       this.query('SELECT COUNT(*) as count FROM properties'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
       this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
       this.query('SELECT COUNT(*) as count FROM referrals'),
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
@@ -517,6 +522,7 @@ export class Storage {
       activeTransfers: parseInt(transfers.rows[0].count),
       totalReferrals: parseInt(referrals.rows[0].count),
       pendingReferrals: parseInt(pendingRefs.rows[0].count),
+      pendingReviews: parseInt(pendingReviews.rows[0].count),
     };
   }
 
@@ -640,6 +646,30 @@ export class Storage {
       `SELECT service_type, COUNT(*) as count FROM properties GROUP BY service_type ORDER BY count DESC`
     );
     return result.rows;
+  }
+
+  async getPendingReviewProperties(): Promise<(DbProperty & { first_name: string; last_name: string; email: string; phone: string })[]> {
+    const result = await this.query(
+      `SELECT p.*, u.first_name, u.last_name, u.email, u.phone
+       FROM properties p JOIN users u ON p.user_id = u.id
+       WHERE p.service_status = 'pending_review'
+       ORDER BY p.created_at ASC`
+    );
+    return result.rows;
+  }
+
+  async getPendingReviewCount(): Promise<number> {
+    const result = await this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`);
+    return parseInt(result.rows[0].count);
+  }
+
+  async updateServiceStatus(propertyId: string, status: string, notes?: string): Promise<DbProperty> {
+    const result = await this.query(
+      `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [status, notes || null, propertyId]
+    );
+    return result.rows[0];
   }
 
   async getAllUsersPaginated(options: { limit?: number; offset?: number; search?: string; sortBy?: string; sortDir?: string; serviceType?: string; hasStripe?: string }) {
