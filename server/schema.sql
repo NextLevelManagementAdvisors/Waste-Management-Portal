@@ -286,8 +286,11 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_type VARCHAR(50) NOT NULL,
   body TEXT NOT NULL,
   message_type VARCHAR(50) DEFAULT 'text',
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP
 );
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 
 -- Add bank account columns to driver_w9 for manual bank account entry
 ALTER TABLE driver_w9 ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(255);

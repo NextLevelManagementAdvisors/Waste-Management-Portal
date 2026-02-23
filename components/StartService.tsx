@@ -5,8 +5,9 @@ import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
 import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
-import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getCustomerId } from '../services/stripeService.ts';
+import { getStripePromise } from './StripeProvider.tsx';
 import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
 
 interface ServiceSelection {
@@ -47,6 +48,61 @@ const StepIndicator: React.FC<{ currentStep: number }> = ({ currentStep }) => (
 );
 
 
+const NewPaymentForm: React.FC<{
+    onConfirmed: (paymentMethodId: string) => Promise<void>;
+    onBack: () => void;
+    isProcessing: boolean;
+    setIsProcessing: (v: boolean) => void;
+    setSetupError: (msg: string | null) => void;
+}> = ({ onConfirmed, onBack, isProcessing, setIsProcessing, setSetupError }) => {
+    const stripe = useStripe();
+    const elements = useElements();
+
+    const handleConfirm = async () => {
+        if (!stripe || !elements) {
+            setSetupError('Payment system is still loading. Please wait.');
+            return;
+        }
+        setIsProcessing(true);
+        setSetupError(null);
+        try {
+            const { error: stripeError, setupIntent } = await stripe.confirmSetup({
+                elements,
+                redirect: 'if_required',
+            });
+            if (stripeError) {
+                setSetupError(stripeError.message || 'Failed to add payment method.');
+                setIsProcessing(false);
+                return;
+            }
+            if (setupIntent?.payment_method) {
+                const pmId = typeof setupIntent.payment_method === 'string'
+                    ? setupIntent.payment_method
+                    : setupIntent.payment_method.id;
+                await addPaymentMethod(pmId);
+                await onConfirmed(pmId);
+            }
+        } catch (error) {
+            console.error('Failed during payment setup:', error);
+            setSetupError('An error occurred during setup. Please check your details and try again.');
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <>
+            <PaymentElement />
+            <p className="text-xs text-gray-500 mt-2 text-center">Securely processed by Stripe.</p>
+            <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
+                <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={onBack} disabled={isProcessing}>Back</Button>
+                <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleConfirm} disabled={isProcessing || !stripe}>
+                    {isProcessing ? 'Processing...' : 'Complete Setup'}
+                </Button>
+            </div>
+        </>
+    );
+};
+
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
     const [step, setStep] = useState(1);
     const [formData, setFormData] = useState<NewPropertyInfo>(() => {
@@ -65,6 +121,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const [loadingMethods, setLoadingMethods] = useState(false);
     const [billingChoice, setBillingChoice] = useState<'existing' | 'new'>('existing');
     const [selectedMethodId, setSelectedMethodId] = useState('');
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
 
      useEffect(() => {
         if (step === 3 && availableServices.length === 0) {
@@ -85,6 +142,21 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             }).catch(() => setLoadingMethods(false));
         }
     }, [step, availableServices.length]);
+
+    useEffect(() => {
+        if (billingChoice === 'new' && !clientSecret) {
+            const customerId = getCustomerId();
+            if (!customerId) return;
+            fetch('/api/setup-intent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ customerId }),
+            })
+                .then(res => res.json())
+                .then(json => setClientSecret(json.data.clientSecret))
+                .catch(err => console.error('Failed to create setup intent:', err));
+        }
+    }, [billingChoice, clientSecret]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -108,71 +180,31 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const handleNext = () => setStep(s => s + 1);
     const handleBack = () => setStep(s => s - 1);
 
-    const stripe = useStripe();
-    const elements = useElements();
     const [setupError, setSetupError] = useState<string | null>(null);
+
+    const handleNewPaymentConfirmed = async (paymentMethodId: string) => {
+        try {
+            setSelectedMethodId(paymentMethodId);
+            await onCompleteSetup(formData, selectedServices);
+        } catch (error) {
+            console.error("Failed during service setup:", error);
+            setSetupError("An error occurred during setup. Please check your details and try again.");
+            setIsProcessing(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (step !== 4) return;
+        if (billingChoice === 'new') return; // handled by NewPaymentForm
 
         setIsProcessing(true);
         setSetupError(null);
         try {
-            if (billingChoice === 'new') {
-                if (!stripe || !elements) {
-                    setSetupError('Payment system is still loading. Please wait.');
-                    setIsProcessing(false);
-                    return;
-                }
-                const customerId = getCustomerId();
-                if (!customerId) {
-                    setSetupError('No customer account found. Please log in again.');
-                    setIsProcessing(false);
-                    return;
-                }
-
-                const setupRes = await fetch('/api/setup-intent', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customerId }),
-                });
-                const setupText = await setupRes.text();
-                let setupJson;
-                try { setupJson = JSON.parse(setupText); } catch { throw new Error('Server error while setting up payment'); }
-                const { data: setupData } = setupJson;
-
-                const cardElement = elements.getElement(CardElement);
-                if (!cardElement) {
-                    setSetupError('Card input not found. Please try again.');
-                    setIsProcessing(false);
-                    return;
-                }
-
-                const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(
-                    setupData.clientSecret,
-                    { payment_method: { card: cardElement as any } }
-                );
-
-                if (stripeError) {
-                    setSetupError(stripeError.message || 'Failed to add card.');
-                    setIsProcessing(false);
-                    return;
-                }
-
-                if (setupIntent?.payment_method) {
-                    const pmId = typeof setupIntent.payment_method === 'string'
-                        ? setupIntent.payment_method
-                        : setupIntent.payment_method.id;
-                    await addPaymentMethod(pmId);
-                    setSelectedMethodId(pmId);
-                }
-            } else if (billingChoice === 'existing' && selectedMethodId) {
+            if (selectedMethodId) {
                 await setPrimaryPaymentMethod(selectedMethodId);
             }
-
             await onCompleteSetup(formData, selectedServices);
-
         } catch (error) {
             console.error("Failed during service setup:", error);
             setSetupError("An error occurred during setup. Please check your details and try again.");
@@ -505,18 +537,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         );
     };
 
-    const CARD_ELEMENT_OPTIONS = {
-        style: {
-            base: {
-                fontSize: '16px',
-                color: '#1f2937',
-                '::placeholder': { color: '#9ca3af' },
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-            },
-            invalid: { color: '#ef4444', iconColor: '#ef4444' },
-        },
-    };
-
     const renderStep4 = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
              {loadingMethods ? <p>Loading payment methods...</p> : (
@@ -539,13 +559,22 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Add New Payment Method</label>
                         <div onClick={() => setBillingChoice('new')} className={`p-4 border rounded-lg cursor-pointer ${billingChoice === 'new' ? 'border-primary ring-1 ring-primary bg-teal-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                             <input type="radio" name="paymentMethod" value="new" checked={billingChoice === 'new'} readOnly className="h-4 w-4 text-primary focus:ring-primary border-gray-300 mb-3"/>
-                            {billingChoice === 'new' && (
+                            {billingChoice === 'new' && clientSecret && (
                                 <div className="mt-2">
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Card Details</label>
-                                    <div className="border border-gray-300 rounded-md p-3 bg-white focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all">
-                                        <CardElement options={CARD_ELEMENT_OPTIONS} />
-                                    </div>
-                                    <p className="text-xs text-gray-500 mt-2 text-center">Securely processed by Stripe.</p>
+                                    <Elements stripe={getStripePromise()} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
+                                        <NewPaymentForm
+                                            onConfirmed={handleNewPaymentConfirmed}
+                                            onBack={handleBack}
+                                            isProcessing={isProcessing}
+                                            setIsProcessing={setIsProcessing}
+                                            setSetupError={setSetupError}
+                                        />
+                                    </Elements>
+                                </div>
+                            )}
+                            {billingChoice === 'new' && !clientSecret && (
+                                <div className="mt-2 flex justify-center py-4">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-4 border-primary/20 border-t-primary"></div>
                                 </div>
                             )}
                         </div>
@@ -559,12 +588,14 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 </div>
             )}
 
-            <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
-                <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing || (billingChoice === 'new' && !stripe)}>
-                    {isProcessing ? 'Processing...' : 'Complete Setup'}
-                </Button>
-            </div>
+            {billingChoice !== 'new' && (
+                <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
+                    <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
+                    <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing}>
+                        {isProcessing ? 'Processing...' : 'Complete Setup'}
+                    </Button>
+                </div>
+            )}
         </div>
     );
 

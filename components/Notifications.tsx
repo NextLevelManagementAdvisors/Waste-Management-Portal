@@ -30,7 +30,7 @@ const Notifications: React.FC = () => {
         fetch('/api/profile/message-notifications')
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (d) setMsgEmailEnabled(d.message_email_notifications); })
-            .catch(() => {});
+            .catch(e => console.error('Failed to load message notification preference:', e));
     }, []);
 
     const handleMsgEmailToggle = async () => {

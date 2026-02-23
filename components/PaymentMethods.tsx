@@ -7,7 +7,8 @@ import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
-import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
+import { getStripePromise } from './StripeProvider.tsx';
 import { getCustomerId } from '../services/stripeService.ts';
 
 const isMethodExpired = (method: PaymentMethod): boolean => {
@@ -66,22 +67,7 @@ const PaymentMethodCard: React.FC<{
     );
 };
 
-const CARD_ELEMENT_OPTIONS = {
-    style: {
-        base: {
-            fontSize: '16px',
-            color: '#1f2937',
-            '::placeholder': { color: '#9ca3af' },
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-        },
-        invalid: {
-            color: '#ef4444',
-            iconColor: '#ef4444',
-        },
-    },
-};
-
-const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void, onClose: () => void}> = ({ onAdd, onClose }) => {
+const PaymentElementForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void, onClose: () => void}> = ({ onAdd, onClose }) => {
     const stripe = useStripe();
     const elements = useElements();
     const [isAdding, setIsAdding] = useState(false);
@@ -94,40 +80,17 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
             return;
         }
 
-        const customerId = getCustomerId();
-        if (!customerId) {
-            setError('No customer account found. Please log in again.');
-            return;
-        }
-
         setIsAdding(true);
         setError(null);
 
         try {
-            const setupRes = await fetch('/api/setup-intent', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ customerId }),
+            const { error: stripeError, setupIntent } = await stripe.confirmSetup({
+                elements,
+                redirect: 'if_required',
             });
-            const setupText = await setupRes.text();
-            let setupJson;
-            try { setupJson = JSON.parse(setupText); } catch { throw new Error('Server error while setting up payment'); }
-            const { data: setupData } = setupJson;
-
-            const cardElement = elements.getElement(CardElement);
-            if (!cardElement) {
-                setError('Card input not found. Please try again.');
-                setIsAdding(false);
-                return;
-            }
-
-            const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(
-                setupData.clientSecret,
-                { payment_method: { card: cardElement as any } }
-            );
 
             if (stripeError) {
-                setError(stripeError.message || 'Failed to add card. Please try again.');
+                setError(stripeError.message || 'Failed to add payment method. Please try again.');
                 setIsAdding(false);
                 return;
             }
@@ -158,10 +121,7 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
     return (
         <form onSubmit={handleSubmit}>
             <div className="mb-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Card Details</label>
-                <div className="border border-gray-300 rounded-md p-3 bg-white focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all">
-                    <CardElement options={CARD_ELEMENT_OPTIONS} />
-                </div>
+                <PaymentElement />
             </div>
 
             {error && (
@@ -175,10 +135,52 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
             <div className="mt-6 flex justify-end gap-3">
                  <Button type="button" variant="secondary" onClick={onClose} disabled={isAdding}>Cancel</Button>
                  <Button type="submit" disabled={isAdding || !stripe}>
-                    {isAdding ? 'Adding...' : 'Add Card'}
+                    {isAdding ? 'Adding...' : 'Add Payment Method'}
                  </Button>
             </div>
         </form>
+    );
+};
+
+const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void, onClose: () => void}> = ({ onAdd, onClose }) => {
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const customerId = getCustomerId();
+        if (!customerId) {
+            setError('No customer account found. Please log in again.');
+            setLoading(false);
+            return;
+        }
+        fetch('/api/setup-intent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customerId }),
+        })
+            .then(res => res.json())
+            .then(json => { setClientSecret(json.data.clientSecret); setLoading(false); })
+            .catch(() => { setError('Failed to initialize payment form.'); setLoading(false); });
+    }, []);
+
+    if (loading) {
+        return <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/20 border-t-primary"></div></div>;
+    }
+
+    if (error || !clientSecret) {
+        return (
+            <div>
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error || 'Failed to load payment form.'}</div>
+                <div className="mt-4 flex justify-end"><Button variant="secondary" onClick={onClose}>Close</Button></div>
+            </div>
+        );
+    }
+
+    return (
+        <Elements stripe={getStripePromise()} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
+            <PaymentElementForm onAdd={onAdd} onClose={onClose} />
+        </Elements>
     );
 };
 
@@ -351,7 +353,7 @@ const PaymentMethods: React.FC = () => {
             </Card>
 
             <Modal 
-                title={modalStep === 'add' ? "Add New Payment Method" : "Update Subscriptions?"} 
+                title={modalStep === 'add' ? "Add Payment Method" : "Update Subscriptions?"} 
                 isOpen={isModalOpen} 
                 onClose={closeModal}
             >

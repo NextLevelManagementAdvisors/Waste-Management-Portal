@@ -40,7 +40,7 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
     try {
       const res = await fetch('/api/conversations', { credentials: 'include' });
       if (res.ok) setConversations(await res.json());
-    } catch {}
+    } catch (e) { console.error('Failed to load conversations:', e); }
   }, []);
 
   const loadUnread = useCallback(async () => {
@@ -50,7 +50,7 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
         const data = await res.json();
         setUnreadTotal(data.count || 0);
       }
-    } catch {}
+    } catch (e) { console.error('Failed to load unread count:', e); }
   }, []);
 
   useEffect(() => {
@@ -80,12 +80,12 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
               if (prev.find(m => m.id === data.data.message.id)) return prev;
               return [...prev, data.data.message];
             });
-            fetch(`/api/conversations/${selectedConvId}/read`, { method: 'PUT', credentials: 'include' }).catch(() => {});
+            fetch(`/api/conversations/${selectedConvId}/read`, { method: 'PUT', credentials: 'include' }).catch(e => console.error('Failed to mark as read:', e));
           }
           loadConversations();
           loadUnread();
         }
-      } catch {}
+      } catch (e) { console.error('WebSocket message parse error:', e); }
     };
 
     return () => ws.close();
@@ -101,8 +101,8 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`, { credentials: 'include' });
       if (res.ok) setMessages(await res.json());
-      fetch(`/api/conversations/${convId}/read`, { method: 'PUT', credentials: 'include' }).catch(() => {});
-    } catch {}
+      fetch(`/api/conversations/${convId}/read`, { method: 'PUT', credentials: 'include' }).catch(e => console.error('Failed to mark as read:', e));
+    } catch (e) { console.error('Failed to load messages:', e); }
     setLoading(false);
   };
 
@@ -125,7 +125,7 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
         });
         setNewMessage('');
       }
-    } catch {}
+    } catch (e) { console.error('Failed to send message:', e); }
     setSending(false);
   };
 
@@ -148,7 +148,7 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
         loadConversations();
         loadMessages(data.conversation.id);
       }
-    } catch {}
+    } catch (e) { console.error('Failed to create conversation:', e); }
     setSending(false);
   };
 

@@ -141,11 +141,11 @@ export function registerRoutes(app: Express) {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
-      const paymentMethods = await stripe.paymentMethods.list({
-        customer: customerId,
-        type: 'card',
-      });
-      res.json({ data: paymentMethods.data });
+      const [cards, bankAccounts] = await Promise.all([
+        stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
+        stripe.paymentMethods.list({ customer: customerId, type: 'us_bank_account' }),
+      ]);
+      res.json({ data: [...cards.data, ...bankAccounts.data] });
     } catch (error: any) {
       if (error?.code === 'resource_missing') {
         return res.json({ data: [] });
@@ -203,7 +203,7 @@ export function registerRoutes(app: Express) {
       const { customerId } = req.body;
       const setupIntent = await stripe.setupIntents.create({
         customer: customerId,
-        payment_method_types: ['card'],
+        payment_method_types: ['card', 'us_bank_account'],
       });
       res.json({ data: { clientSecret: setupIntent.client_secret } });
     } catch (error: any) {
@@ -230,9 +230,11 @@ export function registerRoutes(app: Express) {
       const subscription = await stripe.subscriptions.create(createParams);
 
       if (req.session?.userId) {
-        processReferralCredits(req.session.userId, stripe).catch(err =>
-          console.error('Referral credit processing failed (non-blocking):', err)
-        );
+        try {
+          await processReferralCredits(req.session.userId, stripe);
+        } catch (err) {
+          console.error('Referral credit processing failed:', err);
+        }
       }
 
       res.json({ data: subscription });
@@ -392,7 +394,7 @@ export function registerRoutes(app: Express) {
 
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
-        payment_method_types: ['card'],
+        payment_method_types: ['card', 'us_bank_account'],
         line_items: [{ price: priceId, quantity: quantity || 1 }],
         mode: 'subscription',
         success_url: successUrl,
@@ -479,7 +481,7 @@ export function registerRoutes(app: Express) {
   app.get('/api/optimoroute/history', requireAuth, async (req: Request, res: Response) => {
     try {
       const address = req.query.address as string;
-      const weeks = parseInt(req.query.weeks as string) || 12;
+      const weeks = Math.min(Math.max(parseInt(req.query.weeks as string) || 12, 1), 52);
       if (!address) return res.status(400).json({ error: 'address is required' });
       if (!(await verifyUserOwnsAddress(req, res, address))) {
         return res.status(403).json({ error: 'Address not found in your properties' });

@@ -28,28 +28,29 @@ const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => {
             </div>
             
             <div className="relative py-6">
-                <div className="absolute top-1/2 -mt-0.5 left-4 right-4 h-1.5 bg-gray-200 rounded-full" />
-                <div className="absolute top-1/2 -mt-0.5 left-4 h-1.5 bg-primary rounded-full transition-all duration-1000" style={{ width: '65%' }} />
-                
+                <div className="absolute top-1/2 -mt-0.5 left-4 right-4 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary/60 rounded-full animate-pulse" />
+                </div>
+
                 <div className="relative flex justify-between">
                     <div className="flex flex-col items-center">
                         <div className="w-3 h-3 rounded-full bg-primary" />
                         <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Depot</span>
                     </div>
-                    <div className="absolute left-[65%] -mt-6 transform -translate-x-1/2 flex flex-col items-center">
-                        <div className="bg-white border-2 border-primary rounded-lg p-2 shadow-lg mb-1">
+                    <div className="flex flex-col items-center -mt-6">
+                        <div className="bg-white border-2 border-primary rounded-lg p-2 shadow-lg mb-1 animate-bounce" style={{ animationDuration: '2s' }}>
                             <TruckIcon className="w-5 h-5 text-primary" />
                         </div>
-                        <span className="text-[10px] font-black text-primary uppercase">Truck</span>
+                        <span className="text-[10px] font-black text-primary uppercase">En Route</span>
                     </div>
                     <div className="flex flex-col items-center">
                         <div className="w-3 h-3 rounded-full bg-gray-200" />
-                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Destination</span>
+                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Your Stop</span>
                     </div>
                 </div>
             </div>
             <div className="text-sm font-medium text-gray-600 mt-6 text-center bg-gray-100 py-3 px-4 rounded-lg">
-                The collection crew is currently 4 stops away from your property.
+                The collection crew is en route to your property.
             </div>
         </Card>
     );

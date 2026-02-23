@@ -812,7 +812,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
       const report = await storage.createMissedPickupReport({ userId, propertyId, pickupDate: date, notes: notes || '' });
-      sendMissedPickupConfirmation(userId, property.address, date).catch(() => {});
+      sendMissedPickupConfirmation(userId, property.address, date).catch(e => console.error('Missed pickup confirmation email failed:', e));
       res.json({ data: report, success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to submit report' });
@@ -876,7 +876,7 @@ export function registerAuthRoutes(app: Express) {
         console.error('Stripe invoice creation failed (non-blocking):', stripeErr.message);
       }
 
-      sendServiceUpdate(userId, 'Special Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${property.address}.`).catch(() => {});
+      sendServiceUpdate(userId, 'Special Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${property.address}.`).catch(e => console.error('Service update email failed:', e));
 
       res.json({ data: request });
     } catch (error: any) {

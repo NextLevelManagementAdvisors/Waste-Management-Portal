@@ -2,27 +2,13 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { storage } from './storage';
 import { broadcastToParticipants } from './websocket';
 import { sendMessageNotificationEmail } from './notificationService';
+import { requireAdmin } from './adminRoutes';
 
 function requireAuth(req: Request, res: Response, next: Function) {
   if (!(req.session as any)?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   next();
-}
-
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!(req.session as any)?.userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  try {
-    const user = await storage.getUserById((req.session as any).userId);
-    if (!user || !user.is_admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    next();
-  } catch {
-    res.status(500).json({ error: 'Server error' });
-  }
 }
 
 export function registerCommunicationRoutes(app: Express) {
@@ -40,6 +26,8 @@ export function registerCommunicationRoutes(app: Express) {
     try {
       const { name, email, phone, optimorouteDriverId } = req.body;
       if (!name) return res.status(400).json({ error: 'Name is required' });
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email format' });
+      if (phone && !/^[\d\s()+\-]{7,20}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number format' });
       const driver = await storage.createDriver({ name, email, phone, optimorouteDriverId });
       res.json(driver);
     } catch (e) {
@@ -158,9 +146,9 @@ export function registerCommunicationRoutes(app: Express) {
       const senderName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Admin';
       for (const p of participants) {
         if (p.participant_type === 'user') {
-          sendMessageNotificationEmail(p.participant_id, 'user', senderName, body.trim(), conv.subject).catch(() => {});
+          sendMessageNotificationEmail(p.participant_id, 'user', senderName, body.trim(), conv.subject).catch(e => console.error('Message notification email failed:', e));
         } else if (p.participant_type === 'driver') {
-          sendMessageNotificationEmail(p.participant_id, 'driver', senderName, body.trim(), conv.subject).catch(() => {});
+          sendMessageNotificationEmail(p.participant_id, 'driver', senderName, body.trim(), conv.subject).catch(e => console.error('Message notification email failed:', e));
         }
       }
 
@@ -311,7 +299,7 @@ export function registerCommunicationRoutes(app: Express) {
       const senderDisplayName = user ? `${user.first_name} ${user.last_name}` : 'Customer';
       for (const p of participants) {
         if (p.participant_type === 'driver') {
-          sendMessageNotificationEmail(p.participant_id, 'driver', senderDisplayName, body.trim(), conv2?.subject).catch(() => {});
+          sendMessageNotificationEmail(p.participant_id, 'driver', senderDisplayName, body.trim(), conv2?.subject).catch(e => console.error('Message notification email failed:', e));
         }
       }
 
@@ -329,6 +317,67 @@ export function registerCommunicationRoutes(app: Express) {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });
+    }
+  });
+
+  // Edit a message (sender only)
+  app.put('/api/conversations/:convId/messages/:msgId', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { body } = req.body;
+      if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
+      const result = await storage.query(
+        `UPDATE messages SET body = $1, updated_at = NOW() WHERE id = $2 AND sender_id = $3 AND sender_type = 'user' RETURNING *`,
+        [body.trim(), req.params.msgId, userId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found or not yours' });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to edit message' });
+    }
+  });
+
+  // Delete a message (sender only)
+  app.delete('/api/conversations/:convId/messages/:msgId', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const result = await storage.query(
+        `DELETE FROM messages WHERE id = $1 AND sender_id = $2 AND sender_type = 'user' RETURNING id`,
+        [req.params.msgId, userId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found or not yours' });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to delete message' });
+    }
+  });
+
+  // Admin edit/delete messages
+  app.put('/api/admin/conversations/:convId/messages/:msgId', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { body } = req.body;
+      if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
+      const result = await storage.query(
+        `UPDATE messages SET body = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [body.trim(), req.params.msgId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to edit message' });
+    }
+  });
+
+  app.delete('/api/admin/conversations/:convId/messages/:msgId', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await storage.query(
+        `DELETE FROM messages WHERE id = $1 RETURNING id`,
+        [req.params.msgId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to delete message' });
     }
   });
 
@@ -458,7 +507,7 @@ export function registerCommunicationRoutes(app: Express) {
       const driverSenderName = driver ? driver.name : 'Driver';
       for (const p of participants) {
         if (p.participant_type === 'user') {
-          sendMessageNotificationEmail(p.participant_id, 'user', driverSenderName, body.trim(), driverConv?.subject).catch(() => {});
+          sendMessageNotificationEmail(p.participant_id, 'user', driverSenderName, body.trim(), driverConv?.subject).catch(e => console.error('Message notification email failed:', e));
         }
       }
 

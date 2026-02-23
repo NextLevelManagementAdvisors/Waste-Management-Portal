@@ -803,8 +803,19 @@ export function registerAdminRoutes(app: Express) {
           await storage.bulkUpdateAdminStatus(userIds, false);
           await audit(req, 'bulk_revoke_admin', 'system', undefined, { count: userIds.length });
           break;
-        case 'export':
-          break;
+        case 'export': {
+          const users = await storage.getUsersForExport({});
+          const header = 'ID,First Name,Last Name,Email,Phone,Member Since,Stripe ID,Admin,Properties,Addresses,Created At\n';
+          const rows = users
+            .filter((u: any) => userIds.includes(u.id))
+            .map((u: any) =>
+              [u.id, u.first_name, u.last_name, u.email, u.phone || '', u.member_since || '', u.stripe_customer_id || '', u.is_admin, u.property_count, `"${(u.addresses || '').replace(/"/g, '""')}"`, u.created_at].join(',')
+            ).join('\n');
+          await audit(req, 'export_customers', 'system', undefined, { count: userIds.length });
+          res.setHeader('Content-Type', 'text/csv');
+          res.setHeader('Content-Disposition', 'attachment; filename=customers.csv');
+          return res.send(header + rows);
+        }
         default:
           return res.status(400).json({ error: 'Invalid bulk action' });
       }
@@ -828,7 +839,15 @@ export function registerAdminRoutes(app: Express) {
       req.session.impersonatingUserId = targetUserId;
       req.session.userId = targetUserId;
 
-      res.json({ success: true, user: { firstName: targetUser.first_name, lastName: targetUser.last_name, email: targetUser.email } });
+      await audit(req, 'impersonate_user', 'user', targetUserId, { targetUserEmail: targetUser.email });
+
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during impersonation:', err);
+          return res.status(500).json({ error: 'Failed to start impersonation' });
+        }
+        res.json({ success: true, user: { firstName: targetUser.first_name, lastName: targetUser.last_name, email: targetUser.email } });
+      });
     } catch (error) {
       console.error('Impersonation error:', error);
       res.status(500).json({ error: 'Failed to start impersonation' });
@@ -845,7 +864,13 @@ export function registerAdminRoutes(app: Express) {
       delete req.session.impersonatingUserId;
       delete req.session.originalAdminUserId;
 
-      res.json({ success: true });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error stopping impersonation:', err);
+          return res.status(500).json({ error: 'Failed to stop impersonation' });
+        }
+        res.json({ success: true });
+      });
     } catch (error) {
       console.error('Stop impersonation error:', error);
       res.status(500).json({ error: 'Failed to stop impersonation' });
@@ -867,7 +892,13 @@ export function registerAdminRoutes(app: Express) {
 
       await audit(req, 'impersonate_driver', 'driver', driverId, { driverName: driver.name, driverEmail: driver.email });
 
-      res.json({ success: true, driver: { id: driver.id, name: driver.name, email: driver.email } });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error during driver impersonation:', err);
+          return res.status(500).json({ error: 'Failed to start driver impersonation' });
+        }
+        res.json({ success: true, driver: { id: driver.id, name: driver.name, email: driver.email } });
+      });
     } catch (error) {
       console.error('Driver impersonation error:', error);
       res.status(500).json({ error: 'Failed to start driver impersonation' });
@@ -887,10 +918,68 @@ export function registerAdminRoutes(app: Express) {
       delete req.session.impersonatingDriverId;
       delete req.session.originalAdminForDriver;
 
-      res.json({ success: true });
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error stopping driver impersonation:', err);
+          return res.status(500).json({ error: 'Failed to stop driver impersonation' });
+        }
+        res.json({ success: true });
+      });
     } catch (error) {
       console.error('Stop driver impersonation error:', error);
       res.status(500).json({ error: 'Failed to stop driver impersonation' });
+    }
+  });
+
+  // Special Pickup Services CRUD
+  app.get('/api/admin/special-pickup-services', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await storage.query('SELECT * FROM special_pickup_services ORDER BY name');
+      res.json(result.rows);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch special pickup services' });
+    }
+  });
+
+  app.post('/api/admin/special-pickup-services', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { name, description, price, icon } = req.body;
+      if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
+      const result = await storage.query(
+        'INSERT INTO special_pickup_services (name, description, price, icon) VALUES ($1, $2, $3, $4) RETURNING *',
+        [name, description || '', Math.round(price * 100) / 100, icon || null]
+      );
+      await audit(req, 'create_special_service', 'special_pickup_service', result.rows[0].id, { name, price });
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create special pickup service' });
+    }
+  });
+
+  app.put('/api/admin/special-pickup-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { name, description, price, active, icon } = req.body;
+      if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
+      const result = await storage.query(
+        'UPDATE special_pickup_services SET name=$1, description=$2, price=$3, active=$4, icon=$5 WHERE id=$6 RETURNING *',
+        [name, description || '', Math.round(price * 100) / 100, active !== false, icon || null, req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
+      await audit(req, 'update_special_service', 'special_pickup_service', req.params.id, { name, price, active });
+      res.json(result.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update special pickup service' });
+    }
+  });
+
+  app.delete('/api/admin/special-pickup-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const result = await storage.query('DELETE FROM special_pickup_services WHERE id=$1 RETURNING id', [req.params.id]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
+      await audit(req, 'delete_special_service', 'special_pickup_service', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete special pickup service' });
     }
   });
 }
