@@ -50,24 +50,29 @@ const OrdersView: React.FC = () => {
     }
   }, [fromDate, toDate]);
 
-  const deleteOrder = async (orderNo: string) => {
-    if (!confirm(`Delete order ${orderNo}?`)) return;
+  const getOrderKey = (order: Order) => order.orderNo || order.id || '';
+
+  const deleteOrder = async (order: Order) => {
+    const key = getOrderKey(order);
+    const label = order.orderNo || order.location?.locationName || key.slice(0, 8);
+    if (!confirm(`Delete order ${label}?`)) return;
     try {
-      const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(orderNo)}`, {
+      const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(key)}`, {
         method: 'DELETE',
         credentials: 'include',
       });
       if (res.ok) {
-        setOrders(prev => prev.filter(o => o.orderNo !== orderNo));
+        setOrders(prev => prev.filter(o => getOrderKey(o) !== key));
       }
     } catch {}
   };
 
-  const viewDetail = async (orderNo: string) => {
+  const viewDetail = async (order: Order) => {
+    const key = getOrderKey(order);
     setDetailLoading(true);
     setDetailOrder(null);
     try {
-      const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(orderNo)}`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(key)}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setDetailOrder(data);
@@ -123,8 +128,10 @@ const OrdersView: React.FC = () => {
               </thead>
               <tbody>
                 {orders.map(order => (
-                  <tr key={order.orderNo || order.id} className="border-t border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{order.orderNo}</td>
+                  <tr key={order.id || order.orderNo} className="border-t border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">
+                      {order.orderNo || order.location?.locationName || order.id?.slice(0, 8) || '—'}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{order.date}</td>
                     <td className="px-4 py-3">
                       <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
@@ -141,10 +148,10 @@ const OrdersView: React.FC = () => {
                     <td className="px-4 py-3 text-gray-500">{order.duration ? `${order.duration}m` : '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button onClick={() => viewDetail(order.orderNo)} className="text-xs font-bold text-teal-600 hover:text-teal-800">
+                        <button onClick={() => viewDetail(order)} className="text-xs font-bold text-teal-600 hover:text-teal-800">
                           View
                         </button>
-                        <button onClick={() => deleteOrder(order.orderNo)} className="text-xs font-bold text-red-500 hover:text-red-700">
+                        <button onClick={() => deleteOrder(order)} className="text-xs font-bold text-red-500 hover:text-red-700">
                           Delete
                         </button>
                       </div>

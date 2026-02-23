@@ -296,9 +296,9 @@ export async function createOrder(data: {
 
 // ── New API functions ──
 
-export async function getOrders(orderNos: string[]): Promise<any> {
+export async function getOrders(identifiers: string[], byId = false): Promise<any> {
   return apiPost('get_orders', {
-    orders: orderNos.map(orderNo => ({ orderNo })),
+    orders: identifiers.map(val => byId ? { id: val } : { orderNo: val }),
   });
 }
 

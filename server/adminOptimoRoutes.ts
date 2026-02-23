@@ -79,27 +79,37 @@ export function registerAdminOptimoRoutes(app: Express) {
         return res.status(400).json({ error: 'from and to date parameters required' });
       }
       const result = await optimo.searchOrders(from, to, true);
-      res.json(result);
+      // Flatten nested data and ensure id is always present
+      const orders = (result.orders || []).map((o: any) => ({
+        ...o.data,
+        id: o.id || o.data?.id,
+        orderNo: o.data?.orderNo || o.orderNo || '',
+      }));
+      res.json({ orders });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error searching orders:', error);
       res.status(500).json({ error: 'Failed to search orders' });
     }
   });
 
-  app.get('/api/admin/optimoroute/orders/:orderNo', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/optimoroute/orders/:identifier', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { orderNo } = req.params;
-      const [orderResult, schedResult, completionResult] = await Promise.allSettled([
-        optimo.getOrders([orderNo]),
-        optimo.getSchedulingInfo(orderNo),
-        optimo.getCompletionDetailsFull([orderNo]),
+      const { identifier } = req.params;
+      const isId = /^[0-9a-f]{20,}$/.test(identifier);
+      const [orderResult, completionResult] = await Promise.allSettled([
+        optimo.getOrders([identifier], isId),
+        optimo.getCompletionDetailsFull([identifier], isId),
       ]);
 
-      const order = orderResult.status === 'fulfilled' ? orderResult.value?.orders?.[0] : null;
-      const schedule = schedResult.status === 'fulfilled' ? schedResult.value : null;
+      const orderRaw = orderResult.status === 'fulfilled' ? orderResult.value?.orders?.[0] : null;
+      const order = orderRaw?.data || null;
+      let schedule = null;
+      if (order?.orderNo) {
+        try { schedule = await optimo.getSchedulingInfo(order.orderNo); } catch {}
+      }
       const completion = completionResult.status === 'fulfilled' ? completionResult.value?.orders?.[0] : null;
 
-      res.json({ order: order?.data || null, schedule, completion: completion?.data || null });
+      res.json({ order, schedule, completion: completion?.data || null });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error fetching order:', error);
       res.status(500).json({ error: 'Failed to fetch order details' });
