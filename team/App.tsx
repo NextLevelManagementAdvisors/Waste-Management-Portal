@@ -936,7 +936,7 @@ const JobBoard: React.FC = () => {
         const j = await res.json();
         const job = j.data;
         setSelectedJob(job);
-        setBidAmount(job.base_pay?.toString() || '');
+        setBidAmount(job.base_pay && job.estimated_hours ? (job.base_pay * job.estimated_hours).toFixed(2) : (job.base_pay?.toString() || ''));
         setBidMessage('');
         const profileRes = await fetch('/api/team/profile', { credentials: 'include' });
         if (profileRes.ok) {
