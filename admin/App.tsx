@@ -104,6 +104,26 @@ const AdminApp: React.FC = () => {
     }
   }, []);
 
+  const handleGoogleAuthSuccess = useCallback(async () => {
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (!res.ok) {
+        setAuthError('Google sign-in failed. Please try again.');
+        return;
+      }
+      const json = await res.json();
+      if (!json.data?.isAdmin) {
+        setAuthError('You do not have admin privileges. Please use the Client Portal to sign in.');
+        return;
+      }
+      setUser(json.data);
+      setAuthChecked(true);
+    } catch {
+      setAuthError('Google sign-in failed. Please try again.');
+    }
+  }, []);
+
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => {
@@ -144,7 +164,7 @@ const AdminApp: React.FC = () => {
   if (!user) {
     return (
       <AdminAuthLayout error={authError}>
-        <AdminLogin onLogin={handleAdminLogin} />
+        <AdminLogin onLogin={handleAdminLogin} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
       </AdminAuthLayout>
     );
   }
