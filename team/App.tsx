@@ -63,6 +63,23 @@ interface Bid {
 
 type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'profile' | 'messages';
 
+const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
+  dashboard: '/team',
+  jobs: '/team/jobs',
+  schedule: '/team/schedule',
+  messages: '/team/messages',
+  profile: '/team/profile',
+};
+
+const TEAM_PATH_TO_VIEW: Record<string, TeamView> = Object.fromEntries(
+  Object.entries(TEAM_VIEW_TO_PATH).map(([view, path]) => [path, view as TeamView])
+) as Record<string, TeamView>;
+
+function getTeamViewFromPath(pathname: string): TeamView {
+  const normalized = pathname.replace(/\/+$/, '') || '/team';
+  return TEAM_PATH_TO_VIEW[normalized] || 'dashboard';
+}
+
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
   'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
@@ -2437,7 +2454,11 @@ const DriverMessages: React.FC = () => {
 
 const TeamApp: React.FC = () => {
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
-  const [currentView, setCurrentView] = useState<TeamView>('dashboard');
+  const [currentView, setCurrentViewRaw] = useState<TeamView>(() => getTeamViewFromPath(window.location.pathname));
+  const [pendingDeepLink] = useState<TeamView | null>(() => {
+    const view = getTeamViewFromPath(window.location.pathname);
+    return view !== 'dashboard' ? view : null;
+  });
   const [loading, setLoading] = useState(true);
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2449,6 +2470,22 @@ const TeamApp: React.FC = () => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+
+  const setCurrentView = useCallback((view: TeamView) => {
+    setCurrentViewRaw(view);
+    const targetPath = TEAM_VIEW_TO_PATH[view] || '/team';
+    if (window.location.pathname.replace(/\/+$/, '') !== targetPath) {
+      window.history.pushState({ view }, '', targetPath);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentViewRaw(getTeamViewFromPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const checkSession = async () => {
     try {
@@ -2501,7 +2538,8 @@ const TeamApp: React.FC = () => {
     } catch {}
     setCurrentDriver(null);
     setOnboardingStatus(null);
-    setCurrentView('dashboard');
+    setCurrentViewRaw('dashboard');
+    window.history.replaceState({}, '', '/team');
   };
 
   const handleStopImpersonation = async () => {
@@ -2539,6 +2577,7 @@ const TeamApp: React.FC = () => {
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
                 setCurrentDriver(normalizeDriver(json.data || json.driver));
+                if (pendingDeepLink) setCurrentViewRaw(pendingDeepLink);
                 await checkOnboarding();
               } catch (err: any) {
                 setAuthError(err.message);
@@ -2572,6 +2611,7 @@ const TeamApp: React.FC = () => {
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
                 setCurrentDriver(normalizeDriver(json.data || json.driver));
+                if (pendingDeepLink) setCurrentViewRaw(pendingDeepLink);
                 await checkOnboarding();
               } catch (err: any) {
                 setAuthError(err.message);

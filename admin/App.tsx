@@ -27,6 +27,34 @@ interface AdminUser {
 
 type AdminView = 'dashboard' | 'people' | 'billing' | 'operations' | 'communications' | 'system';
 
+const VIEW_TO_PATH: Record<AdminView, string> = {
+  dashboard: '/admin',
+  people: '/admin/people',
+  billing: '/admin/billing',
+  operations: '/admin/operations',
+  communications: '/admin/communications',
+  system: '/admin/system',
+};
+
+const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
+  Object.entries(VIEW_TO_PATH).map(([view, path]) => [path, view as AdminView])
+) as Record<string, AdminView>;
+
+function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; } {
+  const normalized = pathname.replace(/\/+$/, '') || '/admin';
+  // Check /admin/people/:id
+  const personMatch = normalized.match(/^\/admin\/people\/([a-f0-9-]+)$/i);
+  if (personMatch) return { view: 'people', personId: personMatch[1] };
+  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null };
+}
+
+function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null }): string {
+  if (view === 'people' && opts?.personId) return `/admin/people/${opts.personId}`;
+  const base = VIEW_TO_PATH[view] || '/admin';
+  if (opts?.search) return `${base}?search=${encodeURIComponent(opts.search)}`;
+  return base;
+}
+
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -62,17 +90,51 @@ const AdminApp: React.FC = () => {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<AdminView>('dashboard');
-  const [navFilter, setNavFilter] = useState<NavFilter | null>(null);
+  const initialParsed = parseAdminPath(window.location.pathname);
+  const initialSearch = new URLSearchParams(window.location.search).get('search');
+  const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
+  const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
+  const [navFilter, setNavFilter] = useState<NavFilter | null>(initialSearch ? { search: initialSearch } : null);
+  const [pendingDeepLink] = useState(() => {
+    const parsed = parseAdminPath(window.location.pathname);
+    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch };
+    return null;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any>(null);
 
-  const navigateTo = (view: AdminView, filter?: NavFilter) => {
+  const navigateTo = useCallback((view: AdminView, filter?: NavFilter) => {
     setNavFilter(filter || null);
-    setCurrentView(view);
-  };
+    setCurrentViewRaw(view);
+    setSelectedPersonIdRaw(null);
+    const url = buildAdminUrl(view, { search: filter?.search });
+    window.history.pushState({ view }, '', url);
+  }, []);
+
+  const selectPerson = useCallback((id: string) => {
+    setSelectedPersonIdRaw(id);
+    setCurrentViewRaw('people');
+    window.history.pushState({ view: 'people', personId: id }, '', `/admin/people/${id}`);
+  }, []);
+
+  const deselectPerson = useCallback(() => {
+    setSelectedPersonIdRaw(null);
+    window.history.pushState({ view: 'people' }, '', '/admin/people');
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseAdminPath(window.location.pathname);
+      setCurrentViewRaw(parsed.view);
+      setSelectedPersonIdRaw(parsed.personId);
+      const search = new URLSearchParams(window.location.search).get('search');
+      setNavFilter(search ? { search } : null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleAdminLogin = useCallback(async (email: string, password: string) => {
     setAuthError(null);
@@ -98,11 +160,16 @@ const AdminApp: React.FC = () => {
       }
 
       setUser(json.data);
+      if (pendingDeepLink) {
+        setCurrentViewRaw(pendingDeepLink.view);
+        setSelectedPersonIdRaw(pendingDeepLink.personId);
+        if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
+      }
       setAuthChecked(true);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'An error occurred during login');
     }
-  }, []);
+  }, [pendingDeepLink]);
 
   const handleGoogleAuthSuccess = useCallback(async () => {
     setAuthError(null);
@@ -118,11 +185,16 @@ const AdminApp: React.FC = () => {
         return;
       }
       setUser(json.data);
+      if (pendingDeepLink) {
+        setCurrentViewRaw(pendingDeepLink.view);
+        setSelectedPersonIdRaw(pendingDeepLink.personId);
+        if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
+      }
       setAuthChecked(true);
     } catch {
       setAuthError('Google sign-in failed. Please try again.');
     }
-  }, []);
+  }, [pendingDeepLink]);
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -133,6 +205,7 @@ const AdminApp: React.FC = () => {
       .then(json => {
         if (json.data?.isAdmin) {
           setUser(json.data);
+          // Deep link is already set from initial state
         }
       })
       .catch(() => {})
@@ -142,6 +215,10 @@ const AdminApp: React.FC = () => {
   const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
+    setCurrentViewRaw('dashboard');
+    setSelectedPersonIdRaw(null);
+    setNavFilter(null);
+    window.history.replaceState({}, '', '/admin');
   }, []);
 
   const handleGlobalSearch = useCallback(async (q: string) => {
@@ -195,7 +272,7 @@ const AdminApp: React.FC = () => {
           {navItems.map(item => (
             <button
               key={item.view}
-              onClick={() => { setNavFilter(null); setCurrentView(item.view); setSidebarOpen(false); }}
+              onClick={() => { navigateTo(item.view); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${
                 currentView === item.view
                   ? 'bg-teal-600 text-white'
@@ -296,7 +373,7 @@ const AdminApp: React.FC = () => {
 
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
-          {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'communications' && <CommunicationsView />}
