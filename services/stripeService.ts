@@ -256,7 +256,7 @@ function mapStripeSubscription(sub: any, product?: any): Subscription {
   const quantity = item?.quantity || 1;
 
   let status: 'active' | 'paused' | 'canceled' = 'active';
-  if (sub.status === 'canceled' || sub.status === 'incomplete_expired') {
+  if (sub.status === 'canceled' || sub.status === 'incomplete_expired' || sub.status === 'incomplete') {
     status = 'canceled';
   } else if (sub.pause_collection) {
     status = 'paused';

@@ -186,6 +186,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const handleNewPaymentConfirmed = async (paymentMethodId: string) => {
         try {
             setSelectedMethodId(paymentMethodId);
+            await setPrimaryPaymentMethod(paymentMethodId);
             await onCompleteSetup(formData, selectedServices);
         } catch (error) {
             console.error("Failed during service setup:", error);

@@ -166,7 +166,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: paymentMethod });
     } catch (error: any) {
       console.error('Error attaching payment method:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Failed to attach payment method';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -178,7 +179,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: detached });
     } catch (error: any) {
       console.error('Error detaching payment method:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Failed to remove payment method';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -193,7 +195,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: customer });
     } catch (error: any) {
       console.error('Error setting default payment method:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Failed to set default payment method';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -211,7 +214,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: { clientSecret: setupIntent.client_secret } });
     } catch (error: any) {
       console.error('Error creating setup intent:', error);
-      res.status(500).json({ error: 'Failed to create setup intent' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Failed to create setup intent';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -224,8 +228,7 @@ export function registerRoutes(app: Express) {
         customer: customerId,
         items: [{ price: priceId, quantity: quantity || 1 }],
         metadata: metadata || {},
-        payment_behavior: 'default_incomplete',
-        expand: ['latest_invoice.payment_intent'],
+        payment_behavior: 'allow_incomplete',
       };
       if (paymentMethodId) {
         createParams.default_payment_method = paymentMethodId;
@@ -243,7 +246,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error creating subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 

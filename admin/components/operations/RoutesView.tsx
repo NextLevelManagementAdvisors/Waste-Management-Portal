@@ -108,7 +108,57 @@ const RoutesView: React.FC = () => {
       const res = await fetch(`/api/admin/optimoroute/routes?date=${date}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setRoutes(data.routes || []);
+        const fetchedRoutes: Route[] = data.routes || [];
+        setRoutes(fetchedRoutes);
+
+        // Fetch completion details for all stops to determine actual statuses
+        const allOrderNos = fetchedRoutes
+          .flatMap(r => (r.stops || []).map(s => s.orderNo))
+          .filter(Boolean);
+        if (allOrderNos.length > 0) {
+          try {
+            const compRes = await fetch(
+              `/api/admin/optimoroute/completion?orderNos=${allOrderNos.join(',')}`,
+              { credentials: 'include' }
+            );
+            if (compRes.ok) {
+              const compData = await compRes.json();
+              const orders: { orderNo: string; data?: { status?: string } }[] = compData.orders || [];
+              // Build stop status map from completion data
+              const newStopStatuses: Record<string, string> = {};
+              for (const order of orders) {
+                if (order.orderNo && order.data?.status) {
+                  newStopStatuses[order.orderNo] = order.data.status;
+                }
+              }
+              setStopStatuses(prev => ({ ...newStopStatuses, ...prev }));
+
+              // Derive driver statuses from stop completion data
+              const newDriverStatuses: Record<string, string> = {};
+              for (const route of fetchedRoutes) {
+                const serial = route.driverSerial || '';
+                if (!serial) continue;
+                const stops = route.stops || [];
+                if (stops.length === 0) continue;
+                const stopStates = stops.map(s => newStopStatuses[s.orderNo] || 'scheduled');
+                const terminalStatuses = new Set(['success', 'failed', 'rejected', 'cancelled']);
+                const activeStatuses = new Set(['on_route', 'servicing', 'start_service']);
+                const allTerminal = stopStates.every(s => terminalStatuses.has(s));
+                const anyActive = stopStates.some(s => activeStatuses.has(s));
+                const anyCompleted = stopStates.some(s => terminalStatuses.has(s));
+
+                if (allTerminal) {
+                  newDriverStatuses[serial] = 'completed';
+                } else if (anyActive || anyCompleted) {
+                  newDriverStatuses[serial] = 'in_progress';
+                }
+              }
+              setDriverStatuses(prev => ({ ...newDriverStatuses, ...prev }));
+            }
+          } catch (e) {
+            console.error('Failed to fetch completion details:', e);
+          }
+        }
       }
     } catch (e) {
       console.error('Failed to fetch routes:', e);
@@ -139,6 +189,9 @@ const RoutesView: React.FC = () => {
                   setDriverStatuses(prev => ({ ...prev, [evt.driverSerial!]: 'in_progress' }));
                 } else if (evt.event === 'end_route' || evt.event === 'off_duty') {
                   setDriverStatuses(prev => ({ ...prev, [evt.driverSerial!]: 'completed' }));
+                } else if (['start_service', 'success', 'failed', 'rejected'].includes(evt.event)) {
+                  // These events imply the driver has started their route
+                  setDriverStatuses(prev => prev[evt.driverSerial!] === 'completed' ? prev : { ...prev, [evt.driverSerial!]: 'in_progress' });
                 }
               }
               if (evt.orderNo) {
