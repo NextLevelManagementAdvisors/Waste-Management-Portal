@@ -58,6 +58,10 @@ async function getCredentials(): Promise<TwilioCredentials> {
   return cachedCredentials;
 }
 
+export function resetTwilioCache() {
+  cachedCredentials = null;
+}
+
 export async function sendSms(to: string, body: string): Promise<void> {
   const creds = await getCredentials();
 

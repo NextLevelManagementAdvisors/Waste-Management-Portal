@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { registerAuthRoutes } from './authRoutes';
 import { pool } from './db';
 import crypto from 'crypto';
+import { loadSettingsIntoEnv } from './settings';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -210,6 +211,7 @@ async function initSchema() {
 }
 
 await initSchema();
+await loadSettingsIntoEnv();
 
 const httpServer = http.createServer(app);
 

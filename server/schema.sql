@@ -346,3 +346,13 @@ ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status VARCHAR(50) DEFAU
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_updated_at TIMESTAMP;
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_properties_service_status ON properties(service_status);
+
+-- System settings (admin-configurable integrations & env overrides)
+CREATE TABLE IF NOT EXISTS system_settings (
+  key VARCHAR(255) PRIMARY KEY,
+  value TEXT NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  is_secret BOOLEAN DEFAULT false,
+  updated_by UUID REFERENCES users(id),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);

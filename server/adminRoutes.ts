@@ -5,6 +5,7 @@ import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
 import * as optimo from './optimoRouteClient';
+import { getAllSettings, saveSetting } from './settings';
 
 type AdminRole = 'full_admin' | 'support' | 'viewer';
 
@@ -1351,6 +1352,82 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Address review decision error:', error);
       res.status(500).json({ error: 'Failed to update address review' });
+    }
+  });
+
+  // ── System Settings (Integrations) ─────────────────────────────────
+
+  // Allowed setting keys and their metadata
+  const SETTING_DEFINITIONS: Record<string, { category: string; isSecret: boolean; label: string }> = {
+    TWILIO_ACCOUNT_SID:       { category: 'twilio', isSecret: false, label: 'Account SID' },
+    TWILIO_AUTH_TOKEN:        { category: 'twilio', isSecret: true,  label: 'Auth Token' },
+    TWILIO_PHONE_NUMBER:      { category: 'twilio', isSecret: false, label: 'Phone Number' },
+    STRIPE_SECRET_KEY:        { category: 'stripe', isSecret: true,  label: 'Secret Key' },
+    STRIPE_PUBLISHABLE_KEY:   { category: 'stripe', isSecret: false, label: 'Publishable Key' },
+    STRIPE_WEBHOOK_SECRET:    { category: 'stripe', isSecret: true,  label: 'Webhook Secret' },
+    GMAIL_SERVICE_ACCOUNT_JSON: { category: 'gmail', isSecret: true,  label: 'Service Account JSON' },
+    GMAIL_SENDER_EMAIL:       { category: 'gmail', isSecret: false, label: 'Sender Email (Service Acct)' },
+    GOOGLE_OAUTH_CLIENT_ID:   { category: 'gmail', isSecret: false, label: 'OAuth Client ID' },
+    GOOGLE_OAUTH_CLIENT_SECRET: { category: 'gmail', isSecret: true,  label: 'OAuth Client Secret' },
+    GMAIL_REFRESH_TOKEN:      { category: 'gmail', isSecret: true,  label: 'OAuth Refresh Token' },
+    GOOGLE_MAPS_API_KEY:      { category: 'google_maps', isSecret: true,  label: 'API Key' },
+    OPTIMOROUTE_API_KEY:      { category: 'optimoroute', isSecret: true,  label: 'API Key' },
+    GEMINI_API_KEY:           { category: 'gemini', isSecret: true,  label: 'API Key' },
+    APP_DOMAIN:               { category: 'app', isSecret: false, label: 'App Domain' },
+    CORS_ORIGIN:              { category: 'app', isSecret: false, label: 'CORS Origin' },
+  };
+
+  app.get('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const dbSettings = await getAllSettings();
+      const dbMap = new Map(dbSettings.map(s => [s.key, s]));
+
+      // Build full list: DB values first, then fill in env-only values
+      const settings = Object.entries(SETTING_DEFINITIONS).map(([key, def]) => {
+        const db = dbMap.get(key);
+        if (db) {
+          return { ...db, label: def.label };
+        }
+        // Not in DB — show env var value (masked if secret)
+        const envVal = process.env[key] || '';
+        return {
+          key,
+          value: def.isSecret && envVal ? '••••••' + envVal.slice(-4) : envVal,
+          category: def.category,
+          is_secret: def.isSecret,
+          label: def.label,
+          source: 'env' as const,
+          updated_at: null,
+        };
+      });
+
+      res.json(settings);
+    } catch (error) {
+      console.error('Get settings error:', error);
+      res.status(500).json({ error: 'Failed to load settings' });
+    }
+  });
+
+  app.put('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { key, value } = req.body;
+      if (!key || value === undefined || value === null) {
+        return res.status(400).json({ error: 'key and value are required' });
+      }
+
+      const def = SETTING_DEFINITIONS[key];
+      if (!def) {
+        return res.status(400).json({ error: `Unknown setting: ${key}` });
+      }
+
+      const userId = req.session.userId!;
+      await saveSetting(key, value, def.category, def.isSecret, userId);
+      await audit(req, 'update_setting', 'system_settings', key, { category: def.category });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Update setting error:', error);
+      res.status(500).json({ error: 'Failed to update setting' });
     }
   });
 }

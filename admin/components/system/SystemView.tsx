@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import AuditLog from './AuditLog.tsx';
 import AdminRoles from './AdminRoles.tsx';
 import ErrorLogs from './ErrorLogs.tsx';
+import IntegrationsPanel from './IntegrationsPanel.tsx';
 
-type TabType = 'audit' | 'settings' | 'errors';
+type TabType = 'audit' | 'settings' | 'errors' | 'integrations';
 
 const SystemView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('audit');
@@ -12,6 +13,7 @@ const SystemView: React.FC = () => {
     { key: 'audit', label: 'Audit Log' },
     { key: 'errors', label: 'Error Logs' },
     { key: 'settings', label: 'Admin Roles' },
+    { key: 'integrations', label: 'Integrations' },
   ];
 
   return (
@@ -35,6 +37,7 @@ const SystemView: React.FC = () => {
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'errors' && <ErrorLogs />}
       {activeTab === 'settings' && <AdminRoles />}
+      {activeTab === 'integrations' && <IntegrationsPanel />}
     </div>
   );
 };
