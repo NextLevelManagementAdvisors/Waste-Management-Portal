@@ -330,10 +330,10 @@ const AdminApp: React.FC = () => {
 
   const navItems: { view: AdminView; label: string; icon: React.ReactNode }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-5 h-5" /> },
-    { view: 'people', label: 'People', icon: <PeopleIcon className="w-5 h-5" /> },
-    { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
+    { view: 'people', label: 'People', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
+    { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
 
