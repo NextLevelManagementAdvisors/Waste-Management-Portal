@@ -6,6 +6,7 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx';
+import * as stripeService from '../services/stripeService.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
@@ -159,7 +160,11 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
                 }
                 return res.json();
             })
-            .then(json => { setClientSecret(json.data.clientSecret); setLoading(false); })
+            .then(json => {
+                if (json.data.customerId) stripeService.setCustomerId(json.data.customerId);
+                setClientSecret(json.data.clientSecret);
+                setLoading(false);
+            })
             .catch(err => { setError(err.message || 'Failed to initialize payment form.'); setLoading(false); });
     }, []);
 

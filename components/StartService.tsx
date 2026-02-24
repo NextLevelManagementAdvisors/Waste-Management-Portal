@@ -4,6 +4,7 @@ import { Card } from './Card.tsx';
 import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
+import * as stripeService from '../services/stripeService.ts';
 import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
@@ -156,7 +157,10 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     }
                     return res.json();
                 })
-                .then(json => setClientSecret(json.data.clientSecret))
+                .then(json => {
+                    if (json.data.customerId) stripeService.setCustomerId(json.data.customerId);
+                    setClientSecret(json.data.clientSecret);
+                })
                 .catch(err => setSetupError(err.message || 'Failed to initialize payment form.'));
         }
     }, [billingChoice, clientSecret]);

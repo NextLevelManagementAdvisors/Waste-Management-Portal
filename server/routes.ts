@@ -231,7 +231,7 @@ export function registerRoutes(app: Express) {
         customer: customerId,
         automatic_payment_methods: { enabled: true },
       });
-      res.json({ data: { clientSecret: setupIntent.client_secret } });
+      res.json({ data: { clientSecret: setupIntent.client_secret, customerId } });
     } catch (error: any) {
       console.error('Error creating setup intent:', error);
       const message = error?.type?.startsWith('Stripe') ? error.message : 'Failed to create setup intent';
