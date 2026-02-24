@@ -286,13 +286,25 @@ const IntegrationsPanel: React.FC = () => {
   const handleGmailModeChange = async (mode: 'oauth' | 'service_account') => {
     setGmailMode(mode);
     try {
-      await fetch('/api/admin/settings', {
+      const res = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ key: 'GMAIL_AUTH_MODE', value: mode }),
       });
-    } catch { /* best-effort */ }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error('Failed to save Gmail mode:', data.error || res.status);
+        setError(`Failed to save Gmail mode: ${data.error || res.statusText}`);
+        setTimeout(() => setError(null), 5000);
+        return;
+      }
+      await fetchSettings();
+    } catch (err) {
+      console.error('Failed to save Gmail mode:', err);
+      setError('Failed to save Gmail mode — network error');
+      setTimeout(() => setError(null), 5000);
+    }
   };
 
   const gmailHasClientCreds = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••')
