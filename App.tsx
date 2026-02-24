@@ -209,11 +209,7 @@ const App: React.FC = () => {
         }
         const deepLinkedView = getViewFromPath(pathname);
         const search = window.location.search;
-        if (userData.properties && userData.properties.length === 0) {
-          setCurrentViewRaw('myservice');
-          const managePlanPath = VIEW_TO_PATH['myservice'] + (search || '');
-          window.history.replaceState({ view: 'myservice' }, '', managePlanPath);
-        } else if (deepLinkedView && deepLinkedView !== 'home') {
+        if (deepLinkedView && deepLinkedView !== 'home') {
           setCurrentViewRaw(deepLinkedView);
           window.history.replaceState({ view: deepLinkedView }, '', pathname + search);
         } else {
@@ -247,9 +243,7 @@ const App: React.FC = () => {
       if (pendingTransferToken) {
         return;
       }
-      if (userData.properties && userData.properties.length === 0) {
-        setCurrentView('myservice', pendingDeepLinkQuery || undefined);
-      } else if (pendingDeepLink && pendingDeepLink !== 'home') {
+      if (pendingDeepLink && pendingDeepLink !== 'home') {
         setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
         if (pendingDeepLink === 'profile-settings' && pendingSettingsPath) {
           window.history.replaceState({ view: 'profile-settings' }, '', pendingSettingsPath);
@@ -273,7 +267,7 @@ const App: React.FC = () => {
       if (pendingTransferToken) {
         return;
       }
-      setCurrentView('myservice', pendingDeepLinkQuery || undefined); 
+      setCurrentView('home');
       setPendingDeepLinkQuery('');
     } catch (error)
     {
@@ -296,9 +290,7 @@ const App: React.FC = () => {
       const userData = await getUser();
       fetchUserAndSetState(userData);
       setIsAuthenticated(true);
-      if (userData.properties && userData.properties.length === 0) {
-        setCurrentView('myservice', pendingDeepLinkQuery || undefined);
-      } else if (pendingDeepLink && pendingDeepLink !== 'home') {
+      if (pendingDeepLink && pendingDeepLink !== 'home') {
         setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
         if (pendingDeepLink === 'profile-settings' && pendingSettingsPath) {
           window.history.replaceState({ view: 'profile-settings' }, '', pendingSettingsPath);

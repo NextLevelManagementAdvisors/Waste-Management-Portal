@@ -619,7 +619,15 @@ export function registerAuthRoutes(app: Express) {
         state,
       });
 
-      res.redirect(`${discovery.authorization_endpoint}?${params.toString()}`);
+      const authUrl = `${discovery.authorization_endpoint}?${params.toString()}`;
+
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('Session save error before Google OAuth redirect:', saveErr);
+          return res.status(500).json({ error: 'Failed to start Google login' });
+        }
+        res.redirect(authUrl);
+      });
     } catch (error: any) {
       console.error('Google OAuth initiation error:', error);
       res.status(500).json({ error: 'Failed to start Google login' });
@@ -678,13 +686,14 @@ export function registerAuthRoutes(app: Express) {
       });
 
       if (!tokenRes.ok) {
-        console.error('Token exchange HTTP error:', tokenRes.status);
+        const errorBody = await tokenRes.text();
+        console.error('Token exchange HTTP error:', tokenRes.status, 'body:', errorBody, 'redirect_uri:', redirectUri);
         return res.redirect('/?error=google_token_failed');
       }
 
-      const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+      const tokenData = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string };
       if (!tokenData.access_token) {
-        console.error('Token exchange failed:', tokenData);
+        console.error('Token exchange failed:', tokenData, 'redirect_uri:', redirectUri);
         return res.redirect('/?error=google_token_failed');
       }
 
