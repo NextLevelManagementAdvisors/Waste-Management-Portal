@@ -154,11 +154,18 @@ registerRoutes(app);
 const { registerAdminRoutes, requireAdmin } = await import('./adminRoutes');
 registerAdminRoutes(app);
 
+const { registerAccountingRoutes } = await import('./accountingRoutes');
+registerAccountingRoutes(app);
+
 const { registerLogRoutes } = await import('./logRoutes');
 registerLogRoutes(app, requireAdmin);
 
 const { registerCommunicationRoutes } = await import('./communicationRoutes');
 registerCommunicationRoutes(app);
+
+// Process scheduled messages every 60 seconds
+const { processScheduledMessages } = await import('./notificationService');
+setInterval(processScheduledMessages, 60_000);
 
 const { registerTeamRoutes } = await import('./teamRoutes');
 registerTeamRoutes(app);
@@ -176,6 +183,10 @@ if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));
   app.use((req, res) => {
+    // API routes should never serve HTML — return JSON 404
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'Not found' });
+    }
     if (req.path.startsWith('/admin')) {
       res.sendFile(path.join(distPath, 'admin', 'index.html'));
     } else if (req.path.startsWith('/team')) {
