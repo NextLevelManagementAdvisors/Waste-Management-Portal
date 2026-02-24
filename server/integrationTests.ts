@@ -1,6 +1,6 @@
 import twilio from 'twilio';
+import { google } from 'googleapis';
 import { getUncachableStripeClient } from './stripeClient';
-import { getUncachableGmailClient } from './gmailClient';
 import { getTwilioCredentials } from './twilioClient';
 import * as optimo from './optimoRouteClient';
 import { GoogleGenAI } from '@google/genai';
@@ -75,9 +75,22 @@ async function testGmail(): Promise<IntegrationTestResult> {
     if (!hasServiceAcct && !hasOAuth) {
       return { status: 'not_configured', message: 'Missing Gmail credentials (Service Account or OAuth)' };
     }
-    const gmail = await getUncachableGmailClient();
-    const profile = await gmail.users.getProfile({ userId: 'me' });
-    return { status: 'connected', message: `Email: ${profile.data.emailAddress}` };
+    if (hasServiceAcct) {
+      // Service account: can call getProfile (has full delegation)
+      const { getUncachableGmailClient } = await import('./gmailClient');
+      const gmail = await getUncachableGmailClient();
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      return { status: 'connected', message: `Email: ${profile.data.emailAddress}` };
+    }
+    // OAuth: only has gmail.send scope, so verify by refreshing the access token
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_OAUTH_CLIENT_ID,
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    );
+    oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+    const { token } = await oauth2.getAccessToken();
+    if (!token) throw new Error('Failed to obtain access token');
+    return { status: 'connected', message: 'OAuth token valid (gmail.send)' };
   });
 }
 
