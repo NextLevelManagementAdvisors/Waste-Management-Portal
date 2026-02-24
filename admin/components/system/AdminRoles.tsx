@@ -14,12 +14,9 @@ const formatDate = (dateStr: string) => {
   }
 };
 
+const normalizeRole = (role: string) => role === 'superadmin' ? 'full_admin' : role;
+
 const ROLE_DESCRIPTIONS: Record<string, { label: string; description: string; color: string }> = {
-  superadmin: {
-    label: 'Full Admin',
-    description: 'Complete access to all system features, customer management, billing, settings, and role management',
-    color: 'bg-red-100 text-red-800',
-  },
   full_admin: {
     label: 'Full Admin',
     description: 'Complete access to all system features, customer management, billing, settings, and role management',
@@ -125,8 +122,8 @@ const AdminRoles: React.FC = () => {
             </div>
             <div>
               <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-1">Role</p>
-              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_DESCRIPTIONS[adminInfo.role || '']?.color || 'bg-gray-100 text-gray-700'}`}>
-                {ROLE_DESCRIPTIONS[adminInfo.role || '']?.label || adminInfo.role || 'N/A'}
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_DESCRIPTIONS[normalizeRole(adminInfo.role || '')]?.color || 'bg-gray-100 text-gray-700'}`}>
+                {ROLE_DESCRIPTIONS[normalizeRole(adminInfo.role || '')]?.label || adminInfo.role || 'N/A'}
               </span>
             </div>
           </div>
@@ -214,8 +211,8 @@ const AdminRoles: React.FC = () => {
                             <option value="viewer">Viewer</option>
                           </select>
                         ) : (
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_DESCRIPTIONS[admin.role]?.color || 'bg-gray-100 text-gray-700'}`}>
-                            {ROLE_DESCRIPTIONS[admin.role]?.label || admin.role}
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_DESCRIPTIONS[normalizeRole(admin.role)]?.color || 'bg-gray-100 text-gray-700'}`}>
+                            {ROLE_DESCRIPTIONS[normalizeRole(admin.role)]?.label || admin.role}
                           </span>
                         )}
                       </td>
