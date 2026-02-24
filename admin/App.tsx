@@ -19,6 +19,7 @@ import CommunicationsView from './components/communications/CommunicationsView.t
 import type { CommsTabType } from './components/communications/CommunicationsView.tsx';
 import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
 import AdminLogin from './components/auth/AdminLogin.tsx';
+import AdminAcceptInvite from './components/auth/AdminAcceptInvite.tsx';
 import type { NavFilter } from '../shared/types/index.ts';
 
 interface AdminUser {
@@ -171,6 +172,13 @@ const AdminApp: React.FC = () => {
   const [pendingDeepLink] = useState(() => {
     const parsed = parseAdminPath(window.location.pathname);
     if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab, systemTab: parsed.systemTab, commsTab: parsed.commsTab, acctTab: parsed.acctTab };
+    return null;
+  });
+  const [inviteToken] = useState<string | null>(() => {
+    const pathname = window.location.pathname.replace(/\/+$/, '');
+    if (pathname === '/admin/accept-invite') {
+      return new URLSearchParams(window.location.search).get('token');
+    }
     return null;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -334,6 +342,12 @@ const AdminApp: React.FC = () => {
     window.history.replaceState({}, '', '/admin');
   }, []);
 
+  const handleInviteComplete = useCallback((adminUser: AdminUser) => {
+    setUser(adminUser);
+    setAuthChecked(true);
+    window.history.replaceState({}, '', '/admin');
+  }, []);
+
   const handleGlobalSearch = useCallback(async (q: string) => {
     setSearchQuery(q);
     if (q.length < 2) { setSearchResults(null); return; }
@@ -349,6 +363,10 @@ const AdminApp: React.FC = () => {
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-600"></div>
       </div>
     );
+  }
+
+  if (inviteToken && !user) {
+    return <AdminAcceptInvite token={inviteToken} onComplete={handleInviteComplete} />;
   }
 
   if (!user) {

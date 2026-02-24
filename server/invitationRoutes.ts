@@ -13,6 +13,8 @@ function invitationEmailTemplate(inviterName: string, roles: string[], token: st
   const roleText = roleLabels.join(', ');
   const registerUrl = roles.includes('driver')
     ? `${baseUrl}/team/register?invite=${token}`
+    : roles.includes('admin')
+    ? `${baseUrl}/admin/accept-invite?token=${token}`
     : `${baseUrl}/register?invite=${token}`;
 
   return `
@@ -106,6 +108,8 @@ export function registerInvitationRoutes(app: Express) {
       })();
       const registerUrl = roles.includes('driver')
         ? `${appDomain}/team/register?invite=${token}`
+        : roles.includes('admin')
+        ? `${appDomain}/admin/accept-invite?token=${token}`
         : `${appDomain}/register?invite=${token}`;
 
       // Send invitation email
@@ -186,7 +190,7 @@ export function registerInvitationRoutes(app: Express) {
   app.get('/api/invitations/:token', async (req: Request, res: Response) => {
     try {
       const result = await pool.query(
-        `SELECT email, roles, admin_role, status, expires_at FROM invitations WHERE token = $1`,
+        `SELECT email, phone, name, roles, admin_role, status, expires_at FROM invitations WHERE token = $1`,
         [req.params.token]
       );
       if (result.rows.length === 0) {
