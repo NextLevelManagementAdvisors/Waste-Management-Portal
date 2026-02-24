@@ -149,9 +149,15 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
             })
-                .then(res => { if (!res.ok) throw new Error('Server error'); return res.json(); })
+                .then(async res => {
+                    if (!res.ok) {
+                        const json = await res.json().catch(() => ({}));
+                        throw new Error(json.error || 'Failed to initialize payment form.');
+                    }
+                    return res.json();
+                })
                 .then(json => setClientSecret(json.data.clientSecret))
-                .catch(err => console.error('Failed to create setup intent:', err));
+                .catch(err => setSetupError(err.message || 'Failed to initialize payment form.'));
         }
     }, [billingChoice, clientSecret]);
 
@@ -570,7 +576,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                     </Elements>
                                 </div>
                             )}
-                            {billingChoice === 'new' && !clientSecret && (
+                            {billingChoice === 'new' && !clientSecret && !setupError && (
                                 <div className="mt-2 flex justify-center py-4">
                                     <div className="animate-spin rounded-full h-6 w-6 border-4 border-primary/20 border-t-primary"></div>
                                 </div>

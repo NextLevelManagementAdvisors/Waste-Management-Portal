@@ -11,6 +11,25 @@ function paramStr(val: string | string[]): string {
 
 const REFERRAL_CREDIT_AMOUNT = 1000;
 
+/** Look up or create a Stripe customer for the given user, persisting the ID. */
+async function ensureStripeCustomerId(user: { id: string; email: string; first_name: string; last_name: string; phone: string | null; stripe_customer_id: string | null }, stripe: any): Promise<string> {
+  if (user.stripe_customer_id) return user.stripe_customer_id;
+  const existing = await stripe.customers.list({ email: user.email, limit: 1 });
+  let customerId: string;
+  if (existing.data.length > 0) {
+    customerId = existing.data[0].id;
+  } else {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name: `${user.first_name} ${user.last_name}`,
+      phone: user.phone || undefined,
+    });
+    customerId = customer.id;
+  }
+  await storage.updateUser(user.id, { stripe_customer_id: customerId });
+  return customerId;
+}
+
 async function processReferralCredits(userId: string, stripe: any) {
   const user = await storage.getUserById(userId);
   if (!user) return;
@@ -202,13 +221,14 @@ export function registerRoutes(app: Express) {
 
   app.post('/api/setup-intent', requireAuth, async (req: Request, res: Response) => {
     try {
-      const user = await storage.getUserById(req.session.userId!);
-      if (!user?.stripe_customer_id) {
-        return res.status(400).json({ error: 'No Stripe customer associated with your account' });
-      }
       const stripe = await getUncachableStripeClient();
+      const user = await storage.getUserById(req.session.userId!);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      const customerId = await ensureStripeCustomerId(user, stripe);
       const setupIntent = await stripe.setupIntents.create({
-        customer: user.stripe_customer_id,
+        customer: customerId,
         automatic_payment_methods: { enabled: true },
       });
       res.json({ data: { clientSecret: setupIntent.client_secret } });
@@ -419,10 +439,10 @@ export function registerRoutes(app: Express) {
       const stripe = await getUncachableStripeClient();
       const userId = req.session.userId!;
       const user = await storage.getUserById(userId);
-      if (!user?.stripe_customer_id) {
-        return res.status(400).json({ error: 'No Stripe customer associated with your account' });
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
       }
-      const customerId = user.stripe_customer_id;
+      const customerId = await ensureStripeCustomerId(user, stripe);
       const { amount, description, metadata } = req.body;
       if (!amount || !description) {
         return res.status(400).json({ error: 'amount and description are required' });

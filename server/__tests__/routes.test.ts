@@ -322,10 +322,13 @@ describe('POST /api/setup-intent', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 400 when user has no stripe_customer_id', async () => {
+  it('creates Stripe customer on the fly when user has no stripe_customer_id', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser, stripe_customer_id: null } as any);
+    vi.mocked(storage.updateUser).mockResolvedValue({ ...baseUser, stripe_customer_id: 'cus_new' } as any);
     const res = await supertest(createAuthApp()).post('/api/setup-intent');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.body.data.clientSecret).toBe('seti_secret_123');
+    expect(storage.updateUser).toHaveBeenCalledWith('user-1', { stripe_customer_id: 'cus_new' });
   });
 });
 
@@ -448,9 +451,12 @@ describe('POST /api/invoices', () => {
     expect(res.body.data.id).toBe('in_new');
   });
 
-  it('returns 400 when user has no stripe_customer_id', async () => {
+  it('creates Stripe customer on the fly when user has no stripe_customer_id', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser, stripe_customer_id: null } as any);
-    expect((await supertest(createAuthApp()).post('/api/invoices').send({ amount: 5000, description: 'Extra service' })).status).toBe(400);
+    vi.mocked(storage.updateUser).mockResolvedValue({ ...baseUser, stripe_customer_id: 'cus_new' } as any);
+    const res = await supertest(createAuthApp()).post('/api/invoices').send({ amount: 5000, description: 'Extra service' });
+    expect(res.status).toBe(200);
+    expect(storage.updateUser).toHaveBeenCalledWith('user-1', { stripe_customer_id: 'cus_new' });
   });
 });
 
