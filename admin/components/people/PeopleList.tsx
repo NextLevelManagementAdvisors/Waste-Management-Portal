@@ -6,6 +6,7 @@ import { LoadingSpinner, Pagination, EmptyState, StatusBadge } from '../ui/index
 import type { NavFilter } from '../../../shared/types/index.ts';
 import InviteDialog from './InviteDialog.tsx';
 import CreateDriverDialog from './CreateDriverDialog.tsx';
+import BulkComposeModal from './BulkComposeModal.tsx';
 import DriverSyncPanel from '../operations/DriverSyncPanel.tsx';
 
 const formatDate = (dateStr: string) => {
@@ -49,6 +50,34 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [showDriverSync, setShowDriverSync] = useState(false);
   const [invitations, setInvitations] = useState<any[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [selectedPeople, setSelectedPeople] = useState<Map<string, any>>(new Map());
+  const [showComposeModal, setShowComposeModal] = useState(false);
+
+  const isSelected = (id: string) => selectedPeople.has(id);
+
+  const toggleSelection = (person: any) => {
+    setSelectedPeople(prev => {
+      const next = new Map(prev);
+      if (next.has(person.id)) next.delete(person.id);
+      else next.set(person.id, person);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    const allOnPageSelected = people.length > 0 && people.every(p => selectedPeople.has(p.id));
+    setSelectedPeople(prev => {
+      const next = new Map(prev);
+      if (allOnPageSelected) {
+        people.forEach(p => next.delete(p.id));
+      } else {
+        people.forEach(p => next.set(p.id, p));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedPeople(new Map());
 
   useEffect(() => {
     if (navFilter) {
@@ -171,7 +200,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
           {roleTabs.map(tab => (
             <button
               key={tab.key}
-              onClick={() => { setRoleFilter(tab.key); setPage(1); }}
+              onClick={() => { setRoleFilter(tab.key); setPage(1); clearSelection(); }}
               className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap flex-shrink-0 ${
                 roleFilter === tab.key
                   ? 'bg-teal-600 text-white'
@@ -208,13 +237,13 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
             type="text"
             placeholder="Search by name or email..."
             value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+            onChange={e => { setSearchQuery(e.target.value); setPage(1); clearSelection(); }}
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
           />
         </div>
         <select
           value={sortBy}
-          onChange={e => { setSortBy(e.target.value); setPage(1); }}
+          onChange={e => { setSortBy(e.target.value); setPage(1); clearSelection(); }}
           className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
         >
           <option value="newest">Newest first</option>
@@ -223,6 +252,32 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
           <option value="name_desc">Name Z-A</option>
         </select>
       </div>
+
+      {/* Select all bar */}
+      {roleFilter !== 'invited' && !loading && people.length > 0 && (
+        <div className="flex items-center gap-3 px-1">
+          <button type="button" onClick={toggleSelectAllOnPage} className="flex items-center gap-2">
+            <span className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+              people.every(p => selectedPeople.has(p.id))
+                ? 'bg-teal-600 border-teal-600 text-white'
+                : people.some(p => selectedPeople.has(p.id))
+                  ? 'bg-teal-200 border-teal-400'
+                  : 'border-gray-300 hover:border-teal-400'
+            }`}>
+              {people.every(p => selectedPeople.has(p.id)) && (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+              )}
+              {!people.every(p => selectedPeople.has(p.id)) && people.some(p => selectedPeople.has(p.id)) && (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 12h14" /></svg>
+              )}
+            </span>
+            <span className="text-sm text-gray-500 font-medium">Select all on page</span>
+          </button>
+          {selectedPeople.size > 0 && (
+            <span className="text-sm text-teal-600 font-bold">{selectedPeople.size} selected</span>
+          )}
+        </div>
+      )}
 
       {/* People / Invitations list */}
       {roleFilter === 'invited' ? (
