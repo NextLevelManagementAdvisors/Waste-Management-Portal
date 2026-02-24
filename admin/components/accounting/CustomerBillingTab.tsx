@@ -626,9 +626,9 @@ const ActionsTab: React.FC<{
 };
 
 // ============================================================================
-// Main BillingView Component
+// Main CustomerBillingTab Component
 // ============================================================================
-const BillingView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
+const CustomerBillingTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ navFilter, onFilterConsumed }) => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('payment-history');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -689,4 +689,4 @@ const BillingView: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
   );
 };
 
-export default BillingView;
+export default CustomerBillingTab;

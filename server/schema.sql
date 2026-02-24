@@ -347,6 +347,43 @@ ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_updated_at TIMEST
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_properties_service_status ON properties(service_status);
 
+-- Communication templates
+CREATE TABLE IF NOT EXISTS communication_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  channel VARCHAR(20) NOT NULL DEFAULT 'email',
+  subject VARCHAR(255),
+  body TEXT NOT NULL,
+  variables TEXT[],
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Communication log (all outbound emails, SMS, in-app messages)
+CREATE TABLE IF NOT EXISTS communication_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_id UUID,
+  recipient_type VARCHAR(20),
+  recipient_name VARCHAR(255),
+  recipient_contact VARCHAR(255),
+  channel VARCHAR(20) NOT NULL,
+  direction VARCHAR(10) DEFAULT 'outbound',
+  subject VARCHAR(255),
+  body TEXT,
+  template_id UUID REFERENCES communication_templates(id),
+  status VARCHAR(20) DEFAULT 'sent',
+  scheduled_for TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  error_message TEXT,
+  sent_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comm_log_recipient ON communication_log(recipient_id);
+CREATE INDEX IF NOT EXISTS idx_comm_log_channel ON communication_log(channel);
+CREATE INDEX IF NOT EXISTS idx_comm_log_status ON communication_log(status);
+CREATE INDEX IF NOT EXISTS idx_comm_log_scheduled ON communication_log(scheduled_for) WHERE status = 'scheduled';
+
 -- System settings (admin-configurable integrations & env overrides)
 CREATE TABLE IF NOT EXISTS system_settings (
   key VARCHAR(255) PRIMARY KEY,
@@ -356,3 +393,22 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_by UUID REFERENCES users(id),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Expenses (accounting)
+CREATE TABLE IF NOT EXISTS expenses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category VARCHAR(100) NOT NULL,
+  description TEXT,
+  amount NUMERIC(10,2) NOT NULL,
+  expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  vendor VARCHAR(255),
+  reference_id VARCHAR(255),
+  reference_type VARCHAR(50),
+  payment_method VARCHAR(100),
+  notes TEXT,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);

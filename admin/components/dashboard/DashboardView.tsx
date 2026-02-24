@@ -361,9 +361,9 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
             <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('people')} />
             <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('people', { sort: 'newest' })} />
-            <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('billing')} />
-            <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('billing', { filter: 'active' })} />
-            <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('billing', { filter: 'open' })} />
+            <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('accounting', { tab: 'income' })} />
+            <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('accounting', { tab: 'customer-billing' })} />
+            <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('accounting', { tab: 'invoices', filter: 'open' })} />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('operations', { tab: 'address-review' })} />

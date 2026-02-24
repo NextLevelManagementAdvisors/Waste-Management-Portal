@@ -9,7 +9,8 @@ import {
 } from '../components/Icons.tsx';
 import DashboardView from './components/dashboard/DashboardView.tsx';
 import PeopleView from './components/people/PeopleView.tsx';
-import BillingView from './components/billing/BillingView.tsx';
+import AccountingView from './components/accounting/AccountingView.tsx';
+import type { AccountingTabType } from './components/accounting/AccountingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
 import type { OpsTabType } from './components/operations/OperationsView.tsx';
 import SystemView from './components/system/SystemView.tsx';
@@ -28,12 +29,12 @@ interface AdminUser {
   isAdmin: boolean;
 }
 
-type AdminView = 'dashboard' | 'people' | 'billing' | 'operations' | 'communications' | 'system';
+type AdminView = 'dashboard' | 'people' | 'accounting' | 'operations' | 'communications' | 'system';
 
 const VIEW_TO_PATH: Record<AdminView, string> = {
   dashboard: '/admin',
   people: '/admin/people',
-  billing: '/admin/billing',
+  accounting: '/admin/accounting',
   operations: '/admin/operations',
   communications: '/admin/communications',
   system: '/admin/system',
@@ -68,37 +69,56 @@ const SYSTEM_PATH_TO_TAB: Record<string, SystemTabType> = Object.fromEntries(
 ) as Record<string, SystemTabType>;
 
 const COMMS_TAB_TO_PATH: Record<CommsTabType, string> = {
-  conversations: '/admin/communications',
-  notifications: '/admin/communications/notifications',
+  inbox: '/admin/communications',
+  compose: '/admin/communications/compose',
+  templates: '/admin/communications/templates',
+  activity: '/admin/communications/activity',
 };
 const COMMS_PATH_TO_TAB: Record<string, CommsTabType> = Object.fromEntries(
   Object.entries(COMMS_TAB_TO_PATH).map(([tab, path]) => [path, tab as CommsTabType])
 ) as Record<string, CommsTabType>;
 
-function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null; systemTab: SystemTabType | null; commsTab: CommsTabType | null } {
+const ACCT_TAB_TO_PATH: Record<AccountingTabType, string> = {
+  overview: '/admin/accounting',
+  income: '/admin/accounting/income',
+  expenses: '/admin/accounting/expenses',
+  invoices: '/admin/accounting/invoices',
+  'customer-billing': '/admin/accounting/customer-billing',
+};
+const ACCT_PATH_TO_TAB: Record<string, AccountingTabType> = Object.fromEntries(
+  Object.entries(ACCT_TAB_TO_PATH).map(([tab, path]) => [path, tab as AccountingTabType])
+) as Record<string, AccountingTabType>;
+
+function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null; systemTab: SystemTabType | null; commsTab: CommsTabType | null; acctTab: AccountingTabType | null } {
   const normalized = pathname.replace(/\/+$/, '') || '/admin';
+  const base = { personId: null, opsTab: null, systemTab: null, commsTab: null, acctTab: null };
   const personMatch = normalized.match(/^\/admin\/people\/([a-f0-9-]+)$/i);
-  if (personMatch) return { view: 'people', personId: personMatch[1], opsTab: null, systemTab: null, commsTab: null };
+  if (personMatch) return { ...base, view: 'people', personId: personMatch[1] };
   if (normalized.startsWith('/admin/operations')) {
-    const opsTab = OPS_PATH_TO_TAB[normalized] || 'routes';
-    return { view: 'operations', personId: null, opsTab, systemTab: null, commsTab: null };
+    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'routes' };
   }
   if (normalized.startsWith('/admin/system')) {
-    const systemTab = SYSTEM_PATH_TO_TAB[normalized] || 'audit';
-    return { view: 'system', personId: null, opsTab: null, systemTab, commsTab: null };
+    return { ...base, view: 'system', systemTab: SYSTEM_PATH_TO_TAB[normalized] || 'audit' };
   }
   if (normalized.startsWith('/admin/communications')) {
-    const commsTab = COMMS_PATH_TO_TAB[normalized] || 'conversations';
-    return { view: 'communications', personId: null, opsTab: null, systemTab: null, commsTab };
+    return { ...base, view: 'communications', commsTab: COMMS_PATH_TO_TAB[normalized] || 'inbox' };
   }
-  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null, opsTab: null, systemTab: null, commsTab: null };
+  if (normalized.startsWith('/admin/accounting')) {
+    return { ...base, view: 'accounting', acctTab: ACCT_PATH_TO_TAB[normalized] || 'overview' };
+  }
+  // Backward compat: /admin/billing → accounting/customer-billing
+  if (normalized.startsWith('/admin/billing')) {
+    return { ...base, view: 'accounting', acctTab: 'customer-billing' };
+  }
+  return { ...base, view: PATH_TO_VIEW[normalized] || 'dashboard' };
 }
 
-function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null; systemTab?: SystemTabType | null; commsTab?: CommsTabType | null }): string {
+function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null; systemTab?: SystemTabType | null; commsTab?: CommsTabType | null; acctTab?: AccountingTabType | null }): string {
   if (view === 'people' && opts?.personId) return `/admin/people/${opts.personId}`;
   if (view === 'operations' && opts?.opsTab) return OPS_TAB_TO_PATH[opts.opsTab] || '/admin/operations';
   if (view === 'system' && opts?.systemTab) return SYSTEM_TAB_TO_PATH[opts.systemTab] || '/admin/system';
   if (view === 'communications' && opts?.commsTab) return COMMS_TAB_TO_PATH[opts.commsTab] || '/admin/communications';
+  if (view === 'accounting' && opts?.acctTab) return ACCT_TAB_TO_PATH[opts.acctTab] || '/admin/accounting';
   const base = VIEW_TO_PATH[view] || '/admin';
   if (opts?.search) return `${base}?search=${encodeURIComponent(opts.search)}`;
   return base;
@@ -146,10 +166,11 @@ const AdminApp: React.FC = () => {
   const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'routes');
   const [systemTab, setSystemTabRaw] = useState<SystemTabType>(initialParsed.systemTab || 'audit');
   const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
+  const [acctTab, setAcctTabRaw] = useState<AccountingTabType>(initialParsed.acctTab || 'overview');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(initialSearch ? { search: initialSearch } : null);
   const [pendingDeepLink] = useState(() => {
     const parsed = parseAdminPath(window.location.pathname);
-    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab, systemTab: parsed.systemTab, commsTab: parsed.commsTab };
+    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab, systemTab: parsed.systemTab, commsTab: parsed.commsTab, acctTab: parsed.acctTab };
     return null;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -164,7 +185,8 @@ const AdminApp: React.FC = () => {
     if (view === 'operations') setOpsTabRaw('routes');
     if (view === 'system') setSystemTabRaw('audit');
     if (view === 'communications') setCommsTabRaw('conversations');
-    const url = buildAdminUrl(view, { search: filter?.search });
+    if (view === 'accounting') setAcctTabRaw(filter?.tab as AccountingTabType || 'overview');
+    const url = buildAdminUrl(view, { search: filter?.search, acctTab: filter?.tab as AccountingTabType });
     window.history.pushState({ view }, '', url);
   }, []);
 
@@ -186,6 +208,12 @@ const AdminApp: React.FC = () => {
     window.history.pushState({ view: 'communications', commsTab: tab }, '', url);
   }, []);
 
+  const handleAcctTabChange = useCallback((tab: AccountingTabType) => {
+    setAcctTabRaw(tab);
+    const url = ACCT_TAB_TO_PATH[tab] || '/admin/accounting';
+    window.history.pushState({ view: 'accounting', acctTab: tab }, '', url);
+  }, []);
+
   const selectPerson = useCallback((id: string) => {
     setSelectedPersonIdRaw(id);
     setCurrentViewRaw('people');
@@ -205,6 +233,7 @@ const AdminApp: React.FC = () => {
       if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'routes');
       if (parsed.view === 'system') setSystemTabRaw(parsed.systemTab || 'audit');
       if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
+      if (parsed.view === 'accounting') setAcctTabRaw(parsed.acctTab || 'overview');
       const search = new URLSearchParams(window.location.search).get('search');
       setNavFilter(search ? { search } : null);
     };
@@ -243,6 +272,7 @@ const AdminApp: React.FC = () => {
         if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
         if (pendingDeepLink.systemTab) setSystemTabRaw(pendingDeepLink.systemTab);
         if (pendingDeepLink.commsTab) setCommsTabRaw(pendingDeepLink.commsTab);
+        if (pendingDeepLink.acctTab) setAcctTabRaw(pendingDeepLink.acctTab);
       }
       setAuthChecked(true);
     } catch (error) {
@@ -271,6 +301,7 @@ const AdminApp: React.FC = () => {
         if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
         if (pendingDeepLink.systemTab) setSystemTabRaw(pendingDeepLink.systemTab);
         if (pendingDeepLink.commsTab) setCommsTabRaw(pendingDeepLink.commsTab);
+        if (pendingDeepLink.acctTab) setAcctTabRaw(pendingDeepLink.acctTab);
       }
       setAuthChecked(true);
     } catch {
@@ -333,7 +364,7 @@ const AdminApp: React.FC = () => {
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" /> },
     { view: 'people', label: 'People', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" /> },
-    { view: 'billing', label: 'Billing', icon: <CurrencyIcon className="w-5 h-5" /> },
+    { view: 'accounting', label: 'Accounting', icon: <CurrencyIcon className="w-5 h-5" /> },
     { view: 'system', label: 'System', icon: <CogIcon className="w-5 h-5" /> },
   ];
 
@@ -456,7 +487,7 @@ const AdminApp: React.FC = () => {
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
-          {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'system' && <SystemView activeTab={systemTab} onTabChange={handleSystemTabChange} />}
