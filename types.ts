@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'wallet' | 'make-payment';
+export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-settings' | 'referrals' | 'billing';
 
 export interface PostNavAction {
   targetView: View;

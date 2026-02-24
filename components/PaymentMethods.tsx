@@ -322,8 +322,8 @@ const PaymentMethods: React.FC = () => {
             <Card className="shadow-xl border-none">
                 <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 p-6 bg-gray-50/50 border-b border-base-100">
                     <div>
-                        <h2 className="text-xl font-black text-gray-900 tracking-tight">Digital Wallet</h2>
-                        <p className="text-gray-500 text-sm mt-1">Manage your saved credit cards and bank accounts.</p>
+                        <h2 className="text-xl font-black text-gray-900 tracking-tight">Payment Methods</h2>
+                        <p className="text-gray-500 text-sm mt-1">Manage your saved cards and bank accounts.</p>
                     </div>
                     <Button onClick={() => setIsModalOpen(true)} className="shrink-0 rounded-xl">
                         <PlusIcon className="w-5 h-5 mr-2" />

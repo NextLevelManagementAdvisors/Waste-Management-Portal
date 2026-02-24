@@ -23,7 +23,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
   { id: 'myservice', label: 'Manage Plan', icon: <TruckIcon className="w-5 h-5" /> },
-  { id: 'make-payment', label: 'Make a Payment', icon: <CreditCardIcon className="w-5 h-5" /> },
+  { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
   { id: 'requests', label: 'Requests', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
   { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
   { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" /> },
@@ -32,8 +32,7 @@ const navItems: NavItem[] = [
 const VIEW_TO_PATH: Record<string, string> = {
   'home': '/',
   'myservice': '/manage-plan',
-  'wallet': '/wallet',
-  'make-payment': '/pay',
+  'billing': '/billing',
   'requests': '/requests',
   'referrals': '/referrals',
   'help': '/help',
@@ -73,7 +72,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
 
     const baseItems = hasProperties
       ? navItems
-      : navItems.filter(item => !['myservice', 'make-payment'].includes(item.id));
+      : navItems.filter(item => !['myservice', 'billing'].includes(item.id));
     const visibleNavItems = baseItems;
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -132,9 +131,6 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                         </div>
                         <a href="/settings" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
                             <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
-                        </a>
-                        <a href="/wallet" onClick={(e) => { e.preventDefault(); handleNavigation('wallet'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-                            <BanknotesIcon className="w-5 h-5 mr-3 text-gray-400" /> Digital Wallet
                         </a>
                         <div className="border-t border-base-200 my-1"></div>
                         <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">

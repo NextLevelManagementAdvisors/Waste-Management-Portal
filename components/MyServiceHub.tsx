@@ -8,13 +8,12 @@ import StartService from './StartService.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
 import { Subscription, NewPropertyInfo } from '../types.ts';
-import { 
-    ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon, BanknotesIcon
+import {
+    ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon
 } from './Icons.tsx';
 import AccountTransfer from './AccountTransfer.tsx';
 import DangerZone from './DangerZone.tsx';
 import CollectionHistory from './CollectionHistory.tsx';
-import BillingHub from './BillingHub.tsx';
 
 interface MyServiceHubProps {
     onCompleteSetup: (propertyInfo: NewPropertyInfo, services: { serviceId: string; useSticker: boolean; quantity: number }[]) => Promise<void>;
@@ -24,7 +23,6 @@ const TABS = [
     { id: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
     { id: 'services', label: 'Services', icon: <TruckIcon className="w-5 h-5" /> },
     { id: 'history', label: 'History', icon: <ListBulletIcon className="w-5 h-5" /> },
-    { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
     { id: 'settings', label: 'Settings', icon: <WrenchScrewdriverIcon className="w-5 h-5" /> },
 ];
 
@@ -196,12 +194,6 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                         <div className="max-w-4xl mx-auto">
                             <CollectionHistory />
                         </div>
-                    </div>
-                );
-            case 'billing':
-                return (
-                    <div className="p-4 sm:p-6 lg:p-8">
-                        <BillingHub />
                     </div>
                 );
             case 'settings':

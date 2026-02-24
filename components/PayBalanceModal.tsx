@@ -102,8 +102,8 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
                         )) : (
                             <div className="text-center py-4 bg-gray-50 rounded-lg">
                                 <p className="text-sm font-bold text-gray-700">No payment methods found.</p>
-                                <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={() => navigateTo('wallet')}>
-                                    Add a Method in Wallet <ArrowRightIcon className="w-3 h-3 ml-1"/>
+                                <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={() => navigateTo('billing')}>
+                                    Add a Payment Method <ArrowRightIcon className="w-3 h-3 ml-1"/>
                                 </Button>
                             </div>
                         )}
@@ -116,8 +116,8 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
                                 {isPaying ? 'Processing...' : `Pay $${totalBalance.toFixed(2)}`}
                             </Button>
                         </div>
-                         <Button variant="ghost" size="sm" className="text-xs text-gray-500" onClick={() => navigateTo('make-payment')}>
-                            Go to Make a Payment hub for more options
+                         <Button variant="ghost" size="sm" className="text-xs text-gray-500" onClick={() => navigateTo('billing')}>
+                            View Billing Details
                         </Button>
                     </div>
                 </div>

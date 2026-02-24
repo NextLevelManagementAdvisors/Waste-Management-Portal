@@ -7,13 +7,12 @@ import RequestsHub from './components/RequestsHub.tsx';
 import Support from './components/Support.tsx';
 import SettingsHub from './components/SettingsHub.tsx';
 import ReferralsHub from './components/ReferralsHub.tsx';
-import WalletHub from './components/WalletHub.tsx';
+import BillingPage from './components/BillingPage.tsx';
 import AuthLayout from './components/AuthLayout.tsx';
 import Login from './components/Login.tsx';
 import Registration from './components/Registration.tsx';
 import ForgotPassword from './components/ForgotPassword.tsx';
 import ResetPassword from './components/ResetPassword.tsx';
-import MakePaymentHub from './components/MakePaymentHub.tsx';
 import AcceptTransfer from './components/AcceptTransfer.tsx';
 import ChatWidget from './components/ChatWidget.tsx';
 import LandingPage from './components/LandingPage.tsx';
@@ -28,12 +27,16 @@ import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
 const VIEW_TO_PATH: Record<View, string> = {
   'home': '/',
   'myservice': '/manage-plan',
-  'wallet': '/wallet',
-  'make-payment': '/pay',
+  'billing': '/billing',
   'requests': '/requests',
   'referrals': '/referrals',
   'help': '/help',
   'profile-settings': '/settings',
+};
+
+const LEGACY_REDIRECTS: Record<string, View> = {
+  '/pay': 'billing',
+  '/wallet': 'billing',
 };
 
 const PATH_TO_VIEW: Record<string, View> = Object.fromEntries(
@@ -52,6 +55,12 @@ function normalizePath(pathname: string): string {
 
 function getViewFromPath(pathname: string): View | null {
   const normalized = normalizePath(pathname);
+  const legacyView = LEGACY_REDIRECTS[normalized];
+  if (legacyView) {
+    window.history.replaceState({ view: legacyView }, '', VIEW_TO_PATH[legacyView]);
+    return legacyView;
+  }
+  if (normalized.startsWith('/settings')) return 'profile-settings';
   return PATH_TO_VIEW[normalized] ?? null;
 }
 
@@ -83,6 +92,11 @@ const App: React.FC = () => {
   });
   const [pendingDeepLinkQuery, setPendingDeepLinkQuery] = useState<string>(() => {
     return window.location.search ? window.location.search.slice(1) : '';
+  });
+  const [pendingSettingsPath] = useState<string | null>(() => {
+    const path = normalizePath(window.location.pathname);
+    if (path.startsWith('/settings/')) return path;
+    return null;
   });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
@@ -236,6 +250,9 @@ const App: React.FC = () => {
         setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
         setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
+        if (pendingDeepLink === 'profile-settings' && pendingSettingsPath) {
+          window.history.replaceState({ view: 'profile-settings' }, '', pendingSettingsPath);
+        }
         setPendingDeepLink(null);
       } else {
         setCurrentView('home');
@@ -244,7 +261,7 @@ const App: React.FC = () => {
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "An unknown error occurred.");
     }
-  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery, pendingTransferToken]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery, pendingTransferToken, pendingSettingsPath]);
 
   const handleRegister = useCallback(async (registrationInfo: RegistrationInfo): Promise<void> => {
      setAuthError(null);
@@ -282,6 +299,9 @@ const App: React.FC = () => {
         setCurrentView('myservice', pendingDeepLinkQuery || undefined);
       } else if (pendingDeepLink && pendingDeepLink !== 'home') {
         setCurrentView(pendingDeepLink, pendingDeepLinkQuery || undefined);
+        if (pendingDeepLink === 'profile-settings' && pendingSettingsPath) {
+          window.history.replaceState({ view: 'profile-settings' }, '', pendingSettingsPath);
+        }
         setPendingDeepLink(null);
       } else {
         setCurrentView('home');
@@ -290,7 +310,7 @@ const App: React.FC = () => {
     } catch (error) {
       setAuthError('Google sign-in completed but session check failed. Please try logging in.');
     }
-  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery]);
+  }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery, pendingSettingsPath]);
 
   const startNewServiceFlow = useCallback(() => {
     setSelectedPropertyId(null);
@@ -414,8 +434,7 @@ const App: React.FC = () => {
     switch (currentView) {
       case 'home': return <Dashboard setCurrentView={setCurrentView} />;
       case 'myservice': return <MyServiceHub onCompleteSetup={handleCompleteSetup} />;
-      case 'wallet': return <WalletHub />;
-      case 'make-payment': return <MakePaymentHub />;
+      case 'billing': return <BillingPage />;
       case 'requests': return <RequestsHub />;
       case 'referrals': return <ReferralsHub />;
       case 'help': return <Support />;
