@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { storage } from './storage';
 import { pool } from './db';
 import { broadcastToParticipants } from './websocket';
-import { sendMessageNotificationEmail } from './notificationService';
+import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification } from './notificationService';
 import { requireAdmin } from './adminRoutes';
 
 function requireAuth(req: Request, res: Response, next: Function) {
@@ -582,6 +582,195 @@ export function registerCommunicationRoutes(app: Express) {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });
+    }
+  });
+
+  // ========== TEMPLATES API ==========
+
+  app.get('/api/admin/templates', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query('SELECT * FROM communication_templates ORDER BY created_at DESC');
+      res.json(result.rows);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to fetch templates' });
+    }
+  });
+
+  app.post('/api/admin/templates', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { name, channel, subject, body, variables } = req.body;
+      if (!name?.trim() || !body?.trim()) return res.status(400).json({ error: 'Name and body are required' });
+      const result = await pool.query(
+        `INSERT INTO communication_templates (name, channel, subject, body, variables, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [name.trim(), channel || 'email', subject?.trim() || null, body.trim(), variables || [], userId]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to create template' });
+    }
+  });
+
+  app.put('/api/admin/templates/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { name, channel, subject, body, variables } = req.body;
+      if (!name?.trim() || !body?.trim()) return res.status(400).json({ error: 'Name and body are required' });
+      const result = await pool.query(
+        `UPDATE communication_templates SET name=$1, channel=$2, subject=$3, body=$4, variables=$5, updated_at=NOW()
+         WHERE id=$6 RETURNING *`,
+        [name.trim(), channel || 'email', subject?.trim() || null, body.trim(), variables || [], req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to update template' });
+    }
+  });
+
+  app.delete('/api/admin/templates/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query('DELETE FROM communication_templates WHERE id=$1 RETURNING id', [req.params.id]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to delete template' });
+    }
+  });
+
+  // ========== COMPOSE (unified send) ==========
+
+  app.post('/api/admin/compose', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { recipientIds, channel, subject, body, templateId, scheduledFor } = req.body;
+
+      if (!recipientIds?.length) return res.status(400).json({ error: 'At least one recipient is required' });
+      if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
+      if (!['email', 'sms', 'both'].includes(channel)) return res.status(400).json({ error: 'Invalid channel' });
+
+      // If scheduled, create log entries with status 'scheduled'
+      if (scheduledFor) {
+        const scheduledDate = new Date(scheduledFor);
+        if (scheduledDate <= new Date()) return res.status(400).json({ error: 'Scheduled time must be in the future' });
+
+        let created = 0;
+        for (const r of recipientIds) {
+          const user = await storage.getUserById(r.id);
+          if (!user) continue;
+          const name = `${user.first_name} ${user.last_name}`.trim();
+          const channels = channel === 'both' ? ['email', 'sms'] : [channel];
+          for (const ch of channels) {
+            const contact = ch === 'email' ? user.email : user.phone;
+            if (!contact) continue;
+            await logCommunication({
+              recipientId: r.id, recipientType: r.type || 'user', recipientName: name,
+              recipientContact: contact, channel: ch, subject: subject || undefined,
+              body: body.trim(), templateId, status: 'scheduled',
+              scheduledFor: scheduledDate.toISOString(), sentBy: userId,
+            });
+            created++;
+          }
+        }
+        return res.json({ success: true, scheduled: created });
+      }
+
+      // Send immediately
+      let sent = 0, failed = 0;
+      for (const r of recipientIds) {
+        const result = await sendAndLogNotification({
+          userId: r.id, channel, subject, body: body.trim(), templateId, sentBy: userId,
+        });
+        if (result.email || result.sms) sent++;
+        if (result.email === false && result.sms === false) failed++;
+      }
+
+      res.json({ success: true, sent, failed });
+    } catch (e) {
+      console.error('Compose send error:', e);
+      res.status(500).json({ error: 'Failed to send messages' });
+    }
+  });
+
+  // ========== ACTIVITY LOG ==========
+
+  app.get('/api/admin/activity-log', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const offset = (page - 1) * limit;
+      const channel = req.query.channel as string;
+      const status = req.query.status as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      const search = req.query.search as string;
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+
+      if (channel && channel !== 'all') { conditions.push(`channel = $${idx++}`); params.push(channel); }
+      if (status && status !== 'all') { conditions.push(`status = $${idx++}`); params.push(status); }
+      if (startDate) { conditions.push(`created_at >= $${idx++}`); params.push(startDate); }
+      if (endDate) { conditions.push(`created_at <= $${idx++}`); params.push(new Date(new Date(endDate).getTime() + 86400000).toISOString()); }
+      if (search) { conditions.push(`(recipient_name ILIKE $${idx} OR recipient_contact ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const countResult = await pool.query(`SELECT COUNT(*) FROM communication_log ${where}`, params);
+      const total = parseInt(countResult.rows[0].count);
+
+      params.push(limit, offset);
+      const result = await pool.query(
+        `SELECT cl.*, u.first_name AS sent_by_first, u.last_name AS sent_by_last
+         FROM communication_log cl LEFT JOIN users u ON cl.sent_by = u.id
+         ${where} ORDER BY cl.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+        params
+      );
+
+      res.json({ entries: result.rows, total, page, limit });
+    } catch (e) {
+      console.error('Activity log error:', e);
+      res.status(500).json({ error: 'Failed to fetch activity log' });
+    }
+  });
+
+  app.get('/api/admin/activity-log/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT cl.*, u.first_name AS sent_by_first, u.last_name AS sent_by_last
+         FROM communication_log cl LEFT JOIN users u ON cl.sent_by = u.id WHERE cl.id = $1`,
+        [req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to fetch entry' });
+    }
+  });
+
+  // ========== SCHEDULED MESSAGES ==========
+
+  app.get('/api/admin/scheduled', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM communication_log WHERE status = 'scheduled' ORDER BY scheduled_for ASC`
+      );
+      res.json(result.rows);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to fetch scheduled messages' });
+    }
+  });
+
+  app.delete('/api/admin/scheduled/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `UPDATE communication_log SET status = 'cancelled' WHERE id = $1 AND status = 'scheduled' RETURNING id`,
+        [req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Scheduled message not found or already sent' });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to cancel scheduled message' });
     }
   });
 

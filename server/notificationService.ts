@@ -1,8 +1,125 @@
 import { sendEmail } from './gmailClient';
 import { sendSms } from './twilioClient';
 import { storage } from './storage';
+import { pool } from './db';
 
 const APP_NAME = 'Zip-A-Dee Services';
+
+/** Log an outbound communication to the communication_log table */
+export async function logCommunication(entry: {
+  recipientId?: string;
+  recipientType?: string;
+  recipientName?: string;
+  recipientContact?: string;
+  channel: string;
+  direction?: string;
+  subject?: string;
+  body?: string;
+  templateId?: string;
+  status?: string;
+  scheduledFor?: string;
+  sentAt?: string;
+  errorMessage?: string;
+  sentBy?: string;
+}): Promise<string> {
+  const result = await pool.query(
+    `INSERT INTO communication_log
+       (recipient_id, recipient_type, recipient_name, recipient_contact, channel, direction,
+        subject, body, template_id, status, scheduled_for, sent_at, error_message, sent_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [
+      entry.recipientId || null,
+      entry.recipientType || null,
+      entry.recipientName || null,
+      entry.recipientContact || null,
+      entry.channel,
+      entry.direction || 'outbound',
+      entry.subject || null,
+      entry.body || null,
+      entry.templateId || null,
+      entry.status || 'sent',
+      entry.scheduledFor || null,
+      entry.sentAt || (entry.status !== 'scheduled' ? new Date().toISOString() : null),
+      entry.errorMessage || null,
+      entry.sentBy || null,
+    ]
+  );
+  return result.rows[0].id;
+}
+
+/** Render template body by replacing {{variable}} placeholders */
+export function renderTemplate(body: string, variables: Record<string, string>): string {
+  return body.replace(/\{\{(\w+)\}\}/g, (match, key) => variables[key] ?? match);
+}
+
+/** Send a custom notification and log it */
+export async function sendAndLogNotification(opts: {
+  userId: string;
+  channel: 'email' | 'sms' | 'both';
+  subject?: string;
+  body: string;
+  templateId?: string;
+  sentBy?: string;
+}): Promise<{ email?: boolean; sms?: boolean }> {
+  const user = await storage.getUserById(opts.userId);
+  if (!user) return {};
+  const result: { email?: boolean; sms?: boolean } = {};
+  const name = `${user.first_name} ${user.last_name}`.trim();
+
+  if (opts.channel === 'email' || opts.channel === 'both') {
+    const subject = opts.subject || `Message from ${APP_NAME}`;
+    const html = baseTemplate(subject, `
+      <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+      <p style="color:#4b5563;line-height:1.6;white-space:pre-wrap;">${opts.body}</p>
+    `);
+    try {
+      await sendEmail(user.email, subject, html);
+      result.email = true;
+      logCommunication({ recipientId: opts.userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: opts.body, templateId: opts.templateId, status: 'sent', sentBy: opts.sentBy }).catch(() => {});
+    } catch (e: any) {
+      result.email = false;
+      logCommunication({ recipientId: opts.userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: opts.body, templateId: opts.templateId, status: 'failed', errorMessage: e?.message, sentBy: opts.sentBy }).catch(() => {});
+    }
+  }
+
+  if (opts.channel === 'sms' || opts.channel === 'both') {
+    if (user.phone) {
+      const sent = await trySendSms(user.phone, `${APP_NAME}: ${opts.body}`);
+      result.sms = sent;
+      logCommunication({ recipientId: opts.userId, recipientType: 'user', recipientName: name, recipientContact: user.phone, channel: 'sms', body: opts.body, templateId: opts.templateId, status: sent ? 'sent' : 'failed', sentBy: opts.sentBy }).catch(() => {});
+    } else {
+      result.sms = false;
+    }
+  }
+
+  return result;
+}
+
+/** Process scheduled messages that are due */
+export async function processScheduledMessages(): Promise<void> {
+  try {
+    const due = await pool.query(
+      `SELECT * FROM communication_log WHERE status = 'scheduled' AND scheduled_for <= NOW() ORDER BY scheduled_for LIMIT 20`
+    );
+    for (const row of due.rows) {
+      try {
+        if (row.channel === 'email' && row.recipient_contact) {
+          const html = baseTemplate(row.subject || `Message from ${APP_NAME}`, `
+            <p style="color:#4b5563;line-height:1.6;white-space:pre-wrap;">${row.body}</p>
+          `);
+          await sendEmail(row.recipient_contact, row.subject || `Message from ${APP_NAME}`, html);
+        } else if (row.channel === 'sms' && row.recipient_contact) {
+          await sendSms(row.recipient_contact, `${APP_NAME}: ${row.body}`);
+        }
+        await pool.query(`UPDATE communication_log SET status = 'sent', sent_at = NOW() WHERE id = $1`, [row.id]);
+      } catch (e: any) {
+        await pool.query(`UPDATE communication_log SET status = 'failed', error_message = $2 WHERE id = $1`, [row.id, e?.message || 'Unknown error']);
+      }
+    }
+  } catch (e) {
+    console.error('Error processing scheduled messages:', e);
+  }
+}
 
 function baseTemplate(title: string, body: string): string {
   return `
