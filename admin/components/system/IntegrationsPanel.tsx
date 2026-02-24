@@ -399,19 +399,89 @@ const IntegrationsPanel: React.FC = () => {
               <div className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm text-gray-700">
                 {section.guide === 'gmail' ? (
                   gmailMode === 'oauth' ? (
-                    <ol className="list-decimal list-inside space-y-1">
-                      <li>Create OAuth credentials at <ExtLink href="https://console.cloud.google.com/apis/credentials">Cloud Console &gt; Credentials</ExtLink> (type: Web application)</li>
-                      <li>Add <code className="bg-gray-100 px-1 rounded text-xs">{window.location.origin}/api/admin/gmail/callback</code> as an authorized redirect URI</li>
-                      <li>Enable the <ExtLink href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Gmail API</ExtLink></li>
-                      <li>Enter the <strong>Client ID</strong> and <strong>Client Secret</strong> below, then click <strong>Authorize Gmail</strong> to sign in and generate the refresh token automatically</li>
-                    </ol>
+                    <div className="space-y-3">
+                      <p className="font-semibold text-gray-800">OAuth lets you send email from a personal Gmail or Workspace account. Best for most setups.</p>
+                      <ol className="list-decimal list-inside space-y-2">
+                        <li>
+                          Go to <ExtLink href="https://console.cloud.google.com/apis/credentials">Google Cloud Console &gt; Credentials</ExtLink>
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Click <strong>+ Create Credentials</strong> &rarr; <strong>OAuth client ID</strong></li>
+                            <li>Application type: <strong>Web application</strong></li>
+                            <li>Name it anything (e.g. "Waste Portal Gmail")</li>
+                          </ul>
+                        </li>
+                        <li>
+                          Under <strong>Authorized redirect URIs</strong>, add:
+                          <div className="mt-1 ml-5">
+                            <code className="bg-gray-100 px-2 py-1 rounded text-xs block w-fit select-all">{window.location.origin}/api/admin/gmail/callback</code>
+                          </div>
+                          <p className="text-xs text-gray-500 ml-5 mt-0.5">This must match exactly &mdash; including http vs https and port number.</p>
+                        </li>
+                        <li>
+                          Enable the <ExtLink href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Gmail API</ExtLink>
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Search for "Gmail API" in the API Library and click <strong>Enable</strong></li>
+                            <li>If not enabled, you'll see an "unauthorized_client" error when testing</li>
+                          </ul>
+                        </li>
+                        <li>
+                          Configure the <ExtLink href="https://console.cloud.google.com/apis/credentials/consent">OAuth consent screen</ExtLink>
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>User type: <strong>External</strong> (or Internal if using Google Workspace)</li>
+                            <li>Add scope: <code className="bg-gray-100 px-1 rounded">https://www.googleapis.com/auth/gmail.send</code></li>
+                            <li>While in "Testing" mode, add your Gmail as a test user under <strong>Test users</strong></li>
+                          </ul>
+                        </li>
+                        <li>
+                          Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> from the credentials page and enter them below
+                        </li>
+                        <li>
+                          Click <strong>Authorize Gmail</strong> below to sign in with Google &mdash; the refresh token will be saved automatically
+                        </li>
+                      </ol>
+                    </div>
                   ) : (
-                    <ol className="list-decimal list-inside space-y-1">
-                      <li>Create a service account at <ExtLink href="https://console.cloud.google.com/iam-admin/serviceaccounts">IAM &gt; Service Accounts</ExtLink></li>
-                      <li>Enable domain-wide delegation and add the <code className="bg-gray-100 px-1 rounded text-xs">gmail.send</code> scope</li>
-                      <li>Download the JSON key file and upload it below using the upload button</li>
-                      <li>Set <strong>Sender Email</strong> to the Gmail address to send from</li>
-                    </ol>
+                    <div className="space-y-3">
+                      <p className="font-semibold text-gray-800">Service Account uses domain-wide delegation to send as any user. Requires Google Workspace (not personal Gmail).</p>
+                      <ol className="list-decimal list-inside space-y-2">
+                        <li>
+                          Go to <ExtLink href="https://console.cloud.google.com/iam-admin/serviceaccounts">Google Cloud Console &gt; IAM &gt; Service Accounts</ExtLink>
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Click <strong>+ Create Service Account</strong></li>
+                            <li>Name it (e.g. "waste-portal-mailer") and click <strong>Create and Continue</strong></li>
+                            <li>Skip the optional role/access steps and click <strong>Done</strong></li>
+                          </ul>
+                        </li>
+                        <li>
+                          Enable domain-wide delegation
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Click the service account &rarr; <strong>Details</strong> tab &rarr; check <strong>Enable Google Workspace Domain-wide Delegation</strong></li>
+                            <li>Note the <strong>Client ID</strong> (numeric) shown on the details page</li>
+                          </ul>
+                        </li>
+                        <li>
+                          Authorize the scope in Google Workspace Admin
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Go to <ExtLink href="https://admin.google.com/ac/owl/domainwidedelegation">admin.google.com &gt; Security &gt; API controls &gt; Domain-wide Delegation</ExtLink></li>
+                            <li>Click <strong>Add new</strong>, paste the Client ID</li>
+                            <li>Add scope: <code className="bg-gray-100 px-1 rounded">https://www.googleapis.com/auth/gmail.send</code></li>
+                          </ul>
+                        </li>
+                        <li>
+                          Enable the <ExtLink href="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Gmail API</ExtLink> in your Google Cloud project
+                        </li>
+                        <li>
+                          Create a JSON key
+                          <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+                            <li>Click the service account &rarr; <strong>Keys</strong> tab &rarr; <strong>Add Key</strong> &rarr; <strong>Create new key</strong> &rarr; <strong>JSON</strong></li>
+                            <li>Upload the downloaded file below using the upload button</li>
+                          </ul>
+                        </li>
+                        <li>
+                          Set <strong>Sender Email</strong> to the Google Workspace email address to send from (e.g. <code className="bg-gray-100 px-1 rounded text-xs">noreply@yourcompany.com</code>)
+                        </li>
+                      </ol>
+                    </div>
                   )
                 ) : section.guide}
               </div>
