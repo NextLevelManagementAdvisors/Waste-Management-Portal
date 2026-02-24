@@ -121,8 +121,8 @@ const IntegrationsPanel: React.FC = () => {
   const [gmailMode, setGmailMode] = useState<'oauth' | 'service_account'>('oauth');
   const [gmailAuthorizing, setGmailAuthorizing] = useState(false);
 
-  const fetchSettings = async () => {
-    setLoading(true);
+  const fetchSettings = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/admin/settings', { credentials: 'include' });
@@ -134,7 +134,7 @@ const IntegrationsPanel: React.FC = () => {
     } catch {
       setError('Failed to load settings');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -169,7 +169,7 @@ const IntegrationsPanel: React.FC = () => {
     if (gmailAuth === 'success') {
       setSuccessMsg('Gmail authorized successfully! Refresh token has been saved.');
       setTimeout(() => setSuccessMsg(null), 5000);
-      fetchSettings();
+      fetchSettings(true);
     } else {
       const messages: Record<string, string> = {
         denied: 'Gmail authorization was denied.',
@@ -198,7 +198,7 @@ const IntegrationsPanel: React.FC = () => {
         setEditValue('');
         setSuccessMsg(`${key} updated successfully`);
         setTimeout(() => setSuccessMsg(null), 3000);
-        await fetchSettings();
+        await fetchSettings(true);
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to save setting');
@@ -299,7 +299,7 @@ const IntegrationsPanel: React.FC = () => {
         setTimeout(() => setError(null), 5000);
         return;
       }
-      await fetchSettings();
+      await fetchSettings(true);
     } catch (err) {
       console.error('Failed to save Gmail mode:', err);
       setError('Failed to save Gmail mode — network error');

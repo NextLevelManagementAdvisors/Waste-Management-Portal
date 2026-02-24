@@ -29,6 +29,7 @@ async function timed(fn: () => Promise<Omit<IntegrationTestResult, 'latencyMs'>>
     const result = await withTimeout(fn(), 10_000);
     return { ...result, latencyMs: Date.now() - start };
   } catch (err: any) {
+    console.error(`[integration-test] Error:`, err.message || err);
     return { status: 'error', message: err.message || 'Unknown error', latencyMs: Date.now() - start };
   }
 }
