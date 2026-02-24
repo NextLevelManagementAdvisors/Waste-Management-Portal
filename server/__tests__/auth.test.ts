@@ -58,6 +58,10 @@ vi.mock('../storage', () => ({
   pool: {},
 }));
 
+vi.mock('../db', () => ({
+  pool: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+}));
+
 vi.mock('../stripeClient', () => ({
   getUncachableStripeClient: vi.fn(),
   getStripePublishableKey: vi.fn(),

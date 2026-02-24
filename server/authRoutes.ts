@@ -115,26 +115,22 @@ export function registerAuthRoutes(app: Express) {
 
       const passwordHash = await bcrypt.hash(password, 12);
 
-      let stripeCustomerId: string | undefined;
-      try {
-        const stripe = await getUncachableStripeClient();
-        const existing = await stripe.customers.list({ email: email.toLowerCase(), limit: 1 });
-        if (existing.data.length > 0) {
-          stripeCustomerId = existing.data[0].id;
-          await stripe.customers.update(stripeCustomerId, {
-            name: `${firstName} ${lastName}`,
-            phone: phone || undefined,
-          });
-        } else {
-          const customer = await stripe.customers.create({
-            email: email.toLowerCase(),
-            name: `${firstName} ${lastName}`,
-            phone: phone || undefined,
-          });
-          stripeCustomerId = customer.id;
-        }
-      } catch (err) {
-        console.error('Warning: Failed to find/create Stripe customer during registration:', err);
+      let stripeCustomerId: string;
+      const stripe = await getUncachableStripeClient();
+      const existingCustomers = await stripe.customers.list({ email: email.toLowerCase(), limit: 1 });
+      if (existingCustomers.data.length > 0) {
+        stripeCustomerId = existingCustomers.data[0].id;
+        await stripe.customers.update(stripeCustomerId, {
+          name: `${firstName} ${lastName}`,
+          phone: phone || undefined,
+        });
+      } else {
+        const customer = await stripe.customers.create({
+          email: email.toLowerCase(),
+          name: `${firstName} ${lastName}`,
+          phone: phone || undefined,
+        });
+        stripeCustomerId = customer.id;
       }
 
       const user = await storage.createUser({
@@ -195,7 +191,10 @@ export function registerAuthRoutes(app: Express) {
       });
     } catch (error: any) {
       console.error('Registration error:', error);
-      res.status(500).json({ error: 'Registration failed' });
+      const message = error?.type?.startsWith('Stripe')
+        ? 'Unable to set up billing. Please try again later.'
+        : 'Registration failed';
+      res.status(500).json({ error: message });
     }
   });
 
