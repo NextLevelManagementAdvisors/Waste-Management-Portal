@@ -193,7 +193,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   ];
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${selectedPeople.size > 0 ? 'pb-20' : ''}`}>
       {/* Header with tabs and actions */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -350,9 +350,26 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
           ) : (
             <div className="grid gap-3">
               {people.map((person: any) => (
-                <Card key={person.id} className="p-4 hover:border-teal-200 transition-colors cursor-pointer" onClick={() => onSelectPerson(person.id)}>
+                <Card key={person.id} className={`p-4 hover:border-teal-200 transition-colors cursor-pointer ${isSelected(person.id) ? 'border-teal-300 bg-teal-50/50' : ''}`} onClick={() => onSelectPerson(person.id)}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-4 min-w-0 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleSelection(person); }}
+                        className="flex-shrink-0"
+                      >
+                        <span className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                          isSelected(person.id)
+                            ? 'bg-teal-600 border-teal-600 text-white'
+                            : 'border-gray-300 hover:border-teal-400'
+                        }`}>
+                          {isSelected(person.id) && (
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </span>
+                      </button>
                       <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0">
                         <span className="text-teal-700 font-bold text-sm">
                           {(person.firstName || '?').charAt(0).toUpperCase()}
@@ -428,6 +445,42 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
         <CreateDriverDialog
           onClose={() => setShowCreateDriver(false)}
           onCreated={() => { setShowCreateDriver(false); loadPeople(); }}
+        />
+      )}
+
+      {/* Floating bulk action bar */}
+      {selectedPeople.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] px-6 py-3">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-teal-100 text-teal-700 font-black text-sm">
+                {selectedPeople.size}
+              </span>
+              <span className="text-sm font-bold text-gray-700">
+                {selectedPeople.size === 1 ? 'person' : 'people'} selected
+              </span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-xs text-gray-400 hover:text-gray-600 font-bold ml-2"
+              >
+                Clear selection
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setShowComposeModal(true)}>
+                Send Message
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showComposeModal && (
+        <BulkComposeModal
+          recipients={Array.from(selectedPeople.values())}
+          onClose={() => setShowComposeModal(false)}
+          onSent={() => { setShowComposeModal(false); clearSelection(); }}
         />
       )}
     </div>
