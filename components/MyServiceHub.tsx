@@ -50,7 +50,7 @@ const Tab: React.FC<{
 
 const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     const { properties, selectedProperty, postNavAction, setCurrentView } = useProperty();
-    const [activeTab, setActiveTab] = useState('services');
+    const [activeTab, setActiveTab] = useState('overview');
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
     const [showSetupWizard, setShowSetupWizard] = useState(false);
@@ -80,7 +80,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
 
     useEffect(() => {
         if (selectedProperty) {
-            setActiveTab('services');
+            setActiveTab('overview');
         }
     }, [selectedProperty]);
 
@@ -187,7 +187,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                     </div>
                 );
             case 'services':
-                return <Services onNavigate={setActiveTab} />;
+                return <Services />;
             case 'history':
                 return (
                     <div className="p-4 sm:p-6 lg:p-8">

@@ -433,6 +433,9 @@ export const cancelSubscription = async (subscriptionId: string) => {
     return result;
 };
 
+export const pauseSubscription = stripeService.pauseSubscription;
+export const resumeSubscription = stripeService.resumeSubscription;
+
 export const addPaymentMethod = stripeService.attachPaymentMethod;
 export const deletePaymentMethod = stripeService.detachPaymentMethod;
 export const setPrimaryPaymentMethod = stripeService.updateCustomerDefaultPaymentMethod;

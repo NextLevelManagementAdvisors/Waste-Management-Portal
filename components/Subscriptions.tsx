@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, getServices } from '../services/apiService.ts';
+import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, pauseSubscription, resumeSubscription, getServices } from '../services/apiService.ts';
 import { Subscription, PaymentMethod, Service, Property } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
@@ -12,8 +12,11 @@ const SubscriptionCard: React.FC<{
     service: Service | undefined;
     paymentMethod: PaymentMethod | undefined;
     onCancel: () => void;
+    onPause: () => void;
+    onResume: () => void;
     onChangePayment: () => void;
-}> = ({ sub, service, paymentMethod, onCancel, onChangePayment }) => {
+    isProcessing: boolean;
+}> = ({ sub, service, paymentMethod, onCancel, onPause, onResume, onChangePayment, isProcessing }) => {
     const statusColor = {
         active: 'bg-green-100 text-green-800',
         paused: 'bg-yellow-100 text-yellow-800',
@@ -43,7 +46,11 @@ const SubscriptionCard: React.FC<{
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Billing Details</p>
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-y-4 gap-x-6 p-4 bg-gray-50/70 rounded-xl border border-base-200">
                             <div className="flex-1">
-                                <p className="text-sm text-gray-500">Next charge on <span className="font-bold text-gray-900">{sub.nextBillingDate}</span></p>
+                                {sub.status === 'paused' ? (
+                                    <p className="text-sm font-bold text-yellow-700">Billing paused — no charges while paused</p>
+                                ) : (
+                                    <p className="text-sm text-gray-500">Next charge on <span className="font-bold text-gray-900">{sub.nextBillingDate}</span></p>
+                                )}
                                 <div className="flex items-baseline gap-2 mt-1">
                                     <p className="text-2xl font-black text-primary">${Number(sub.totalPrice).toFixed(2)}</p>
                                     {isNew && setupFee > 0 && (
@@ -67,13 +74,20 @@ const SubscriptionCard: React.FC<{
                         </div>
                     </div>
                 </div>
-                 {sub.status !== 'canceled' && (
-                     <div className="flex items-center self-start md:self-center">
-                         {/* FIX: Removed redundant `disabled` prop that was causing a type error. 
-                             The parent `sub.status !== 'canceled'` check already ensures this button 
-                             is not rendered for canceled subscriptions. */}
-                         <Button variant="secondary" size="sm" onClick={onCancel} className="text-xs hover:bg-red-50 hover:text-red-600 border-none">
+                 {sub.status === 'active' && (
+                     <div className="flex items-center gap-2 self-start md:self-center">
+                         <Button variant="secondary" size="sm" onClick={onPause} disabled={isProcessing} className="text-xs hover:bg-yellow-50 hover:text-yellow-700 border-none">
+                            Pause
+                        </Button>
+                         <Button variant="secondary" size="sm" onClick={onCancel} disabled={isProcessing} className="text-xs hover:bg-red-50 hover:text-red-600 border-none">
                             Cancel
+                        </Button>
+                    </div>
+                 )}
+                 {sub.status === 'paused' && (
+                     <div className="flex items-center self-start md:self-center">
+                         <Button variant="secondary" size="sm" onClick={onResume} disabled={isProcessing} className="text-xs hover:bg-green-50 hover:text-green-700 border-none font-bold">
+                            Resume
                         </Button>
                     </div>
                  )}
@@ -91,10 +105,18 @@ const Subscriptions: React.FC = () => {
 
     // Modal States
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [tempPaymentMethodId, setTempPaymentMethodId] = useState('');
+
+    const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+
+    const showNotification = (type: 'success' | 'error' | 'warning', message: string) => {
+        setNotification({ type, message });
+        setTimeout(() => setNotification(null), 4000);
+    };
 
     const isAllMode = !selectedProperty && properties.length > 0;
 
@@ -149,7 +171,7 @@ const Subscriptions: React.FC = () => {
             );
 
             if (hasActiveCans) {
-                alert("The 'Standard Curbside' service is a required base fee and cannot be canceled while you have active can subscriptions. Please cancel your can subscriptions first, or cancel all services via the Settings page.");
+                showNotification('warning', "The 'Standard Curbside' base fee cannot be canceled while you have active can subscriptions. Cancel your cans first, or use Settings \u2192 Danger Zone.");
                 return;
             }
         }
@@ -202,7 +224,7 @@ const Subscriptions: React.FC = () => {
             await fetchData(); // This will refresh the state with all cancellations
             setIsCancelModalOpen(false);
         } catch (error) {
-            alert("Failed to cancel subscription.");
+            showNotification('error', "Failed to cancel subscription. Please try again.");
         } finally {
             setIsProcessing(false);
             setSelectedSub(null);
@@ -217,10 +239,44 @@ const Subscriptions: React.FC = () => {
             await fetchData();
             setIsPaymentModalOpen(false);
         } catch (error) {
-            alert("Failed to update payment method.");
+            showNotification('error', "Failed to update payment method. Please try again.");
         } finally {
             setIsProcessing(false);
             setSelectedSub(null);
+        }
+    };
+
+    const openPauseModal = (sub: Subscription) => {
+        setSelectedSub(sub);
+        setIsPauseModalOpen(true);
+    };
+
+    const handleConfirmPause = async () => {
+        if (!selectedSub) return;
+        setIsProcessing(true);
+        try {
+            await pauseSubscription(selectedSub.id);
+            await fetchData();
+            setIsPauseModalOpen(false);
+            showNotification('success', `${selectedSub.serviceName} has been paused.`);
+        } catch (error) {
+            showNotification('error', "Failed to pause subscription. Please try again.");
+        } finally {
+            setIsProcessing(false);
+            setSelectedSub(null);
+        }
+    };
+
+    const handleResume = async (sub: Subscription) => {
+        setIsProcessing(true);
+        try {
+            await resumeSubscription(sub.id);
+            await fetchData();
+            showNotification('success', `${sub.serviceName} has been resumed.`);
+        } catch (error) {
+            showNotification('error', "Failed to resume subscription. Please try again.");
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -261,13 +317,16 @@ const Subscriptions: React.FC = () => {
                                 {subs.map(sub => {
                                     const service = services.find(s => s.id === sub.serviceId);
                                     return (
-                                     <SubscriptionCard 
-                                        key={sub.id} 
-                                        sub={sub} 
+                                     <SubscriptionCard
+                                        key={sub.id}
+                                        sub={sub}
                                         service={service}
                                         paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
                                         onCancel={() => openCancelModal(sub)}
+                                        onPause={() => openPauseModal(sub)}
+                                        onResume={() => handleResume(sub)}
                                         onChangePayment={() => openPaymentModal(sub)}
+                                        isProcessing={isProcessing}
                                     />
                                 )})}
                             </div>
@@ -279,18 +338,34 @@ const Subscriptions: React.FC = () => {
                      {subscriptionsToDisplay.map(sub => {
                          const service = services.find(s => s.id === sub.serviceId);
                          return (
-                         <SubscriptionCard 
-                            key={sub.id} 
-                            sub={sub} 
+                         <SubscriptionCard
+                            key={sub.id}
+                            sub={sub}
                             service={service}
                             paymentMethod={paymentMethods.find(pm => pm.id === sub.paymentMethodId)}
                             onCancel={() => openCancelModal(sub)}
+                            onPause={() => openPauseModal(sub)}
+                            onResume={() => handleResume(sub)}
                             onChangePayment={() => openPaymentModal(sub)}
+                            isProcessing={isProcessing}
                         />
                      )}
                     )}
                 </div>
             )}
+
+             <Modal isOpen={isPauseModalOpen} onClose={() => setIsPauseModalOpen(false)} title="Pause Service">
+                <p className="mb-4">Are you sure you want to pause the <span className="font-bold">{selectedSub?.serviceName}</span> service?</p>
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg mb-4">
+                    <p className="text-sm text-yellow-800 font-medium">While paused, you will not be charged and collections will be suspended. You can resume at any time.</p>
+                </div>
+                <div className="flex justify-end gap-3">
+                    <Button type="button" variant="secondary" onClick={() => setIsPauseModalOpen(false)} disabled={isProcessing}>Back</Button>
+                    <Button type="button" onClick={handleConfirmPause} disabled={isProcessing} className="bg-yellow-600 hover:bg-yellow-700 text-white focus:ring-yellow-500">
+                        {isProcessing ? 'Pausing...' : 'Pause Service'}
+                    </Button>
+                </div>
+            </Modal>
 
              <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Confirm Cancellation">
                 <p className="mb-4">Are you sure you want to cancel the <span className="font-bold">{selectedSub?.serviceName}</span> service?</p>
@@ -327,6 +402,14 @@ const Subscriptions: React.FC = () => {
                     </Button>
                 </div>
             </Modal>
+
+            {notification && (
+                <div className={`fixed bottom-5 right-5 z-50 p-4 rounded-lg shadow-lg text-white text-sm font-bold max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+                    notification.type === 'error' ? 'bg-red-600' : notification.type === 'warning' ? 'bg-yellow-600' : 'bg-primary'
+                }`}>
+                    {notification.message}
+                </div>
+            )}
         </div>
     );
 };

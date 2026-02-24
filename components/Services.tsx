@@ -8,12 +8,8 @@ import { ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
 import ServiceSelector, { EquipmentChoiceModal } from './ServiceSelector.tsx';
 
 
-interface ServicesProps {
-    onNavigate: (tabId: 'billing') => void;
-}
-
-const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
-    const { selectedProperty, restartPropertyServices } = useProperty();
+const Services: React.FC = () => {
+    const { selectedProperty, restartPropertyServices, setCurrentView } = useProperty();
     const [services, setServices] = useState<Service[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
@@ -22,6 +18,12 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
     const [equipmentModal, setEquipmentModal] = useState<{ isOpen: boolean; service: Service | null }>({ isOpen: false, service: null });
     const [isRestarting, setIsRestarting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+
+    const showNotification = (type: 'success' | 'error' | 'warning', message: string) => {
+        setNotification({ type, message });
+        setTimeout(() => setNotification(null), 4000);
+    };
 
     const fetchData = async () => {
         try {
@@ -111,7 +113,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
             await fetchData();
         } catch (error) {
             console.error("Failed to update quantity:", error);
-            alert("Update failed. Please try again.");
+            showNotification('error', "Update failed. Please try again.");
         } finally {
             setUpdatingIds(prev => ({...prev, [service.id]: false }));
         }
@@ -141,7 +143,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
             await restartPropertyServices(selectedProperty.id);
             await fetchData();
         } catch(error) {
-            alert("Failed to restart services. Please try again.");
+            showNotification('error', "Failed to restart services. Please try again.");
         } finally {
             setIsRestarting(false);
         }
@@ -202,6 +204,13 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
 
     return (
         <div className="space-y-6">
+            {notification && (
+                <div className={`fixed bottom-5 right-5 z-50 p-4 rounded-lg shadow-lg text-white text-sm font-bold max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+                    notification.type === 'error' ? 'bg-red-600' : notification.type === 'warning' ? 'bg-yellow-600' : 'bg-primary'
+                }`}>
+                    {notification.message}
+                </div>
+            )}
             <EquipmentChoiceModal
                 isOpen={equipmentModal.isOpen}
                 service={equipmentModal.service}
@@ -215,7 +224,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                 onIncrement={(service) => handleAddService(service)}
                 onDecrement={(service) => {
                     if (service.category === 'base_service' && totalBaseServiceCans <= 1) {
-                        alert("You must have at least one trash can on your plan. To cancel service completely, go to Settings -> Danger Zone.");
+                        showNotification('warning', "You must have at least one trash can on your plan. To cancel service completely, go to Settings \u2192 Danger Zone.");
                         return;
                     }
                     handleSubscriptionChange(service, 'decrement');
@@ -228,7 +237,7 @@ const Services: React.FC<ServicesProps> = ({ onNavigate }) => {
                 totalBaseServiceCans={totalBaseServiceCans}
                 monthlyTotal={monthlyTotal}
                 footerAction={
-                    <Button size="md" className="rounded-lg font-bold w-full sm:w-auto" onClick={() => onNavigate('billing')} disabled={monthlyTotal === 0}>
+                    <Button size="md" className="rounded-lg font-bold w-full sm:w-auto" onClick={() => setCurrentView('billing')} disabled={monthlyTotal === 0}>
                         Manage Billing
                     </Button>
                 }

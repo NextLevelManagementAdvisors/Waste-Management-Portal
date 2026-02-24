@@ -113,6 +113,16 @@ export const cancelSubscription = async (subscriptionId: string) => {
   return res.data;
 };
 
+export const pauseSubscription = async (subscriptionId: string) => {
+  const res = await apiRequest('POST', `/subscriptions/${subscriptionId}/pause`);
+  return res.data;
+};
+
+export const resumeSubscription = async (subscriptionId: string) => {
+  const res = await apiRequest('POST', `/subscriptions/${subscriptionId}/resume`);
+  return res.data;
+};
+
 export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();

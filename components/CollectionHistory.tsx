@@ -4,7 +4,7 @@ import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { useProperty } from '../PropertyContext.tsx';
 import { getCollectionHistory, leaveDriverTip, leaveDriverNote, reportMissedPickup, CollectionHistoryLogWithFeedback } from '../services/apiService.ts';
-import { CheckCircleIcon, ExclamationTriangleIcon, SparklesIcon, CurrencyDollarIcon, PencilSquareIcon, UserCircleIcon } from './Icons.tsx';
+import { CheckCircleIcon, ExclamationTriangleIcon, SparklesIcon, CurrencyDollarIcon, PencilSquareIcon, UserCircleIcon, TruckIcon } from './Icons.tsx';
 
 const CollectionHistory: React.FC = () => {
     const { selectedProperty, postNavAction, setPostNavAction } = useProperty();
@@ -15,7 +15,14 @@ const CollectionHistory: React.FC = () => {
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
     const [selectedLog, setSelectedLog] = useState<CollectionHistoryLogWithFeedback | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
+    const [customTipAmount, setCustomTipAmount] = useState('');
+    const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const showNotification = (type: 'success' | 'error', message: string) => {
+        setNotification({ type, message });
+        setTimeout(() => setNotification(null), 4000);
+    };
+
     // State for missed pickup reporting
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
@@ -54,6 +61,7 @@ const CollectionHistory: React.FC = () => {
 
     const openTipModal = (log: CollectionHistoryLogWithFeedback) => {
         setSelectedLog(log);
+        setCustomTipAmount('');
         setIsTipModalOpen(true);
     };
 
@@ -107,7 +115,7 @@ const CollectionHistory: React.FC = () => {
             setReportSubmitted(true);
         } catch (error) {
             console.error("Failed to report missed pickup:", error);
-            alert("Report failed. Please try again.");
+            showNotification('error', "Report failed. Please try again.");
         } finally {
             setIsSubmittingReport(false);
         }
@@ -115,6 +123,25 @@ const CollectionHistory: React.FC = () => {
 
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div></div>;
+    }
+
+    if (history.length === 0) {
+        return (
+            <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Full Collection History</h2>
+                    <Button variant="secondary" className="rounded-xl" onClick={handleOpenReportModal}>
+                        <ExclamationTriangleIcon className="w-4 h-4 mr-2 text-red-500"/>
+                        Report a Missed Pickup
+                    </Button>
+                </div>
+                <Card className="text-center py-16">
+                    <TruckIcon className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                    <h3 className="text-sm font-bold text-gray-900">No Collections Yet</h3>
+                    <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">Your pickup history will appear here after your first scheduled collection.</p>
+                </Card>
+            </div>
+        );
     }
 
     return (
@@ -177,11 +204,10 @@ const CollectionHistory: React.FC = () => {
                         ))}
                     </div>
                      <p className="text-xs text-gray-400 font-bold uppercase">Or enter a custom amount</p>
-                    <input type="number" min="1" step="1" id="customTip" className="w-full text-center bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-black text-3xl text-gray-900 focus:outline-none focus:border-primary transition-colors" placeholder="$ 0.00" />
+                    <input type="number" min="1" step="1" value={customTipAmount} onChange={e => setCustomTipAmount(e.target.value)} className="w-full text-center bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-black text-3xl text-gray-900 focus:outline-none focus:border-primary transition-colors" placeholder="$ 0.00" />
                     <Button onClick={() => {
-                        const customAmount = document.getElementById('customTip') as HTMLInputElement;
-                        if (customAmount?.value) handleLeaveTip(parseFloat(customAmount.value));
-                    }} className="w-full h-14 rounded-xl uppercase tracking-widest font-black" disabled={isSubmitting}>
+                        if (customTipAmount) handleLeaveTip(parseFloat(customTipAmount));
+                    }} className="w-full h-14 rounded-xl uppercase tracking-widest font-black" disabled={isSubmitting || !customTipAmount}>
                         {isSubmitting ? 'Sending...' : 'Send Tip'}
                     </Button>
                 </div>
@@ -248,6 +274,14 @@ const CollectionHistory: React.FC = () => {
                     </form>
                 )}
             </Modal>
+
+            {notification && (
+                <div className={`fixed bottom-5 right-5 z-50 p-4 rounded-lg shadow-lg text-white text-sm font-bold max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+                    notification.type === 'error' ? 'bg-red-600' : 'bg-primary'
+                }`}>
+                    {notification.message}
+                </div>
+            )}
         </div>
     );
 };

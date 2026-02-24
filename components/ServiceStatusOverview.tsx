@@ -162,11 +162,8 @@ const ServiceStatusOverview: React.FC = () => {
                         <BellIcon className="w-5 h-5 text-gray-400" />
                         <h3 className="font-black text-gray-900 uppercase text-xs tracking-widest">Route Notices</h3>
                     </div>
-                    <div className="space-y-4">
-                        <div className="p-4 bg-gray-100 rounded-lg flex gap-3 items-start">
-                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                            <p className="text-sm font-medium text-gray-700">Route is proceeding on schedule with no delays.</p>
-                        </div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                        <p className="text-sm text-gray-400 font-medium">No route notices at this time.</p>
                     </div>
                 </Card>
 
