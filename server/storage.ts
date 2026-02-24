@@ -156,10 +156,6 @@ export class Storage {
     return result.rows[0];
   }
 
-  async deleteProperty(propertyId: string): Promise<void> {
-    await this.query('DELETE FROM properties WHERE id = $1', [propertyId]);
-  }
-
   async createPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
     await this.query(
       'UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false',

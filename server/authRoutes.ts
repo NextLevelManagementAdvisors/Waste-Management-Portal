@@ -27,6 +27,7 @@ declare module 'express-session' {
     googleOAuthPopup?: boolean;
     impersonatingUserId?: string;
     originalAdminUserId?: string;
+    cachedOrphanedSubscriptions?: Array<{ subscriptionId: string; propertyId: string }>;
   }
 }
 
@@ -67,6 +68,33 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   next();
+}
+
+async function checkOrphanedSubscriptions(
+  stripeCustomerId: string,
+  propertyIds: Set<string>
+): Promise<Array<{ subscriptionId: string; propertyId: string }>> {
+  try {
+    const stripe = await getUncachableStripeClient();
+    const subs = await stripe.subscriptions.list({
+      customer: stripeCustomerId,
+      status: 'all',
+      limit: 100,
+    });
+    return subs.data
+      .filter((sub: any) => {
+        const propId = sub.metadata?.propertyId;
+        return propId && !propertyIds.has(propId) &&
+          sub.status !== 'canceled' && sub.status !== 'incomplete_expired' && sub.status !== 'incomplete';
+      })
+      .map((sub: any) => ({
+        subscriptionId: sub.id,
+        propertyId: sub.metadata.propertyId,
+      }));
+  } catch (err) {
+    console.error('Orphaned subscription check failed (non-blocking):', err);
+    return [];
+  }
 }
 
 async function ensureStripeCustomer(user: DbUser): Promise<DbUser> {
@@ -250,6 +278,18 @@ export function registerAuthRoutes(app: Express) {
         );
         clientData.roles = rolesResult.rows.map((r: any) => r.role);
         clientData.isAdmin = clientData.roles.includes('admin');
+
+        // Reconciliation: check for Stripe subscriptions referencing missing properties
+        if (user.stripe_customer_id) {
+          const propertyIds = new Set(properties.map((p: DbProperty) => p.id));
+          const orphaned = await checkOrphanedSubscriptions(user.stripe_customer_id, propertyIds);
+          req.session.cachedOrphanedSubscriptions = orphaned;
+          if (orphaned.length > 0) {
+            clientData.orphanedSubscriptions = orphaned;
+            console.warn(`User ${user.email} has ${orphaned.length} orphaned subscription(s):`, orphaned);
+          }
+        }
+
         res.json({ data: clientData });
       });
     } catch (error: any) {
@@ -300,6 +340,12 @@ export function registerAuthRoutes(app: Express) {
         if (admin) {
           clientData.impersonatedBy = `${admin.first_name} ${admin.last_name}`;
         }
+      }
+
+      // Include cached orphaned subscriptions from login check
+      const orphaned = req.session.cachedOrphanedSubscriptions;
+      if (orphaned && orphaned.length > 0) {
+        clientData.orphanedSubscriptions = orphaned;
       }
 
       res.json({ data: clientData });

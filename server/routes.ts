@@ -239,10 +239,23 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/subscriptions', async (req: Request, res: Response) => {
+  app.post('/api/subscriptions', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
+      const userId = req.session.userId!;
       const { customerId, priceId, quantity, paymentMethodId, metadata } = req.body;
+
+      // Validate propertyId exists and belongs to authenticated user
+      const propertyId = metadata?.propertyId;
+      if (propertyId) {
+        const property = await storage.getPropertyById(propertyId);
+        if (!property) {
+          return res.status(400).json({ error: 'Property not found' });
+        }
+        if (property.user_id !== userId) {
+          return res.status(403).json({ error: 'Property does not belong to this user' });
+        }
+      }
 
       const createParams: any = {
         customer: customerId,
@@ -255,12 +268,10 @@ export function registerRoutes(app: Express) {
       }
       const subscription = await stripe.subscriptions.create(createParams);
 
-      if (req.session?.userId) {
-        try {
-          await processReferralCredits(req.session.userId, stripe);
-        } catch (err) {
-          console.error('Referral credit processing failed:', err);
-        }
+      try {
+        await processReferralCredits(userId, stripe);
+      } catch (err) {
+        console.error('Referral credit processing failed:', err);
       }
 
       res.json({ data: subscription });
