@@ -14,10 +14,12 @@ const CustomerSyncPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ created: number } | null>(null);
+  const [error, setError] = useState('');
 
   const loadPreview = async () => {
     setLoading(true);
     setSyncResult(null);
+    setError('');
     try {
       const res = await fetch('/api/admin/optimoroute/customers/sync-orders', {
         method: 'POST',
@@ -38,6 +40,7 @@ const CustomerSyncPanel: React.FC = () => {
 
   const executeSync = async () => {
     setSyncing(true);
+    setError('');
     try {
       const res = await fetch('/api/admin/optimoroute/customers/sync-orders', {
         method: 'POST',
@@ -49,8 +52,11 @@ const CustomerSyncPanel: React.FC = () => {
         const data = await res.json();
         setSyncResult({ created: data.created || 0 });
         setPreview(null);
+      } else {
+        setError('Sync failed — server returned an error');
       }
     } catch {
+      setError('Sync failed — network error');
     } finally {
       setSyncing(false);
     }
@@ -68,6 +74,13 @@ const CustomerSyncPanel: React.FC = () => {
       </div>
 
       {loading && <LoadingSpinner />}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-sm text-red-700 font-bold">{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 text-xs font-bold">Dismiss</button>
+        </div>
+      )}
 
       {syncResult && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 font-bold">

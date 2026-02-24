@@ -105,6 +105,10 @@ const RoutesView: React.FC = () => {
 
   const fetchRoutes = useCallback(async () => {
     setLoading(true);
+    setEvents([]);
+    setStopStatuses({});
+    setDriverStatuses({});
+    afterTagRef.current = '';
     try {
       const res = await fetch(`/api/admin/optimoroute/routes?date=${date}`, { credentials: 'include' });
       if (res.ok) {
@@ -134,7 +138,7 @@ const RoutesView: React.FC = () => {
                   newStopStatuses[key] = order.data.status;
                 }
               }
-              setStopStatuses(prev => ({ ...newStopStatuses, ...prev }));
+              setStopStatuses(prev => ({ ...prev, ...newStopStatuses }));
 
               // Derive driver statuses from stop completion data
               const newDriverStatuses: Record<string, string> = {};
@@ -156,7 +160,7 @@ const RoutesView: React.FC = () => {
                   newDriverStatuses[driverKey] = 'in_progress';
                 }
               }
-              setDriverStatuses(prev => ({ ...newDriverStatuses, ...prev }));
+              setDriverStatuses(prev => ({ ...prev, ...newDriverStatuses }));
             }
           } catch (e) {
             console.error('Failed to fetch completion details:', e);
@@ -204,7 +208,9 @@ const RoutesView: React.FC = () => {
             }
           }
         }
-      } catch {}
+      } catch (e) {
+        console.error('Event polling failed:', e);
+      }
     };
 
     pollEvents();
@@ -243,10 +249,15 @@ const RoutesView: React.FC = () => {
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
-  if (loading) return <LoadingSpinner />;
+  const KM_TO_MI = 0.621371;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {loading && (
+        <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center rounded-xl">
+          <LoadingSpinner />
+        </div>
+      )}
       {/* Connection Status */}
       {connectionStatus && (
         <div className={`rounded-lg border p-3 ${connectionStatus.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
@@ -352,7 +363,7 @@ const RoutesView: React.FC = () => {
         {[
           { label: 'Routes', value: routes.length },
           { label: 'Total Stops', value: totalStops },
-          { label: 'Total Distance', value: `${totalDistance.toFixed(1)} km` },
+          { label: 'Total Distance', value: `${(totalDistance * KM_TO_MI).toFixed(1)} mi` },
           { label: 'Total Duration', value: formatDuration(totalDuration) },
         ].map(stat => (
           <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -392,7 +403,7 @@ const RoutesView: React.FC = () => {
                       {route.vehicleLabel && <span>Vehicle: {route.vehicleLabel}</span>}
                       <span>{route.stops?.length || 0} stops</span>
                       {route.duration != null && <span>{formatDuration(route.duration)}</span>}
-                      {route.distance != null && <span>{route.distance.toFixed(1)} km</span>}
+                      {route.distance != null && <span>{(route.distance * KM_TO_MI).toFixed(1)} mi</span>}
                       <span>{completedStops}/{route.stops?.length || 0} completed</span>
                     </div>
                   </div>

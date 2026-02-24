@@ -192,10 +192,11 @@ const MissedPickupsList: React.FC = () => {
         />
       ) : (
         <>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-200">
+                <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Customer</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Address</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pickup Date</th>
@@ -230,13 +231,14 @@ const MissedPickupsList: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <Button size="sm" variant="secondary" onClick={() => handleResolveClick(report)}>
-                        Resolve
+                        {report.status === 'pending' ? 'Resolve' : report.status === 'investigating' ? 'Update' : 'View'}
                       </Button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
 
           <Pagination total={total} limit={limit} offset={offset} onChange={setOffset} />

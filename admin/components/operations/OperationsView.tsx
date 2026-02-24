@@ -40,8 +40,8 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
   }, [navFilter, onFilterConsumed]);
 
   const tabs: { key: OpsTabType; label: string }[] = [
-    { key: 'address-review', label: 'Address Review' },
     { key: 'routes', label: 'Routes' },
+    { key: 'address-review', label: 'Address Review' },
     { key: 'orders', label: 'Orders' },
     { key: 'route-jobs', label: 'Route Jobs' },
     { key: 'missed-pickups', label: 'Missed Pickups' },

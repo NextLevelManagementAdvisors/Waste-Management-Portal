@@ -9,6 +9,7 @@ import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNoti
 import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
+import { expenseRepo } from './repositories/ExpenseRepository';
 
 declare module 'express-session' {
   interface SessionData {
@@ -16,15 +17,15 @@ declare module 'express-session' {
   }
 }
 
-type AdminRole = 'full_admin' | 'support' | 'viewer';
+export type AdminRole = 'full_admin' | 'support' | 'viewer';
 
-const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
+export const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
   full_admin: ['*'],
   support: ['customers', 'communications', 'operations', 'billing.read', 'audit.read'],
   viewer: ['dashboard.read', 'customers.read', 'audit.read'],
 };
 
-function hasPermission(role: AdminRole | null, permission: string): boolean {
+export function hasPermission(role: AdminRole | null, permission: string): boolean {
   if (!role) return false;
   const perms = ROLE_PERMISSIONS[role];
   if (!perms) return false;
@@ -58,7 +59,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   }
 }
 
-function requirePermission(permission: string) {
+export function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const role = (req as any).adminRole as AdminRole;
     if (!hasPermission(role, permission)) {
@@ -518,6 +519,28 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Update Special Pickup Request status
+  app.put('/api/admin/pickup-schedule/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const validStatuses = ['pending', 'scheduled', 'completed', 'cancelled'];
+      if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+      }
+      const result = await storage.query(
+        'UPDATE special_pickup_requests SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, status',
+        [status, id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Pickup request not found' });
+      }
+      res.json({ success: true, id: result.rows[0].id, status: result.rows[0].status });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update pickup request' });
+    }
+  });
+
   // Route Jobs
   app.get('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
     try {
@@ -578,6 +601,24 @@ export function registerAdminRoutes(app: Express) {
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
       });
       await audit(req, 'update_job', 'route_job', req.params.id, req.body);
+
+      // Auto-sync driver pay expense when job is marked completed
+      if (status === 'completed' && existing.status !== 'completed' && base_pay && parseFloat(base_pay) > 0) {
+        try {
+          await expenseRepo.create({
+            category: 'driver_pay',
+            description: `Driver pay for: ${title}`,
+            amount: parseFloat(base_pay),
+            expenseDate: scheduled_date || new Date().toISOString().split('T')[0],
+            referenceId: req.params.id as string,
+            referenceType: 'route_job',
+            createdBy: getAdminId(req),
+          });
+        } catch (e) {
+          console.error('Failed to auto-sync driver pay expense:', e);
+        }
+      }
+
       res.json({ job: updated });
     } catch (error) {
       console.error('Failed to update job:', error);

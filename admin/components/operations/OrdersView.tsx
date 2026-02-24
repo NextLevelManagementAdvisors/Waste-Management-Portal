@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner } from '../ui/index.ts';
 
@@ -33,8 +33,12 @@ const OrdersView: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [detailOrder, setDetailOrder] = useState<{ order: any; schedule: any; completion: any } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const searchOrders = useCallback(async () => {
+    setError('');
     setLoading(true);
     setSearched(true);
     try {
@@ -50,12 +54,14 @@ const OrdersView: React.FC = () => {
     }
   }, [fromDate, toDate]);
 
+  useEffect(() => { searchOrders(); }, []); // auto-search on mount
+
   const getOrderKey = (order: Order) => order.orderNo || order.id || '';
 
-  const deleteOrder = async (order: Order) => {
-    const key = getOrderKey(order);
-    const label = order.orderNo || order.location?.locationName || key.slice(0, 8);
-    if (!confirm(`Delete order ${label}?`)) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const key = getOrderKey(deleteTarget);
+    setDeleting(true);
     try {
       const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(key)}`, {
         method: 'DELETE',
@@ -63,8 +69,15 @@ const OrdersView: React.FC = () => {
       });
       if (res.ok) {
         setOrders(prev => prev.filter(o => getOrderKey(o) !== key));
+        setDeleteTarget(null);
+      } else {
+        setError('Failed to delete order');
       }
-    } catch {}
+    } catch {
+      setError('Failed to delete order — network error');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const viewDetail = async (order: Order) => {
@@ -76,8 +89,12 @@ const OrdersView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setDetailOrder(data);
+      } else {
+        setError('Failed to load order details');
       }
-    } catch {} finally {
+    } catch {
+      setError('Failed to load order details — network error');
+    } finally {
       setDetailLoading(false);
     }
   };
@@ -106,6 +123,13 @@ const OrdersView: React.FC = () => {
           Create Order
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-sm text-red-700 font-bold">{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 text-xs font-bold">Dismiss</button>
+        </div>
+      )}
 
       {/* Results */}
       {loading ? (
@@ -151,7 +175,7 @@ const OrdersView: React.FC = () => {
                         <button onClick={() => viewDetail(order)} className="text-xs font-bold text-teal-600 hover:text-teal-800">
                           View
                         </button>
-                        <button onClick={() => deleteOrder(order)} className="text-xs font-bold text-red-500 hover:text-red-700">
+                        <button onClick={() => setDeleteTarget(order)} className="text-xs font-bold text-red-500 hover:text-red-700">
                           Delete
                         </button>
                       </div>
@@ -173,6 +197,39 @@ const OrdersView: React.FC = () => {
 
       {/* Create Order Modal */}
       {showCreate && <CreateOrderModal onClose={() => setShowCreate(false)} onCreated={searchOrders} />}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-black text-gray-900 mb-2">Delete Order</h2>
+            <p className="text-sm text-gray-600 mb-1">
+              Are you sure you want to delete order <span className="font-bold font-mono">{deleteTarget.orderNo || deleteTarget.location?.locationName || getOrderKey(deleteTarget).slice(0, 8)}</span>?
+            </p>
+            {deleteTarget.location?.address && (
+              <p className="text-xs text-gray-400 mb-4">{deleteTarget.location.address}</p>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Order Detail Modal */}
       {(detailOrder || detailLoading) && (

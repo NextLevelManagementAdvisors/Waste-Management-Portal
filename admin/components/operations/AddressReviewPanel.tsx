@@ -36,6 +36,7 @@ const AddressReviewPanel: React.FC = () => {
   const [feasibilityResults, setFeasibilityResults] = useState<Record<string, FeasibilityResult>>({});
   const [denyingId, setDenyingId] = useState<string | null>(null);
   const [denyNotes, setDenyNotes] = useState('');
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const fetchProperties = async () => {
     setLoading(true);
@@ -73,6 +74,7 @@ const AddressReviewPanel: React.FC = () => {
   };
 
   const submitDecision = async (propertyId: string, decision: 'approved' | 'denied', notes?: string) => {
+    setSavingId(propertyId);
     try {
       const res = await fetch(`/api/admin/address-reviews/${propertyId}/decision`, {
         method: 'PUT',
@@ -92,6 +94,8 @@ const AddressReviewPanel: React.FC = () => {
       }
     } catch (e) {
       console.error('Decision failed:', e);
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -136,6 +140,7 @@ const AddressReviewPanel: React.FC = () => {
               const result = feasibilityResults[prop.id];
               const isChecking = checkingId === prop.id;
               const isDenying = denyingId === prop.id;
+              const isSaving = savingId === prop.id;
               const reasonInfo = result ? (reasonLabels[result.reason] || reasonLabels.unknown) : null;
 
               return (
@@ -172,20 +177,22 @@ const AddressReviewPanel: React.FC = () => {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => checkFeasibility(prop.id)}
-                          disabled={isChecking || checkingId !== null}
+                          disabled={isChecking || checkingId !== null || savingId !== null}
                           className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
                         >
                           Check Route
                         </button>
                         <button
                           onClick={() => submitDecision(prop.id, 'approved')}
-                          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors"
+                          disabled={savingId !== null}
+                          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
-                          Approve
+                          {isSaving && savingId === prop.id ? 'Approving...' : 'Approve'}
                         </button>
                         <button
                           onClick={() => { setDenyingId(isDenying ? null : prop.id); setDenyNotes(''); }}
-                          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                          disabled={savingId !== null}
+                          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                         >
                           Deny
                         </button>
@@ -205,9 +212,10 @@ const AddressReviewPanel: React.FC = () => {
                           />
                           <button
                             onClick={() => submitDecision(prop.id, 'denied', denyNotes)}
-                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                            disabled={savingId !== null}
+                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                           >
-                            Confirm Deny
+                            {isSaving ? 'Denying...' : 'Confirm Deny'}
                           </button>
                           <button
                             onClick={() => { setDenyingId(null); setDenyNotes(''); }}

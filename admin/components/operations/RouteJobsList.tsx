@@ -147,12 +147,22 @@ const RouteJobsList: React.FC = () => {
           </div>
         </FilterBar>
 
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex-shrink-0 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-lg transition-colors"
-        >
-          + Create Job
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={loadJobs}
+            className="flex-shrink-0 px-3 py-2 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex-shrink-0 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-lg transition-colors"
+          >
+            + Create Job
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -163,10 +173,11 @@ const RouteJobsList: React.FC = () => {
           message={statusFilter === 'all' ? 'Create a job to post it to the driver portal.' : 'No jobs match the selected status.'}
         />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-200">
+              <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Title</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Address</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Date</th>
@@ -272,6 +283,7 @@ const RouteJobsList: React.FC = () => {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
