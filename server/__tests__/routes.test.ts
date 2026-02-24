@@ -311,9 +311,21 @@ describe('POST /api/customers/:customerId/default-payment-method', () => {
 // ===========================================================================
 describe('POST /api/setup-intent', () => {
   it('returns a client secret for a SetupIntent', async () => {
-    const res = await supertest(createApp()).post('/api/setup-intent').send({ customerId: 'cus_test123' });
+    vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser } as any);
+    const res = await supertest(createAuthApp()).post('/api/setup-intent');
     expect(res.status).toBe(200);
     expect(res.body.data.clientSecret).toBe('seti_secret_123');
+  });
+
+  it('returns 401 when not authenticated', async () => {
+    const res = await supertest(createApp()).post('/api/setup-intent');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when user has no stripe_customer_id', async () => {
+    vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser, stripe_customer_id: null } as any);
+    const res = await supertest(createAuthApp()).post('/api/setup-intent');
+    expect(res.status).toBe(400);
   });
 });
 

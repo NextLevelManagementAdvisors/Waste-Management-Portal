@@ -6,7 +6,6 @@ import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
 import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
-import { getCustomerId } from '../services/stripeService.ts';
 import { getStripePromise } from './StripeProvider.tsx';
 import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
 
@@ -145,13 +144,10 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     useEffect(() => {
         if (billingChoice === 'new' && !clientSecret) {
-            const customerId = getCustomerId();
-            if (!customerId) return;
             fetch('/api/setup-intent', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ customerId }),
             })
                 .then(res => { if (!res.ok) throw new Error('Server error'); return res.json(); })
                 .then(json => setClientSecret(json.data.clientSecret))
