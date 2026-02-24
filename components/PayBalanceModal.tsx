@@ -5,6 +5,7 @@ import { getInvoices, getPaymentMethods, payOutstandingBalance } from '../servic
 import { Invoice, PaymentMethod, View } from '../types.ts';
 import { CreditCardIcon, BanknotesIcon, ArrowRightIcon } from './Icons.tsx';
 import { useProperty } from '../PropertyContext.tsx';
+import { useToast } from './Toast.tsx';
 
 interface PayBalanceModalProps {
     isOpen: boolean;
@@ -15,6 +16,7 @@ interface PayBalanceModalProps {
 
 const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSuccess, propertyId }) => {
     const { setCurrentView } = useProperty();
+    const { showToast } = useToast();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
@@ -44,15 +46,16 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
 
     const handlePayment = async () => {
         if (!selectedMethodId) {
-            alert("Please select a payment method.");
+            showToast('warning', 'Please select a payment method.');
             return;
         }
         setIsPaying(true);
         try {
             await payOutstandingBalance(selectedMethodId, propertyId);
+            showToast('success', `Payment of $${totalBalance.toFixed(2)} processed successfully.`);
             onSuccess();
         } catch (error) {
-            alert("Payment failed. Please try again.");
+            showToast('error', 'Payment failed. Please try again.');
         } finally {
             setIsPaying(false);
         }

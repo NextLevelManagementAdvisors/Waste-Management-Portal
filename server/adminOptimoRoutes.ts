@@ -2,6 +2,7 @@ import { type Express, type Request, type Response } from 'express';
 import { requireAdmin } from './adminRoutes';
 import { pool } from './db';
 import * as optimo from './optimoRouteClient';
+import * as optimoSync from './optimoSyncService';
 
 export function registerAdminOptimoRoutes(app: Express) {
   // ── Test Connection ──
@@ -222,103 +223,10 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   // ── Driver sync ──
 
-  app.get('/api/admin/optimoroute/drivers/sync-preview', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/optimoroute/drivers/sync-preview', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      // Fetch routes from the past 7 days to find active OptimoRoute drivers
-      interface DriverInfo {
-        serial: string;
-        name: string;
-        externalId?: string;
-        vehicleRegistration?: string | null;
-        vehicleLabel?: string | null;
-        totalRoutes: number;
-        totalStops: number;
-        totalDistanceKm: number;
-        totalDurationMin: number;
-        lastRouteDate: string;
-        recentStopAddresses: string[];
-      }
-      const driverMap = new Map<string, DriverInfo>();
-      const today = new Date();
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        try {
-          const routeResult = await optimo.getRoutes(dateStr);
-          const routes = routeResult.routes || (routeResult as any).data || [];
-          for (const route of routes) {
-            // driverSerial can be empty for some accounts — use driverName as fallback key
-            const serial = route.driverSerial || route.driverName || '';
-            if (!serial) continue;
-            const existing = driverMap.get(serial);
-            const stopCount = (route.stops || []).length;
-            const distKm = route.distance || 0;
-            const durMin = route.duration || 0;
-            if (existing) {
-              existing.totalRoutes++;
-              existing.totalStops += stopCount;
-              existing.totalDistanceKm += distKm;
-              existing.totalDurationMin += durMin;
-              if (dateStr > existing.lastRouteDate) existing.lastRouteDate = dateStr;
-              if (!existing.vehicleRegistration && route.vehicleRegistration) existing.vehicleRegistration = route.vehicleRegistration;
-              if (!existing.vehicleLabel && route.vehicleLabel) existing.vehicleLabel = route.vehicleLabel;
-            } else {
-              // Collect a sample of stop addresses (first 5 from most recent route)
-              const sampleAddresses = (route.stops || [])
-                .slice(0, 5)
-                .map((s: any) => s.address || s.location?.address || '')
-                .filter(Boolean);
-              driverMap.set(serial, {
-                serial,
-                name: route.driverName || `Driver ${serial}`,
-                externalId: route.driverExternalId,
-                vehicleRegistration: route.vehicleRegistration,
-                vehicleLabel: route.vehicleLabel,
-                totalRoutes: 1,
-                totalStops: stopCount,
-                totalDistanceKm: distKm,
-                totalDurationMin: durMin,
-                lastRouteDate: dateStr,
-                recentStopAddresses: sampleAddresses,
-              });
-            }
-          }
-        } catch {}
-      }
-
-      // Fetch local driver profiles
-      const localResult = await pool.query(
-        `SELECT dp.id, dp.user_id, dp.name, dp.optimoroute_driver_id, dp.status,
-                u.first_name, u.last_name, u.email
-         FROM driver_profiles dp
-         LEFT JOIN users u ON u.id = dp.user_id
-         ORDER BY dp.name`
-      );
-
-      const localDrivers = localResult.rows;
-      const linkedSerials = new Set(localDrivers.filter(d => d.optimoroute_driver_id).map(d => d.optimoroute_driver_id));
-
-      const matched: any[] = [];
-      const unmatchedOptimo: any[] = [];
-      const unmatchedLocal: any[] = [];
-
-      for (const [serial, optimoDriver] of driverMap) {
-        const localMatch = localDrivers.find(d => d.optimoroute_driver_id === serial);
-        if (localMatch) {
-          matched.push({ optimoDriver, localDriver: localMatch });
-        } else {
-          unmatchedOptimo.push(optimoDriver);
-        }
-      }
-
-      for (const local of localDrivers) {
-        if (!local.optimoroute_driver_id || !driverMap.has(local.optimoroute_driver_id)) {
-          unmatchedLocal.push(local);
-        }
-      }
-
-      res.json({ matched, unmatchedOptimo, unmatchedLocal });
+      const result = await optimoSync.previewDriverSync();
+      res.json(result);
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error syncing drivers:', error);
       res.status(500).json({ error: 'Failed to preview driver sync' });
@@ -327,22 +235,11 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   app.post('/api/admin/optimoroute/drivers/sync', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { mappings } = req.body; // Array of { optimorouteSerial, driverProfileId }
+      const { mappings } = req.body;
       if (!mappings || !Array.isArray(mappings)) {
         return res.status(400).json({ error: 'mappings array required' });
       }
-
-      let linked = 0;
-      for (const mapping of mappings) {
-        const { optimorouteSerial, driverProfileId } = mapping;
-        if (optimorouteSerial == null || !driverProfileId) continue;
-        await pool.query(
-          `UPDATE driver_profiles SET optimoroute_driver_id = $1 WHERE id = $2`,
-          [optimorouteSerial, driverProfileId]
-        );
-        linked++;
-      }
-
+      const { linked } = await optimoSync.executeDriverSync(mappings);
       res.json({ success: true, linked });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error syncing drivers:', error);
@@ -396,79 +293,15 @@ export function registerAdminOptimoRoutes(app: Express) {
   app.post('/api/admin/optimoroute/customers/sync-orders', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { preview } = req.body;
-
-      // Get all active properties with subscriptions
-      const propResult = await pool.query(
-        `SELECT p.id, p.address, p.user_id, u.first_name, u.last_name, u.email,
-                (SELECT COUNT(*) FROM stripe.subscriptions s WHERE s.customer = u.stripe_customer_id AND s.status = 'active') as active_subs
-         FROM properties p
-         JOIN users u ON u.id = p.user_id
-         WHERE p.address IS NOT NULL AND p.address != ''
-           AND u.stripe_customer_id IS NOT NULL
-         ORDER BY u.last_name, u.first_name`
-      );
-
-      const properties = propResult.rows.filter(p => parseInt(p.active_subs) > 0);
-
-      // Check each property for upcoming orders
-      const today = new Date().toISOString().split('T')[0];
-      const twoWeeksOut = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-
-      const results: any[] = [];
-      for (const prop of properties) {
-        try {
-          const orders = await optimo.findOrdersForAddress(prop.address, today, twoWeeksOut);
-          results.push({
-            property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-            upcomingOrders: orders.length,
-            hasOrders: orders.length > 0,
-          });
-        } catch {
-          results.push({
-            property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-            upcomingOrders: 0,
-            hasOrders: false,
-            error: true,
-          });
-        }
-      }
-
-      const missing = results.filter(r => !r.hasOrders);
-
       if (preview) {
-        return res.json({ total: results.length, withOrders: results.length - missing.length, missing });
+        const result = await optimoSync.previewCustomerOrderSync();
+        return res.json(result);
       }
-
-      // Create orders for properties without upcoming ones
-      let created = 0;
-      for (const item of missing) {
-        if (item.error) continue;
-        try {
-          const nextBusinessDay = getNextBusinessDay();
-          await optimo.createOrder({
-            orderNo: `SYNC-${item.property.id.substring(0, 8).toUpperCase()}-${Date.now()}`,
-            type: 'P',
-            date: nextBusinessDay,
-            address: item.property.address,
-            locationName: item.property.customer,
-            duration: 10,
-            notes: 'Auto-synced from admin portal',
-          });
-          created++;
-        } catch {}
-      }
-
-      res.json({ total: results.length, withOrders: results.length - missing.length, missing: missing.length, created });
+      const result = await optimoSync.executeCustomerOrderSync();
+      res.json(result);
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error syncing customer orders:', error);
       res.status(500).json({ error: 'Failed to sync customer orders' });
     }
   });
-}
-
-function getNextBusinessDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
 }

@@ -46,7 +46,6 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 ) as Record<string, AdminView>;
 
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
-  'address-review': '/admin/operations/address-review',
   routes: '/admin/operations',
   orders: '/admin/operations/orders',
   'route-jobs': '/admin/operations/jobs',

@@ -10,6 +10,7 @@ import {
   MapPinIcon,
 } from '../../../components/Icons.tsx';
 import ActivityFeed from '../operations/ActivityFeed.tsx';
+import AddressReviewPanel from '../operations/AddressReviewPanel.tsx';
 import type { NavFilter } from '../../../shared/types/index.ts';
 
 interface AdminStats {
@@ -25,7 +26,7 @@ interface AdminStats {
   openInvoices: number;
 }
 
-type TabType = 'signups' | 'revenue' | 'services' | 'activity';
+type TabType = 'signups' | 'revenue' | 'services' | 'activity' | 'address-review';
 
 interface SignupData {
   date: string;
@@ -64,7 +65,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
 
   useEffect(() => {
     if (navFilter?.tab) {
-      const validTabs: TabType[] = ['signups', 'revenue', 'services', 'activity'];
+      const validTabs: TabType[] = ['signups', 'revenue', 'services', 'activity', 'address-review'];
       if (validTabs.includes(navFilter.tab as TabType)) {
         handleTabChange(navFilter.tab as TabType);
       }
@@ -366,7 +367,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('accounting', { tab: 'invoices', filter: 'open' })} />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('operations', { tab: 'address-review' })} />
+            <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => handleTabChange('address-review')} />
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
@@ -418,6 +419,16 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
           >
             Recent Activity
           </button>
+          <button
+            onClick={() => handleTabChange('address-review')}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'address-review'
+                ? 'text-teal-700 border-teal-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            }`}
+          >
+            Address Review
+          </button>
         </div>
 
         <div className="pt-4">
@@ -425,6 +436,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
           {activeTab === 'revenue' && <RevenueChart />}
           {activeTab === 'services' && <ServiceBreakdownChart />}
           {activeTab === 'activity' && <ActivityFeed />}
+          {activeTab === 'address-review' && <AddressReviewPanel />}
         </div>
       </div>
     </div>
