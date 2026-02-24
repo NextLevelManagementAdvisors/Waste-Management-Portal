@@ -68,9 +68,9 @@ async function testStripe(): Promise<IntegrationTestResult> {
 
 // ── Gmail ──
 
-async function testGmail(): Promise<IntegrationTestResult> {
+async function testGmail(modeOverride?: string): Promise<IntegrationTestResult> {
   return timed(async () => {
-    const mode = process.env.GMAIL_AUTH_MODE; // 'oauth' | 'service_account' | undefined
+    const mode = modeOverride || process.env.GMAIL_AUTH_MODE; // 'oauth' | 'service_account' | undefined
     const hasServiceAcct = process.env.GMAIL_SERVICE_ACCOUNT_JSON && process.env.GMAIL_SENDER_EMAIL;
     const hasOAuth = process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN;
 
@@ -179,7 +179,10 @@ const TEST_MAP: Record<string, () => Promise<IntegrationTestResult>> = {
   app: testAppConfig,
 };
 
-export async function testSingleIntegration(category: string): Promise<IntegrationTestResult> {
+export async function testSingleIntegration(category: string, options?: Record<string, string>): Promise<IntegrationTestResult> {
+  if (category === 'gmail' && options?.mode) {
+    return testGmail(options.mode);
+  }
   const fn = TEST_MAP[category];
   if (!fn) return { status: 'error', message: `Unknown integration: ${category}` };
   return fn();

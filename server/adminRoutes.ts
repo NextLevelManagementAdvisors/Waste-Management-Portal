@@ -1446,8 +1446,9 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/integrations/status', requireAdmin, async (req: Request, res: Response) => {
     try {
       const target = req.query.integration as string | undefined;
+      const mode = req.query.mode as string | undefined;
       if (target) {
-        const result = await testSingleIntegration(target);
+        const result = await testSingleIntegration(target, mode ? { mode } : undefined);
         return res.json({ results: { [target]: result } });
       }
       const results = await testAllIntegrations();

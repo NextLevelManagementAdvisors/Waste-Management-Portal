@@ -254,7 +254,9 @@ const IntegrationsPanel: React.FC = () => {
   const testSingleConnection = async (category: string) => {
     setTestingOne(category);
     try {
-      const res = await fetch(`/api/admin/integrations/status?integration=${category}`, { credentials: 'include' });
+      let url = `/api/admin/integrations/status?integration=${category}`;
+      if (category === 'gmail') url += `&mode=${gmailMode}`;
+      const res = await fetch(url, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setIntegrationStatus(prev => ({ ...prev, ...data.results }));
