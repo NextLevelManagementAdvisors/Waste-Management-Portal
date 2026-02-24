@@ -11,8 +11,42 @@ import {
 
 type SettingsTab = 'profile' | 'notifications' | 'security';
 
+const SETTINGS_TAB_TO_PATH: Record<SettingsTab, string> = {
+  profile: '/settings',
+  notifications: '/settings/notifications',
+  security: '/settings/security',
+};
+
+const SETTINGS_PATH_TO_TAB: Record<string, SettingsTab> = {
+  '/settings': 'profile',
+  '/settings/notifications': 'notifications',
+  '/settings/security': 'security',
+};
+
+function getSettingsTabFromPath(pathname: string): SettingsTab {
+  const normalized = pathname.replace(/\/+$/, '') || '/settings';
+  return SETTINGS_PATH_TO_TAB[normalized] || 'profile';
+}
+
 const SettingsHub: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const [activeTab, setActiveTabRaw] = useState<SettingsTab>(() => getSettingsTabFromPath(window.location.pathname));
+
+  const setActiveTab = useCallback((tab: SettingsTab) => {
+    setActiveTabRaw(tab);
+    const url = SETTINGS_TAB_TO_PATH[tab] || '/settings';
+    window.history.pushState({ view: 'profile-settings', settingsTab: tab }, '', url);
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.replace(/\/+$/, '') || '/settings';
+      if (path.startsWith('/settings')) {
+        setActiveTabRaw(getSettingsTabFromPath(path));
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },

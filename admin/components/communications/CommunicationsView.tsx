@@ -4,6 +4,8 @@ import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, StatusBadge } from '../ui/index.ts';
 import NotificationSender from '../operations/NotificationSender.tsx';
 
+export type CommsTabType = 'conversations' | 'notifications';
+
 interface Participant {
   id: string;
   participant_id: string;
@@ -417,8 +419,22 @@ const ChatThread: React.FC<{
   );
 };
 
-const CommunicationsView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'conversations' | 'notifications'>('conversations');
+interface CommunicationsViewProps {
+  activeTab?: CommsTabType;
+  onTabChange?: (tab: CommsTabType) => void;
+}
+
+const CommunicationsView: React.FC<CommunicationsViewProps> = ({ activeTab: controlledTab, onTabChange }) => {
+  const [internalTab, setInternalTab] = useState<CommsTabType>('conversations');
+  const activeTab = controlledTab ?? internalTab;
+
+  const setActiveTab = (tab: CommsTabType) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);

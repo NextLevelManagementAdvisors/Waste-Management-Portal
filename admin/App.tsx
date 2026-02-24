@@ -13,7 +13,9 @@ import BillingView from './components/billing/BillingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
 import type { OpsTabType } from './components/operations/OperationsView.tsx';
 import SystemView from './components/system/SystemView.tsx';
+import type { SystemTabType } from './components/system/SystemView.tsx';
 import CommunicationsView from './components/communications/CommunicationsView.tsx';
+import type { CommsTabType } from './components/communications/CommunicationsView.tsx';
 import AdminAuthLayout from './components/auth/AdminAuthLayout.tsx';
 import AdminLogin from './components/auth/AdminLogin.tsx';
 import type { NavFilter } from '../shared/types/index.ts';
@@ -55,22 +57,48 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = Object.fromEntries(
   Object.entries(OPS_TAB_TO_PATH).map(([tab, path]) => [path, tab as OpsTabType])
 ) as Record<string, OpsTabType>;
 
-function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null } {
+const SYSTEM_TAB_TO_PATH: Record<SystemTabType, string> = {
+  audit: '/admin/system',
+  errors: '/admin/system/errors',
+  settings: '/admin/system/settings',
+  integrations: '/admin/system/integrations',
+};
+const SYSTEM_PATH_TO_TAB: Record<string, SystemTabType> = Object.fromEntries(
+  Object.entries(SYSTEM_TAB_TO_PATH).map(([tab, path]) => [path, tab as SystemTabType])
+) as Record<string, SystemTabType>;
+
+const COMMS_TAB_TO_PATH: Record<CommsTabType, string> = {
+  conversations: '/admin/communications',
+  notifications: '/admin/communications/notifications',
+};
+const COMMS_PATH_TO_TAB: Record<string, CommsTabType> = Object.fromEntries(
+  Object.entries(COMMS_TAB_TO_PATH).map(([tab, path]) => [path, tab as CommsTabType])
+) as Record<string, CommsTabType>;
+
+function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null; systemTab: SystemTabType | null; commsTab: CommsTabType | null } {
   const normalized = pathname.replace(/\/+$/, '') || '/admin';
-  // Check /admin/people/:id
   const personMatch = normalized.match(/^\/admin\/people\/([a-f0-9-]+)$/i);
-  if (personMatch) return { view: 'people', personId: personMatch[1], opsTab: null };
-  // Check /admin/operations/* sub-paths
+  if (personMatch) return { view: 'people', personId: personMatch[1], opsTab: null, systemTab: null, commsTab: null };
   if (normalized.startsWith('/admin/operations')) {
     const opsTab = OPS_PATH_TO_TAB[normalized] || 'routes';
-    return { view: 'operations', personId: null, opsTab };
+    return { view: 'operations', personId: null, opsTab, systemTab: null, commsTab: null };
   }
-  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null, opsTab: null };
+  if (normalized.startsWith('/admin/system')) {
+    const systemTab = SYSTEM_PATH_TO_TAB[normalized] || 'audit';
+    return { view: 'system', personId: null, opsTab: null, systemTab, commsTab: null };
+  }
+  if (normalized.startsWith('/admin/communications')) {
+    const commsTab = COMMS_PATH_TO_TAB[normalized] || 'conversations';
+    return { view: 'communications', personId: null, opsTab: null, systemTab: null, commsTab };
+  }
+  return { view: PATH_TO_VIEW[normalized] || 'dashboard', personId: null, opsTab: null, systemTab: null, commsTab: null };
 }
 
-function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null }): string {
+function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null; systemTab?: SystemTabType | null; commsTab?: CommsTabType | null }): string {
   if (view === 'people' && opts?.personId) return `/admin/people/${opts.personId}`;
   if (view === 'operations' && opts?.opsTab) return OPS_TAB_TO_PATH[opts.opsTab] || '/admin/operations';
+  if (view === 'system' && opts?.systemTab) return SYSTEM_TAB_TO_PATH[opts.systemTab] || '/admin/system';
+  if (view === 'communications' && opts?.commsTab) return COMMS_TAB_TO_PATH[opts.commsTab] || '/admin/communications';
   const base = VIEW_TO_PATH[view] || '/admin';
   if (opts?.search) return `${base}?search=${encodeURIComponent(opts.search)}`;
   return base;
@@ -116,10 +144,12 @@ const AdminApp: React.FC = () => {
   const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
   const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'routes');
+  const [systemTab, setSystemTabRaw] = useState<SystemTabType>(initialParsed.systemTab || 'audit');
+  const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(initialSearch ? { search: initialSearch } : null);
   const [pendingDeepLink] = useState(() => {
     const parsed = parseAdminPath(window.location.pathname);
-    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab };
+    if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab, systemTab: parsed.systemTab, commsTab: parsed.commsTab };
     return null;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -131,9 +161,9 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentViewRaw(view);
     setSelectedPersonIdRaw(null);
-    if (view === 'operations') {
-      setOpsTabRaw('routes');
-    }
+    if (view === 'operations') setOpsTabRaw('routes');
+    if (view === 'system') setSystemTabRaw('audit');
+    if (view === 'communications') setCommsTabRaw('conversations');
     const url = buildAdminUrl(view, { search: filter?.search });
     window.history.pushState({ view }, '', url);
   }, []);
@@ -142,6 +172,18 @@ const AdminApp: React.FC = () => {
     setOpsTabRaw(tab);
     const url = OPS_TAB_TO_PATH[tab] || '/admin/operations';
     window.history.pushState({ view: 'operations', opsTab: tab }, '', url);
+  }, []);
+
+  const handleSystemTabChange = useCallback((tab: SystemTabType) => {
+    setSystemTabRaw(tab);
+    const url = SYSTEM_TAB_TO_PATH[tab] || '/admin/system';
+    window.history.pushState({ view: 'system', systemTab: tab }, '', url);
+  }, []);
+
+  const handleCommsTabChange = useCallback((tab: CommsTabType) => {
+    setCommsTabRaw(tab);
+    const url = COMMS_TAB_TO_PATH[tab] || '/admin/communications';
+    window.history.pushState({ view: 'communications', commsTab: tab }, '', url);
   }, []);
 
   const selectPerson = useCallback((id: string) => {
@@ -160,7 +202,9 @@ const AdminApp: React.FC = () => {
       const parsed = parseAdminPath(window.location.pathname);
       setCurrentViewRaw(parsed.view);
       setSelectedPersonIdRaw(parsed.personId);
-      if (parsed.opsTab) setOpsTabRaw(parsed.opsTab);
+      if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'routes');
+      if (parsed.view === 'system') setSystemTabRaw(parsed.systemTab || 'audit');
+      if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
       const search = new URLSearchParams(window.location.search).get('search');
       setNavFilter(search ? { search } : null);
     };
@@ -197,6 +241,8 @@ const AdminApp: React.FC = () => {
         setSelectedPersonIdRaw(pendingDeepLink.personId);
         if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
         if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
+        if (pendingDeepLink.systemTab) setSystemTabRaw(pendingDeepLink.systemTab);
+        if (pendingDeepLink.commsTab) setCommsTabRaw(pendingDeepLink.commsTab);
       }
       setAuthChecked(true);
     } catch (error) {
@@ -223,6 +269,8 @@ const AdminApp: React.FC = () => {
         setSelectedPersonIdRaw(pendingDeepLink.personId);
         if (pendingDeepLink.search) setNavFilter({ search: pendingDeepLink.search });
         if (pendingDeepLink.opsTab) setOpsTabRaw(pendingDeepLink.opsTab);
+        if (pendingDeepLink.systemTab) setSystemTabRaw(pendingDeepLink.systemTab);
+        if (pendingDeepLink.commsTab) setCommsTabRaw(pendingDeepLink.commsTab);
       }
       setAuthChecked(true);
     } catch {
@@ -410,8 +458,8 @@ const AdminApp: React.FC = () => {
           {currentView === 'people' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'billing' && <BillingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} />}
-          {currentView === 'communications' && <CommunicationsView />}
-          {currentView === 'system' && <SystemView />}
+          {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
+          {currentView === 'system' && <SystemView activeTab={systemTab} onTabChange={handleSystemTabChange} />}
         </div>
       </main>
     </div>

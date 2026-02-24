@@ -9,7 +9,6 @@ import { PlusIcon, CreditCardIcon, BanknotesIcon, TrashIcon } from './Icons.tsx'
 import { useProperty } from '../PropertyContext.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
-import { getCustomerId } from '../services/stripeService.ts';
 
 const isMethodExpired = (method: PaymentMethod): boolean => {
     if (method.type !== 'Card' || !method.expiryYear || !method.expiryMonth) {
@@ -148,21 +147,20 @@ const AddPaymentMethodForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void,
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const customerId = getCustomerId();
-        if (!customerId) {
-            setError('No customer account found. Please log in again.');
-            setLoading(false);
-            return;
-        }
         fetch('/api/setup-intent', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ customerId }),
         })
-            .then(res => { if (!res.ok) throw new Error('Server error'); return res.json(); })
+            .then(async res => {
+                if (!res.ok) {
+                    const json = await res.json().catch(() => ({}));
+                    throw new Error(json.error || 'Server error');
+                }
+                return res.json();
+            })
             .then(json => { setClientSecret(json.data.clientSecret); setLoading(false); })
-            .catch(() => { setError('Failed to initialize payment form.'); setLoading(false); });
+            .catch(err => { setError(err.message || 'Failed to initialize payment form.'); setLoading(false); });
     }, []);
 
     if (loading) {

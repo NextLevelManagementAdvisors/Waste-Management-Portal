@@ -200,15 +200,15 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/setup-intent', async (req: Request, res: Response) => {
+  app.post('/api/setup-intent', requireAuth, async (req: Request, res: Response) => {
     try {
-      const { customerId } = req.body;
-      if (!customerId) {
-        return res.status(400).json({ error: 'customerId is required' });
+      const user = await storage.getUserById(req.session.userId!);
+      if (!user?.stripe_customer_id) {
+        return res.status(400).json({ error: 'No Stripe customer associated with your account' });
       }
       const stripe = await getUncachableStripeClient();
       const setupIntent = await stripe.setupIntents.create({
-        customer: customerId,
+        customer: user.stripe_customer_id,
         automatic_payment_methods: { enabled: true },
       });
       res.json({ data: { clientSecret: setupIntent.client_secret } });

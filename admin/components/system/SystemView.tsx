@@ -4,12 +4,26 @@ import AdminRoles from './AdminRoles.tsx';
 import ErrorLogs from './ErrorLogs.tsx';
 import IntegrationsPanel from './IntegrationsPanel.tsx';
 
-type TabType = 'audit' | 'settings' | 'errors' | 'integrations';
+export type SystemTabType = 'audit' | 'settings' | 'errors' | 'integrations';
 
-const SystemView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('audit');
+interface SystemViewProps {
+  activeTab?: SystemTabType;
+  onTabChange?: (tab: SystemTabType) => void;
+}
 
-  const tabs: { key: TabType; label: string }[] = [
+const SystemView: React.FC<SystemViewProps> = ({ activeTab: controlledTab, onTabChange }) => {
+  const [internalTab, setInternalTab] = useState<SystemTabType>('audit');
+  const activeTab = controlledTab ?? internalTab;
+
+  const setActiveTab = (tab: SystemTabType) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
+
+  const tabs: { key: SystemTabType; label: string }[] = [
     { key: 'audit', label: 'Audit Log' },
     { key: 'errors', label: 'Error Logs' },
     { key: 'settings', label: 'Admin Roles' },
