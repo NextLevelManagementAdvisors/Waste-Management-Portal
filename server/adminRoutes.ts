@@ -1379,6 +1379,7 @@ export function registerAdminRoutes(app: Express) {
     GOOGLE_OAUTH_CLIENT_ID:   { category: 'gmail', isSecret: false, label: 'OAuth Client ID' },
     GOOGLE_OAUTH_CLIENT_SECRET: { category: 'gmail', isSecret: true,  label: 'OAuth Client Secret' },
     GMAIL_REFRESH_TOKEN:      { category: 'gmail', isSecret: true,  label: 'OAuth Refresh Token' },
+    GMAIL_AUTH_MODE:          { category: 'gmail', isSecret: false, label: 'Auth Mode' },
     GOOGLE_MAPS_API_KEY:      { category: 'google_maps', isSecret: true,  label: 'API Key' },
     OPTIMOROUTE_API_KEY:      { category: 'optimoroute', isSecret: true,  label: 'API Key' },
     GEMINI_API_KEY:           { category: 'gemini', isSecret: true,  label: 'API Key' },

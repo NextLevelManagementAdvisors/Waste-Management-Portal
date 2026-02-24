@@ -1,39 +1,72 @@
 import { google } from 'googleapis';
 
-// Priority order for Gmail auth:
-// 1. Service Account (GMAIL_SERVICE_ACCOUNT_JSON + GMAIL_SENDER_EMAIL) — recommended for Google Workspace
-// 2. OAuth2 refresh token (GMAIL_REFRESH_TOKEN) — fallback for personal Gmail
-// 3. Replit connector — legacy Replit deployment
+// Auth mode is controlled by GMAIL_AUTH_MODE setting (persisted in DB).
+// When set to 'oauth' or 'service_account', only that path is used.
+// When unset (legacy), falls back to priority order:
+// 1. Service Account  2. OAuth2  3. Replit connector
 
 let connectionSettings: any;
 
-async function getGmailAuth() {
-  // 1. Service Account (JSON key stored as env var)
+function getServiceAccountAuth() {
   const serviceAccountJson = process.env.GMAIL_SERVICE_ACCOUNT_JSON;
   const senderEmail = process.env.GMAIL_SENDER_EMAIL;
+  if (!serviceAccountJson || !senderEmail) return null;
 
-  if (serviceAccountJson && senderEmail) {
-    let credentials: any;
-    try {
-      credentials = JSON.parse(serviceAccountJson);
-    } catch {
-      throw new Error('GMAIL_SERVICE_ACCOUNT_JSON is not valid JSON. Check your .env file for formatting issues.');
-    }
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/gmail.send'],
-    });
-    // Impersonate the sender email via domain-wide delegation
-    const client = await auth.getClient() as any;
-    client.subject = senderEmail;
-    return client;
+  let credentials: any;
+  try {
+    credentials = JSON.parse(serviceAccountJson);
+  } catch {
+    throw new Error('GMAIL_SERVICE_ACCOUNT_JSON is not valid JSON. Check your .env file for formatting issues.');
   }
+  return { credentials, senderEmail };
+}
 
-  // 2. OAuth2 refresh token
+async function buildServiceAccountClient() {
+  const sa = getServiceAccountAuth();
+  if (!sa) throw new Error('Service Account credentials not configured (GMAIL_SERVICE_ACCOUNT_JSON + GMAIL_SENDER_EMAIL)');
+  const auth = new google.auth.GoogleAuth({
+    credentials: sa.credentials,
+    scopes: ['https://www.googleapis.com/auth/gmail.send'],
+  });
+  const client = await auth.getClient() as any;
+  client.subject = sa.senderEmail;
+  return client;
+}
+
+function buildOAuthClient() {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('OAuth credentials not configured (GOOGLE_OAUTH_CLIENT_ID + SECRET + GMAIL_REFRESH_TOKEN)');
+  }
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  return oauth2Client;
+}
 
+async function getGmailAuth() {
+  const mode = process.env.GMAIL_AUTH_MODE; // 'oauth' | 'service_account' | undefined
+
+  // Explicit mode — only try the selected path
+  if (mode === 'service_account') return buildServiceAccountClient();
+  if (mode === 'oauth') return buildOAuthClient();
+
+  // Legacy: no mode set — try Service Account first, then OAuth
+  const sa = getServiceAccountAuth();
+  if (sa) {
+    const auth = new google.auth.GoogleAuth({
+      credentials: sa.credentials,
+      scopes: ['https://www.googleapis.com/auth/gmail.send'],
+    });
+    const client = await auth.getClient() as any;
+    client.subject = sa.senderEmail;
+    return client;
+  }
+
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
   if (clientId && clientSecret && refreshToken) {
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
     oauth2Client.setCredentials({ refresh_token: refreshToken });

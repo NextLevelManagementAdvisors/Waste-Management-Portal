@@ -140,8 +140,14 @@ const IntegrationsPanel: React.FC = () => {
 
   useEffect(() => { fetchSettings(); }, []);
 
-  // Auto-detect gmail mode from which credentials are configured
+  // Read persisted gmail mode, fall back to credential inference
   useEffect(() => {
+    const modeSetting = settings.find(s => s.key === 'GMAIL_AUTH_MODE');
+    if (modeSetting?.value === 'oauth' || modeSetting?.value === 'service_account') {
+      setGmailMode(modeSetting.value);
+      return;
+    }
+    // Fallback: infer from which credentials exist
     const hasServiceAcct = settings.some(s => s.key === 'GMAIL_SERVICE_ACCOUNT_JSON' && s.value && s.value !== '••••');
     const hasOAuth = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••');
     if (hasServiceAcct && !hasOAuth) setGmailMode('service_account');
@@ -275,6 +281,18 @@ const IntegrationsPanel: React.FC = () => {
     }
   };
 
+  const handleGmailModeChange = async (mode: 'oauth' | 'service_account') => {
+    setGmailMode(mode);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ key: 'GMAIL_AUTH_MODE', value: mode }),
+      });
+    } catch { /* best-effort */ }
+  };
+
   const gmailHasClientCreds = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••')
     && settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_SECRET' && s.value && s.value !== '••••');
   const gmailHasRefreshToken = settings.some(s => s.key === 'GMAIL_REFRESH_TOKEN' && s.value && s.value !== '••••');
@@ -286,7 +304,7 @@ const IntegrationsPanel: React.FC = () => {
     let filtered = settings.filter(s => s.category === category);
     if (category === 'gmail') {
       const visibleKeys = gmailMode === 'oauth' ? GMAIL_OAUTH_KEYS : GMAIL_SA_KEYS;
-      filtered = filtered.filter(s => visibleKeys.includes(s.key));
+      filtered = filtered.filter(s => s.key !== 'GMAIL_AUTH_MODE' && visibleKeys.includes(s.key));
     }
     return filtered;
   };
@@ -403,13 +421,13 @@ const IntegrationsPanel: React.FC = () => {
               <div className="mb-4 space-y-3">
                 <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
                   <button
-                    onClick={() => setGmailMode('oauth')}
+                    onClick={() => handleGmailModeChange('oauth')}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'oauth' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     OAuth
                   </button>
                   <button
-                    onClick={() => setGmailMode('service_account')}
+                    onClick={() => handleGmailModeChange('service_account')}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'service_account' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     Service Account

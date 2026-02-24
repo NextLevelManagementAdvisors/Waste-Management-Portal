@@ -70,19 +70,30 @@ async function testStripe(): Promise<IntegrationTestResult> {
 
 async function testGmail(): Promise<IntegrationTestResult> {
   return timed(async () => {
+    const mode = process.env.GMAIL_AUTH_MODE; // 'oauth' | 'service_account' | undefined
     const hasServiceAcct = process.env.GMAIL_SERVICE_ACCOUNT_JSON && process.env.GMAIL_SENDER_EMAIL;
     const hasOAuth = process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN;
-    if (!hasServiceAcct && !hasOAuth) {
+
+    // Determine which path to test based on explicit mode or credential availability
+    const useServiceAcct = mode === 'service_account' || (!mode && hasServiceAcct);
+    const useOAuth = mode === 'oauth' || (!mode && !hasServiceAcct && hasOAuth);
+
+    if (!useServiceAcct && !useOAuth) {
       return { status: 'not_configured', message: 'Missing Gmail credentials (Service Account or OAuth)' };
     }
-    if (hasServiceAcct) {
-      // Service account: can call getProfile (has full delegation)
+    if (useServiceAcct) {
+      if (!hasServiceAcct) {
+        return { status: 'error', message: 'Mode set to Service Account but credentials are missing' };
+      }
       const { getUncachableGmailClient } = await import('./gmailClient');
       const gmail = await getUncachableGmailClient();
       const profile = await gmail.users.getProfile({ userId: 'me' });
       return { status: 'connected', message: `Email: ${profile.data.emailAddress}` };
     }
     // OAuth: only has gmail.send scope, so verify by refreshing the access token
+    if (!hasOAuth) {
+      return { status: 'error', message: 'Mode set to OAuth but credentials are missing' };
+    }
     const oauth2 = new google.auth.OAuth2(
       process.env.GOOGLE_OAUTH_CLIENT_ID,
       process.env.GOOGLE_OAUTH_CLIENT_SECRET,
