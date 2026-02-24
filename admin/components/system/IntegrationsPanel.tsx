@@ -491,19 +491,24 @@ const IntegrationsPanel: React.FC = () => {
 
             {section.category === 'gmail' && (
               <div className="mb-4 space-y-3">
-                <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
-                  <button
-                    onClick={() => handleGmailModeChange('oauth')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'oauth' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    OAuth
-                  </button>
-                  <button
-                    onClick={() => handleGmailModeChange('service_account')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'service_account' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Service Account
-                  </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                    <button
+                      onClick={() => handleGmailModeChange('oauth')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'oauth' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      OAuth
+                    </button>
+                    <button
+                      onClick={() => handleGmailModeChange('service_account')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${gmailMode === 'service_account' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Service Account
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    Server sends via {gmailMode === 'oauth' ? 'OAuth' : 'Service Account'}
+                  </span>
                 </div>
                 {gmailMode === 'oauth' && gmailHasClientCreds && (
                   <div className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
