@@ -1203,23 +1203,26 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'delete_user', 'user', userId, { name: userName, email: user.email });
 
       // Transaction: clean up non-cascading FKs, then delete
-      await storage.query('BEGIN');
+      const client = await pool.connect();
       try {
+        await client.query('BEGIN');
         // Unlink route_jobs assigned to this user's driver profile
-        await storage.query(
+        await client.query(
           `UPDATE route_jobs SET assigned_driver_id = NULL WHERE assigned_driver_id IN (SELECT id FROM driver_profiles WHERE user_id = $1)`,
           [userId]
         );
         // Delete driver_profiles (no ON DELETE CASCADE on user_id FK)
-        await storage.query('DELETE FROM driver_profiles WHERE user_id = $1', [userId]);
+        await client.query('DELETE FROM driver_profiles WHERE user_id = $1', [userId]);
         // Clean invitations (invited_by / accepted_by have no CASCADE)
-        await storage.query('DELETE FROM invitations WHERE invited_by = $1 OR accepted_by = $1', [userId]);
+        await client.query('DELETE FROM invitations WHERE invited_by = $1 OR accepted_by = $1', [userId]);
         // Delete user — CASCADE handles everything else
-        await storage.query('DELETE FROM users WHERE id = $1', [userId]);
-        await storage.query('COMMIT');
+        await client.query('DELETE FROM users WHERE id = $1', [userId]);
+        await client.query('COMMIT');
       } catch (txErr) {
-        await storage.query('ROLLBACK');
+        await client.query('ROLLBACK');
         throw txErr;
+      } finally {
+        client.release();
       }
 
       res.json({ success: true });
@@ -1388,45 +1391,70 @@ export function registerAdminRoutes(app: Express) {
       if (!decision || !['approved', 'denied'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be approved or denied' });
       }
-      const property = await storage.getPropertyById(propertyId);
-      if (!property) return res.status(404).json({ error: 'Property not found' });
 
-      await storage.updateServiceStatus(propertyId, decision, notes || null);
-      await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
+      // Use a dedicated connection with FOR UPDATE to prevent double-approval race condition
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const lockResult = await client.query('SELECT * FROM properties WHERE id = $1 FOR UPDATE', [propertyId]);
+        const property = lockResult.rows[0];
+        if (!property) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Property not found' });
+        }
+        // Prevent re-processing if already decided
+        if (property.service_status === 'approved' || property.service_status === 'denied') {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: `Property already ${property.service_status}` });
+        }
 
-      // Activate deferred subscriptions on approval, or clean up on denial
-      const pendingSelections = await storage.getPendingSelections(propertyId);
-      if (decision === 'approved' && pendingSelections.length > 0) {
-        try {
-          const stripe = await getUncachableStripeClient();
-          const user = await storage.getUserById(property.user_id);
-          if (user?.stripe_customer_id) {
-            // Look up Stripe products to map service IDs to price IDs
-            const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
-            const productMap = new Map(products.data.map((p: any) => [p.id, p]));
+        await client.query(
+          `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
+          [decision, notes || null, propertyId]
+        );
 
-            for (const sel of pendingSelections) {
-              const product = productMap.get(sel.serviceId);
-              if (product?.default_price?.id) {
-                await stripe.subscriptions.create({
-                  customer: user.stripe_customer_id,
-                  items: [{ price: product.default_price.id, quantity: sel.quantity }],
-                  metadata: {
-                    propertyId,
-                    equipmentType: sel.useSticker ? 'own_can' : 'rental',
-                  },
-                  payment_behavior: 'allow_incomplete',
-                });
+        // Fetch and delete pending selections atomically within the transaction
+        const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+        const pendingSelections = selResult.rows;
+        await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+        await client.query('COMMIT');
+
+        await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
+
+        // Activate deferred subscriptions on approval (outside transaction — Stripe is external)
+        if (decision === 'approved' && pendingSelections.length > 0) {
+          try {
+            const stripe = await getUncachableStripeClient();
+            const user = await storage.getUserById(property.user_id);
+            if (user?.stripe_customer_id) {
+              const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
+              const productMap = new Map(products.data.map((p: any) => [p.id, p]));
+
+              for (const sel of pendingSelections) {
+                const product = productMap.get(sel.service_id);
+                if (product?.default_price?.id) {
+                  await stripe.subscriptions.create({
+                    customer: user.stripe_customer_id,
+                    items: [{ price: product.default_price.id, quantity: sel.quantity }],
+                    metadata: {
+                      propertyId,
+                      equipmentType: sel.use_sticker ? 'own_can' : 'rental',
+                    },
+                    payment_behavior: 'allow_incomplete',
+                  });
+                }
               }
             }
+          } catch (subError) {
+            console.error('Failed to create subscriptions on approval:', subError);
+            // Don't fail the approval — subscriptions can be manually created
           }
-          await storage.deletePendingSelections(propertyId);
-        } catch (subError) {
-          console.error('Failed to create subscriptions on approval:', subError);
-          // Don't fail the approval — subscriptions can be manually created
         }
-      } else if (decision === 'denied') {
-        await storage.deletePendingSelections(propertyId);
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
       }
 
       // TODO: Send notification to customer when notification system is ready
@@ -1494,7 +1522,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/settings', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
       const { key, value } = req.body;
       if (!key || value === undefined || value === null) {
@@ -1580,7 +1608,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get('/api/admin/gmail/callback', async (req: Request, res: Response) => {
+  app.get('/api/admin/gmail/callback', requireAdmin, async (req: Request, res: Response) => {
     try {
       const code = req.query.code as string;
       const state = req.query.state as string;

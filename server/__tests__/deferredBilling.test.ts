@@ -140,6 +140,23 @@ function createAuthApp(userId = 'user-1') {
 beforeEach(() => {
   vi.clearAllMocks();
 
+  // Default user mock for ownership verification on customer routes
+  vi.mocked(storage.getUserById).mockResolvedValue({
+    id: 'user-1',
+    first_name: 'Test',
+    last_name: 'User',
+    email: 'test@example.com',
+    phone: '',
+    stripe_customer_id: 'cus_test123',
+    password_hash: 'hash',
+    member_since: '2025-01-01',
+    autopay_enabled: false,
+    is_admin: false,
+    admin_role: null,
+    created_at: '2025-01-01',
+    updated_at: '2025-01-01',
+  } as any);
+
   vi.mocked(getStripePublishableKey).mockResolvedValue('pk_test_123');
   vi.mocked(getUncachableStripeClient).mockResolvedValue({
     customers: {

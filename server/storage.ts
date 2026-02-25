@@ -1,9 +1,5 @@
-import pg from 'pg';
-
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
+import crypto from 'crypto';
+import { pool } from './db';
 export { pool };
 
 export interface DbUser {
@@ -89,11 +85,12 @@ export class Storage {
   }
 
   async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string }>): Promise<DbUser> {
+    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_COLUMNS.includes(key)) {
         fields.push(`${key} = $${idx}`);
         values.push(val);
         idx++;
@@ -137,11 +134,12 @@ export class Storage {
   }
 
   async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any }>): Promise<DbProperty> {
+    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_COLUMNS.includes(key)) {
         fields.push(`${key} = $${idx}`);
         values.push(key === 'notification_preferences' || key === 'pending_owner' ? JSON.stringify(val) : val);
         idx++;
@@ -395,7 +393,7 @@ export class Storage {
     const existing = await this.query('SELECT code FROM referral_codes WHERE user_id = $1', [userId]);
     if (existing.rows.length > 0) return existing.rows[0].code;
     const namePart = userName.replace(/[^A-Z]/gi, '').substring(0, 6).toUpperCase() || 'USER';
-    const randPart = Math.floor(1000 + Math.random() * 9000);
+    const randPart = crypto.randomInt(1000, 10000);
     const code = `${namePart}-${randPart}`;
     await this.query(
       'INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING',
@@ -774,11 +772,12 @@ export class Storage {
   }
 
   async updateUserAdmin(userId: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string }>) {
+    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_COLUMNS.includes(key)) {
         fields.push(`${key} = $${idx}`);
         values.push(val);
         idx++;
@@ -1146,11 +1145,12 @@ export class Storage {
   }
 
   async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any }>) {
+    const ALLOWED_COLUMNS = ['name', 'email', 'phone', 'password_hash', 'status', 'onboarding_status', 'rating', 'total_jobs_completed', 'stripe_connect_account_id', 'stripe_connect_onboarded', 'w9_completed', 'direct_deposit_completed', 'availability'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_COLUMNS.includes(key)) {
         fields.push(`${key} = $${idx}`);
         values.push(key === 'availability' ? JSON.stringify(val) : val);
         idx++;

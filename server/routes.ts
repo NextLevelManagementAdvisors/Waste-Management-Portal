@@ -47,10 +47,11 @@ async function processReferralCredits(userId: string, stripe: any) {
   }
 
   if (referrer.stripe_customer_id) {
-    const referrerCustomer = await stripe.customers.retrieve(referrer.stripe_customer_id);
-    const currentBalance = referrerCustomer.balance || 0;
-    await stripe.customers.update(referrer.stripe_customer_id, {
-      balance: currentBalance - REFERRAL_CREDIT_AMOUNT,
+    // Use customer balance transaction for atomic credit — avoids read-then-write race
+    await stripe.customers.createBalanceTransaction(referrer.stripe_customer_id, {
+      amount: -REFERRAL_CREDIT_AMOUNT,
+      currency: 'usd',
+      description: `Referral credit for ${user.email}`,
     });
   }
 
@@ -129,7 +130,17 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/customers', async (req: Request, res: Response) => {
+  // Helper: verify the authenticated user owns the given Stripe customer ID
+  async function verifyCustomerOwnership(req: Request, res: Response, customerId: string): Promise<boolean> {
+    const user = await storage.getUserById(req.session.userId!);
+    if (!user || user.stripe_customer_id !== customerId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return false;
+    }
+    return true;
+  }
+
+  app.post('/api/customers', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const { email, name, metadata } = req.body;
@@ -145,9 +156,10 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get('/api/customers/:customerId', async (req: Request, res: Response) => {
+  app.get('/api/customers/:customerId', requireAuth, async (req: Request, res: Response) => {
     try {
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const customer = await storage.getCustomer(customerId);
       if (!customer) return res.status(404).json({ error: 'Customer not found' });
       res.json({ data: customer });
@@ -156,10 +168,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get('/api/customers/:customerId/payment-methods', async (req: Request, res: Response) => {
+  app.get('/api/customers/:customerId/payment-methods', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const [cards, bankAccounts] = await Promise.all([
         stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
         stripe.paymentMethods.list({ customer: customerId, type: 'us_bank_account' }),
@@ -174,10 +187,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/customers/:customerId/payment-methods', async (req: Request, res: Response) => {
+  app.post('/api/customers/:customerId/payment-methods', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const { paymentMethodId } = req.body;
       const paymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
         customer: customerId,
@@ -190,7 +204,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/payment-methods/:paymentMethodId', async (req: Request, res: Response) => {
+  app.delete('/api/payment-methods/:paymentMethodId', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const pmId = paramStr(req.params.paymentMethodId);
@@ -203,10 +217,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/customers/:customerId/default-payment-method', async (req: Request, res: Response) => {
+  app.post('/api/customers/:customerId/default-payment-method', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const { paymentMethodId } = req.body;
       const customer = await stripe.customers.update(customerId, {
         invoice_settings: { default_payment_method: paymentMethodId },
@@ -244,6 +259,7 @@ export function registerRoutes(app: Express) {
       const stripe = await getUncachableStripeClient();
       const userId = req.session.userId!;
       const { customerId, priceId, quantity, paymentMethodId, metadata } = req.body;
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
 
       // Validate propertyId exists, belongs to authenticated user, and is approved
       const propertyId = metadata?.propertyId;
@@ -285,10 +301,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get('/api/customers/:customerId/subscriptions', async (req: Request, res: Response) => {
+  app.get('/api/customers/:customerId/subscriptions', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
         status: 'all',
@@ -325,7 +342,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.patch('/api/subscriptions/:subscriptionId', async (req: Request, res: Response) => {
+  app.patch('/api/subscriptions/:subscriptionId', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
@@ -355,7 +372,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/subscriptions/:subscriptionId/cancel', async (req: Request, res: Response) => {
+  app.post('/api/subscriptions/:subscriptionId/cancel', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
@@ -367,7 +384,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/subscriptions/:subscriptionId/pause', async (req: Request, res: Response) => {
+  app.post('/api/subscriptions/:subscriptionId/pause', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
@@ -381,7 +398,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/subscriptions/:subscriptionId/resume', async (req: Request, res: Response) => {
+  app.post('/api/subscriptions/:subscriptionId/resume', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
@@ -395,10 +412,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get('/api/customers/:customerId/invoices', async (req: Request, res: Response) => {
+  app.get('/api/customers/:customerId/invoices', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const invoices = await stripe.invoices.list({
         customer: customerId,
         limit: 50,
@@ -413,7 +431,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/invoices/:invoiceId/pay', async (req: Request, res: Response) => {
+  app.post('/api/invoices/:invoiceId/pay', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const invoiceId = paramStr(req.params.invoiceId);
@@ -428,10 +446,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/checkout', async (req: Request, res: Response) => {
+  app.post('/api/checkout', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const { customerId, priceId, quantity, successUrl, cancelUrl, metadata } = req.body;
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
 
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
@@ -481,10 +500,11 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post('/api/customer-portal', async (req: Request, res: Response) => {
+  app.post('/api/customer-portal', requireAuth, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
       const { customerId, returnUrl } = req.body;
+      if (!(await verifyCustomerOwnership(req, res, customerId))) return;
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
         return_url: returnUrl,

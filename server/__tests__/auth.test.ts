@@ -183,10 +183,10 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when password is shorter than 6 characters', async () => {
+  it('returns 400 when password is shorter than 8 characters', async () => {
     const res = await supertest(createApp()).post('/api/auth/register').send({ firstName: 'Jane', lastName: 'Smith', email: 'jane@example.com', password: 'short' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/6 characters/);
+    expect(res.body.error).toMatch(/8 characters/);
   });
 
   it('returns 409 when email is already registered', async () => {
@@ -348,7 +348,7 @@ describe('PUT /api/auth/password', () => {
     expect((await supertest(createAuthApp()).put('/api/auth/password').send({ currentPassword: 'wrongoldpassword', newPassword: 'newpassword123456' })).status).toBe(401);
   });
 
-  it('returns 400 when new password is shorter than 6 characters', async () => {
+  it('returns 400 when new password is shorter than 8 characters', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser, password_hash: testPasswordHash } as any);
     expect((await supertest(createAuthApp()).put('/api/auth/password').send({ currentPassword: 'correctpassword12345', newPassword: 'short' })).status).toBe(400);
   });

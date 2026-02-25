@@ -2,16 +2,10 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { storage } from './storage';
 import { pool } from './db';
+import { requireAuth } from './middleware';
 import { broadcastToParticipants } from './websocket';
 import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification } from './notificationService';
 import { requireAdmin } from './adminRoutes';
-
-function requireAuth(req: Request, res: Response, next: Function) {
-  if (!(req.session as any)?.userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-}
 
 async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
   const userId = (req.session as any)?.userId;

@@ -167,6 +167,8 @@ registerCommunicationRoutes(app);
 const { processScheduledMessages } = await import('./notificationService');
 setInterval(processScheduledMessages, 60_000);
 
+app.use('/api/team/auth/login', authRateLimit);
+app.use('/api/team/auth/register', authRateLimit);
 const { registerTeamRoutes } = await import('./teamRoutes');
 registerTeamRoutes(app);
 

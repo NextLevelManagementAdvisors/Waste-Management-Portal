@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import session from 'express-session';
 import { storage, type DbUser, type DbProperty } from './storage';
 import { pool } from './db';
+import { requireAuth } from './middleware';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
@@ -63,12 +64,8 @@ function formatPropertyForClient(p: DbProperty) {
   };
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-}
+// requireAuth is imported from ./middleware (single source of truth)
+export { requireAuth };
 
 async function checkOrphanedSubscriptions(
   stripeCustomerId: string,
@@ -132,8 +129,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'First name, last name, email, and password are required' });
       }
 
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      if (password.length < 8) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
       }
 
       const existing = await storage.getUserByEmail(email.toLowerCase());
@@ -496,7 +493,7 @@ export function registerAuthRoutes(app: Express) {
       }
 
       if (!newPassword || newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
       }
 
       const valid = await bcrypt.compare(currentPassword, user.password_hash);
@@ -589,7 +586,7 @@ export function registerAuthRoutes(app: Express) {
       }
 
       if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
       }
 
       const resetToken = await storage.getValidResetToken(token);
@@ -735,7 +732,7 @@ export function registerAuthRoutes(app: Express) {
 
       const tokenData = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string };
       if (!tokenData.access_token) {
-        console.error('Token exchange failed:', tokenData, 'redirect_uri:', redirectUri);
+        console.error('Token exchange failed:', tokenData.error || 'no access_token', 'redirect_uri:', redirectUri);
         return res.redirect('/?error=google_token_failed');
       }
 

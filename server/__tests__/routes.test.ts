@@ -175,6 +175,7 @@ beforeEach(() => {
   vi.mocked(getUncachableStripeClient).mockResolvedValue(mockStripe() as any);
   vi.mocked(getStripePublishableKey).mockResolvedValue('pk_test_123');
   vi.mocked(storage.getPropertiesForUser).mockResolvedValue([]);
+  vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser } as any);
   vi.mocked(storage.query).mockResolvedValue({ rows: [] } as any);
   vi.mocked(storage.getPendingReferralForEmail).mockResolvedValue(null);
 });
@@ -239,7 +240,7 @@ describe('GET /api/products/:productId/prices', () => {
 // ===========================================================================
 describe('POST /api/customers', () => {
   it('creates and returns a Stripe customer', async () => {
-    const res = await supertest(createApp()).post('/api/customers').send({ email: 'test@example.com', name: 'Test User' });
+    const res = await supertest(createAuthApp()).post('/api/customers').send({ email: 'test@example.com', name: 'Test User' });
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('cus_new');
   });
@@ -249,15 +250,14 @@ describe('POST /api/customers', () => {
 // GET /api/customers/:customerId
 // ===========================================================================
 describe('GET /api/customers/:customerId', () => {
-  it('returns 404 when customer not found in DB', async () => {
-    vi.mocked(storage.getCustomer).mockResolvedValue(null);
-    const res = await supertest(createApp()).get('/api/customers/cus_notfound');
-    expect(res.status).toBe(404);
+  it('returns 403 when customer does not belong to user', async () => {
+    const res = await supertest(createAuthApp()).get('/api/customers/cus_notfound');
+    expect(res.status).toBe(403);
   });
 
-  it('returns customer data when found', async () => {
+  it('returns customer data when found and owned', async () => {
     vi.mocked(storage.getCustomer).mockResolvedValue({ id: 'cus_test123', email: 'test@example.com' } as any);
-    const res = await supertest(createApp()).get('/api/customers/cus_test123');
+    const res = await supertest(createAuthApp()).get('/api/customers/cus_test123');
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('cus_test123');
   });
@@ -268,7 +268,7 @@ describe('GET /api/customers/:customerId', () => {
 // ===========================================================================
 describe('GET /api/customers/:customerId/payment-methods', () => {
   it('returns payment methods list', async () => {
-    const res = await supertest(createApp()).get('/api/customers/cus_test123/payment-methods');
+    const res = await supertest(createAuthApp()).get('/api/customers/cus_test123/payment-methods');
     expect(res.status).toBe(200);
     expect(res.body.data[0].id).toBe('pm_1');
   });
@@ -279,7 +279,7 @@ describe('GET /api/customers/:customerId/payment-methods', () => {
 // ===========================================================================
 describe('POST /api/customers/:customerId/payment-methods', () => {
   it('attaches a payment method to customer', async () => {
-    const res = await supertest(createApp()).post('/api/customers/cus_test123/payment-methods').send({ paymentMethodId: 'pm_1' });
+    const res = await supertest(createAuthApp()).post('/api/customers/cus_test123/payment-methods').send({ paymentMethodId: 'pm_1' });
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('pm_1');
   });
@@ -290,7 +290,7 @@ describe('POST /api/customers/:customerId/payment-methods', () => {
 // ===========================================================================
 describe('DELETE /api/payment-methods/:paymentMethodId', () => {
   it('detaches the payment method', async () => {
-    const res = await supertest(createApp()).delete('/api/payment-methods/pm_1');
+    const res = await supertest(createAuthApp()).delete('/api/payment-methods/pm_1');
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('pm_1');
   });
@@ -301,7 +301,7 @@ describe('DELETE /api/payment-methods/:paymentMethodId', () => {
 // ===========================================================================
 describe('POST /api/customers/:customerId/default-payment-method', () => {
   it('sets the default payment method', async () => {
-    const res = await supertest(createApp()).post('/api/customers/cus_test123/default-payment-method').send({ paymentMethodId: 'pm_1' });
+    const res = await supertest(createAuthApp()).post('/api/customers/cus_test123/default-payment-method').send({ paymentMethodId: 'pm_1' });
     expect(res.status).toBe(200);
   });
 });
@@ -348,7 +348,7 @@ describe('POST /api/subscriptions', () => {
 // ===========================================================================
 describe('GET /api/customers/:customerId/subscriptions', () => {
   it('returns subscriptions with product details', async () => {
-    const res = await supertest(createApp()).get('/api/customers/cus_test123/subscriptions');
+    const res = await supertest(createAuthApp()).get('/api/customers/cus_test123/subscriptions');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
@@ -359,7 +359,7 @@ describe('GET /api/customers/:customerId/subscriptions', () => {
 // ===========================================================================
 describe('PATCH /api/subscriptions/:subscriptionId', () => {
   it('updates a subscription (payment method)', async () => {
-    const res = await supertest(createApp()).patch('/api/subscriptions/sub_1').send({ paymentMethodId: 'pm_1' });
+    const res = await supertest(createAuthApp()).patch('/api/subscriptions/sub_1').send({ paymentMethodId: 'pm_1' });
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('sub_1');
   });
@@ -370,7 +370,7 @@ describe('PATCH /api/subscriptions/:subscriptionId', () => {
 // ===========================================================================
 describe('POST /api/subscriptions/:subscriptionId/cancel', () => {
   it('cancels the subscription', async () => {
-    const res = await supertest(createApp()).post('/api/subscriptions/sub_1/cancel');
+    const res = await supertest(createAuthApp()).post('/api/subscriptions/sub_1/cancel');
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('canceled');
   });
@@ -381,7 +381,7 @@ describe('POST /api/subscriptions/:subscriptionId/cancel', () => {
 // ===========================================================================
 describe('POST /api/subscriptions/:subscriptionId/pause', () => {
   it('pauses the subscription', async () => {
-    const res = await supertest(createApp()).post('/api/subscriptions/sub_1/pause');
+    const res = await supertest(createAuthApp()).post('/api/subscriptions/sub_1/pause');
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('sub_1');
   });
@@ -392,7 +392,7 @@ describe('POST /api/subscriptions/:subscriptionId/pause', () => {
 // ===========================================================================
 describe('POST /api/subscriptions/:subscriptionId/resume', () => {
   it('resumes the subscription', async () => {
-    const res = await supertest(createApp()).post('/api/subscriptions/sub_1/resume');
+    const res = await supertest(createAuthApp()).post('/api/subscriptions/sub_1/resume');
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('sub_1');
   });
@@ -403,7 +403,7 @@ describe('POST /api/subscriptions/:subscriptionId/resume', () => {
 // ===========================================================================
 describe('GET /api/customers/:customerId/invoices', () => {
   it('returns invoices for the customer', async () => {
-    const res = await supertest(createApp()).get('/api/customers/cus_test123/invoices');
+    const res = await supertest(createAuthApp()).get('/api/customers/cus_test123/invoices');
     expect(res.status).toBe(200);
     expect(res.body.data[0].id).toBe('in_1');
   });
@@ -414,7 +414,7 @@ describe('GET /api/customers/:customerId/invoices', () => {
 // ===========================================================================
 describe('POST /api/invoices/:invoiceId/pay', () => {
   it('pays an invoice', async () => {
-    const res = await supertest(createApp()).post('/api/invoices/in_1/pay').send({ paymentMethodId: 'pm_1' });
+    const res = await supertest(createAuthApp()).post('/api/invoices/in_1/pay').send({ paymentMethodId: 'pm_1' });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('paid');
   });
@@ -425,7 +425,7 @@ describe('POST /api/invoices/:invoiceId/pay', () => {
 // ===========================================================================
 describe('POST /api/checkout', () => {
   it('returns a checkout session URL', async () => {
-    const res = await supertest(createApp()).post('/api/checkout').send({ customerId: 'cus_test123', priceId: 'price_1', successUrl: 'https://example.com/success', cancelUrl: 'https://example.com/cancel' });
+    const res = await supertest(createAuthApp()).post('/api/checkout').send({ customerId: 'cus_test123', priceId: 'price_1', successUrl: 'https://example.com/success', cancelUrl: 'https://example.com/cancel' });
     expect(res.status).toBe(200);
     expect(res.body.data.url).toMatch(/stripe\.com/);
   });
@@ -465,7 +465,7 @@ describe('POST /api/invoices', () => {
 // ===========================================================================
 describe('POST /api/customer-portal', () => {
   it('returns billing portal URL', async () => {
-    const res = await supertest(createApp()).post('/api/customer-portal').send({ customerId: 'cus_test123', returnUrl: 'https://example.com' });
+    const res = await supertest(createAuthApp()).post('/api/customer-portal').send({ customerId: 'cus_test123', returnUrl: 'https://example.com' });
     expect(res.status).toBe(200);
     expect(res.body.data.url).toMatch(/stripe\.com/);
   });

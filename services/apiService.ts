@@ -276,7 +276,6 @@ export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
     const json = await safeJson(res, 'Failed to add property');
     if (!res.ok) throw new Error(json.error || 'Failed to add property');
     const newP = json.data;
-    if (cachedUser) cachedUser.properties.push(newP);
     return newP;
 };
 export const savePendingSelections = async (propertyId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> => {
@@ -349,7 +348,6 @@ export const updateAutopayStatus = async (enabled: boolean) => {
     });
     const json = await safeJson(res, 'Failed to update autopay');
     if (!res.ok) throw new Error(json.error || 'Failed to update autopay');
-    if (cachedUser) cachedUser.autopayEnabled = enabled;
     return { success: true };
 };
 
@@ -481,8 +479,6 @@ export const updateNotificationPreferences = async (propertyId: string, prefs: N
     });
     const json = await safeJson(res, 'Failed to update notification preferences');
     if (!res.ok) throw new Error(json.error || 'Failed to update notification preferences');
-    const p = cachedUser?.properties.find(prop => prop.id === propertyId);
-    if (p) p.notificationPreferences = prefs;
     return { success: true };
 };
 
