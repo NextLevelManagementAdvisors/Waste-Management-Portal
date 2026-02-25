@@ -200,19 +200,39 @@ const ProfileTab: React.FC = () => {
   );
 };
 
+const DEFAULT_PREFS: NotificationPreferences = {
+  pickupReminders: { email: true, sms: false },
+  scheduleChanges: { email: true, sms: false },
+  driverUpdates: { email: true, sms: false },
+  invoiceDue: true,
+  paymentConfirmation: true,
+  autopayReminder: true,
+  serviceUpdates: true,
+  promotions: false,
+  referralUpdates: true,
+};
+
 const NotificationsTab: React.FC = () => {
-  const { selectedProperty, properties, refreshUser } = useProperty();
+  const { selectedProperty, properties, setSelectedPropertyId, refreshUser } = useProperty();
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [notification, setNotification] = useState('');
 
+  // Auto-select first property when none is selected
+  useEffect(() => {
+    if (!selectedProperty && properties.length > 0) {
+      setSelectedPropertyId(properties[0].id);
+    }
+  }, [selectedProperty, properties, setSelectedPropertyId]);
+
   useEffect(() => {
     if (selectedProperty) {
       const np = selectedProperty.notificationPreferences;
-      // Deep copy and set defaults in one go
       setPrefs({
-        ...JSON.parse(JSON.stringify(np)),
+        pickupReminders: { email: np.pickupReminders?.email !== false, sms: np.pickupReminders?.sms === true },
+        scheduleChanges: { email: np.scheduleChanges?.email !== false, sms: np.scheduleChanges?.sms === true },
+        driverUpdates: { email: np.driverUpdates?.email !== false, sms: np.driverUpdates?.sms === true },
         invoiceDue: np.invoiceDue !== false,
         paymentConfirmation: np.paymentConfirmation !== false,
         autopayReminder: np.autopayReminder !== false,
@@ -221,10 +241,13 @@ const NotificationsTab: React.FC = () => {
         referralUpdates: np.referralUpdates !== false,
       });
       setHasChanges(false);
+    } else if (properties.length > 0) {
+      // Show defaults while auto-select takes effect
+      setPrefs({ ...DEFAULT_PREFS });
     } else {
       setPrefs(null);
     }
-  }, [selectedProperty]);
+  }, [selectedProperty, properties.length]);
 
   const handlePrefChange = useCallback((category: keyof NotificationPreferences, type?: 'email' | 'sms') => {
     setPrefs(prev => {
@@ -308,7 +331,7 @@ const NotificationsTab: React.FC = () => {
           Pickup Notifications
         </h2>
         <p className="text-sm text-gray-500 mb-4">
-          {selectedProperty ? `Settings for ${selectedProperty.address}` : 'Select a property to configure'}
+          {selectedProperty ? `Settings for ${selectedProperty.address}` : 'Loading property...'}
         </p>
         {prefs && (
           <div className="divide-y divide-base-200">
@@ -375,8 +398,8 @@ const SecurityTab: React.FC = () => {
       showToast('error', 'New passwords do not match.');
       return;
     }
-    if (passwordData.newPassword.length < 6) {
-      showToast('error', 'New password must be at least 6 characters long.');
+    if (passwordData.newPassword.length < 8) {
+      showToast('error', 'New password must be at least 8 characters long.');
       return;
     }
     setIsSaving(true);
@@ -408,7 +431,7 @@ const SecurityTab: React.FC = () => {
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">New Password</label>
               <input type="password" name="newPassword" value={passwordData.newPassword} onChange={handlePasswordChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
-              <p className="text-xs text-gray-400 mt-1.5 ml-1">Must be at least 6 characters.</p>
+              <p className="text-xs text-gray-400 mt-1.5 ml-1">Must be at least 8 characters.</p>
             </div>
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Confirm New Password</label>
