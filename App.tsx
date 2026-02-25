@@ -24,16 +24,7 @@ import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
 import { KeyIcon, ExclamationTriangleIcon } from './components/Icons.tsx';
 import { ToastProvider } from './components/Toast.tsx';
-
-const VIEW_TO_PATH: Record<View, string> = {
-  'home': '/',
-  'myservice': '/manage-plan',
-  'billing': '/billing',
-  'requests': '/requests',
-  'referrals': '/referrals',
-  'help': '/help',
-  'profile-settings': '/settings',
-};
+import { VIEW_TO_PATH } from './constants.ts';
 
 const LEGACY_REDIRECTS: Record<string, View> = {
   '/pay': 'billing',

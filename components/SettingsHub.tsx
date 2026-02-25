@@ -5,6 +5,7 @@ import { Button } from './Button.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 import { UpdateProfileInfo, UpdatePasswordInfo, NotificationPreferences } from '../types.ts';
 import { updateNotificationPreferences } from '../services/apiService.ts';
+import { useToast } from './Toast.tsx';
 import {
   UserIcon, BellIcon, KeyIcon, ExclamationTriangleIcon
 } from './Icons.tsx';
@@ -87,21 +88,12 @@ const SettingsHub: React.FC = () => {
   );
 };
 
-const NotificationPopup: React.FC<{ notification: { type: 'success' | 'error'; message: string } | null }> = ({ notification }) => {
-  if (!notification) return null;
-  return (
-    <div className={`fixed bottom-5 right-5 p-4 rounded-xl shadow-lg text-white z-50 ${notification.type === 'success' ? 'bg-primary' : 'bg-red-600'}`}>
-      {notification.message}
-    </div>
-  );
-};
-
 const ProfileTab: React.FC = () => {
   const { user, updateProfile } = useProperty();
+  const { showToast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<UpdateProfileInfo | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -114,11 +106,6 @@ const ProfileTab: React.FC = () => {
     }
   }, [user]);
 
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3000);
-  };
-
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setProfileData(prev => (prev ? { ...prev, [e.target.name]: e.target.value } : null));
   };
@@ -130,9 +117,9 @@ const ProfileTab: React.FC = () => {
     try {
       await updateProfile(profileData);
       setIsEditing(false);
-      showNotification('success', 'Profile updated successfully!');
+      showToast('success', 'Profile updated successfully!');
     } catch (error) {
-      showNotification('error', 'Failed to update profile.');
+      showToast('error', 'Failed to update profile.');
     } finally {
       setIsSaving(false);
     }
@@ -209,7 +196,6 @@ const ProfileTab: React.FC = () => {
           )}
         </form>
       </Card>
-      <NotificationPopup notification={notification} />
     </div>
   );
 };
@@ -371,18 +357,13 @@ const NotificationsTab: React.FC = () => {
 
 const SecurityTab: React.FC = () => {
   const { user, updatePassword } = useProperty();
+  const { showToast } = useToast();
   const [passwordData, setPasswordData] = useState<UpdatePasswordInfo & { confirmNew: string }>({
     currentPassword: '',
     newPassword: '',
     confirmNew: '',
   });
   const [isSaving, setIsSaving] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3000);
-  };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPasswordData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -391,21 +372,21 @@ const SecurityTab: React.FC = () => {
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmNew) {
-      showNotification('error', 'New passwords do not match.');
+      showToast('error', 'New passwords do not match.');
       return;
     }
-    if (passwordData.newPassword.length < 8) {
-      showNotification('error', 'New password must be at least 8 characters long.');
+    if (passwordData.newPassword.length < 6) {
+      showToast('error', 'New password must be at least 6 characters long.');
       return;
     }
     setIsSaving(true);
     try {
       await updatePassword({ currentPassword: passwordData.currentPassword, newPassword: passwordData.newPassword });
-      showNotification('success', 'Password changed successfully!');
+      showToast('success', 'Password changed successfully!');
       setPasswordData({ currentPassword: '', newPassword: '', confirmNew: '' });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      showNotification('error', `Error: ${errorMessage}`);
+      showToast('error', `Error: ${errorMessage}`);
     } finally {
       setIsSaving(false);
     }
@@ -427,6 +408,7 @@ const SecurityTab: React.FC = () => {
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">New Password</label>
               <input type="password" name="newPassword" value={passwordData.newPassword} onChange={handlePasswordChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+              <p className="text-xs text-gray-400 mt-1.5 ml-1">Must be at least 6 characters.</p>
             </div>
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Confirm New Password</label>
@@ -460,8 +442,6 @@ const SecurityTab: React.FC = () => {
           </div>
         </div>
       </Card>
-
-      <NotificationPopup notification={notification} />
     </div>
   );
 };

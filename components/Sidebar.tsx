@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
-import { 
-  HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon, 
+import { VIEW_TO_PATH } from '../constants.ts';
+import {
+  HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon,
   CalendarDaysIcon, GiftIcon, PlusCircleIcon, UserIcon, CreditCardIcon, ArrowRightOnRectangleIcon, ClipboardDocumentIcon
 } from './Icons.tsx';
 
@@ -28,16 +29,6 @@ const navItems: NavItem[] = [
   { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
   { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" /> },
 ];
-
-const VIEW_TO_PATH: Record<string, string> = {
-  'home': '/',
-  'myservice': '/manage-plan',
-  'billing': '/billing',
-  'requests': '/requests',
-  'referrals': '/referrals',
-  'help': '/help',
-  'profile-settings': '/settings',
-};
 
 const NavLink: React.FC<{
   item: NavItem;
@@ -149,7 +140,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                     <p className="text-sm font-black text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Platinum Member</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Member</p>
                 </div>
             </button>
         </div>
@@ -168,7 +159,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                </div>
                <div className="flex-1 min-w-0">
                    <p className="text-sm font-black text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Platinum Member</p>
+                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Member</p>
                </div>
            </div>
            <button

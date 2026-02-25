@@ -330,8 +330,8 @@ const AdminAcceptInvite: React.FC<AdminAcceptInviteProps> = ({ token, onComplete
                 type="password" id="regPassword" value={password}
                 onChange={e => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors disabled:opacity-50"
-                placeholder="Minimum 12 characters"
-                required minLength={12} disabled={submitting}
+                placeholder="Minimum 6 characters"
+                required minLength={6} disabled={submitting}
                 autoComplete="new-password"
               />
             </div>

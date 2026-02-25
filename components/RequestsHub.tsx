@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import SpecialPickup from './SpecialPickup.tsx';
 import VacationHolds from './VacationHolds.tsx';
 import MissedPickup from './MissedPickup.tsx';
@@ -7,6 +7,13 @@ import { CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, HomeIcon, P
 import { Button } from './Button.tsx';
 
 type RequestView = 'extra' | 'hold' | 'missed';
+
+const VALID_REQUEST_TABS = new Set<string>(['extra', 'hold', 'missed']);
+
+function getRequestTabFromUrl(): RequestView {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab && VALID_REQUEST_TABS.has(tab) ? tab as RequestView : 'extra';
+}
 
 const Tabs: React.FC<{
     activeTab: RequestView;
@@ -46,11 +53,22 @@ const Tabs: React.FC<{
 
 const RequestsHub: React.FC = () => {
     const { postNavAction, setPostNavAction, properties, setCurrentView } = useProperty();
-    const [view, setView] = useState<RequestView>('extra');
+    const [view, setViewRaw] = useState<RequestView>(getRequestTabFromUrl);
+
+    const setView = useCallback((tab: RequestView) => {
+        setViewRaw(tab);
+        const url = new URL(window.location.href);
+        if (tab === 'extra') {
+            url.searchParams.delete('tab');
+        } else {
+            url.searchParams.set('tab', tab);
+        }
+        window.history.replaceState({}, '', url.toString());
+    }, []);
     
     useEffect(() => {
         if (postNavAction && postNavAction.targetView === 'requests' && postNavAction.targetTab) {
-            setView(postNavAction.targetTab as RequestView);
+            setViewRaw(postNavAction.targetTab as RequestView);
             setPostNavAction(null);
         }
     }, [postNavAction, setPostNavAction]);

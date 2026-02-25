@@ -149,6 +149,7 @@ const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, 
                 <div>
                     <label htmlFor="passwordReg" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password</label>
                     <input type="password" name="password" id="passwordReg" value={formData.password} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1">Must be at least 6 characters.</p>
                 </div>
                 <div>
                     <label htmlFor="referralCode" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referral Code (Optional)</label>

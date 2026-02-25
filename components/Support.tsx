@@ -8,7 +8,7 @@ import { getSubscriptions, getInvoices } from '../services/apiService.ts';
 import { useProperty } from '../PropertyContext.tsx';
 
 const Support: React.FC = () => {
-    const { user, selectedProperty } = useProperty();
+    const { user, selectedProperty, properties } = useProperty();
     const [messages, setMessages] = useState<SupportMessage[]>([
         { sender: 'gemini', text: "Welcome to your AI Concierge. I can help you with account billing, scheduling, or searching for holiday delays. How can I assist you?" }
     ]);
@@ -17,6 +17,9 @@ const Support: React.FC = () => {
     const [streamingText, setStreamingText] = useState('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Resolve the effective property: use selected, or auto-pick the first if only one exists
+    const effectiveProperty = selectedProperty || (properties.length === 1 ? properties[0] : null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,19 +36,19 @@ const Support: React.FC = () => {
         setStreamingText('');
 
         try {
-            if (!user || !selectedProperty) {
-                 setMessages(prev => [...prev, { sender: 'gemini', text: "I'd love to help, but please select a property context at the top of the screen so I can look up your specific schedule." }]);
+            if (!user || !effectiveProperty) {
+                 setMessages(prev => [...prev, { sender: 'gemini', text: "I need to know which property to look up. Please select a specific property from the dropdown at the top of the page, then ask your question again." }]);
                  setIsLoading(false);
                  return;
             }
 
             const allSubs = await getSubscriptions();
             const allInvoices = await getInvoices();
-            const propertySubs = allSubs.filter(s => s.propertyId === selectedProperty.id);
-            const propertyInvoices = allInvoices.filter(i => i.propertyId === selectedProperty.id);
+            const propertySubs = allSubs.filter(s => s.propertyId === effectiveProperty.id);
+            const propertyInvoices = allInvoices.filter(i => i.propertyId === effectiveProperty.id);
 
             const stream = await getSupportResponseStream(userMsg, {
-                user: { ...user, address: selectedProperty.address },
+                user: { ...user, address: effectiveProperty.address },
                 subscriptions: propertySubs,
                 invoices: propertyInvoices
             });
@@ -79,7 +82,7 @@ const Support: React.FC = () => {
                         Concierge AI
                     </h2>
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                        Active Support: {selectedProperty?.address || "Universal"}
+                        Active Support: {effectiveProperty?.address || "Select a property above"}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">

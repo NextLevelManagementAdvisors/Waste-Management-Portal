@@ -47,7 +47,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
             >
                 <Bars3Icon className="w-6 h-6" />
             </button>
-            <h2 className="text-2xl font-black text-gray-900 tracking-tight hidden sm:block">{title}</h2>
+            <h2 className="text-lg sm:text-2xl font-black text-gray-900 tracking-tight">{title}</h2>
              {loading ? (
                 <div className="w-48 h-8 bg-gray-200 rounded animate-pulse"></div>
             ) : (
@@ -60,11 +60,11 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                         disabled={properties.length === 0}
                     >
                         {properties.length > 1 && (
-                            <option value="all">📂 All Properties</option>
+                            <option value="all">All Properties</option>
                         )}
                         {properties.length > 0 ? (
                             properties.map(p => (
-                                <option key={p.id} value={p.id}>🏠 {p.address}</option>
+                                <option key={p.id} value={p.id}>{p.address}</option>
                             ))
                         ) : (
                             <option value="">No properties found</option>

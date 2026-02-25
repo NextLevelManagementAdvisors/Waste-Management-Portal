@@ -132,8 +132,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'First name, last name, email, and password are required' });
       }
 
-      if (password.length < 12) {
-        return res.status(400).json({ error: 'Password must be at least 12 characters' });
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
       }
 
       const existing = await storage.getUserByEmail(email.toLowerCase());
@@ -453,8 +453,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      if (!newPassword || newPassword.length < 12) {
-        return res.status(400).json({ error: 'Password must be at least 12 characters' });
+      if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
       }
 
       const valid = await bcrypt.compare(currentPassword, user.password_hash);
@@ -546,8 +546,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Token and new password are required' });
       }
 
-      if (newPassword.length < 12) {
-        return res.status(400).json({ error: 'Password must be at least 12 characters' });
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
       }
 
       const resetToken = await storage.getValidResetToken(token);

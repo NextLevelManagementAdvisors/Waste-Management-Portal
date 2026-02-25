@@ -165,9 +165,19 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                             <p className="text-xs font-bold text-primary uppercase tracking-wider group-hover:text-teal-700">Total Monthly Cost</p>
                             <p className="text-3xl font-black text-gray-900 mt-1">${Number(data.health.totalMonthlyCost).toFixed(2)}</p>
                         </button>
-                        <button type="button" onClick={() => setIsPayBalanceModalOpen(true)} className="flex-1 p-6 bg-red-50 rounded-2xl border border-red-100 text-left hover:shadow-md hover:border-red-300 transition-all cursor-pointer group">
-                            <p className="text-xs font-bold text-red-600 uppercase tracking-wider group-hover:text-red-700">Outstanding Balance</p>
-                            <p className="text-3xl font-black text-red-800 mt-1">${Number(data.health.outstandingBalance).toFixed(2)}</p>
+                        <button type="button" onClick={() => setIsPayBalanceModalOpen(true)} className={`flex-1 p-6 rounded-2xl border text-left hover:shadow-md transition-all cursor-pointer group ${
+                            Number(data.health.outstandingBalance) > 0
+                                ? 'bg-red-50 border-red-100 hover:border-red-300'
+                                : 'bg-primary/5 border-primary/10 hover:border-primary/30'
+                        }`}>
+                            <p className={`text-xs font-bold uppercase tracking-wider ${
+                                Number(data.health.outstandingBalance) > 0
+                                    ? 'text-red-600 group-hover:text-red-700'
+                                    : 'text-primary group-hover:text-teal-700'
+                            }`}>Outstanding Balance</p>
+                            <p className={`text-3xl font-black mt-1 ${
+                                Number(data.health.outstandingBalance) > 0 ? 'text-red-800' : 'text-gray-900'
+                            }`}>${Number(data.health.outstandingBalance).toFixed(2)}</p>
                         </button>
                     </div>
                 </Card>

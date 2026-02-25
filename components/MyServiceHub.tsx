@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Services from './Services.tsx';
 import PropertySettings from './PropertySettings.tsx';
 import Notifications from './Notifications.tsx';
@@ -11,6 +11,7 @@ import { Subscription, NewPropertyInfo } from '../types.ts';
 import {
     ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon
 } from './Icons.tsx';
+import TabBar from './TabBar.tsx';
 import AccountTransfer from './AccountTransfer.tsx';
 import DangerZone from './DangerZone.tsx';
 import CollectionHistory from './CollectionHistory.tsx';
@@ -26,31 +27,28 @@ const TABS = [
     { id: 'settings', label: 'Settings', icon: <WrenchScrewdriverIcon className="w-5 h-5" /> },
 ];
 
-const Tab: React.FC<{
-    id: string;
-    label: string;
-    icon: React.ReactNode;
-    activeTab: string;
-    onClick: (id: string) => void;
-}> = ({ id, label, icon, activeTab, onClick }) => (
-    <button
-        onClick={() => onClick(id)}
-        className={`group inline-flex flex-shrink-0 items-center justify-center sm:justify-start gap-2 whitespace-nowrap py-4 px-3 sm:px-4 border-b-2 font-medium transition-colors text-sm
-            ${activeTab === id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-        aria-label={label}
-    >
-        {icon}
-        <span className="font-bold hidden sm:inline">{label}</span>
-    </button>
-);
+const VALID_TABS = new Set(TABS.map(t => t.id));
 
+function getTabFromUrl(): string {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab && VALID_TABS.has(tab) ? tab : 'overview';
+}
 
 const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     const { properties, selectedProperty, postNavAction, setCurrentView } = useProperty();
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTabRaw] = useState(getTabFromUrl);
+
+    const setActiveTab = useCallback((tab: string) => {
+        const validTab = VALID_TABS.has(tab) ? tab : 'overview';
+        setActiveTabRaw(validTab);
+        const url = new URL(window.location.href);
+        if (validTab === 'overview') {
+            url.searchParams.delete('tab');
+        } else {
+            url.searchParams.set('tab', validTab);
+        }
+        window.history.replaceState({}, '', url.toString());
+    }, []);
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
     const [showSetupWizard, setShowSetupWizard] = useState(false);
@@ -80,7 +78,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
 
     useEffect(() => {
         if (selectedProperty) {
-            setActiveTab('overview');
+            setActiveTabRaw('overview');
         }
     }, [selectedProperty]);
 
@@ -214,28 +212,8 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
 
     return (
         <div className="animate-in fade-in duration-500">
-            <style>{`
-                .no-scrollbar::-webkit-scrollbar {
-                    display: none;
-                }
-                .no-scrollbar {
-                    -ms-overflow-style: none;
-                    scrollbar-width: none;
-                }
-            `}</style>
             <div className="bg-white rounded-[1.5rem] shadow-lg">
-                <nav className="flex items-center justify-around sm:justify-start sm:gap-2 border-b border-base-200 px-2 sm:px-6 overflow-x-auto no-scrollbar">
-                    {TABS.map(tab => (
-                         <Tab
-                            key={tab.id}
-                            id={tab.id}
-                            label={tab.label}
-                            icon={tab.icon}
-                            activeTab={activeTab}
-                            onClick={setActiveTab}
-                        />
-                    ))}
-                </nav>
+                <TabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
                 <div>
                     {renderTabContent()}
                 </div>

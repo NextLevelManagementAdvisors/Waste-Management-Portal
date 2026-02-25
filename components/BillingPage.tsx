@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProperty } from '../PropertyContext.tsx';
 import { getInvoices, getSubscriptions, getPaymentMethods } from '../services/apiService.ts';
 import { Invoice, Subscription, PaymentMethod } from '../types.ts';
@@ -8,6 +8,7 @@ import PayBalanceModal from './PayBalanceModal.tsx';
 import Billing from './Billing.tsx';
 import Subscriptions from './Subscriptions.tsx';
 import PaymentMethodsPanel from './PaymentMethods.tsx';
+import TabBar from './TabBar.tsx';
 import {
     ChartPieIcon, ClipboardDocumentIcon, BanknotesIcon, CreditCardIcon,
     CheckCircleIcon, ArrowRightIcon, CalendarDaysIcon
@@ -15,33 +16,19 @@ import {
 
 type BillingTab = 'overview' | 'invoices' | 'subscriptions' | 'payment-methods';
 
-const TABS: { id: BillingTab; label: string; icon: React.ReactNode }[] = [
+const TABS = [
     { id: 'overview', label: 'Overview', icon: <ChartPieIcon className="w-5 h-5" /> },
     { id: 'invoices', label: 'Invoices', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { id: 'subscriptions', label: 'Subscriptions', icon: <BanknotesIcon className="w-5 h-5" /> },
     { id: 'payment-methods', label: 'Payment Methods', icon: <CreditCardIcon className="w-5 h-5" /> },
 ];
 
-const Tab: React.FC<{
-    id: BillingTab;
-    label: string;
-    icon: React.ReactNode;
-    activeTab: BillingTab;
-    onClick: (id: BillingTab) => void;
-}> = ({ id, label, icon, activeTab, onClick }) => (
-    <button
-        onClick={() => onClick(id)}
-        className={`group inline-flex flex-shrink-0 items-center justify-center sm:justify-start gap-2 whitespace-nowrap py-4 px-3 sm:px-4 border-b-2 font-medium transition-colors text-sm
-            ${activeTab === id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-        aria-label={label}
-    >
-        {icon}
-        <span className="font-bold hidden sm:inline">{label}</span>
-    </button>
-);
+const VALID_TABS = new Set(TABS.map(t => t.id));
+
+function getTabFromUrl(): BillingTab {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab && VALID_TABS.has(tab) ? tab as BillingTab : 'overview';
+}
 
 const statusColor: Record<string, string> = {
     Paid: 'bg-green-100 text-green-800',
@@ -51,7 +38,19 @@ const statusColor: Record<string, string> = {
 
 const BillingPage: React.FC = () => {
     const { selectedProperty, properties } = useProperty();
-    const [activeTab, setActiveTab] = useState<BillingTab>('overview');
+    const [activeTab, setActiveTabRaw] = useState<BillingTab>(getTabFromUrl);
+
+    const setActiveTab = useCallback((tab: BillingTab | string) => {
+        const billingTab = (VALID_TABS.has(tab) ? tab : 'overview') as BillingTab;
+        setActiveTabRaw(billingTab);
+        const url = new URL(window.location.href);
+        if (billingTab === 'overview') {
+            url.searchParams.delete('tab');
+        } else {
+            url.searchParams.set('tab', billingTab);
+        }
+        window.history.replaceState({}, '', url.toString());
+    }, []);
 
     // Overview data
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -272,28 +271,8 @@ const BillingPage: React.FC = () => {
 
     return (
         <div className="animate-in fade-in duration-500">
-            <style>{`
-                .no-scrollbar::-webkit-scrollbar {
-                    display: none;
-                }
-                .no-scrollbar {
-                    -ms-overflow-style: none;
-                    scrollbar-width: none;
-                }
-            `}</style>
             <div className="bg-white rounded-[1.5rem] shadow-lg">
-                <nav className="flex items-center justify-around sm:justify-start sm:gap-2 border-b border-base-200 px-2 sm:px-6 overflow-x-auto no-scrollbar">
-                    {TABS.map(tab => (
-                        <Tab
-                            key={tab.id}
-                            id={tab.id}
-                            label={tab.label}
-                            icon={tab.icon}
-                            activeTab={activeTab}
-                            onClick={setActiveTab}
-                        />
-                    ))}
-                </nav>
+                <TabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
                 <div>
                     {renderTabContent()}
                 </div>

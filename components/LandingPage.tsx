@@ -11,6 +11,7 @@ interface PortalInfo {
   signInText: string;
   signUpText: string;
   href: string;
+  signUpHref: string;
 }
 
 const portals: PortalInfo[] = [
@@ -22,6 +23,7 @@ const portals: PortalInfo[] = [
     signInText: 'Sign In',
     signUpText: 'Create Account',
     href: '/login',
+    signUpHref: '/register',
   },
   {
     id: 'admin',
@@ -31,6 +33,7 @@ const portals: PortalInfo[] = [
     signInText: 'Sign In',
     signUpText: 'Request Access',
     href: '/admin',
+    signUpHref: '/admin',
   },
   {
     id: 'team',
@@ -40,6 +43,7 @@ const portals: PortalInfo[] = [
     signInText: 'Sign In',
     signUpText: 'Create Account',
     href: '/team',
+    signUpHref: '/team',
   },
 ];
 
@@ -94,7 +98,7 @@ const LandingPage: React.FC = () => {
                 </Button>
                 <button
                   className="text-sm text-primary hover:text-primary-focus font-bold transition-colors"
-                  onClick={() => handlePortalClick(portal.href)}
+                  onClick={() => handlePortalClick(portal.signUpHref)}
                 >
                   {portal.signUpText} →
                 </button>

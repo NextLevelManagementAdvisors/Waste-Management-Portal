@@ -181,7 +181,7 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
               </button>
             )}
             <h3 className="text-sm font-black">
-              {selectedConvId ? 'Conversation' : 'Messages'}
+              {selectedConvId ? 'Conversation' : 'Support Team'}
             </h3>
           </div>
           <button onClick={() => { setIsOpen(false); setSelectedConvId(null); }} className="hover:opacity-80">
