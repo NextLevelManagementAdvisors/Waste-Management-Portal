@@ -11,6 +11,7 @@ ssh "$USER@$HOST" "cd $DIR \
   && git config --global --add safe.directory $DIR \
   && sudo -u portal git pull origin main \
   && sudo -u portal npm install \
+  && rm -rf $DIR/dist \
   && sudo -u portal npm run build \
   && sudo systemctl restart waste-portal \
   && sleep 3 \
