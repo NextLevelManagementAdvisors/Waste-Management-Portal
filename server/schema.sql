@@ -412,3 +412,15 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+
+-- Pending service selections (deferred billing until address approval)
+CREATE TABLE IF NOT EXISTS pending_service_selections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  service_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  use_sticker BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pending_selections_property ON pending_service_selections(property_id);

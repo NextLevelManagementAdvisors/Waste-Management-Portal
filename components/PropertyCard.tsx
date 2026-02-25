@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Property } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { getNextPickupInfo, PickupInfo } from '../services/optimoRouteService.ts';
+import { getPendingSelections, getServices } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { ArrowRightIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, CalendarDaysIcon, ClockIcon } from './Icons.tsx';
@@ -19,6 +20,7 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
     const { setSelectedPropertyId } = useProperty();
     const [pickupInfo, setPickupInfo] = useState<PickupInfo | null>(null);
     const [loadingPickup, setLoadingPickup] = useState(true);
+    const [pendingServiceNames, setPendingServiceNames] = useState<string[]>([]);
 
     const isPending = property.serviceStatus === 'pending_review';
     const isDenied = property.serviceStatus === 'denied';
@@ -35,6 +37,20 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
             setLoadingPickup(false);
         });
     }, [property.address, isReviewBlocked]);
+
+    // Load pending service selections for pending_review properties
+    useEffect(() => {
+        if (!isPending) return;
+        Promise.all([getPendingSelections(property.id), getServices()]).then(([selections, services]) => {
+            const names = selections
+                .map(sel => {
+                    const svc = services.find(s => s.id === sel.serviceId);
+                    return svc ? (sel.quantity > 1 ? `${svc.name} x${sel.quantity}` : svc.name) : null;
+                })
+                .filter(Boolean) as string[];
+            setPendingServiceNames(names);
+        }).catch(() => {});
+    }, [isPending, property.id]);
 
     const config = statusConfig[property.status];
 
@@ -64,13 +80,21 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
 
             {isReviewBlocked ? (
                 <>
-                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-6">
+                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-4">
                         <p className="text-sm font-bold text-gray-500">
                             {isPending
                                 ? "We're checking if we can service this address. You'll be notified when it's confirmed."
                                 : "Unfortunately, this address is outside our current service area."}
                         </p>
                     </div>
+                    {isPending && pendingServiceNames.length > 0 && (
+                        <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100 mb-6">
+                            <p className="text-[10px] font-black text-yellow-600 uppercase tracking-widest mb-1">Pending Services</p>
+                            <p className="text-xs text-gray-600 font-medium">{pendingServiceNames.join(', ')}</p>
+                            <p className="text-[10px] text-gray-400 mt-1">Billing starts after approval</p>
+                        </div>
+                    )}
+                    {!isPending && <div className="mb-6" />}
                     <div className="flex items-center justify-end border-t border-base-100 pt-4 mt-auto">
                         <Button
                             variant="secondary"

@@ -415,6 +415,48 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  // ── Pending Service Selections (deferred billing) ─────────────────
+
+  app.post('/api/properties/:propertyId/pending-selections', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(404).json({ error: 'Property not found' });
+      }
+      const { selections } = req.body;
+      if (!Array.isArray(selections)) {
+        return res.status(400).json({ error: 'selections must be an array' });
+      }
+      await storage.savePendingSelections(propertyId, userId, selections.map((s: any) => ({
+        serviceId: s.serviceId,
+        quantity: s.quantity || 1,
+        useSticker: !!s.useSticker,
+      })));
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Save pending selections error:', error);
+      res.status(500).json({ error: 'Failed to save pending selections' });
+    }
+  });
+
+  app.get('/api/properties/:propertyId/pending-selections', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(404).json({ error: 'Property not found' });
+      }
+      const selections = await storage.getPendingSelections(propertyId);
+      res.json({ data: selections });
+    } catch (error: any) {
+      console.error('Get pending selections error:', error);
+      res.status(500).json({ error: 'Failed to get pending selections' });
+    }
+  });
+
   app.put('/api/auth/profile', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;

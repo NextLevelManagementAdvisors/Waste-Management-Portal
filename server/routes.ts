@@ -245,7 +245,7 @@ export function registerRoutes(app: Express) {
       const userId = req.session.userId!;
       const { customerId, priceId, quantity, paymentMethodId, metadata } = req.body;
 
-      // Validate propertyId exists and belongs to authenticated user
+      // Validate propertyId exists, belongs to authenticated user, and is approved
       const propertyId = metadata?.propertyId;
       if (propertyId) {
         const property = await storage.getPropertyById(propertyId);
@@ -254,6 +254,9 @@ export function registerRoutes(app: Express) {
         }
         if (property.user_id !== userId) {
           return res.status(403).json({ error: 'Property does not belong to this user' });
+        }
+        if (property.service_status && property.service_status !== 'approved') {
+          return res.status(400).json({ error: 'Cannot create subscription: address has not been approved yet' });
         }
       }
 

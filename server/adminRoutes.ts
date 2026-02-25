@@ -1394,6 +1394,41 @@ export function registerAdminRoutes(app: Express) {
       await storage.updateServiceStatus(propertyId, decision, notes || null);
       await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
 
+      // Activate deferred subscriptions on approval, or clean up on denial
+      const pendingSelections = await storage.getPendingSelections(propertyId);
+      if (decision === 'approved' && pendingSelections.length > 0) {
+        try {
+          const stripe = await getUncachableStripeClient();
+          const user = await storage.getUserById(property.user_id);
+          if (user?.stripe_customer_id) {
+            // Look up Stripe products to map service IDs to price IDs
+            const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
+            const productMap = new Map(products.data.map((p: any) => [p.id, p]));
+
+            for (const sel of pendingSelections) {
+              const product = productMap.get(sel.serviceId);
+              if (product?.default_price?.id) {
+                await stripe.subscriptions.create({
+                  customer: user.stripe_customer_id,
+                  items: [{ price: product.default_price.id, quantity: sel.quantity }],
+                  metadata: {
+                    propertyId,
+                    equipmentType: sel.useSticker ? 'own_can' : 'rental',
+                  },
+                  payment_behavior: 'allow_incomplete',
+                });
+              }
+            }
+          }
+          await storage.deletePendingSelections(propertyId);
+        } catch (subError) {
+          console.error('Failed to create subscriptions on approval:', subError);
+          // Don't fail the approval — subscriptions can be manually created
+        }
+      } else if (decision === 'denied') {
+        await storage.deletePendingSelections(propertyId);
+      }
+
       // TODO: Send notification to customer when notification system is ready
       // await sendServiceUpdate(property.user_id, 'Address Review Update',
       //   `Your address at ${property.address} has been ${decision}.`);

@@ -18,7 +18,7 @@ import ChatWidget from './components/ChatWidget.tsx';
 import LandingPage from './components/LandingPage.tsx';
 import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
 import { PropertyContext } from './PropertyContext.tsx';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService } from './services/apiService.ts';
+import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService, savePendingSelections } from './services/apiService.ts';
 import StripeProvider from './components/StripeProvider.tsx';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
@@ -302,28 +302,20 @@ const App: React.FC = () => {
   }, [setCurrentView]);
 
   const handleCompleteSetup = useCallback(async (
-    propertyInfo: NewPropertyInfo, 
+    propertyInfo: NewPropertyInfo,
     servicesToSubscribe: { serviceId: string; useSticker: boolean; quantity: number }[]
   ) => {
     try {
-      // 1. Add property
+      // 1. Add property (created with service_status='pending_review')
       const newProperty = await addProperty(propertyInfo);
 
-      // 2. Fetch all available services to get their full details
-      const allServices = await getServices();
+      // 2. Save service selections for deferred billing (subscriptions created on admin approval)
+      await savePendingSelections(newProperty.id, servicesToSubscribe);
 
-      // 3. Subscribe to each selected service for the new property
-      for (const sub of servicesToSubscribe) {
-          const serviceDetails = allServices.find(s => s.id === sub.serviceId);
-          if (serviceDetails) {
-              await subscribeToNewService(serviceDetails, newProperty.id, sub.quantity, sub.useSticker);
-          }
-      }
-      
-      // 4. Refresh user data and navigate
+      // 3. Refresh user data and navigate
       await refreshUser();
-      setSelectedPropertyId(newProperty.id); 
-      setCurrentView('myservice'); 
+      setSelectedPropertyId(newProperty.id);
+      setCurrentView('myservice');
     } catch (error) {
       console.error("Failed to complete setup:", error);
       throw error;

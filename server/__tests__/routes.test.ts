@@ -337,7 +337,7 @@ describe('POST /api/setup-intent', () => {
 // ===========================================================================
 describe('POST /api/subscriptions', () => {
   it('creates and returns a subscription', async () => {
-    const res = await supertest(createApp()).post('/api/subscriptions').send({ customerId: 'cus_test123', priceId: 'price_1' });
+    const res = await supertest(createAuthApp()).post('/api/subscriptions').send({ customerId: 'cus_test123', priceId: 'price_1' });
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('sub_1');
   });

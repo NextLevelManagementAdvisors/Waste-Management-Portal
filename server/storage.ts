@@ -668,6 +668,41 @@ export class Storage {
     return result.rows[0];
   }
 
+  // ── Pending Service Selections (deferred billing) ─────────────────
+
+  async savePendingSelections(propertyId: string, userId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> {
+    // Delete existing selections for this property, then insert new ones
+    await this.query(`DELETE FROM pending_service_selections WHERE property_id = $1`, [propertyId]);
+    for (const sel of selections) {
+      await this.query(
+        `INSERT INTO pending_service_selections (property_id, user_id, service_id, quantity, use_sticker)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [propertyId, userId, sel.serviceId, sel.quantity, sel.useSticker]
+      );
+    }
+  }
+
+  async getPendingSelections(propertyId: string): Promise<{ id: string; propertyId: string; userId: string; serviceId: string; quantity: number; useSticker: boolean; createdAt: Date }[]> {
+    const result = await this.query(
+      `SELECT id, property_id, user_id, service_id, quantity, use_sticker, created_at
+       FROM pending_service_selections WHERE property_id = $1 ORDER BY created_at`,
+      [propertyId]
+    );
+    return result.rows.map((r: any) => ({
+      id: r.id,
+      propertyId: r.property_id,
+      userId: r.user_id,
+      serviceId: r.service_id,
+      quantity: r.quantity,
+      useSticker: r.use_sticker,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async deletePendingSelections(propertyId: string): Promise<void> {
+    await this.query(`DELETE FROM pending_service_selections WHERE property_id = $1`, [propertyId]);
+  }
+
   async getAllUsersPaginated(options: { limit?: number; offset?: number; search?: string; sortBy?: string; sortDir?: string; serviceType?: string; hasStripe?: string }) {
     const conditions: string[] = [];
     const params: any[] = [];

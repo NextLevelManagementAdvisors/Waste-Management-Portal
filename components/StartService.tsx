@@ -34,14 +34,14 @@ const initialFormState: NewPropertyInfo = {
     referralCode: ''
 };
 
-const StepIndicator: React.FC<{ currentStep: number }> = ({ currentStep }) => (
+const StepIndicator: React.FC<{ currentStep: number; totalSteps: number }> = ({ currentStep, totalSteps }) => (
     <div className="flex justify-center items-center mb-10">
-        {[1, 2, 3, 4].map(s => (
+        {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
             <React.Fragment key={s}>
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 font-black text-sm ${currentStep >= s ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' : 'bg-base-300 text-gray-500'}`}>
                     {s}
                 </div>
-                {s < 4 && <div className={`flex-1 h-1.5 mx-2 rounded-full transition-colors duration-500 ${currentStep > s ? 'bg-primary' : 'bg-base-300'}`} />}
+                {s < totalSteps && <div className={`flex-1 h-1.5 mx-2 rounded-full transition-colors duration-500 ${currentStep > s ? 'bg-primary' : 'bg-base-300'}`} />}
             </React.Fragment>
         ))}
     </div>
@@ -54,7 +54,8 @@ const NewPaymentForm: React.FC<{
     isProcessing: boolean;
     setIsProcessing: (v: boolean) => void;
     setSetupError: (msg: string | null) => void;
-}> = ({ onConfirmed, onBack, isProcessing, setIsProcessing, setSetupError }) => {
+    submitLabel?: string;
+}> = ({ onConfirmed, onBack, isProcessing, setIsProcessing, setSetupError, submitLabel = 'Complete Setup' }) => {
     const stripe = useStripe();
     const elements = useElements();
 
@@ -96,15 +97,79 @@ const NewPaymentForm: React.FC<{
             <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
                 <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={onBack} disabled={isProcessing}>Back</Button>
                 <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleConfirm} disabled={isProcessing || !stripe}>
-                    {isProcessing ? 'Processing...' : 'Complete Setup'}
+                    {isProcessing ? 'Processing...' : submitLabel}
                 </Button>
             </div>
         </>
     );
 };
 
+// ── Order Summary Panel ─────────────────────────────────────────────
+const OrderSummary: React.FC<{
+    selectedServices: ServiceSelection[];
+    availableServices: Service[];
+    monthlyTotal: number;
+    setupTotal: number;
+    isOneTime: boolean;
+}> = ({ selectedServices, availableServices, monthlyTotal, setupTotal, isOneTime }) => {
+    const lineItems = selectedServices
+        .map(sel => {
+            const service = availableServices.find(s => s.id === sel.serviceId);
+            if (!service) return null;
+            return { name: service.name, quantity: sel.quantity, price: service.price * sel.quantity };
+        })
+        .filter(Boolean) as { name: string; quantity: number; price: number }[];
+
+    if (lineItems.length === 0) return null;
+
+    return (
+        <Card className="border-none ring-1 ring-base-200 sticky top-4">
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Order Summary</h3>
+            <div className="space-y-3 mb-4">
+                {lineItems.map((item, i) => (
+                    <div key={i} className="flex justify-between items-center text-sm">
+                        <span className="text-gray-700 font-medium">
+                            {item.name}{item.quantity > 1 && <span className="text-gray-400 ml-1">x{item.quantity}</span>}
+                        </span>
+                        <span className="font-bold text-gray-900">${item.price.toFixed(2)}</span>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-base-200 pt-4 space-y-2">
+                {setupTotal > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-500">One-Time Setup Fees</span>
+                        <span className="font-semibold text-gray-600">${setupTotal.toFixed(2)}</span>
+                    </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                    <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">
+                        {isOneTime ? 'Total' : 'Monthly Total'}
+                    </span>
+                    <span className="text-3xl font-black text-primary">${monthlyTotal.toFixed(2)}</span>
+                </div>
+            </div>
+            {!isOneTime && (
+                <p className="text-xs text-gray-400 mt-3 leading-relaxed">
+                    You won't be charged until your address is reviewed and approved.
+                </p>
+            )}
+        </Card>
+    );
+};
+
+
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
-    const [step, setStep] = useState(1);
+    // Flow type: determined by prop or chosen by user in step 0
+    const [flowType, setFlowType] = useState<'recurring' | 'request' | null>(serviceFlowType || null);
+    const isOneTime = flowType === 'request';
+    const totalSteps = isOneTime ? 3 : 4;
+
+    // Step 0 = flow selector (only shown when serviceFlowType prop not provided)
+    // For one-time: steps 1=Address, 2=Services, 3=Payment
+    // For recurring: steps 1=Address, 2=Details, 3=Services, 4=Payment
+    const [step, setStep] = useState(serviceFlowType ? 1 : 0);
+
     const [formData, setFormData] = useState<NewPropertyInfo>(() => {
         const params = new URLSearchParams(window.location.search);
         const ref = params.get('ref');
@@ -112,22 +177,27 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     });
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // Step 3 state
+    // Service selection state
     const [availableServices, setAvailableServices] = useState<Service[]>([]);
     const [selectedServices, setSelectedServices] = useState<ServiceSelection[]>([]);
 
-    // Step 4 state
+    // Payment state
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loadingMethods, setLoadingMethods] = useState(false);
     const [billingChoice, setBillingChoice] = useState<'existing' | 'new'>('existing');
     const [selectedMethodId, setSelectedMethodId] = useState('');
     const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [setupError, setSetupError] = useState<string | null>(null);
 
-     useEffect(() => {
-        if (step === 3 && availableServices.length === 0) {
+    // Determine which logical step we're on
+    const servicesStep = isOneTime ? 2 : 3;
+    const paymentStep = isOneTime ? 3 : 4;
+
+    useEffect(() => {
+        if (step === servicesStep && availableServices.length === 0) {
             getServices().then(setAvailableServices);
         }
-        if (step === 4) {
+        if (step === paymentStep) {
             setLoadingMethods(true);
             getPaymentMethods().then(methods => {
                 setPaymentMethods(methods);
@@ -141,7 +211,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 setLoadingMethods(false);
             }).catch(() => setLoadingMethods(false));
         }
-    }, [step, availableServices.length]);
+    }, [step, availableServices.length, servicesStep, paymentStep]);
 
     useEffect(() => {
         if (billingChoice === 'new' && !clientSecret) {
@@ -185,9 +255,15 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     }, []);
 
     const handleNext = () => setStep(s => s + 1);
-    const handleBack = () => setStep(s => s - 1);
+    const handleBack = () => {
+        if (step === 1 && !serviceFlowType) {
+            setStep(0); // Go back to flow selector
+        } else {
+            setStep(s => s - 1);
+        }
+    };
 
-    const [setupError, setSetupError] = useState<string | null>(null);
+    const submitLabel = isOneTime ? 'Submit Request' : 'Complete Setup';
 
     const handleNewPaymentConfirmed = async (paymentMethodId: string) => {
         try {
@@ -203,7 +279,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (step !== 4) return;
+        if (step !== paymentStep) return;
         if (billingChoice === 'new') return; // handled by NewPaymentForm
 
         setIsProcessing(true);
@@ -220,7 +296,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         }
     };
 
-    // --- Step 3 Service Selection Logic ---
+    // --- Service Selection Logic ---
 
     const baseFeeService = useMemo(() => availableServices.find(s => s.category === 'base_fee'), [availableServices]);
     const atHouseService = useMemo(() => availableServices.find(s => s.name.toLowerCase().includes('at house')), [availableServices]);
@@ -258,7 +334,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     }, [selectedServices, availableServices]);
 
     useEffect(() => {
-        if (!baseFeeService || !linerService || serviceFlowType === 'request') return;
+        if (!baseFeeService || !linerService || isOneTime) return;
 
         setSelectedServices(prev => {
             const hasBaseFee = prev.some(s => s.serviceId === baseFeeService.id);
@@ -267,7 +343,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             let nextState = [...prev];
             let hasChanged = false;
 
-            // Manage base fee
             if (totalBaseServiceCans > 0 && !hasBaseFee) {
                 nextState.push({ serviceId: baseFeeService.id, quantity: 1, useSticker: false });
                 hasChanged = true;
@@ -281,7 +356,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 if (nextState.length !== initialLength) hasChanged = true;
             }
 
-            // Sync or remove liner service
             if (linerSub) {
                 if (totalBaseServiceCans > 0 && linerSub.quantity !== totalBaseServiceCans) {
                     nextState = nextState.map(s => s.serviceId === linerService.id ? { ...s, quantity: totalBaseServiceCans } : s);
@@ -294,7 +368,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
             return hasChanged ? nextState : prev;
         });
-    }, [totalBaseServiceCans, baseFeeService, atHouseService, linerService]);
+    }, [totalBaseServiceCans, baseFeeService, atHouseService, linerService, isOneTime]);
 
     const handleCollectionMethodToggle = () => {
         if (!atHouseService) return;
@@ -328,10 +402,45 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         }
     };
 
+    // ── Step 0: Flow Type Selector ───────────────────────────────────
+    const renderFlowSelector = () => (
+        <div className="space-y-6 animate-in fade-in duration-300">
+            <h2 className="text-lg font-bold text-gray-700 text-center mb-2">What do you need?</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                    type="button"
+                    onClick={() => { setFlowType('recurring'); setStep(1); }}
+                    className="p-6 border-2 border-gray-200 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all text-left group"
+                >
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
+                        <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" /></svg>
+                    </div>
+                    <h3 className="text-xl font-black text-gray-900 mb-1">Recurring Service</h3>
+                    <p className="text-sm text-gray-500">Weekly or bi-weekly trash and recycling pickup at your address.</p>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => { setFlowType('request'); setStep(1); }}
+                    className="p-6 border-2 border-gray-200 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all text-left group"
+                >
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
+                        <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25m-2.25 0h-2.25m0 0V3.375c0-.621-.504-1.125-1.125-1.125H6.375c-.621 0-1.125.504-1.125 1.125v3.659M9.75 7.034V3.375" /></svg>
+                    </div>
+                    <h3 className="text-xl font-black text-gray-900 mb-1">One-Time Pickup</h3>
+                    <p className="text-sm text-gray-500">Bulk items, yard waste, or special pickup — no recurring commitment.</p>
+                </button>
+            </div>
+            <div className="pt-4 flex justify-center">
+                <Button type="button" variant="secondary" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px]" onClick={onCancel}>Cancel</Button>
+            </div>
+        </div>
+    );
 
-    const renderStep1 = () => {
+    // ── Step 1: Address ──────────────────────────────────────────────
+    const renderAddressStep = () => {
         const canProceed = !!(formData.street && formData.city && formData.state && formData.zip);
         const inputClass = "w-full bg-gray-100 border border-gray-200 shadow-inner rounded-lg px-4 py-3 font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
+        const nextLabel = isOneTime ? 'Choose Services' : 'Property Details';
 
         return (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -373,8 +482,8 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         type="button"
                         variant="secondary"
                         className="rounded-lg px-8 font-bold uppercase"
-                        onClick={onCancel}>
-                        Cancel
+                        onClick={serviceFlowType ? onCancel : handleBack}>
+                        {serviceFlowType ? 'Cancel' : 'Back'}
                     </Button>
                     <Button
                         type="button"
@@ -383,15 +492,16 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         disabled={!canProceed}>
                         <div className="leading-tight">
                             <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
-                            <span className="font-bold text-sm tracking-wider block uppercase">Property Details</span>
+                            <span className="font-bold text-sm tracking-wider block uppercase">{nextLabel}</span>
                         </div>
                     </Button>
                 </div>
             </div>
         );
-    }
+    };
 
-    const renderStep2 = () => (
+    // ── Step 2 (recurring only): Property Details ────────────────────
+    const renderDetailsStep = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
             <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Service Type</label>
@@ -477,8 +587,9 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         </div>
     );
 
-    const renderStep3 = () => {
-        if (serviceFlowType === 'request') {
+    // ── Services Step ────────────────────────────────────────────────
+    const renderServicesStep = () => {
+        if (isOneTime) {
             const standaloneServices = availableServices.filter(s => s.category === 'standalone');
             return (
                 <div className="space-y-8 animate-in fade-in duration-300">
@@ -510,10 +621,17 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                 );
                             })}
                         </div>
+                        {/* One-time total footer */}
+                        <div className="p-6 border-t border-base-200 bg-gray-50/50">
+                            <div className="flex justify-between items-baseline">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total</h3>
+                                <p className="text-4xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
+                            </div>
+                        </div>
                     </Card>
-                    <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
+                    <div className="flex justify-between gap-3">
                         <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                        <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0}>Next: Billing</Button>
+                        <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0}>Next: Payment</Button>
                     </div>
                 </div>
             );
@@ -537,7 +655,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     footerAction={
                         <div className="flex justify-between gap-3">
                             <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
-                            <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Billing</Button>
+                            <Button type="button" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" onClick={handleNext} disabled={selectedServices.length === 0 || totalBaseServiceCans === 0}>Next: Payment</Button>
                         </div>
                     }
                 />
@@ -545,8 +663,15 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         );
     };
 
-    const renderStep4 = () => (
+    // ── Payment Step ─────────────────────────────────────────────────
+    const renderPaymentStep = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
+             {/* ACH savings nudge */}
+             <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                 <p className="text-sm font-bold text-green-800">Save on processing fees</p>
+                 <p className="text-xs text-green-600 mt-1">Pay by bank transfer (ACH) for lower transaction costs. Card payments are also accepted.</p>
+             </div>
+
              {loadingMethods ? <p>Loading payment methods...</p> : (
                  <>
                      {paymentMethods.length > 0 && (
@@ -576,6 +701,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                                             isProcessing={isProcessing}
                                             setIsProcessing={setIsProcessing}
                                             setSetupError={setSetupError}
+                                            submitLabel={submitLabel}
                                         />
                                     </Elements>
                                 </div>
@@ -600,49 +726,83 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 <div className="mt-8 pt-6 border-t border-base-200 flex justify-between gap-3">
                     <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
                     <Button type="submit" className="rounded-xl px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20" disabled={isProcessing}>
-                        {isProcessing ? 'Processing...' : 'Complete Setup'}
+                        {isProcessing ? 'Processing...' : submitLabel}
                     </Button>
                 </div>
             )}
         </div>
     );
 
+    // ── Route steps to render functions ──────────────────────────────
     const renderContent = () => {
-        switch (step) {
-            case 1: return renderStep1();
-            case 2: return renderStep2();
-            case 3: return renderStep3();
-            case 4: return renderStep4();
-            default: return renderStep1();
+        if (step === 0) return renderFlowSelector();
+        if (step === 1) return renderAddressStep();
+        if (isOneTime) {
+            // One-time: 1=Address, 2=Services, 3=Payment
+            if (step === 2) return renderServicesStep();
+            if (step === 3) return renderPaymentStep();
+        } else {
+            // Recurring: 1=Address, 2=Details, 3=Services, 4=Payment
+            if (step === 2) return renderDetailsStep();
+            if (step === 3) return renderServicesStep();
+            if (step === 4) return renderPaymentStep();
         }
+        return renderAddressStep();
+    };
+
+    // Show order summary sidebar on services and payment steps
+    const showSummary = step >= servicesStep && selectedServices.length > 0;
+
+    // ── Titles ───────────────────────────────────────────────────────
+    const getTitle = () => {
+        if (step === 0) return isOnboarding ? "Welcome! Let's Get Started" : 'Start a Service';
+        if (isOnboarding) {
+            return isOneTime ? 'Request a One-Time Pickup' : "Let's Get You Set Up";
+        }
+        return isOneTime ? 'Request a Pickup' : 'Add Service Address';
+    };
+
+    const getSubtitle = () => {
+        if (step === 0) return 'Choose the type of service you need.';
+        if (isOneTime) return 'Tell us your address and select your pickup services.';
+        return 'Follow these steps to add your address and choose your services.';
     };
 
     return (
-        <div className="max-w-3xl mx-auto space-y-8 p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500">
+        <div className={`mx-auto space-y-8 p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500 ${showSummary ? 'max-w-5xl' : 'max-w-3xl'}`}>
             <div className="text-center">
-                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">
-                    {isOnboarding
-                        ? serviceFlowType === 'request'
-                            ? 'Welcome! Request a Service'
-                            : 'Welcome! Let\'s Get You Set Up'
-                        : 'Add Service Address'}
-                </h1>
-                <p className="text-gray-500 font-medium mt-2">
-                    {isOnboarding
-                        ? serviceFlowType === 'request'
-                            ? 'Add your address to request a one-time or special service.'
-                            : 'Follow these steps to add your address and choose your services.'
-                        : 'Add a new property and select your services.'}
-                </p>
+                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">{getTitle()}</h1>
+                <p className="text-gray-500 font-medium mt-2">{getSubtitle()}</p>
             </div>
 
-            <StepIndicator currentStep={step} />
+            {step > 0 && <StepIndicator currentStep={step} totalSteps={totalSteps} />}
 
-            <Card className="shadow-lg border-none">
-                <form onSubmit={handleSubmit} noValidate>
-                    {renderContent()}
-                </form>
-            </Card>
+            {showSummary ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                        <Card className="shadow-lg border-none">
+                            <form onSubmit={handleSubmit} noValidate>
+                                {renderContent()}
+                            </form>
+                        </Card>
+                    </div>
+                    <div className="lg:col-span-1">
+                        <OrderSummary
+                            selectedServices={selectedServices}
+                            availableServices={availableServices}
+                            monthlyTotal={monthlyTotal}
+                            setupTotal={setupTotal}
+                            isOneTime={isOneTime}
+                        />
+                    </div>
+                </div>
+            ) : (
+                <Card className="shadow-lg border-none">
+                    <form onSubmit={handleSubmit} noValidate>
+                        {renderContent()}
+                    </form>
+                </Card>
+            )}
         </div>
     );
 };

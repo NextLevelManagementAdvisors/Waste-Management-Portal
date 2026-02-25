@@ -279,6 +279,26 @@ export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
     if (cachedUser) cachedUser.properties.push(newP);
     return newP;
 };
+export const savePendingSelections = async (propertyId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> => {
+    const res = await fetch(`/api/properties/${propertyId}/pending-selections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ selections }),
+    });
+    const json = await safeJson(res, 'Failed to save service selections');
+    if (!res.ok) throw new Error(json.error || 'Failed to save service selections');
+};
+
+export const getPendingSelections = async (propertyId: string): Promise<{ serviceId: string; quantity: number; useSticker: boolean }[]> => {
+    const res = await fetch(`/api/properties/${propertyId}/pending-selections`, {
+        credentials: 'include',
+    });
+    const json = await safeJson(res, 'Failed to get pending selections');
+    if (!res.ok) throw new Error(json.error || 'Failed to get pending selections');
+    return json.data;
+};
+
 export const updatePropertyDetails = async (id: string, details: UpdatePropertyInfo): Promise<Property> => {
     const res = await fetch(`/api/properties/${id}`, {
         method: 'PUT',

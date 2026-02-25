@@ -41,7 +41,7 @@ interface PropertyManagementProps {
 }
 
 const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }) => {
-    const { properties, startNewServiceFlow } = useProperty();
+    const { properties, startNewServiceFlow, setSelectedPropertyId } = useProperty();
     const handleAddProperty = onAddProperty || startNewServiceFlow;
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
@@ -53,6 +53,17 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }
             setLoading(false);
         });
     }, []);
+
+    // Auto-select the only property for single-address customers
+    useEffect(() => {
+        if (!loading && properties.length === 1) {
+            const prop = properties[0];
+            const isApproved = !prop.serviceStatus || prop.serviceStatus === 'approved';
+            if (isApproved) {
+                setSelectedPropertyId(prop.id);
+            }
+        }
+    }, [loading, properties, setSelectedPropertyId]);
 
     const propertiesWithStatus = useMemo((): PropertyWithStatus[] => {
         return properties.map(prop => {
@@ -90,16 +101,36 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
+    // Simplified welcome for zero properties
+    if (properties.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center text-center py-20 space-y-6">
+                <PlusCircleIcon className="w-16 h-16 text-gray-300" />
+                <div>
+                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">Welcome to Your Service Hub</h1>
+                    <p className="text-gray-500 font-medium mt-2 text-lg">Get started by adding your address.</p>
+                </div>
+                <button
+                    onClick={handleAddProperty}
+                    className="px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all"
+                >
+                    Add Your Address
+                </button>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-8">
             <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-base-200 pb-8">
                 <div>
                     <h1 className="text-4xl font-black text-gray-900 tracking-tight">Service Hub</h1>
-                    <p className="text-gray-500 font-medium mt-1 text-lg">Manage collection plans for all your registered addresses.</p>
+                    <p className="text-gray-500 font-medium mt-1 text-lg">Manage collection plans for your addresses.</p>
                 </div>
             </div>
 
-            {properties.length > 0 && (
+            {/* Only show filter bar for multi-property users */}
+            {properties.length > 1 && (
                  <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-100 rounded-2xl">
                     <FilterButton label="All" count={filterCounts.all} icon={<ListBulletIcon className="w-5 h-5" />} isActive={activeFilter === 'all'} onClick={() => setActiveFilter('all')} />
                     <FilterButton label="Active" count={filterCounts.active} icon={<CheckCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'active'} onClick={() => setActiveFilter('active')} />
@@ -107,24 +138,23 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }
                     <FilterButton label="Canceled" count={filterCounts.canceled} icon={<XCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'canceled'} onClick={() => setActiveFilter('canceled')} />
                 </div>
             )}
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-in fade-in duration-500">
                 {filteredProperties.map(prop => (
                     <PropertyCard key={prop.id} property={prop} />
                 ))}
 
-                {/* Always show this card in portfolio view, adapting text if it's the first one */}
-                {(activeFilter === 'all' || properties.length === 0) && (
-                    <Card 
+                {(activeFilter === 'all') && (
+                    <Card
                         onClick={handleAddProperty}
                         className="bg-gray-50 border-2 border-dashed border-gray-300 hover:border-primary hover:bg-primary/5 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center text-center p-8 group min-h-[300px] sm:min-h-[370px]"
                     >
                         <PlusCircleIcon className="w-12 h-12 text-gray-400 group-hover:text-primary transition-colors mb-4" />
                         <h3 className="text-xl font-black text-gray-700 group-hover:text-primary transition-colors">
-                             {properties.length > 0 ? 'Add New Service Address' : 'Add Your First Service Address'}
+                            Add New Service Address
                         </h3>
                         <p className="text-sm text-gray-500 mt-2">
-                            {properties.length > 0 ? 'Register a new property to manage its waste services.' : 'Get started by registering a property to manage its services.'}
+                            Register a new property to manage its waste services.
                         </p>
                     </Card>
                 )}
