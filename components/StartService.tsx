@@ -245,7 +245,6 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const handleAddressSelect = useCallback((components: { street: string; city: string; state: string; zip: string }) => {
         setFormData(prev => ({
             ...prev,
-            street: components.street,
             city: components.city,
             state: components.state,
             zip: components.zip,

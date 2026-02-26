@@ -182,9 +182,14 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       await place.fetchFields({ fields: ['addressComponents'] });
 
       const components = parseAddressComponents(place);
+      const displayValue = [
+        components.street,
+        components.city,
+        [components.state, components.zip].filter(Boolean).join(' '),
+      ].filter(Boolean).join(', ');
       suppressSyncRef.current = true;
-      el.value = components.street;
-      onChangeRef.current(components.street);
+      el.value = displayValue;
+      onChangeRef.current(displayValue);
       onAddressSelectRef.current(components);
     };
     // New API docs use gmp-select; keep gmp-placeselect for backward compatibility.

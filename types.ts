@@ -154,7 +154,6 @@ export interface NewPropertyInfo {
   hasGateCode: 'yes' | 'no';
   gateCode?: string;
   notes?: string;
-  referralCode?: string;
 }
 
 export interface UpdatePropertyInfo {

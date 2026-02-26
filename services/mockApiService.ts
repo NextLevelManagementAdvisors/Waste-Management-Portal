@@ -255,16 +255,12 @@ export const register = async (info: RegistrationInfo): Promise<User> => {
     return json.data;
 };
 export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
-    if (info.referralCode) {
-        console.log(`Referral code '${info.referralCode}' applied successfully!`);
-    }
-
     const res = await fetch('/api/properties', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-            address: `${info.street}, ${info.city}, ${info.state} ${info.zip}`,
+            address: info.street,
             serviceType: info.serviceType,
             inHOA: info.inHOA === 'yes',
             communityName: info.communityName,
