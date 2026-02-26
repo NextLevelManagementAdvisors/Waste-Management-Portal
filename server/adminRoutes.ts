@@ -1,6 +1,6 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
-import { google } from 'googleapis';
+import { auth } from '@googleapis/gmail';
 import { storage } from './storage';
 import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
@@ -1702,7 +1702,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const redirectUri = getGmailRedirectUri(req);
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+      const oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUri);
 
       const state = crypto.randomBytes(32).toString('hex');
       req.session.gmailOAuthState = state;
@@ -1752,7 +1752,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const redirectUri = getGmailRedirectUri(req);
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+      const oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUri);
 
       const { tokens } = await oauth2Client.getToken(code);
       if (!tokens.refresh_token) {

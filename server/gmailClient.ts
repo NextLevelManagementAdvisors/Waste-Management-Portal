@@ -1,4 +1,4 @@
-import { google } from 'googleapis';
+import { auth as googleAuth, gmail as createGmail } from '@googleapis/gmail';
 
 // Auth mode is controlled by GMAIL_AUTH_MODE setting (persisted in DB).
 // When set to 'oauth' or 'service_account', only that path is used.
@@ -24,7 +24,7 @@ function getServiceAccountAuth() {
 async function buildServiceAccountClient() {
   const sa = getServiceAccountAuth();
   if (!sa) throw new Error('Service Account credentials not configured (GMAIL_SERVICE_ACCOUNT_JSON + GMAIL_SENDER_EMAIL)');
-  const auth = new google.auth.GoogleAuth({
+  const auth = new googleAuth.GoogleAuth({
     credentials: sa.credentials,
     scopes: ['https://www.googleapis.com/auth/gmail.send'],
   });
@@ -40,7 +40,7 @@ function buildOAuthClient() {
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error('OAuth credentials not configured (GOOGLE_OAUTH_CLIENT_ID + SECRET + GMAIL_REFRESH_TOKEN)');
   }
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
+  const oauth2Client = new googleAuth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
   oauth2Client.setCredentials({ refresh_token: refreshToken });
   return oauth2Client;
 }
@@ -55,7 +55,7 @@ async function getGmailAuth() {
   // Legacy: no mode set — try Service Account first, then OAuth
   const sa = getServiceAccountAuth();
   if (sa) {
-    const auth = new google.auth.GoogleAuth({
+    const auth = new googleAuth.GoogleAuth({
       credentials: sa.credentials,
       scopes: ['https://www.googleapis.com/auth/gmail.send'],
     });
@@ -68,7 +68,7 @@ async function getGmailAuth() {
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
   if (clientId && clientSecret && refreshToken) {
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
+    const oauth2Client = new googleAuth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     return oauth2Client;
   }
@@ -95,14 +95,14 @@ async function getGmailAuth() {
     throw new Error('Gmail not connected');
   }
 
-  const oauth2Client = new google.auth.OAuth2();
+  const oauth2Client = new googleAuth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
   return oauth2Client;
 }
 
 export async function getUncachableGmailClient() {
   const auth = await getGmailAuth();
-  return google.gmail({ version: 'v1', auth });
+  return createGmail({ version: 'v1', auth });
 }
 
 export async function sendEmail(to: string, subject: string, htmlBody: string) {

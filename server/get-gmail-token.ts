@@ -5,7 +5,7 @@
  * If no code provided, prints the authorization URL.
  */
 import 'dotenv/config';
-import { google } from 'googleapis';
+import { auth } from '@googleapis/gmail';
 
 const CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -15,7 +15,7 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
   process.exit(1);
 }
 
-const oauth2Client = new google.auth.OAuth2(
+const oauth2Client = new auth.OAuth2(
   CLIENT_ID,
   CLIENT_SECRET,
   'urn:ietf:wg:oauth:2.0:oob'

@@ -1,5 +1,5 @@
 import twilio from 'twilio';
-import { google } from 'googleapis';
+import { auth } from '@googleapis/gmail';
 import { getUncachableStripeClient } from './stripeClient';
 import { getTwilioCredentials } from './twilioClient';
 import * as optimo from './optimoRouteClient';
@@ -95,7 +95,7 @@ async function testGmail(modeOverride?: string): Promise<IntegrationTestResult> 
     if (!hasOAuth) {
       return { status: 'error', message: 'Mode set to OAuth but credentials are missing' };
     }
-    const oauth2 = new google.auth.OAuth2(
+    const oauth2 = new auth.OAuth2(
       process.env.GOOGLE_OAUTH_CLIENT_ID,
       process.env.GOOGLE_OAUTH_CLIENT_SECRET,
     );
