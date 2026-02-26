@@ -361,6 +361,16 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Address is required' });
       }
 
+      // Prevent duplicate properties at the same address
+      const existingProperties = await storage.getPropertiesForUser(userId);
+      const normalizedAddress = address.trim().toLowerCase();
+      const duplicate = existingProperties.find(
+        (p: any) => p.address.trim().toLowerCase() === normalizedAddress
+      );
+      if (duplicate) {
+        return res.status(200).json({ data: formatPropertyForClient(duplicate) });
+      }
+
       const property = await storage.createProperty({
         userId,
         address,

@@ -9,6 +9,7 @@ import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
 import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
+import { useProperty } from '../PropertyContext.tsx';
 
 interface ServiceSelection {
     serviceId: string;
@@ -160,6 +161,8 @@ const OrderSummary: React.FC<{
 
 
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
+    const { properties, setCurrentView } = useProperty();
+
     // Flow type: determined by prop or chosen by user in step 0
     const [flowType, setFlowType] = useState<'recurring' | 'request' | null>(serviceFlowType || null);
     const isOneTime = flowType === 'request';
@@ -420,7 +423,14 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 </button>
                 <button
                     type="button"
-                    onClick={() => { setFlowType('request'); setStep(1); }}
+                    onClick={() => {
+                        if (properties.length > 0) {
+                            setCurrentView('requests');
+                        } else {
+                            setFlowType('request');
+                            setStep(1);
+                        }
+                    }}
                     className="p-6 border-2 border-gray-200 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all text-left group"
                 >
                     <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
