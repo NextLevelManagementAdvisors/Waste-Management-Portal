@@ -18,6 +18,12 @@
 gmp-place-autocomplete {
   display: block;
   width: 100%;
+  --gmp-color-surface: rgb(243 244 246);
+  --gmp-color-on-surface: rgb(31 41 55);
+  --gmp-color-on-surface-variant: rgb(107 114 128);
+  --gmp-color-outline: rgb(229 231 235);
+  --gmp-color-primary: var(--color-primary);
+  border-radius: 0.5rem;
 }
 
 gmp-place-autocomplete::part(input) {
