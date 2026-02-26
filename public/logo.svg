@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 48" fill="none">
+  <!-- Icon -->
+  <rect x="0" y="4" width="40" height="40" rx="10" fill="#5EAAA8"/>
+  <path d="M20 10c-5.5 0-8 4.5-8 8 0 4 3 7 8 12 5-5 8-8 8-12 0-3.5-2.5-8-8-8z" fill="#fff" opacity="0.9"/>
+  <path d="M20 14c-1 2-2 4-2 6 0 1.5.8 3 2 4.5 1.2-1.5 2-3 2-4.5 0-2-1-4-2-6z" fill="#5EAAA8"/>
+  <path d="M17 18.5c1-.3 2-.5 3-.5s2 .2 3 .5" stroke="#5EAAA8" stroke-width="1" stroke-linecap="round" fill="none"/>
+  <!-- Text -->
+  <text x="50" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="900" fill="#1a1a2e" letter-spacing="-0.5">Rural Waste</text>
+  <text x="50" y="40" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="800" fill="#5EAAA8" letter-spacing="3">MANAGEMENT</text>
+</svg>

@@ -18,11 +18,17 @@
 gmp-place-autocomplete {
   display: block;
   width: 100%;
+  color-scheme: light;
   --gmp-color-surface: rgb(243 244 246);
   --gmp-color-on-surface: rgb(31 41 55);
   --gmp-color-on-surface-variant: rgb(107 114 128);
   --gmp-color-outline: rgb(229 231 235);
   --gmp-color-primary: var(--color-primary);
+  --gmpx-color-surface: rgb(243 244 246);
+  --gmpx-color-on-surface: rgb(31 41 55);
+  --gmpx-color-on-surface-variant: rgb(107 114 128);
+  --gmpx-color-outline: rgb(229 231 235);
+  --gmpx-color-primary: var(--color-primary);
   border-radius: 0.5rem;
 }
 
@@ -40,6 +46,10 @@ gmp-place-autocomplete::part(prediction-list) {
 }
 
 /* Variant: default (AddPropertyModal) */
+.autocomplete-default gmp-place-autocomplete {
+  background-color: rgb(249 250 251);
+  border-radius: 0.75rem;
+}
 .autocomplete-default gmp-place-autocomplete::part(input) {
   background-color: rgb(249 250 251);
   border: 2px solid var(--color-base-200);
@@ -55,6 +65,11 @@ gmp-place-autocomplete::part(prediction-list) {
 }
 
 /* Variant: start-service (StartService) */
+.autocomplete-start-service gmp-place-autocomplete {
+  background-color: rgb(243 244 246);
+  box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+  border-radius: 0.5rem;
+}
 .autocomplete-start-service gmp-place-autocomplete::part(input) {
   background-color: rgb(243 244 246);
   border: 1px solid rgb(229 231 235);
@@ -72,6 +87,9 @@ gmp-place-autocomplete::part(prediction-list) {
 }
 
 /* Variant: admin (CreateJobModal, EditJobModal) */
+.autocomplete-admin gmp-place-autocomplete {
+  border-radius: 0.5rem;
+}
 .autocomplete-admin gmp-place-autocomplete::part(input) {
   padding: 0.5rem 0.75rem;
   border: 1px solid rgb(229 231 235);

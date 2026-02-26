@@ -446,3 +446,110 @@ export async function executeDriverSync(
   }
   return { linked };
 }
+
+// ── Per-Job Route Optimization ──
+
+export interface OptimizeJobResult {
+  planningId: string;
+  ordersCreated: number;
+}
+
+/**
+ * Create OptimoRoute orders for a job's pickups and trigger route optimization.
+ * Returns the planningId for status polling.
+ */
+export async function optimizeJobRoute(jobId: string): Promise<OptimizeJobResult> {
+  // 1. Load job and validate
+  const job = await storage.getJobById(jobId);
+  if (!job) throw new Error('Job not found');
+  if (!job.assigned_driver_id) throw new Error('Job has no assigned driver');
+
+  // 2. Get driver's OptimoRoute serial
+  const driver = await storage.getDriverById(job.assigned_driver_id);
+  if (!driver) throw new Error('Assigned driver not found');
+  if (!driver.optimoroute_driver_id) throw new Error('Driver has no OptimoRoute ID — sync the driver first');
+
+  // 3. Load pickups
+  const pickups = await storage.getJobPickups(jobId);
+  if (pickups.length === 0) throw new Error('Job has no pickups');
+
+  // 4. Create OptimoRoute orders for each pickup
+  const orderNos: string[] = [];
+  const jobPrefix = jobId.substring(0, 8);
+
+  for (let i = 0; i < pickups.length; i++) {
+    const pickup = pickups[i];
+    const orderNo = `JOB-${jobPrefix}-${String(i + 1).padStart(3, '0')}`;
+
+    try {
+      await optimo.createOrder({
+        orderNo,
+        date: job.scheduled_date,
+        type: 'P',
+        address: pickup.address || '',
+        duration: 15,
+      });
+
+      await storage.updateJobPickup(pickup.id, { optimo_order_no: orderNo, status: 'optimized' });
+      orderNos.push(orderNo);
+    } catch (err) {
+      console.error(`Failed to create OptimoRoute order for pickup ${pickup.id}:`, err);
+    }
+  }
+
+  if (orderNos.length === 0) throw new Error('No OptimoRoute orders could be created');
+
+  // 5. Start route planning scoped to this job's orders and driver
+  const planning = await optimo.startPlanning({
+    date: job.scheduled_date,
+    balancing: 'OFF',
+    balanceBy: 'WT',
+    useOrders: orderNos,
+    useDrivers: [{ driverSerial: driver.optimoroute_driver_id }],
+  });
+
+  // 6. Store planning ID on the job
+  const planId = planning.planningId != null ? String(planning.planningId) : undefined;
+  await storage.updateJob(jobId, { optimo_planning_id: planId });
+
+  return {
+    planningId: planId,
+    ordersCreated: orderNos.length,
+  };
+}
+
+/**
+ * Check the optimization status for a job and update stop sequence when done.
+ */
+export async function checkJobOptimizationStatus(jobId: string): Promise<{ status: string; progress?: number }> {
+  const job = await storage.getJobById(jobId);
+  if (!job?.optimo_planning_id) throw new Error('No active optimization for this job');
+
+  const result = await optimo.getPlanningStatus(Number(job.optimo_planning_id));
+
+  // If finished, update pickup sequence numbers from the optimized route
+  if (result.status === 'F') {
+    try {
+      const routeData = await optimo.getRoutes(job.scheduled_date);
+      const pickups = await storage.getJobPickups(jobId);
+      const pickupsByOrder = new Map(pickups.map(p => [p.optimo_order_no, p]));
+
+      for (const route of routeData.routes) {
+        if (!route.stops) continue;
+        for (const stop of route.stops) {
+          const pickup = pickupsByOrder.get(stop.orderNo);
+          if (pickup) {
+            await storage.updateJobPickup(pickup.id, { sequence_number: stop.stopNumber });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update stop sequences after optimization:', err);
+    }
+  }
+
+  return {
+    status: result.status,
+    progress: result.percentageComplete,
+  };
+}

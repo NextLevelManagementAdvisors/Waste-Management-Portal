@@ -2676,10 +2676,10 @@ const TeamApp: React.FC = () => {
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${impersonating ? 'lg:top-[40px]' : ''}`}>
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
-            <BriefcaseIcon className="w-8 h-8 text-teal-400" />
+            <img src="/favicon.svg" alt="" className="w-8 h-8" />
             <div>
               <h1 className="text-lg font-black tracking-tight">Team Portal</h1>
-              <p className="text-xs text-gray-400">Waste Management</p>
+              <p className="text-xs text-gray-400">Rural Waste Management</p>
             </div>
           </div>
         </div>

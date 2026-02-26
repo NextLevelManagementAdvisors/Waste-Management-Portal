@@ -32,7 +32,6 @@ const initialFormState: NewPropertyInfo = {
     hasGateCode: 'no',
     gateCode: '',
     notes: '',
-    referralCode: ''
 };
 
 const StepIndicator: React.FC<{ currentStep: number; totalSteps: number }> = ({ currentStep, totalSteps }) => (
@@ -173,11 +172,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     // For recurring: steps 1=Address, 2=Details, 3=Services, 4=Payment
     const [step, setStep] = useState(serviceFlowType ? 1 : 0);
 
-    const [formData, setFormData] = useState<NewPropertyInfo>(() => {
-        const params = new URLSearchParams(window.location.search);
-        const ref = params.get('ref');
-        return ref ? { ...initialFormState, referralCode: ref } : initialFormState;
-    });
+    const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Service selection state
@@ -448,14 +443,14 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     // ── Step 1: Address ──────────────────────────────────────────────
     const renderAddressStep = () => {
-        const canProceed = !!(formData.street && formData.city && formData.state && formData.zip);
+        const canProceed = !!(formData.city && formData.state && formData.zip);
         const inputClass = "w-full bg-gray-100 border border-gray-200 shadow-inner rounded-lg px-4 py-3 font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
         const nextLabel = isOneTime ? 'Choose Services' : 'Property Details';
 
         return (
             <div className="space-y-6 animate-in fade-in duration-300">
                 <div>
-                    <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Street Address</label>
+                    <label htmlFor="street" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Address</label>
                     <AddressAutocomplete
                         id="street"
                         name="street"
@@ -463,29 +458,9 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         onChange={(val) => setFormData(prev => ({ ...prev, street: val }))}
                         onAddressSelect={handleAddressSelect}
                         className={inputClass}
+                        placeholder="Start typing your address..."
                         required
                     />
-                </div>
-
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <label htmlFor="city" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">City</label>
-                        <input type="text" name="city" id="city" value={formData.city} onChange={handleChange} className={inputClass} required />
-                    </div>
-                    <div className="w-24 sm:w-28">
-                         <label htmlFor="state" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">State</label>
-                        <input type="text" name="state" id="state" value={formData.state} onChange={handleChange} maxLength={2} placeholder="CA" className={`${inputClass} uppercase`} required />
-                    </div>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-1">
-                        <label htmlFor="zip" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Zip Code</label>
-                        <input type="text" name="zip" id="zip" value={formData.zip} onChange={handleChange} className={inputClass} required />
-                    </div>
-                    <div className="flex-1">
-                        <label htmlFor="referralCode" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referral Code (Optional)</label>
-                        <input type="text" name="referralCode" id="referralCode" value={formData.referralCode} onChange={handleChange} placeholder="JANE-D-8432" className={inputClass} />
-                    </div>
                 </div>
                 <div className="mt-8 pt-6 border-t border-base-200 flex justify-between items-stretch gap-3">
                     <Button

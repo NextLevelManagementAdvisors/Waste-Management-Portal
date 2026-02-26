@@ -153,7 +153,9 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       onChangeRef.current(components.street);
       onAddressSelectRef.current(components);
     };
-    el.addEventListener('gmp-placeselect', handleSelect);
+    // New API docs use gmp-select; keep gmp-placeselect for backward compatibility.
+    el.addEventListener('gmp-select', handleSelect as EventListener);
+    el.addEventListener('gmp-placeselect', handleSelect as EventListener);
 
     // Handle user typing freely (before selecting a suggestion)
     const handleInput = () => {
@@ -166,7 +168,8 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     elementRef.current = el;
 
     return () => {
-      el.removeEventListener('gmp-placeselect', handleSelect);
+      el.removeEventListener('gmp-select', handleSelect as EventListener);
+      el.removeEventListener('gmp-placeselect', handleSelect as EventListener);
       el.removeEventListener('input', handleInput);
       el.remove();
       elementRef.current = null;

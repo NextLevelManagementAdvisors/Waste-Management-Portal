@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import type { NavFilter } from '../../../shared/types/index.ts';
 import MissedPickupsList from './MissedPickupsList.tsx';
-import PickupSchedule from './PickupSchedule.tsx';
 import RouteJobsList from './RouteJobsList.tsx';
 import RoutesView from './RoutesView.tsx';
-import OrdersView from './OrdersView.tsx';
 import AddressReviewPanel from './AddressReviewPanel.tsx';
-export type OpsTabType = 'routes' | 'orders' | 'route-jobs' | 'missed-pickups' | 'pickup-schedule' | 'address-review';
+import PlanningCalendar from './PlanningCalendar.tsx';
+
+export type OpsTabType = 'planning' | 'job-board' | 'live-ops' | 'issues' | 'address-review';
 
 interface OperationsViewProps {
   navFilter?: NavFilter | null;
@@ -16,7 +16,7 @@ interface OperationsViewProps {
 }
 
 const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterConsumed, activeTab: controlledTab, onTabChange }) => {
-  const [internalTab, setInternalTab] = useState<OpsTabType>('routes');
+  const [internalTab, setInternalTab] = useState<OpsTabType>('planning');
   const activeTab = controlledTab ?? internalTab;
 
   const setActiveTab = (tab: OpsTabType) => {
@@ -29,7 +29,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
 
   useEffect(() => {
     if (navFilter?.tab) {
-      const validTabs: OpsTabType[] = ['routes', 'orders', 'route-jobs', 'missed-pickups', 'pickup-schedule', 'address-review'];
+      const validTabs: OpsTabType[] = ['planning', 'job-board', 'live-ops', 'issues', 'address-review'];
       if (validTabs.includes(navFilter.tab as OpsTabType)) {
         setActiveTab(navFilter.tab as OpsTabType);
       }
@@ -38,11 +38,10 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
   }, [navFilter, onFilterConsumed]);
 
   const tabs: { key: OpsTabType; label: string }[] = [
-    { key: 'routes', label: 'Routes' },
-    { key: 'orders', label: 'Orders' },
-    { key: 'route-jobs', label: 'Route Jobs' },
-    { key: 'missed-pickups', label: 'Missed Pickups' },
-    { key: 'pickup-schedule', label: 'Special Pickups' },
+    { key: 'planning', label: 'Planning' },
+    { key: 'job-board', label: 'Job Board' },
+    { key: 'live-ops', label: 'Live Ops' },
+    { key: 'issues', label: 'Issues' },
     { key: 'address-review', label: 'Address Review' },
   ];
 
@@ -65,11 +64,10 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       </div>
 
       <div>
-        {activeTab === 'routes' && <RoutesView />}
-        {activeTab === 'orders' && <OrdersView />}
-        {activeTab === 'route-jobs' && <RouteJobsList />}
-        {activeTab === 'missed-pickups' && <MissedPickupsList />}
-        {activeTab === 'pickup-schedule' && <PickupSchedule />}
+        {activeTab === 'planning' && <PlanningCalendar />}
+        {activeTab === 'job-board' && <RouteJobsList />}
+        {activeTab === 'live-ops' && <RoutesView />}
+        {activeTab === 'issues' && <MissedPickupsList />}
         {activeTab === 'address-review' && <AddressReviewPanel />}
       </div>
     </div>

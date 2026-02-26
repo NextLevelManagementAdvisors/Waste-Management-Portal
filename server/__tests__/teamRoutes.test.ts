@@ -31,6 +31,7 @@ vi.mock('../storage', () => ({
     getDriverJobs: vi.fn(),
     getJobById: vi.fn(),
     getJobBids: vi.fn(),
+    getJobPickups: vi.fn(),
     getBidByJobAndDriver: vi.fn(),
     createBid: vi.fn(),
     updateJob: vi.fn(),
@@ -201,6 +202,7 @@ beforeEach(() => {
   vi.mocked(storage.getDriverJobs).mockResolvedValue([] as any);
   vi.mocked(storage.getJobById).mockResolvedValue({ ...mockJob } as any);
   vi.mocked(storage.getJobBids).mockResolvedValue([] as any);
+  vi.mocked(storage.getJobPickups).mockResolvedValue([] as any);
   vi.mocked(storage.getBidByJobAndDriver).mockResolvedValue(null as any);
   vi.mocked(storage.createBid).mockResolvedValue({ ...mockBid } as any);
   vi.mocked(storage.updateJob).mockResolvedValue(undefined as any);

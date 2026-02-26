@@ -481,3 +481,51 @@ CREATE TABLE IF NOT EXISTS optimo_sync_log (
   details JSONB DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_log_started ON optimo_sync_log(started_at DESC);
+
+-- Service zones for geographic grouping
+CREATE TABLE IF NOT EXISTS service_zones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL UNIQUE,
+  description TEXT,
+  center_lat NUMERIC(10,7),
+  center_lng NUMERIC(10,7),
+  radius_miles NUMERIC(6,2),
+  color VARCHAR(7) DEFAULT '#10B981',
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Job pickups junction table (links properties to jobs)
+CREATE TABLE IF NOT EXISTS job_pickups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID NOT NULL REFERENCES route_jobs(id) ON DELETE CASCADE,
+  property_id UUID NOT NULL REFERENCES properties(id),
+  pickup_type VARCHAR(30) DEFAULT 'recurring',
+  special_pickup_id UUID REFERENCES special_pickup_requests(id),
+  optimo_order_no VARCHAR(100),
+  sequence_number INTEGER,
+  status VARCHAR(30) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_job_pickups_job ON job_pickups(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_pickups_property ON job_pickups(property_id);
+
+-- Job-centric extensions to route_jobs
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS job_type VARCHAR(30) DEFAULT 'daily_route';
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual';
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS special_pickup_id UUID REFERENCES special_pickup_requests(id);
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS optimo_planning_id VARCHAR(100);
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS accepted_bid_id UUID REFERENCES job_bids(id);
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS actual_pay NUMERIC(10,2);
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'unpaid';
+ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_route_jobs_date_status ON route_jobs(scheduled_date, status);
+CREATE INDEX IF NOT EXISTS idx_route_jobs_zone ON route_jobs(zone_id);
+CREATE INDEX IF NOT EXISTS idx_route_jobs_type ON route_jobs(job_type);
+
+-- Zone and coordinate fields on properties
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7);
+CREATE INDEX IF NOT EXISTS idx_properties_zone ON properties(zone_id);

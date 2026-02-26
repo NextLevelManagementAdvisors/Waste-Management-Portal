@@ -22,6 +22,7 @@ vi.mock('../storage', () => ({
     getUserById: vi.fn(),
     getAdminStats: vi.fn(),
     query: vi.fn(),
+    createAuditLog: vi.fn(),
   },
   pool: {},
 }));

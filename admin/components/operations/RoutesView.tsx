@@ -344,12 +344,7 @@ const RoutesView: React.FC = () => {
         >
           Today
         </button>
-        <button
-          onClick={() => setShowOptimizer(true)}
-          className="px-4 py-2 text-sm font-bold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors"
-        >
-          Plan Routes
-        </button>
+        <span className="px-3 py-2 text-xs font-bold text-gray-400 uppercase tracking-widest">Live Tracking</span>
         <button
           onClick={fetchRoutes}
           className="px-3 py-2 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"

@@ -56,10 +56,8 @@ const LandingPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-b from-base-200 to-base-100 flex flex-col">
       {/* Header */}
       <div className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <h1 className="text-4xl font-black text-center text-gray-900 tracking-tight">
-            Rural Waste Management
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col items-center">
+          <img src="/logo.svg" alt="Rural Waste Management" className="h-12 mb-3" />
           <p className="text-center text-gray-500 font-medium mt-2">
             Choose your portal to continue
           </p>

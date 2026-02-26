@@ -1246,12 +1246,19 @@ export class Storage {
     base_pay?: number;
     notes?: string;
     assigned_driver_id?: string;
+    job_type?: string;
+    zone_id?: string;
+    source?: string;
+    special_pickup_id?: string;
+    status?: string;
   }) {
+    const status = data.status ?? (data.assigned_driver_id ? 'assigned' : 'open');
     const result = await this.query(
       `INSERT INTO route_jobs
          (title, description, area, scheduled_date, start_time, end_time,
-          estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status,
+          job_type, zone_id, source, special_pickup_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         data.title,
@@ -1265,20 +1272,38 @@ export class Storage {
         data.base_pay ?? null,
         data.notes ?? null,
         data.assigned_driver_id ?? null,
-        data.assigned_driver_id ? 'assigned' : 'open',
+        status,
+        data.job_type ?? 'daily_route',
+        data.zone_id ?? null,
+        data.source ?? 'manual',
+        data.special_pickup_id ?? null,
       ]
     );
     return result.rows[0];
   }
 
-  async getAllRouteJobs() {
+  async getAllRouteJobs(filters?: { job_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (filters?.job_type) { conditions.push(`rj.job_type = $${idx++}`); params.push(filters.job_type); }
+    if (filters?.zone_id) { conditions.push(`rj.zone_id = $${idx++}`); params.push(filters.zone_id); }
+    if (filters?.status) { conditions.push(`rj.status = $${idx++}`); params.push(filters.status); }
+    if (filters?.date_from) { conditions.push(`rj.scheduled_date >= $${idx++}`); params.push(filters.date_from); }
+    if (filters?.date_to) { conditions.push(`rj.scheduled_date <= $${idx++}`); params.push(filters.date_to); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
-      `SELECT rj.*, d.name AS driver_name,
-              COALESCE(bc.bid_count, 0)::int AS bid_count
+      `SELECT rj.*, d.name AS driver_name, sz.name AS zone_name,
+              COALESCE(bc.bid_count, 0)::int AS bid_count,
+              COALESCE(pc.pickup_count, 0)::int AS pickup_count
        FROM route_jobs rj
        LEFT JOIN driver_profiles d ON rj.assigned_driver_id = d.id
+       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
        LEFT JOIN (SELECT job_id, COUNT(*) AS bid_count FROM job_bids GROUP BY job_id) bc ON bc.job_id = rj.id
-       ORDER BY rj.scheduled_date DESC, rj.created_at DESC`
+       LEFT JOIN (SELECT job_id, COUNT(*) AS pickup_count FROM job_pickups GROUP BY job_id) pc ON pc.job_id = rj.id
+       ${where}
+       ORDER BY rj.scheduled_date DESC, rj.created_at DESC`,
+      params
     );
     return result.rows;
   }
@@ -1341,7 +1366,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateJob(jobId: string, data: Partial<{ title: string; description: string; area: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
+  async updateJob(jobId: string, data: Partial<{ title: string; description: string; area: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; job_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1611,6 +1636,191 @@ export class Storage {
       `SELECT 1 FROM optimo_sync_log WHERE DATE(started_at) = CURRENT_DATE AND status = 'completed' LIMIT 1`
     );
     return result.rows.length > 0;
+  }
+
+  // ── Service Zones ──
+
+  async createZone(data: { name: string; description?: string; center_lat?: number; center_lng?: number; radius_miles?: number; color?: string }) {
+    const result = await this.query(
+      `INSERT INTO service_zones (name, description, center_lat, center_lng, radius_miles, color)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [data.name, data.description ?? null, data.center_lat ?? null, data.center_lng ?? null, data.radius_miles ?? null, data.color ?? '#10B981']
+    );
+    return result.rows[0];
+  }
+
+  async getAllZones(activeOnly = false) {
+    const where = activeOnly ? 'WHERE active = TRUE' : '';
+    const result = await this.query(`SELECT * FROM service_zones ${where} ORDER BY name`);
+    return result.rows;
+  }
+
+  async getZoneById(id: string) {
+    const result = await this.query('SELECT * FROM service_zones WHERE id = $1', [id]);
+    return result.rows[0] || null;
+  }
+
+  async updateZone(id: string, data: Partial<{ name: string; description: string; center_lat: number; center_lng: number; radius_miles: number; color: string; active: boolean }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+    }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.query(
+      `UPDATE service_zones SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteZone(id: string) {
+    await this.query('UPDATE service_zones SET active = FALSE WHERE id = $1', [id]);
+  }
+
+  // ── Job Pickups ──
+
+  async addJobPickups(jobId: string, pickups: Array<{ property_id: string; pickup_type?: string; special_pickup_id?: string }>) {
+    if (pickups.length === 0) return [];
+    const values: any[] = [];
+    const placeholders: string[] = [];
+    let idx = 1;
+    for (const p of pickups) {
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(jobId, p.property_id, p.pickup_type ?? 'recurring', p.special_pickup_id ?? null);
+    }
+    const result = await this.query(
+      `INSERT INTO job_pickups (job_id, property_id, pickup_type, special_pickup_id)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT DO NOTHING
+       RETURNING *`,
+      values
+    );
+    return result.rows;
+  }
+
+  async getJobPickups(jobId: string) {
+    const result = await this.query(
+      `SELECT jp.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
+       FROM job_pickups jp
+       JOIN properties p ON jp.property_id = p.id
+       JOIN users u ON p.user_id = u.id
+       WHERE jp.job_id = $1
+       ORDER BY jp.sequence_number NULLS LAST, jp.created_at`,
+      [jobId]
+    );
+    return result.rows;
+  }
+
+  async removeJobPickup(pickupId: string) {
+    await this.query('DELETE FROM job_pickups WHERE id = $1', [pickupId]);
+  }
+
+  async updateJobPickup(pickupId: string, data: Partial<{ optimo_order_no: string; sequence_number: number; status: string }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+    }
+    if (fields.length === 0) return null;
+    values.push(pickupId);
+    const result = await this.query(
+      `UPDATE job_pickups SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  // ── Planning Queries ──
+
+  async getPropertiesDueOnDate(date: string) {
+    const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const result = await this.query(
+      `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name, u.email AS customer_email,
+              sz.name AS zone_name, sz.color AS zone_color
+       FROM properties p
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE p.service_status = 'approved'
+         AND p.pickup_day = $1
+       ORDER BY sz.name NULLS LAST, p.address`,
+      [dayOfWeek]
+    );
+    return result.rows;
+  }
+
+  async getPlanningCalendarData(fromDate: string, toDate: string) {
+    // Get existing jobs grouped by date
+    const jobsResult = await this.query(
+      `SELECT rj.scheduled_date, rj.status, rj.job_type, rj.zone_id, sz.name AS zone_name, sz.color AS zone_color,
+              COUNT(*)::int AS job_count
+       FROM route_jobs rj
+       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
+       WHERE rj.scheduled_date >= $1 AND rj.scheduled_date <= $2
+       GROUP BY rj.scheduled_date, rj.status, rj.job_type, rj.zone_id, sz.name, sz.color
+       ORDER BY rj.scheduled_date`,
+      [fromDate, toDate]
+    );
+
+    // Get pending special pickups
+    const specialsResult = await this.query(
+      `SELECT spr.pickup_date, COUNT(*)::int AS special_count
+       FROM special_pickup_requests spr
+       WHERE spr.pickup_date >= $1 AND spr.pickup_date <= $2
+         AND spr.status IN ('pending', 'scheduled')
+       GROUP BY spr.pickup_date`,
+      [fromDate, toDate]
+    );
+
+    // Get property counts by pickup day and zone
+    const propertyCountsResult = await this.query(
+      `SELECT p.pickup_day, p.zone_id, sz.name AS zone_name, sz.color AS zone_color,
+              COUNT(*)::int AS property_count
+       FROM properties p
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE p.service_status = 'approved' AND p.pickup_day IS NOT NULL
+       GROUP BY p.pickup_day, p.zone_id, sz.name, sz.color`
+    );
+
+    return {
+      jobs: jobsResult.rows,
+      specials: specialsResult.rows,
+      propertyCounts: propertyCountsResult.rows,
+    };
+  }
+
+  async getPropertiesByZone(zoneId: string) {
+    const result = await this.query(
+      `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name
+       FROM properties p
+       JOIN users u ON p.user_id = u.id
+       WHERE p.zone_id = $1 AND p.service_status = 'approved'
+       ORDER BY p.address`,
+      [zoneId]
+    );
+    return result.rows;
+  }
+
+  async assignPropertyZone(propertyId: string, zoneId: string | null) {
+    await this.query('UPDATE properties SET zone_id = $1 WHERE id = $2', [zoneId, propertyId]);
+  }
+
+  async getSpecialPickupsForDate(date: string) {
+    const result = await this.query(
+      `SELECT spr.*, p.address, p.zone_id, u.first_name || ' ' || u.last_name AS customer_name,
+              sz.name AS zone_name
+       FROM special_pickup_requests spr
+       JOIN properties p ON spr.property_id = p.id
+       JOIN users u ON spr.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE spr.pickup_date = $1 AND spr.status IN ('pending', 'scheduled')
+       ORDER BY spr.service_price DESC`,
+      [date]
+    );
+    return result.rows;
   }
 }
 

@@ -88,13 +88,7 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
     return (
         <div className="flex flex-col h-full bg-white lg:border-r lg:border-base-200">
          <div className="flex items-center px-8 h-24">
-           <div className="bg-primary p-2 rounded-2xl shadow-lg shadow-primary/20">
-               <TruckIcon className="w-7 h-7 text-white" />
-           </div>
-           <div className="ml-4">
-                <h1 className="text-xl font-black text-gray-900 tracking-tighter leading-none">Rural Waste</h1>
-                <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mt-0.5">Management</p>
-           </div>
+           <img src="/logo.svg" alt="Rural Waste Management" className="h-10" />
          </div>
          
          <div className="flex-1 overflow-y-auto py-8 px-5">

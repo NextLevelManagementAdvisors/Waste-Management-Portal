@@ -46,11 +46,10 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 ) as Record<string, AdminView>;
 
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
-  routes: '/admin/operations',
-  orders: '/admin/operations/orders',
-  'route-jobs': '/admin/operations/jobs',
-  'missed-pickups': '/admin/operations/missed',
-  'pickup-schedule': '/admin/operations/schedule',
+  planning: '/admin/operations',
+  'job-board': '/admin/operations/jobs',
+  'live-ops': '/admin/operations/live',
+  issues: '/admin/operations/issues',
   'address-review': '/admin/operations/address-review',
 };
 
@@ -109,7 +108,7 @@ function parseAdminPath(pathname: string): { view: AdminView; personId: string |
     if (normalized === '/admin/operations/customer-sync') {
       return { ...base, view: 'settings', settingsTab: 'sync' };
     }
-    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'routes' };
+    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'planning' };
   }
 
   // Settings (new paths)
@@ -188,7 +187,7 @@ const AdminApp: React.FC = () => {
   const initialSearch = new URLSearchParams(window.location.search).get('search');
   const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
-  const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'routes');
+  const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'planning');
   const [settingsTab, setSettingsTabRaw] = useState<SettingsTabType>(initialParsed.settingsTab || 'integrations');
   const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
   const [acctTab, setAcctTabRaw] = useState<AccountingTabType>(initialParsed.acctTab || 'overview');
@@ -215,7 +214,7 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentViewRaw(view);
     setSelectedPersonIdRaw(null);
-    if (view === 'operations') setOpsTabRaw('routes');
+    if (view === 'operations') setOpsTabRaw('planning');
     if (view === 'settings') setSettingsTabRaw('integrations');
     if (view === 'communications') setCommsTabRaw('conversations');
     if (view === 'accounting') setAcctTabRaw(filter?.tab as AccountingTabType || 'overview');
@@ -263,7 +262,7 @@ const AdminApp: React.FC = () => {
       const parsed = parseAdminPath(window.location.pathname);
       setCurrentViewRaw(parsed.view);
       setSelectedPersonIdRaw(parsed.personId);
-      if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'routes');
+      if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'planning');
       if (parsed.view === 'settings') setSettingsTabRaw(parsed.settingsTab || 'integrations');
       if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
       if (parsed.view === 'accounting') setAcctTabRaw(parsed.acctTab || 'overview');
@@ -430,10 +429,10 @@ const AdminApp: React.FC = () => {
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
-            <ShieldCheckIcon className="w-8 h-8 text-teal-400" />
+            <img src="/favicon.svg" alt="" className="w-8 h-8" />
             <div>
               <h1 className="text-lg font-black tracking-tight">Admin Portal</h1>
-              <p className="text-xs text-gray-400">Waste Management</p>
+              <p className="text-xs text-gray-400">Rural Waste Management</p>
             </div>
           </div>
         </div>

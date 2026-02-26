@@ -10,6 +10,7 @@ import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 import { expenseRepo } from './repositories/ExpenseRepository';
+import { optimizeJobRoute, checkJobOptimizationStatus } from './optimoSyncService';
 
 declare module 'express-session' {
   interface SessionData {
@@ -636,7 +637,14 @@ export function registerAdminRoutes(app: Express) {
   // Route Jobs
   app.get('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobs = await storage.getAllRouteJobs();
+      const { job_type, zone_id, status, date_from, date_to } = req.query;
+      const jobs = await storage.getAllRouteJobs({
+        job_type: job_type as string | undefined,
+        zone_id: zone_id as string | undefined,
+        status: status as string | undefined,
+        date_from: date_from as string | undefined,
+        date_to: date_to as string | undefined,
+      });
       res.json({ jobs });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch jobs' });
@@ -645,7 +653,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/jobs/:id/bids', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const bids = await storage.getJobBids(req.params.id);
+      const bids = await storage.getJobBids(req.params.id as string);
       res.json({
         bids: bids.map((b: any) => ({
           id: b.id,
@@ -680,19 +688,21 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/jobs/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const existing = await storage.getJobById(req.params.id);
+      const jobId = req.params.id as string;
+      const existing = await storage.getJobById(jobId);
       if (!existing) {
         return res.status(404).json({ error: 'Job not found' });
       }
-      const { title, description, area, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes } = req.body;
+      const { title, description, area, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, job_type, zone_id, accepted_bid_id, actual_pay, payment_status } = req.body;
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
-      const updated = await storage.updateJob(req.params.id, {
+      const updated = await storage.updateJob(jobId, {
         title, description, area, scheduled_date, start_time, end_time,
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
+        job_type, zone_id, accepted_bid_id, actual_pay, payment_status,
       });
-      await audit(req, 'update_job', 'route_job', req.params.id, req.body);
+      await audit(req, 'update_job', 'route_job', jobId, req.body);
 
       // Auto-sync driver pay expense when job is marked completed
       if (status === 'completed' && existing.status !== 'completed' && base_pay && parseFloat(base_pay) > 0) {
@@ -702,7 +712,7 @@ export function registerAdminRoutes(app: Express) {
             description: `Driver pay for: ${title}`,
             amount: parseFloat(base_pay),
             expenseDate: scheduled_date || new Date().toISOString().split('T')[0],
-            referenceId: req.params.id as string,
+            referenceId: jobId,
             referenceType: 'route_job',
             createdBy: getAdminId(req),
           });
@@ -715,6 +725,270 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to update job:', error);
       res.status(500).json({ error: 'Failed to update job' });
+    }
+  });
+
+  // Job Pickups
+  app.get('/api/admin/jobs/:id/pickups', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const pickups = await storage.getJobPickups(req.params.id as string);
+      res.json({ pickups });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch job pickups' });
+    }
+  });
+
+  app.post('/api/admin/jobs/:id/pickups', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const { propertyIds, specialPickupIds } = req.body;
+      const pickups: Array<{ property_id: string; pickup_type?: string; special_pickup_id?: string }> = [];
+      if (propertyIds?.length) {
+        for (const pid of propertyIds) {
+          pickups.push({ property_id: pid, pickup_type: 'recurring' });
+        }
+      }
+      if (specialPickupIds?.length) {
+        for (const spId of specialPickupIds) {
+          const sp = await storage.getSpecialPickupById(spId);
+          if (sp) {
+            pickups.push({ property_id: sp.property_id, pickup_type: 'special', special_pickup_id: spId });
+          }
+        }
+      }
+      const added = await storage.addJobPickups(jobId, pickups);
+      await audit(req, 'add_job_pickups', 'route_job', jobId, { count: added.length });
+      res.json({ pickups: added });
+    } catch (error) {
+      console.error('Failed to add job pickups:', error);
+      res.status(500).json({ error: 'Failed to add pickups' });
+    }
+  });
+
+  app.delete('/api/admin/jobs/:id/pickups/:pickupId', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const pickupId = req.params.pickupId as string;
+      await storage.removeJobPickup(pickupId);
+      await audit(req, 'remove_job_pickup', 'route_job', jobId, { pickupId });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to remove pickup' });
+    }
+  });
+
+  // Job Actions
+  app.post('/api/admin/jobs/:id/publish', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const job = await storage.getJobById(jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      if (job.status !== 'draft') return res.status(400).json({ error: 'Only draft jobs can be published' });
+      const updated = await storage.updateJob(jobId, { status: 'open' });
+      await audit(req, 'publish_job', 'route_job', jobId, {});
+      res.json({ job: updated });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to publish job' });
+    }
+  });
+
+  app.post('/api/admin/jobs/:id/assign', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const { driverId, bidId, actualPay } = req.body;
+      if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+      const job = await storage.getJobById(jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      const updated = await storage.updateJob(jobId, {
+        status: 'assigned',
+        assigned_driver_id: driverId,
+        accepted_bid_id: bidId || undefined,
+        actual_pay: actualPay || job.base_pay,
+      });
+      await audit(req, 'assign_job', 'route_job', jobId, { driverId, bidId, actualPay });
+      res.json({ job: updated });
+    } catch (error) {
+      console.error('Failed to assign job:', error);
+      res.status(500).json({ error: 'Failed to assign job' });
+    }
+  });
+
+  // Service Zones
+  app.get('/api/admin/zones', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const zones = await storage.getAllZones();
+      res.json({ zones });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch zones' });
+    }
+  });
+
+  app.post('/api/admin/zones', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { name, description, center_lat, center_lng, radius_miles, color } = req.body;
+      if (!name) return res.status(400).json({ error: 'name is required' });
+      const zone = await storage.createZone({ name, description, center_lat, center_lng, radius_miles, color });
+      await audit(req, 'create_zone', 'service_zone', zone.id, { name });
+      res.status(201).json({ zone });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create zone' });
+    }
+  });
+
+  app.put('/api/admin/zones/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const zoneId = req.params.id as string;
+      const zone = await storage.updateZone(zoneId, req.body);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+      await audit(req, 'update_zone', 'service_zone', zoneId, req.body);
+      res.json({ zone });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update zone' });
+    }
+  });
+
+  app.delete('/api/admin/zones/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const zoneId = req.params.id as string;
+      await storage.deleteZone(zoneId);
+      await audit(req, 'delete_zone', 'service_zone', zoneId, {});
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete zone' });
+    }
+  });
+
+  // Planning
+  app.get('/api/admin/planning/calendar', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+      const data = await storage.getPlanningCalendarData(from, to);
+      res.json(data);
+    } catch (error) {
+      console.error('Failed to fetch planning calendar:', error);
+      res.status(500).json({ error: 'Failed to fetch planning data' });
+    }
+  });
+
+  app.get('/api/admin/planning/date/:date', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const date = req.params.date as string;
+      const [properties, specials, existingJobs] = await Promise.all([
+        storage.getPropertiesDueOnDate(date),
+        storage.getSpecialPickupsForDate(date),
+        storage.getAllRouteJobs({ date_from: date, date_to: date }),
+      ]);
+      res.json({ properties, specials, existingJobs });
+    } catch (error) {
+      console.error('Failed to fetch planning date:', error);
+      res.status(500).json({ error: 'Failed to fetch planning data for date' });
+    }
+  });
+
+  app.post('/api/admin/planning/auto-group', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { date } = req.body;
+      if (!date) return res.status(400).json({ error: 'date is required' });
+
+      const properties = await storage.getPropertiesDueOnDate(date);
+      const zones = await storage.getAllZones(true);
+      const created: any[] = [];
+
+      // Group properties by zone_id
+      const byZone = new Map<string, typeof properties>();
+      for (const prop of properties) {
+        const key = prop.zone_id || 'unassigned';
+        if (!byZone.has(key)) byZone.set(key, []);
+        byZone.get(key)!.push(prop);
+      }
+
+      for (const [zoneId, zoneProps] of byZone) {
+        const zone = zones.find((z: any) => z.id === zoneId);
+        const zoneName = zone?.name || 'Unassigned Area';
+        const job = await storage.createRouteJob({
+          title: `${zoneName} - ${date}`,
+          scheduled_date: date,
+          estimated_stops: zoneProps.length,
+          zone_id: zoneId === 'unassigned' ? undefined : zoneId,
+          job_type: 'daily_route',
+          source: 'auto_planned',
+          status: 'draft',
+        });
+        await storage.addJobPickups(
+          job.id,
+          zoneProps.map((p: any) => ({ property_id: p.id, pickup_type: 'recurring' }))
+        );
+        created.push(job);
+      }
+
+      // Auto-bundle small special pickups
+      const specials = await storage.getSpecialPickupsForDate(date);
+      const bulkThreshold = 200; // TODO: make configurable via system_settings
+      for (const sp of specials) {
+        if (Number(sp.service_price) < bulkThreshold) {
+          // Find a matching daily_route draft job for this zone
+          const matchingJob = created.find((j: any) =>
+            j.zone_id === sp.zone_id && j.job_type === 'daily_route'
+          );
+          if (matchingJob) {
+            await storage.addJobPickups(matchingJob.id, [{
+              property_id: sp.property_id,
+              pickup_type: 'special',
+              special_pickup_id: sp.id,
+            }]);
+          }
+        } else {
+          // Create standalone bulk_pickup job
+          const bulkJob = await storage.createRouteJob({
+            title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
+            scheduled_date: date,
+            estimated_stops: 1,
+            zone_id: sp.zone_id || undefined,
+            job_type: 'bulk_pickup',
+            source: 'special_pickup',
+            special_pickup_id: sp.id,
+            base_pay: Number(sp.service_price),
+            status: 'draft',
+          });
+          await storage.addJobPickups(bulkJob.id, [{
+            property_id: sp.property_id,
+            pickup_type: 'special',
+            special_pickup_id: sp.id,
+          }]);
+          created.push(bulkJob);
+        }
+      }
+
+      await audit(req, 'auto_group_jobs', 'route_job', null as any, { date, jobCount: created.length });
+      res.json({ jobs: created });
+    } catch (error) {
+      console.error('Failed to auto-group jobs:', error);
+      res.status(500).json({ error: 'Failed to auto-group jobs' });
+    }
+  });
+
+  // Job Optimization
+  app.post('/api/admin/jobs/:id/optimize', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const result = await optimizeJobRoute(jobId);
+      await audit(req, 'optimize_job', 'route_job', jobId, { planningId: result.planningId, ordersCreated: result.ordersCreated });
+      res.json(result);
+    } catch (error: any) {
+      console.error('Failed to optimize job route:', error);
+      res.status(400).json({ error: error.message || 'Failed to optimize job route' });
+    }
+  });
+
+  app.get('/api/admin/jobs/:id/optimize-status', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id as string;
+      const result = await checkJobOptimizationStatus(jobId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || 'Failed to check optimization status' });
     }
   });
 

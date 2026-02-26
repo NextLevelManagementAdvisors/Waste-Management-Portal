@@ -40,6 +40,10 @@ export interface Driver {
   rating?: number;
 }
 
+export type JobType = 'daily_route' | 'bulk_pickup' | 'special_pickup';
+export type JobStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+export type PaymentStatus = 'unpaid' | 'processing' | 'paid';
+
 export interface RouteJob {
   id: string;
   title: string;
@@ -51,12 +55,24 @@ export interface RouteJob {
   estimated_stops?: number;
   estimated_hours?: number;
   base_pay?: number;
-  status: 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed';
+  status: JobStatus;
   assigned_driver_id?: string;
   driver_name?: string;
   notes?: string;
   created_at: string;
   bid_count?: number;
+  // Job-centric fields
+  job_type?: JobType;
+  zone_id?: string;
+  zone_name?: string;
+  source?: string;
+  special_pickup_id?: string;
+  optimo_planning_id?: string;
+  accepted_bid_id?: string;
+  actual_pay?: number;
+  payment_status?: PaymentStatus;
+  completed_at?: string;
+  pickup_count?: number;
 }
 
 export interface JobBid {
@@ -68,4 +84,49 @@ export interface JobBid {
   message: string | null;
   driverRatingAtBid: number | null;
   createdAt: string;
+}
+
+export interface JobPickup {
+  id: string;
+  job_id: string;
+  property_id: string;
+  pickup_type: 'recurring' | 'special' | 'missed_redo';
+  special_pickup_id?: string;
+  optimo_order_no?: string;
+  sequence_number?: number;
+  status: string;
+  created_at: string;
+  // Joined fields
+  address?: string;
+  service_type?: string;
+  customer_name?: string;
+}
+
+export interface ServiceZone {
+  id: string;
+  name: string;
+  description?: string;
+  center_lat?: number;
+  center_lng?: number;
+  radius_miles?: number;
+  color: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface PlanningDayData {
+  date: string;
+  pickupsByZone: Array<{
+    zone_id: string | null;
+    zone_name: string | null;
+    zone_color: string | null;
+    property_count: number;
+  }>;
+  specialPickupCount: number;
+  jobs: Array<{
+    status: string;
+    job_type: string;
+    zone_name: string | null;
+    job_count: number;
+  }>;
 }

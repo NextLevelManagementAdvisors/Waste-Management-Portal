@@ -782,7 +782,14 @@ export function registerTeamRoutes(app: Express) {
       if (req.query.endDate) filters.endDate = req.query.endDate as string;
 
       const jobs = await storage.getOpenJobs(filters);
-      res.json({ data: jobs });
+      // Enrich with pickup counts
+      const enriched = await Promise.all(jobs.map(async (job: any) => {
+        try {
+          const pickups = await storage.getJobPickups(job.id);
+          return { ...job, pickup_count: pickups.length };
+        } catch { return { ...job, pickup_count: 0 }; }
+      }));
+      res.json({ data: enriched });
     } catch (error: any) {
       console.error('Get jobs error:', error);
       res.status(500).json({ error: 'Failed to get jobs' });
@@ -807,9 +814,12 @@ export function registerTeamRoutes(app: Express) {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      const bids = await storage.getJobBids(jobId);
+      const [bids, pickups] = await Promise.all([
+        storage.getJobBids(jobId),
+        storage.getJobPickups(jobId),
+      ]);
 
-      res.json({ data: { ...job, bids } });
+      res.json({ data: { ...job, bids, pickups: pickups.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
     } catch (error: any) {
       console.error('Get job error:', error);
       res.status(500).json({ error: 'Failed to get job' });

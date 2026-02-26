@@ -152,6 +152,9 @@ beforeEach(() => {
       update: vi.fn().mockResolvedValue({}),
       retrieve: vi.fn().mockResolvedValue({ balance: 0 }),
     },
+    subscriptions: {
+      list: vi.fn().mockResolvedValue({ data: [] }),
+    },
     invoices: {
       create: vi.fn().mockResolvedValue({ id: 'in_test123' }),
       finalizeInvoice: vi.fn().mockResolvedValue({ id: 'in_test123' }),
