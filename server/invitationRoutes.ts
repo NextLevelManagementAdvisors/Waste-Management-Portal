@@ -186,6 +186,69 @@ export function registerInvitationRoutes(app: Express) {
     }
   });
 
+  // Admin: Resend invitation
+  app.post('/api/admin/invitations/:id/resend', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM invitations WHERE id = $1`,
+        [req.params.id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Invitation not found' });
+      }
+
+      const invite = result.rows[0];
+      if (invite.status === 'accepted' || invite.status === 'revoked') {
+        return res.status(400).json({ error: `Cannot resend a ${invite.status} invitation` });
+      }
+
+      // Refresh expiry to 7 days from now
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await pool.query(
+        `UPDATE invitations SET expires_at = $1, status = 'pending' WHERE id = $2`,
+        [expiresAt, invite.id]
+      );
+
+      // Build notification context
+      const inviter = await storage.getUserById(invite.invited_by);
+      const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
+      const appDomain = process.env.APP_DOMAIN || (() => {
+        const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
+        return domain ? `https://${domain}` : 'http://localhost:5000';
+      })();
+      const registerUrl = invite.roles.includes('driver')
+        ? `${appDomain}/team/register?invite=${invite.token}`
+        : invite.roles.includes('admin')
+        ? `${appDomain}/admin/accept-invite?token=${invite.token}`
+        : `${appDomain}/register?invite=${invite.token}`;
+
+      // Resend email
+      if (invite.email) {
+        try {
+          const html = invitationEmailTemplate(inviterName, invite.roles, invite.token, appDomain);
+          await sendEmail(invite.email, `You're invited to join ${APP_NAME}`, html);
+        } catch (emailErr) {
+          console.error('Failed to resend invitation email:', emailErr);
+        }
+      }
+
+      // Resend SMS
+      if (invite.phone) {
+        try {
+          await sendSms(invite.phone, `${inviterName} invited you to join ${APP_NAME}. Sign up here: ${registerUrl}`);
+        } catch (smsErr) {
+          console.error('Failed to resend invitation SMS:', smsErr);
+        }
+      }
+
+      const updated = await pool.query(`SELECT * FROM invitations WHERE id = $1`, [invite.id]);
+      res.json(updated.rows[0]);
+    } catch (error) {
+      console.error('Resend invitation error:', error);
+      res.status(500).json({ error: 'Failed to resend invitation' });
+    }
+  });
+
   // Public: Get invitation details by token
   app.get('/api/invitations/:token', async (req: Request, res: Response) => {
     try {

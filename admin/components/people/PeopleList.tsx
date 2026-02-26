@@ -152,6 +152,23 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
     }
   };
 
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const resendInvitation = async (id: string) => {
+    setResendingId(id);
+    try {
+      const res = await fetch(`/api/admin/invitations/${id}/resend`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) loadInvitations();
+    } catch (e) {
+      console.error('Failed to resend invitation:', e);
+    } finally {
+      setResendingId(null);
+    }
+  };
+
   const getInvitationStatus = (inv: any) => {
     if (inv.status === 'accepted') return 'accepted';
     if (inv.status === 'revoked') return 'revoked';
@@ -324,6 +341,16 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
                         {inv.inviter_first_name} {inv.inviter_last_name}
                       </span>
                       <span className="text-xs text-gray-400">{formatDate(inv.created_at)}</span>
+                      {(status === 'pending' || status === 'expired') && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={resendingId === inv.id}
+                          onClick={() => resendInvitation(inv.id)}
+                        >
+                          {resendingId === inv.id ? 'Sending...' : 'Resend'}
+                        </Button>
+                      )}
                       {status === 'pending' && (
                         <Button
                           size="sm"
