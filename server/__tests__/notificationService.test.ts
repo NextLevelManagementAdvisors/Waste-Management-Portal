@@ -12,6 +12,7 @@ vi.mock('../storage', () => ({
     getUserById: vi.fn(),
     getPropertiesForUser: vi.fn(),
     getDriverById: vi.fn(),
+    getDriverProfileByUserId: vi.fn(),
   },
   pool: {},
 }));
@@ -214,27 +215,38 @@ describe('sendMessageNotificationEmail', () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it('uses getDriverById when recipientType is "driver"', async () => {
-    const mockDriver = {
+  it('uses getDriverProfileByUserId when recipientType is "driver"', async () => {
+    // After unified people migration, sendMessageNotificationEmail calls getUserById first,
+    // then getDriverProfileByUserId for the notification preference check.
+    vi.mocked(storage.getUserById).mockResolvedValue({
+      ...mockUser,
       id: 'driver-1',
-      name: 'Bob Driver',
       email: 'bob@drivers.com',
+      first_name: 'Bob',
+    } as any);
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValue({
+      id: 'dp-1',
+      user_id: 'driver-1',
       message_email_notifications: true,
-    };
-    vi.mocked(storage.getDriverById as any).mockResolvedValue(mockDriver);
+    });
 
     await sendMessageNotificationEmail('driver-1', 'driver', 'Customer', 'Hi Bob!');
 
-    expect(vi.mocked(storage.getDriverById as any)).toHaveBeenCalledWith('driver-1');
+    expect(vi.mocked((storage as any).getDriverProfileByUserId)).toHaveBeenCalledWith('driver-1');
     expect(sendEmail).toHaveBeenCalledOnce();
     expect(vi.mocked(sendEmail).mock.calls[0][0]).toBe('bob@drivers.com');
   });
 
   it('sends no email when driver has not opted in', async () => {
-    vi.mocked(storage.getDriverById as any).mockResolvedValue({
+    vi.mocked(storage.getUserById).mockResolvedValue({
+      ...mockUser,
       id: 'driver-1',
-      name: 'Bob Driver',
       email: 'bob@drivers.com',
+      first_name: 'Bob',
+    } as any);
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValue({
+      id: 'dp-1',
+      user_id: 'driver-1',
       message_email_notifications: false,
     });
 

@@ -10,6 +10,7 @@ import session from 'express-session';
 import bcrypt from 'bcrypt';
 import { registerTeamRoutes } from '../teamRoutes';
 import { storage } from '../storage';
+import { pool as dbPool } from '../db';
 import { getUncachableStripeClient } from '../stripeClient';
 import { encrypt } from '../encryption';
 
@@ -20,7 +21,9 @@ vi.mock('../storage', () => ({
   storage: {
     getDriverByEmail: vi.fn(),
     getDriverById: vi.fn(),
+    getDriverProfileByUserId: vi.fn(),
     createDriver: vi.fn(),
+    createDriverProfile: vi.fn(),
     updateDriver: vi.fn(),
     getW9ByDriverId: vi.fn(),
     createW9: vi.fn(),
@@ -39,6 +42,12 @@ vi.mock('../storage', () => ({
   pool: {},
 }));
 
+vi.mock('../db', () => ({
+  pool: {
+    query: vi.fn(),
+  },
+}));
+
 vi.mock('../stripeClient', () => ({
   getUncachableStripeClient: vi.fn(),
   getStripePublishableKey: vi.fn(),
@@ -47,8 +56,18 @@ vi.mock('../stripeClient', () => ({
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
+const mockUser = {
+  id: 'user-1',
+  first_name: 'Test',
+  last_name: 'Driver',
+  email: 'driver@test.com',
+  phone: '555-0001',
+  password_hash: null as string | null,
+};
+
 const mockDriver = {
   id: 'driver-1',
+  user_id: 'user-1',
   name: 'Test Driver',
   email: 'driver@test.com',
   phone: '555-0001',
@@ -136,12 +155,12 @@ function createApp() {
   return app;
 }
 
-function createDriverAuthApp(driverId = 'driver-1') {
+function createDriverAuthApp(userId = 'user-1') {
   const app = express();
   app.use(express.json());
   app.use(session({ secret: 'test', resave: false, saveUninitialized: false }));
   app.use((req: any, _res: any, next: any) => {
-    req.session.driverId = driverId;
+    req.session.userId = userId;
     next();
   });
   registerTeamRoutes(app);
@@ -160,7 +179,18 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Defaults — most tests use a completed driver
+  // Defaults — most tests use a completed driver with a valid user
+  // pool.query: handle role check for requireDriverAuth, default empty for others
+  vi.mocked(dbPool.query).mockImplementation(async (sql: any) => {
+    if (typeof sql === 'string' && sql.includes('user_roles') && sql.includes('SELECT')) {
+      return { rows: [{ '?column?': 1 }] } as any;
+    }
+    return { rows: [] } as any;
+  });
+  // getDriverProfileByUserId: used by requireDriverAuth middleware
+  vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValue({ ...mockDriver } as any);
+  vi.mocked((storage as any).createDriverProfile).mockResolvedValue({ ...mockDriver } as any);
+
   vi.mocked(storage.getDriverById).mockResolvedValue({ ...mockDriver } as any);
   vi.mocked(storage.getDriverByEmail).mockResolvedValue(null as any);
   vi.mocked(storage.createDriver).mockResolvedValue({ ...mockDriver } as any);
@@ -176,7 +206,7 @@ beforeEach(() => {
   vi.mocked(storage.updateJob).mockResolvedValue(undefined as any);
   vi.mocked(storage.deleteBid).mockResolvedValue(undefined as any);
   vi.mocked(storage.getDriverSchedule).mockResolvedValue([] as any);
-  vi.mocked(storage.getUserById).mockResolvedValue(null as any);
+  vi.mocked(storage.getUserById).mockResolvedValue({ ...mockUser } as any);
   vi.mocked(storage.query).mockResolvedValue({ rows: [] } as any);
   vi.mocked(getUncachableStripeClient).mockResolvedValue(mockStripe() as any);
 });
@@ -188,29 +218,35 @@ describe('POST /api/team/auth/register', () => {
   it('returns 400 if name is missing', async () => {
     const res = await supertest(createApp())
       .post('/api/team/auth/register')
-      .send({ email: 'x@x.com', password: 'abc123' });
+      .send({ email: 'x@x.com', password: 'password123' });
     expect(res.status).toBe(400);
   });
 
   it('returns 400 if email is missing', async () => {
     const res = await supertest(createApp())
       .post('/api/team/auth/register')
-      .send({ name: 'Bob', password: 'abc123' });
+      .send({ name: 'Bob', password: 'password123' });
     expect(res.status).toBe(400);
   });
 
   it('returns 409 if email already exists', async () => {
-    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({ ...mockDriver } as any);
+    // pool.query check for existing user returns a row
+    vi.mocked(dbPool.query).mockResolvedValueOnce({ rows: [{ id: 'existing-user' }] } as any);
     const res = await supertest(createApp())
       .post('/api/team/auth/register')
-      .send({ name: 'Bob', email: 'driver@test.com', password: 'abc123' });
+      .send({ name: 'Bob', email: 'driver@test.com', password: 'password123' });
     expect(res.status).toBe(409);
   });
 
   it('returns 201 and driver data on success', async () => {
+    vi.mocked(dbPool.query)
+      .mockResolvedValueOnce({ rows: [] } as any)              // check existing user
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] } as any) // INSERT user RETURNING id
+      .mockResolvedValueOnce({ rows: [] } as any)              // INSERT driver role
+      .mockResolvedValueOnce({ rows: [] } as any);             // INSERT customer role
     const res = await supertest(createApp())
       .post('/api/team/auth/register')
-      .send({ name: 'Bob', email: 'new@test.com', password: 'abc123' });
+      .send({ name: 'Bob', email: 'new@test.com', password: 'password123' });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ id: 'driver-1' });
   });
@@ -223,30 +259,31 @@ describe('POST /api/team/auth/login', () => {
   it('returns 400 if email is missing', async () => {
     const res = await supertest(createApp())
       .post('/api/team/auth/login')
-      .send({ password: 'abc123' });
+      .send({ password: 'abc12345' });
     expect(res.status).toBe(400);
   });
 
-  it('returns 401 if driver not found', async () => {
-    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce(null as any);
+  it('returns 401 if user not found', async () => {
+    // pool.query for user lookup returns no rows (default behavior)
     const res = await supertest(createApp())
       .post('/api/team/auth/login')
-      .send({ email: 'no@one.com', password: 'abc123' });
+      .send({ email: 'no@one.com', password: 'abc12345' });
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 if driver has no password hash', async () => {
-    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({ ...mockDriver, password_hash: null } as any);
+  it('returns 401 if user has no password hash', async () => {
+    vi.mocked(dbPool.query).mockResolvedValueOnce({
+      rows: [{ ...mockUser, password_hash: null }],
+    } as any);
     const res = await supertest(createApp())
       .post('/api/team/auth/login')
-      .send({ email: 'driver@test.com', password: 'abc123' });
+      .send({ email: 'driver@test.com', password: 'abc12345' });
     expect(res.status).toBe(401);
   });
 
   it('returns 401 if password is wrong', async () => {
-    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({
-      ...mockDriver,
-      password_hash: testPasswordHash,
+    vi.mocked(dbPool.query).mockResolvedValueOnce({
+      rows: [{ ...mockUser, password_hash: testPasswordHash }],
     } as any);
     const res = await supertest(createApp())
       .post('/api/team/auth/login')
@@ -255,10 +292,9 @@ describe('POST /api/team/auth/login', () => {
   });
 
   it('returns 200 and driver data on success', async () => {
-    vi.mocked(storage.getDriverByEmail).mockResolvedValueOnce({
-      ...mockDriver,
-      password_hash: testPasswordHash,
-    } as any);
+    vi.mocked(dbPool.query)
+      .mockResolvedValueOnce({ rows: [{ ...mockUser, password_hash: testPasswordHash }] } as any)  // user lookup
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] } as any);  // role check
     const res = await supertest(createApp())
       .post('/api/team/auth/login')
       .send({ email: 'driver@test.com', password: 'correctpassword' });
@@ -287,10 +323,10 @@ describe('GET /api/team/auth/me', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 if driver not found in DB', async () => {
-    vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
+  it('returns 404 if driver profile not found in DB', async () => {
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValueOnce(null as any);
     const res = await supertest(createDriverAuthApp()).get('/api/team/auth/me');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 
   it('returns 200 with driver data', async () => {
@@ -648,7 +684,7 @@ describe('GET /api/team/jobs', () => {
   });
 
   it('returns 403 if not onboarded', async () => {
-    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValueOnce({
       ...mockDriver,
       onboarding_status: 'w9_pending',
     } as any);
@@ -674,7 +710,7 @@ describe('GET /api/team/my-jobs', () => {
   });
 
   it('returns 403 if not onboarded', async () => {
-    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValueOnce({
       ...mockDriver,
       onboarding_status: 'deposit_pending',
     } as any);
@@ -842,7 +878,7 @@ describe('GET /api/team/schedule', () => {
   });
 
   it('returns 403 if not onboarded', async () => {
-    vi.mocked(storage.getDriverById).mockResolvedValueOnce({
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValueOnce({
       ...mockDriver,
       onboarding_status: 'w9_pending',
     } as any);
@@ -867,8 +903,8 @@ describe('GET /api/team/profile', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 404 if driver not found', async () => {
-    vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
+  it('returns 404 if driver profile not found', async () => {
+    vi.mocked((storage as any).getDriverProfileByUserId).mockResolvedValueOnce(null as any);
     const res = await supertest(createDriverAuthApp()).get('/api/team/profile');
     expect(res.status).toBe(404);
   });
@@ -911,7 +947,7 @@ describe('GET /api/team/onboarding/status', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 404 if driver not found', async () => {
+  it('returns 404 if driver not found in getDriverById', async () => {
     vi.mocked(storage.getDriverById).mockResolvedValueOnce(null as any);
     const res = await supertest(createDriverAuthApp()).get('/api/team/onboarding/status');
     expect(res.status).toBe(404);
