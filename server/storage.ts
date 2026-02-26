@@ -122,7 +122,7 @@ export class Storage {
         data.userId, data.address, data.serviceType, data.inHoa,
         data.communityName || null, data.hasGateCode, data.gateCode || null,
         data.notes || null,
-        JSON.stringify(data.notificationPreferences || { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: false, sms: false } })
+        JSON.stringify(data.notificationPreferences || { pickupReminders: { email: true, sms: false }, scheduleChanges: { email: true, sms: false }, driverUpdates: { email: true, sms: false }, invoiceDue: true, paymentConfirmation: true, autopayReminder: true, serviceUpdates: true, promotions: false, referralUpdates: true })
       ]
     );
     return result.rows[0];
