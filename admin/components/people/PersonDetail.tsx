@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { StatusBadge } from '../ui/index.ts';
-import CustomerNotes from '../customers/CustomerNotes.tsx';
-import CustomerActivityTab from '../customers/CustomerActivityTab.tsx';
-import CustomerCommunicationsTab from '../customers/CustomerCommunicationsTab.tsx';
+import CustomerNotes from './CustomerNotes.tsx';
+import CustomerActivityTab from './CustomerActivityTab.tsx';
+import CustomerCommunicationsTab from './CustomerCommunicationsTab.tsx';
 
 const formatDate = (dateStr: string) => {
   try {

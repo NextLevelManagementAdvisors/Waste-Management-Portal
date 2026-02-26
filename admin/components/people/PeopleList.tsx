@@ -7,7 +7,6 @@ import type { NavFilter } from '../../../shared/types/index.ts';
 import InviteDialog from './InviteDialog.tsx';
 import CreateDriverDialog from './CreateDriverDialog.tsx';
 import BulkComposeModal from './BulkComposeModal.tsx';
-import DriverSyncPanel from '../operations/DriverSyncPanel.tsx';
 
 const formatDate = (dateStr: string) => {
   try {
@@ -47,7 +46,6 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [showCreateDriver, setShowCreateDriver] = useState(false);
-  const [showDriverSync, setShowDriverSync] = useState(false);
   const [invitations, setInvitations] = useState<any[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [selectedPeople, setSelectedPeople] = useState<Map<string, any>>(new Map());
@@ -231,16 +229,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
         <div className="flex items-center gap-3">
           <p className="text-sm text-gray-500">{total} contact{total !== 1 ? 's' : ''}</p>
           {roleFilter === 'driver' && (
-            <>
-              <Button size="sm" onClick={() => setShowCreateDriver(true)}>+ Create Driver</Button>
-              <Button
-                variant={showDriverSync ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setShowDriverSync(!showDriverSync)}
-              >
-                OptimoRoute Sync
-              </Button>
-            </>
+            <Button size="sm" onClick={() => setShowCreateDriver(true)}>+ Create Driver</Button>
           )}
           <Button onClick={() => setShowInvite(true)}>+ Invite</Button>
         </div>
@@ -455,10 +444,6 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
             />
           )}
         </>
-      )}
-
-      {roleFilter === 'driver' && showDriverSync && (
-        <DriverSyncPanel />
       )}
 
       {showInvite && (

@@ -101,6 +101,25 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Lightweight badge counts for sidebar notifications (no Stripe calls)
+  app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const adminUserId = req.session.originalAdminUserId || req.session.userId!;
+      const [pendingReviews, pendingMissedPickups, unreadMessages] = await Promise.all([
+        storage.query(`SELECT COUNT(*) as count FROM properties WHERE address_status = 'pending_review'`),
+        storage.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
+        storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
+      ]);
+      res.json({
+        operations: parseInt(pendingReviews.rows[0]?.count || '0') + parseInt(pendingMissedPickups.rows[0]?.count || '0'),
+        communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
+      });
+    } catch (error) {
+      console.error('Badge counts error:', error);
+      res.json({ operations: 0, communications: 0 });
+    }
+  });
+
   const getAdminId = (req: Request) => req.session.originalAdminUserId || req.session.userId!;
 
   const audit = async (req: Request, action: string, entityType?: string, entityId?: string, details?: any) => {
