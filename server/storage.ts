@@ -17,6 +17,7 @@ export interface DbUser {
   created_at: string;
   updated_at: string;
   roles?: string[];
+  auth_provider?: string;
 }
 
 export interface DbDriverProfile {
@@ -68,12 +69,12 @@ export class Storage {
     return result;
   }
 
-  async createUser(data: { firstName: string; lastName: string; phone: string; email: string; passwordHash: string; stripeCustomerId?: string }): Promise<DbUser> {
+  async createUser(data: { firstName: string; lastName: string; phone: string; email: string; passwordHash: string; stripeCustomerId?: string; authProvider?: string }): Promise<DbUser> {
     const result = await this.query(
-      `INSERT INTO users (first_name, last_name, phone, email, password_hash, stripe_customer_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (first_name, last_name, phone, email, password_hash, stripe_customer_id, auth_provider)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [data.firstName, data.lastName, data.phone, data.email, data.passwordHash, data.stripeCustomerId || null]
+      [data.firstName, data.lastName, data.phone, data.email, data.passwordHash, data.stripeCustomerId || null, data.authProvider || 'local']
     );
     return result.rows[0];
   }
@@ -88,8 +89,8 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string }>): Promise<DbUser> {
-    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id'];
+  async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string; auth_provider: string }>): Promise<DbUser> {
+    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id', 'auth_provider'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1293,7 +1294,7 @@ export class Storage {
     if (filters?.date_to) { conditions.push(`rj.scheduled_date <= $${idx++}`); params.push(filters.date_to); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
-      `SELECT rj.*, d.name AS driver_name, sz.name AS zone_name,
+      `SELECT rj.*, d.name AS driver_name, sz.name AS zone_name, sz.color AS zone_color,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
               COALESCE(pc.pickup_count, 0)::int AS pickup_count
        FROM route_jobs rj
@@ -1821,6 +1822,93 @@ export class Storage {
       [date]
     );
     return result.rows;
+  }
+  // ── Route Planner Queries ──
+
+  async getMissingClientsForDate(date: string) {
+    const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const result = await this.query(
+      `SELECT p.id, p.address, p.service_type, p.zone_id, p.pickup_frequency,
+              u.first_name || ' ' || u.last_name AS customer_name,
+              sz.name AS zone_name, sz.color AS zone_color
+       FROM properties p
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE p.service_status = 'approved'
+         AND p.pickup_day = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM job_pickups jp
+           JOIN route_jobs rj ON jp.job_id = rj.id
+           WHERE jp.property_id = p.id
+             AND rj.scheduled_date = $2
+             AND rj.status != 'cancelled'
+         )
+       ORDER BY sz.name NULLS LAST, p.address`,
+      [dayOfWeek, date]
+    );
+    return result.rows;
+  }
+
+  async getCancelledPickupsForWeek(fromDate: string, toDate: string) {
+    const result = await this.query(
+      `SELECT jp.id AS pickup_id, jp.job_id, jp.property_id,
+              p.address, p.service_status,
+              u.first_name || ' ' || u.last_name AS customer_name,
+              rj.scheduled_date, rj.title AS job_title,
+              sz.name AS zone_name, sz.color AS zone_color
+       FROM job_pickups jp
+       JOIN route_jobs rj ON jp.job_id = rj.id
+       JOIN properties p ON jp.property_id = p.id
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
+       WHERE rj.scheduled_date >= $1 AND rj.scheduled_date <= $2
+         AND rj.status != 'cancelled'
+         AND p.service_status != 'approved'
+       ORDER BY rj.scheduled_date, rj.title`,
+      [fromDate, toDate]
+    );
+    return result.rows;
+  }
+
+  async copyWeekJobs(sourceFrom: string, sourceTo: string, targetOffset: number = 7) {
+    const sourceJobs = await this.getAllRouteJobs({ date_from: sourceFrom, date_to: sourceTo });
+    const nonCancelled = sourceJobs.filter((j: any) => j.status !== 'cancelled');
+    const created: any[] = [];
+
+    for (const job of nonCancelled) {
+      const srcDate = new Date(job.scheduled_date.split('T')[0] + 'T12:00:00');
+      srcDate.setDate(srcDate.getDate() + targetOffset);
+      const targetDate = srcDate.toISOString().split('T')[0];
+
+      const newJob = await this.createRouteJob({
+        title: job.title,
+        description: job.description || undefined,
+        scheduled_date: targetDate,
+        start_time: job.start_time || undefined,
+        end_time: job.end_time || undefined,
+        estimated_stops: job.estimated_stops ?? undefined,
+        estimated_hours: job.estimated_hours ? Number(job.estimated_hours) : undefined,
+        base_pay: job.base_pay ? Number(job.base_pay) : undefined,
+        notes: job.notes || undefined,
+        zone_id: job.zone_id || undefined,
+        job_type: job.job_type || 'daily_route',
+        source: 'copied',
+        status: 'draft',
+      });
+
+      // Copy only recurring pickups (skip one-time specials)
+      const sourcePickups = await this.getJobPickups(job.id);
+      const recurringPickups = sourcePickups.filter((p: any) => p.pickup_type !== 'special');
+      if (recurringPickups.length > 0) {
+        await this.addJobPickups(
+          newJob.id,
+          recurringPickups.map((p: any) => ({ property_id: p.property_id, pickup_type: p.pickup_type }))
+        );
+      }
+
+      created.push(newJob);
+    }
+    return created;
   }
 }
 

@@ -529,3 +529,6 @@ ALTER TABLE properties ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7);
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7);
 CREATE INDEX IF NOT EXISTS idx_properties_zone ON properties(zone_id);
+
+-- Track how users signed up (local registration vs Google OAuth)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local';

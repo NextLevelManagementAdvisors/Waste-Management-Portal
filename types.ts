@@ -55,6 +55,7 @@ export interface User {
   stripeCustomerId?: string;
   isAdmin?: boolean;
   impersonating?: boolean;
+  authProvider?: string;
 }
 
 export interface Service {
@@ -177,7 +178,7 @@ export interface UpdateProfileInfo {
 }
 
 export interface UpdatePasswordInfo {
-    currentPassword: string;
+    currentPassword?: string;
     newPassword: string;
 }
 

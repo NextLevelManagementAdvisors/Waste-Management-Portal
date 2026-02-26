@@ -379,8 +379,9 @@ const NotificationsTab: React.FC = () => {
 };
 
 const SecurityTab: React.FC = () => {
-  const { user, updatePassword } = useProperty();
+  const { user, updatePassword, refreshUser } = useProperty();
   const { showToast } = useToast();
+  const isOAuthUser = user?.authProvider === 'google';
   const [passwordData, setPasswordData] = useState<UpdatePasswordInfo & { confirmNew: string }>({
     currentPassword: '',
     newPassword: '',
@@ -404,9 +405,16 @@ const SecurityTab: React.FC = () => {
     }
     setIsSaving(true);
     try {
-      await updatePassword({ currentPassword: passwordData.currentPassword, newPassword: passwordData.newPassword });
-      showToast('success', 'Password changed successfully!');
+      if (isOAuthUser) {
+        await updatePassword({ newPassword: passwordData.newPassword });
+      } else {
+        await updatePassword({ currentPassword: passwordData.currentPassword, newPassword: passwordData.newPassword });
+      }
+      showToast('success', isOAuthUser ? 'Password set successfully!' : 'Password changed successfully!');
       setPasswordData({ currentPassword: '', newPassword: '', confirmNew: '' });
+      if (isOAuthUser) {
+        await refreshUser();
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       showToast('error', `Error: ${errorMessage}`);
@@ -420,13 +428,22 @@ const SecurityTab: React.FC = () => {
       <Card className="border-none ring-1 ring-base-200 shadow-xl">
         <h2 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-3 mb-6">
           <KeyIcon className="w-6 h-6 text-primary" />
-          Change Password
+          {isOAuthUser ? 'Set Password' : 'Change Password'}
         </h2>
-        <form onSubmit={handleSavePassword} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Current Password</label>
-            <input type="password" name="currentPassword" value={passwordData.currentPassword} onChange={handlePasswordChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+        {isOAuthUser && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+            <p className="text-sm text-blue-800">
+              You signed in with Google and don't have a password yet. Set one below to also be able to log in with your email and password.
+            </p>
           </div>
+        )}
+        <form onSubmit={handleSavePassword} className="space-y-4">
+          {!isOAuthUser && (
+            <div>
+              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Current Password</label>
+              <input type="password" name="currentPassword" value={passwordData.currentPassword} onChange={handlePasswordChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">New Password</label>
@@ -440,7 +457,7 @@ const SecurityTab: React.FC = () => {
           </div>
           <div className="flex justify-end pt-4">
             <Button type="submit" disabled={isSaving} className="rounded-xl px-8 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
-              {isSaving ? 'Updating...' : 'Update Password'}
+              {isSaving ? 'Updating...' : (isOAuthUser ? 'Set Password' : 'Update Password')}
             </Button>
           </div>
         </form>

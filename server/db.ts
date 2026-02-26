@@ -28,6 +28,7 @@ export interface DbUser {
   created_at: string;
   updated_at: string;
   roles?: string[];
+  auth_provider?: string;
 }
 
 export interface DbProperty {

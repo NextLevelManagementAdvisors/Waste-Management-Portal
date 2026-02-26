@@ -46,6 +46,7 @@ function formatUserForClient(user: DbUser, properties: DbProperty[]) {
     autopayEnabled: user.autopay_enabled,
     stripeCustomerId: user.stripe_customer_id,
     isAdmin: false, // Derived from roles in auth/me response
+    authProvider: user.auth_provider || 'local',
     properties: properties.map(formatPropertyForClient),
   };
 }
@@ -505,17 +506,28 @@ export function registerAuthRoutes(app: Express) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      if (!newPassword || newPassword.length < 6) {
+      if (!newPassword || newPassword.length < 8) {
         return res.status(400).json({ error: 'Password must be at least 8 characters' });
       }
 
-      const valid = await bcrypt.compare(currentPassword, user.password_hash);
-      if (!valid) {
-        return res.status(401).json({ error: 'Current password is incorrect' });
-      }
+      const isOAuthUser = user.auth_provider === 'google';
 
-      const newHash = await bcrypt.hash(newPassword, 12);
-      await storage.updateUser(userId, { password_hash: newHash });
+      if (isOAuthUser) {
+        // OAuth user setting password for the first time — no currentPassword required
+        const newHash = await bcrypt.hash(newPassword, 12);
+        await storage.updateUser(userId, { password_hash: newHash, auth_provider: 'local' });
+      } else {
+        // Local user changing password — must verify current password
+        if (!currentPassword) {
+          return res.status(400).json({ error: 'Current password is required' });
+        }
+        const valid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!valid) {
+          return res.status(401).json({ error: 'Current password is incorrect' });
+        }
+        const newHash = await bcrypt.hash(newPassword, 12);
+        await storage.updateUser(userId, { password_hash: newHash });
+      }
 
       res.json({ success: true });
     } catch (error: any) {
@@ -823,6 +835,7 @@ export function registerAuthRoutes(app: Express) {
           email,
           passwordHash,
           stripeCustomerId,
+          authProvider: 'google',
         });
 
         // Assign customer role
