@@ -56,7 +56,9 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/auth/google', async (req: Request, res: Response) => {
     try {
-      if (!GOOGLE_CLIENT_ID) {
+      const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
         return res.status(500).json({ error: 'Google OAuth not configured' });
       }
 
@@ -87,7 +89,7 @@ export function registerTeamRoutes(app: Express) {
       }
 
       const params = new URLSearchParams({
-        client_id: GOOGLE_CLIENT_ID,
+        client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
         scope: 'openid email profile',
@@ -125,7 +127,9 @@ export function registerTeamRoutes(app: Express) {
         return res.redirect('/team?error=google_auth_failed');
       }
 
-      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+      const cbClientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+      const cbClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      if (!cbClientId || !cbClientSecret) {
         return res.redirect('/team?error=google_not_configured');
       }
 
@@ -153,8 +157,8 @@ export function registerTeamRoutes(app: Express) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           code,
-          client_id: GOOGLE_CLIENT_ID,
-          client_secret: GOOGLE_CLIENT_SECRET,
+          client_id: cbClientId,
+          client_secret: cbClientSecret,
           redirect_uri: redirectUri,
           grant_type: 'authorization_code',
         }),

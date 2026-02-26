@@ -1017,3 +1017,18 @@ describe('PUT /api/team/profile/message-notifications', () => {
     expect(res.body.message_email_notifications).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SSO Guard
+// ---------------------------------------------------------------------------
+describe('GET /api/team/auth/google — SSO guard', () => {
+  it('returns 403 when SSO is disabled', async () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-client-secret';
+    process.env.GOOGLE_SSO_ENABLED = 'false';
+
+    const res = await supertest(createApp()).get('/api/team/auth/google');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/disabled/i);
+  });
+});
