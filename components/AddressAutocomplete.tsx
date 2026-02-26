@@ -28,9 +28,8 @@ let googleMapsPromise: Promise<void> | null = null;
 let googleMapsLoaded = false;
 
 /**
- * Loads the Google Maps JS API with the Places library using the recommended
- * async loading pattern. Fetches the API key from the server, loads the script
- * with `loading=async`, then imports the places library via `importLibrary`.
+ * Loads the Google Maps JS API with the Places library. Fetches the API key
+ * from the server, then loads the script asynchronously with `libraries=places`.
  */
 function loadGoogleMaps(): Promise<void> {
   if (googleMapsLoaded) return Promise.resolve();
@@ -42,7 +41,7 @@ function loadGoogleMaps(): Promise<void> {
       if (!apiKey) throw new Error('No API key');
       return new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         script.async = true;
         script.defer = true;
         script.onload = () => resolve();
@@ -50,9 +49,7 @@ function loadGoogleMaps(): Promise<void> {
         document.head.appendChild(script);
       });
     })
-    .then(async () => {
-      // Wait for the places library to be fully available
-      await (window as any).google.maps.importLibrary('places');
+    .then(() => {
       googleMapsLoaded = true;
     });
 
