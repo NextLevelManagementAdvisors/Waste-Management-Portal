@@ -1019,6 +1019,100 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Route Planner ──
+
+  app.get('/api/admin/planning/week', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const monday = req.query.monday as string;
+      if (!monday) return res.status(400).json({ error: 'monday date is required' });
+
+      const monDate = new Date(monday + 'T12:00:00');
+      const satDate = new Date(monDate);
+      satDate.setDate(satDate.getDate() + 5);
+      const saturday = satDate.toISOString().split('T')[0];
+
+      const [jobs, cancelled, zones] = await Promise.all([
+        storage.getAllRouteJobs({ date_from: monday, date_to: saturday }),
+        storage.getCancelledPickupsForWeek(monday, saturday),
+        storage.getAllZones(true),
+      ]);
+
+      // Get missing clients for each day (Mon-Sat)
+      const missingByDay: Record<string, any[]> = {};
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(monDate);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        missingByDay[dateStr] = await storage.getMissingClientsForDate(dateStr);
+      }
+
+      res.json({ jobs, cancelled, missingByDay, zones });
+    } catch (error) {
+      console.error('Failed to fetch week planning data:', error);
+      res.status(500).json({ error: 'Failed to fetch week planning data' });
+    }
+  });
+
+  app.post('/api/admin/planning/copy-week', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { sourceMondayDate } = req.body;
+      if (!sourceMondayDate) return res.status(400).json({ error: 'sourceMondayDate is required' });
+
+      const monDate = new Date(sourceMondayDate + 'T12:00:00');
+      const satDate = new Date(monDate);
+      satDate.setDate(satDate.getDate() + 5);
+      const saturday = satDate.toISOString().split('T')[0];
+
+      // Check if target week already has jobs
+      const targetMonday = new Date(monDate);
+      targetMonday.setDate(targetMonday.getDate() + 7);
+      const targetSaturday = new Date(targetMonday);
+      targetSaturday.setDate(targetSaturday.getDate() + 5);
+      const existingTarget = await storage.getAllRouteJobs({
+        date_from: targetMonday.toISOString().split('T')[0],
+        date_to: targetSaturday.toISOString().split('T')[0],
+      });
+      if (existingTarget.length > 0) {
+        return res.status(409).json({
+          error: 'Target week already has jobs. Delete them first or choose a different week.',
+          existingCount: existingTarget.length,
+        });
+      }
+
+      const created = await storage.copyWeekJobs(sourceMondayDate, saturday);
+      await audit(req, 'copy_week_jobs', 'route_job', undefined, { sourceMondayDate, jobsCopied: created.length });
+      res.json({ jobs: created });
+    } catch (error) {
+      console.error('Failed to copy week:', error);
+      res.status(500).json({ error: 'Failed to copy week' });
+    }
+  });
+
+  app.post('/api/admin/planning/publish-week', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { mondayDate } = req.body;
+      if (!mondayDate) return res.status(400).json({ error: 'mondayDate is required' });
+
+      const monDate = new Date(mondayDate + 'T12:00:00');
+      const satDate = new Date(monDate);
+      satDate.setDate(satDate.getDate() + 5);
+      const saturday = satDate.toISOString().split('T')[0];
+
+      const jobs = await storage.getAllRouteJobs({ date_from: mondayDate, date_to: saturday, status: 'draft' });
+      let published = 0;
+      for (const job of jobs) {
+        await storage.updateJob(job.id, { status: 'open' });
+        published++;
+      }
+
+      await audit(req, 'publish_week_jobs', 'route_job', undefined, { mondayDate, publishedCount: published });
+      res.json({ published });
+    } catch (error) {
+      console.error('Failed to publish week:', error);
+      res.status(500).json({ error: 'Failed to publish week' });
+    }
+  });
+
   // Job Optimization
   app.post('/api/admin/jobs/:id/optimize', requireAdmin, async (req: Request, res: Response) => {
     try {

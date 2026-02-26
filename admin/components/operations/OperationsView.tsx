@@ -5,8 +5,9 @@ import RouteJobsList from './RouteJobsList.tsx';
 import RoutesView from './RoutesView.tsx';
 import AddressReviewPanel from './AddressReviewPanel.tsx';
 import PlanningCalendar from './PlanningCalendar.tsx';
+import RoutePlanner from './RoutePlanner.tsx';
 
-export type OpsTabType = 'planning' | 'job-board' | 'live-ops' | 'issues' | 'address-review';
+export type OpsTabType = 'planning' | 'route-planner' | 'job-board' | 'live-ops' | 'issues' | 'address-review';
 
 interface OperationsViewProps {
   navFilter?: NavFilter | null;
@@ -29,7 +30,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
 
   useEffect(() => {
     if (navFilter?.tab) {
-      const validTabs: OpsTabType[] = ['planning', 'job-board', 'live-ops', 'issues', 'address-review'];
+      const validTabs: OpsTabType[] = ['planning', 'route-planner', 'job-board', 'live-ops', 'issues', 'address-review'];
       if (validTabs.includes(navFilter.tab as OpsTabType)) {
         setActiveTab(navFilter.tab as OpsTabType);
       }
@@ -39,6 +40,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
 
   const tabs: { key: OpsTabType; label: string }[] = [
     { key: 'planning', label: 'Planning' },
+    { key: 'route-planner', label: 'Route Planner' },
     { key: 'job-board', label: 'Job Board' },
     { key: 'live-ops', label: 'Live Ops' },
     { key: 'issues', label: 'Issues' },
@@ -65,6 +67,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
 
       <div>
         {activeTab === 'planning' && <PlanningCalendar />}
+        {activeTab === 'route-planner' && <RoutePlanner />}
         {activeTab === 'job-board' && <RouteJobsList />}
         {activeTab === 'live-ops' && <RoutesView />}
         {activeTab === 'issues' && <MissedPickupsList />}

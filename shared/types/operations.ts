@@ -65,6 +65,7 @@ export interface RouteJob {
   job_type?: JobType;
   zone_id?: string;
   zone_name?: string;
+  zone_color?: string;
   source?: string;
   special_pickup_id?: string;
   optimo_planning_id?: string;
@@ -129,4 +130,37 @@ export interface PlanningDayData {
     zone_name: string | null;
     job_count: number;
   }>;
+}
+
+// ── Route Planner types ──
+
+export interface MissingClient {
+  id: string;
+  address: string;
+  service_type: string;
+  zone_id: string | null;
+  zone_name: string | null;
+  zone_color: string | null;
+  pickup_frequency: string | null;
+  customer_name: string;
+}
+
+export interface CancelledPickup {
+  pickup_id: string;
+  job_id: string;
+  property_id: string;
+  address: string;
+  service_status: string;
+  customer_name: string;
+  scheduled_date: string;
+  job_title: string;
+  zone_name: string | null;
+  zone_color: string | null;
+}
+
+export interface WeekPlannerData {
+  jobs: RouteJob[];
+  cancelled: CancelledPickup[];
+  missingByDay: Record<string, MissingClient[]>;
+  zones: ServiceZone[];
 }
