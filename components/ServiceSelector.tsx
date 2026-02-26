@@ -104,6 +104,7 @@ interface ServiceSelectorProps {
     monthlyTotal: number;
     setupTotal?: number;
     footerAction?: React.ReactNode;
+    showPricingSummary?: boolean;
 }
 
 const ServiceSelector: React.FC<ServiceSelectorProps> = ({
@@ -120,6 +121,7 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
     monthlyTotal,
     setupTotal,
     footerAction,
+    showPricingSummary = true,
 }) => {
     const baseServices = services.filter(s => s.category === 'base_service');
     const atHouseService = services.find(s => s.name.toLowerCase().includes('at house'));
@@ -228,21 +230,25 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
                     </div>
                 )}
 
-                <div className="p-6 border-t border-base-200 bg-gray-50/50">
-                    <div className="space-y-3">
-                        {setupTotal != null && setupTotal > 0 && (
-                            <div className="flex justify-between items-center">
-                                <p className="text-sm font-medium text-gray-500">One-Time Setup Fees</p>
-                                <p className="text-sm font-semibold text-gray-500">${setupTotal.toFixed(2)}</p>
+                {(showPricingSummary || footerAction) && (
+                    <div className="p-6 border-t border-base-200 bg-gray-50/50">
+                        {showPricingSummary && (
+                            <div className="space-y-3">
+                                {setupTotal != null && setupTotal > 0 && (
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-sm font-medium text-gray-500">One-Time Setup Fees</p>
+                                        <p className="text-sm font-semibold text-gray-500">${setupTotal.toFixed(2)}</p>
+                                    </div>
+                                )}
+                                <div className="flex justify-between items-baseline">
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Monthly Bill</h3>
+                                    <p className="text-4xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
+                                </div>
                             </div>
                         )}
-                        <div className="flex justify-between items-baseline">
-                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Monthly Bill</h3>
-                            <p className="text-4xl font-black text-primary">${monthlyTotal.toFixed(2)}</p>
-                        </div>
+                        {footerAction && <div className={showPricingSummary ? "mt-4" : ""}>{footerAction}</div>}
                     </div>
-                    {footerAction && <div className="mt-4">{footerAction}</div>}
-                </div>
+                )}
             </Card>
         </div>
     );

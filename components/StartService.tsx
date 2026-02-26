@@ -636,6 +636,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     totalBaseServiceCans={totalBaseServiceCans}
                     monthlyTotal={monthlyTotal}
                     setupTotal={setupTotal}
+                    showPricingSummary={false}
                     footerAction={
                         <div className="flex justify-between gap-3">
                             <Button type="button" variant="secondary" className="rounded-xl px-6 font-black uppercase tracking-widest text-[10px]" onClick={handleBack}>Back</Button>
