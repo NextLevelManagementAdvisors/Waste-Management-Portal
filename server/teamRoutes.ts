@@ -890,10 +890,13 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // Driver marks an assigned job as completed. Accepts optional notes and
+  // auto-creates a driver_pay expense record so payroll stays in sync.
   app.post('/api/team/jobs/:jobId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const jobId = req.params.jobId;
       const driverId = res.locals.driverProfile.id;
+      const { notes } = req.body || {};
 
       const job = await storage.getJobById(jobId);
       if (!job) {
@@ -908,12 +911,34 @@ export function registerTeamRoutes(app: Express) {
         return res.status(400).json({ error: 'Job cannot be completed in its current status' });
       }
 
-      await storage.updateJob(jobId, { status: 'completed' });
+      await storage.updateJob(jobId, {
+        status: 'completed',
+        ...(notes ? { notes: job.notes ? `${job.notes}\n\nDriver notes: ${notes}` : `Driver notes: ${notes}` } : {}),
+      });
 
       const driver = await storage.getDriverById(driverId);
       await storage.updateDriver(driverId, {
         total_jobs_completed: (driver.total_jobs_completed || 0) + 1,
       });
+
+      // Auto-sync driver pay expense
+      const pay = job.base_pay ? parseFloat(job.base_pay) : 0;
+      if (pay > 0) {
+        try {
+          const { expenseRepo } = await import('./repositories/ExpenseRepository');
+          await expenseRepo.create({
+            category: 'driver_pay',
+            description: `Driver pay for: ${job.title}`,
+            amount: pay,
+            expenseDate: job.scheduled_date || new Date().toISOString().split('T')[0],
+            referenceId: jobId,
+            referenceType: 'route_job',
+            createdBy: null as any,
+          });
+        } catch (e) {
+          console.error('Failed to auto-sync driver pay expense on team completion:', e);
+        }
+      }
 
       res.json({ success: true });
     } catch (error: any) {

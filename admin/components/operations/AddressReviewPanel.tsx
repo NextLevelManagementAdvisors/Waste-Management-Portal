@@ -37,6 +37,8 @@ const AddressReviewPanel: React.FC = () => {
   const [denyingId, setDenyingId] = useState<string | null>(null);
   const [denyNotes, setDenyNotes] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   const fetchProperties = async () => {
     setLoading(true);
@@ -45,6 +47,7 @@ const AddressReviewPanel: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setProperties(data.properties);
+        setSelected(new Set());
       }
     } catch (e) {
       console.error('Failed to load pending reviews:', e);
@@ -54,6 +57,51 @@ const AddressReviewPanel: React.FC = () => {
   };
 
   useEffect(() => { fetchProperties(); }, []);
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === properties.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(properties.map(p => p.id)));
+    }
+  };
+
+  const bulkDecision = async (decision: 'approved' | 'denied') => {
+    if (selected.size === 0) return;
+    setBulkProcessing(true);
+    try {
+      const res = await fetch('/api/admin/address-reviews/bulk-decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ propertyIds: Array.from(selected), decision }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Remove successfully processed properties
+        const succeededIds = new Set(data.results.filter((r: any) => r.success).map((r: any) => r.id));
+        setProperties(prev => prev.filter(p => !succeededIds.has(p.id)));
+        setSelected(new Set());
+        setFeasibilityResults(prev => {
+          const next = { ...prev };
+          succeededIds.forEach((id: string) => delete next[id]);
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error('Bulk decision failed:', e);
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
 
   const checkFeasibility = async (propertyId: string) => {
     setCheckingId(propertyId);
@@ -89,6 +137,11 @@ const AddressReviewPanel: React.FC = () => {
           delete next[propertyId];
           return next;
         });
+        setSelected(prev => {
+          const next = new Set(prev);
+          next.delete(propertyId);
+          return next;
+        });
         setDenyingId(null);
         setDenyNotes('');
       }
@@ -116,17 +169,44 @@ const AddressReviewPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <Button onClick={fetchProperties}>Refresh</Button>
         <p className="text-sm text-gray-500">
           {properties.length} address{properties.length !== 1 ? 'es' : ''} pending review
         </p>
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-sm font-bold text-teal-700">{selected.size} selected</span>
+            <button
+              onClick={() => bulkDecision('approved')}
+              disabled={bulkProcessing}
+              className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {bulkProcessing ? 'Processing...' : 'Approve All'}
+            </button>
+            <button
+              onClick={() => bulkDecision('denied')}
+              disabled={bulkProcessing}
+              className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              Deny All
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50">
+              <th className="px-3 py-2 text-left">
+                <input
+                  type="checkbox"
+                  checked={selected.size === properties.length && properties.length > 0}
+                  onChange={toggleSelectAll}
+                  className="rounded border-gray-300"
+                />
+              </th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Address</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Customer</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Type</th>
@@ -146,6 +226,14 @@ const AddressReviewPanel: React.FC = () => {
               return (
                 <React.Fragment key={prop.id}>
                   <tr className="border-t border-gray-100">
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(prop.id)}
+                        onChange={() => toggleSelect(prop.id)}
+                        className="rounded border-gray-300"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-bold text-gray-900 max-w-[250px] truncate">{prop.address}</p>
                       {prop.notes && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[250px]">{prop.notes}</p>}
@@ -170,7 +258,7 @@ const AddressReviewPanel: React.FC = () => {
                           {reasonInfo.text}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-gray-300">—</span>
+                        <span className="text-[10px] text-gray-300">&mdash;</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -201,7 +289,7 @@ const AddressReviewPanel: React.FC = () => {
                   </tr>
                   {isDenying && (
                     <tr className="bg-red-50">
-                      <td colSpan={6} className="px-4 py-3">
+                      <td colSpan={7} className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <input
                             type="text"

@@ -82,12 +82,16 @@ const ACCT_TAB_TO_PATH: Record<AccountingTabType, string> = {
   overview: '/admin/accounting',
   income: '/admin/accounting/income',
   expenses: '/admin/accounting/expenses',
-  invoices: '/admin/accounting/invoices',
-  'customer-billing': '/admin/accounting/customer-billing',
 };
-const ACCT_PATH_TO_TAB: Record<string, AccountingTabType> = Object.fromEntries(
-  Object.entries(ACCT_TAB_TO_PATH).map(([tab, path]) => [path, tab as AccountingTabType])
-) as Record<string, AccountingTabType>;
+const ACCT_PATH_TO_TAB: Record<string, AccountingTabType> = {
+  '/admin/accounting': 'overview',
+  '/admin/accounting/income': 'income',
+  '/admin/accounting/expenses': 'expenses',
+  // Backward compat: old tab paths → new parent tabs
+  '/admin/accounting/invoices': 'income',
+  '/admin/accounting/customer-billing': 'income',
+  '/admin/accounting/driver-pay': 'expenses',
+};
 
 function parseAdminPath(pathname: string): { view: AdminView; personId: string | null; opsTab: OpsTabType | null; settingsTab: SettingsTabType | null; commsTab: CommsTabType | null; acctTab: AccountingTabType | null } {
   const normalized = pathname.replace(/\/+$/, '') || '/admin';
@@ -130,9 +134,9 @@ function parseAdminPath(pathname: string): { view: AdminView; personId: string |
   if (normalized.startsWith('/admin/accounting')) {
     return { ...base, view: 'accounting', acctTab: ACCT_PATH_TO_TAB[normalized] || 'overview' };
   }
-  // Backward compat: /admin/billing → accounting/customer-billing
+  // Backward compat: /admin/billing → accounting/income
   if (normalized.startsWith('/admin/billing')) {
-    return { ...base, view: 'accounting', acctTab: 'customer-billing' };
+    return { ...base, view: 'accounting', acctTab: 'income' };
   }
   return { ...base, view: PATH_TO_VIEW[normalized] || 'dashboard' };
 }

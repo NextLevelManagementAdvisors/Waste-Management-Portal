@@ -697,6 +697,26 @@ export function registerAdminRoutes(app: Express) {
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
+
+      // Enforce job lifecycle: prevent invalid status jumps (e.g. draft→completed)
+      if (status && status !== existing.status) {
+        const VALID_TRANSITIONS: Record<string, string[]> = {
+          draft: ['open', 'cancelled'],
+          open: ['assigned', 'cancelled'],
+          bidding: ['assigned', 'cancelled'],
+          assigned: ['in_progress', 'open', 'cancelled'],
+          in_progress: ['completed', 'assigned'],
+          completed: [],  // terminal state
+          cancelled: ['draft'],  // can reopen as draft
+        };
+        const allowed = VALID_TRANSITIONS[existing.status] || [];
+        if (!allowed.includes(status)) {
+          return res.status(400).json({
+            error: `Cannot transition from "${existing.status}" to "${status}". Allowed: ${allowed.join(', ') || 'none'}`,
+          });
+        }
+      }
+
       const updated = await storage.updateJob(jobId, {
         title, description, area, scheduled_date, start_time, end_time,
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
@@ -855,6 +875,36 @@ export function registerAdminRoutes(app: Express) {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete zone' });
+    }
+  });
+
+  // Bulk-assign (or unassign) a service zone to multiple properties at once
+  app.put('/api/admin/properties/bulk-zone', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { propertyIds, zoneId } = req.body;
+      if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+        return res.status(400).json({ error: 'propertyIds must be a non-empty array' });
+      }
+      // zoneId can be null to unassign
+      if (zoneId) {
+        const zone = await storage.getZoneById(zoneId);
+        if (!zone) return res.status(404).json({ error: 'Zone not found' });
+      }
+
+      const result = await pool.query(
+        `UPDATE properties SET zone_id = $1, updated_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id`,
+        [zoneId || null, propertyIds]
+      );
+
+      await audit(req, 'bulk_zone_assign', 'property', null as any, {
+        zoneId: zoneId || 'unassigned',
+        propertyCount: result.rowCount,
+      });
+
+      res.json({ updated: result.rowCount });
+    } catch (error) {
+      console.error('Bulk zone assign error:', error);
+      res.status(500).json({ error: 'Failed to assign zones' });
     }
   });
 
@@ -1037,6 +1087,91 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Admin bids error:', error);
       res.status(500).json({ error: 'Failed to fetch bids' });
+    }
+  });
+
+  // ── Driver Payment Tracking ──
+  // Lists completed jobs with assigned drivers and their payment status.
+  // Used by the Expenses > Driver Pay tab in the admin accounting view.
+
+  app.get('/api/admin/driver-payments', requireAdmin, requirePermission('billing.read'), async (req: Request, res: Response) => {
+    try {
+      const { payment_status, driver_id, date_from, date_to } = req.query;
+      const conditions: string[] = [`rj.status = 'completed'`, `rj.assigned_driver_id IS NOT NULL`];
+      const params: any[] = [];
+      let idx = 1;
+      if (payment_status) { conditions.push(`rj.payment_status = $${idx++}`); params.push(payment_status); }
+      if (driver_id) { conditions.push(`rj.assigned_driver_id = $${idx++}`); params.push(driver_id); }
+      if (date_from) { conditions.push(`rj.scheduled_date >= $${idx++}`); params.push(date_from); }
+      if (date_to) { conditions.push(`rj.scheduled_date <= $${idx++}`); params.push(date_to); }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const result = await pool.query(
+        `SELECT rj.id, rj.title, rj.scheduled_date, rj.base_pay, rj.actual_pay,
+                rj.payment_status, rj.assigned_driver_id, rj.status,
+                d.name AS driver_name, d.stripe_connect_account_id AS driver_stripe_id
+         FROM route_jobs rj
+         LEFT JOIN driver_profiles d ON rj.assigned_driver_id = d.id
+         ${where}
+         ORDER BY rj.scheduled_date DESC`,
+        params
+      );
+
+      // Summary stats
+      const summaryResult = await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE payment_status = 'unpaid')::int AS unpaid_count,
+           COUNT(*) FILTER (WHERE payment_status = 'paid')::int AS paid_count,
+           COALESCE(SUM(COALESCE(actual_pay, base_pay)) FILTER (WHERE payment_status = 'unpaid'), 0)::numeric AS unpaid_total,
+           COALESCE(SUM(COALESCE(actual_pay, base_pay)) FILTER (WHERE payment_status = 'paid'), 0)::numeric AS paid_total
+         FROM route_jobs
+         WHERE status = 'completed' AND assigned_driver_id IS NOT NULL`
+      );
+
+      res.json({
+        jobs: result.rows.map((j: any) => ({
+          id: j.id,
+          title: j.title,
+          scheduledDate: j.scheduled_date,
+          basePay: j.base_pay ? Number(j.base_pay) : null,
+          actualPay: j.actual_pay ? Number(j.actual_pay) : null,
+          paymentStatus: j.payment_status || 'unpaid',
+          driverId: j.assigned_driver_id,
+          driverName: j.driver_name,
+          driverStripeId: j.driver_stripe_id,
+        })),
+        summary: {
+          unpaidCount: summaryResult.rows[0]?.unpaid_count || 0,
+          paidCount: summaryResult.rows[0]?.paid_count || 0,
+          unpaidTotal: Number(summaryResult.rows[0]?.unpaid_total || 0),
+          paidTotal: Number(summaryResult.rows[0]?.paid_total || 0),
+        },
+      });
+    } catch (error) {
+      console.error('Driver payments error:', error);
+      res.status(500).json({ error: 'Failed to fetch driver payments' });
+    }
+  });
+
+  // Update a job's payment status (unpaid → processing → paid) for driver payroll tracking
+  app.put('/api/admin/jobs/:id/payment-status', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
+    try {
+      const { payment_status, actual_pay } = req.body;
+      if (!payment_status || !['unpaid', 'paid', 'processing'].includes(payment_status)) {
+        return res.status(400).json({ error: 'payment_status must be unpaid, processing, or paid' });
+      }
+      const job = await storage.getJobById(req.params.id as string);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+
+      const updated = await storage.updateJob(req.params.id as string, {
+        payment_status,
+        ...(actual_pay !== undefined ? { actual_pay: parseFloat(actual_pay) } : {}),
+      });
+      await audit(req, 'update_payment_status', 'route_job', req.params.id as string, { payment_status, actual_pay });
+      res.json({ job: updated });
+    } catch (error) {
+      console.error('Update payment status error:', error);
+      res.status(500).json({ error: 'Failed to update payment status' });
     }
   });
 
@@ -1687,6 +1822,102 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Bulk approve/deny multiple pending addresses in one request.
+  // Each property is processed in its own transaction with row-level locking.
+  // On approval: creates Stripe subscriptions + notifies customer.
+  app.post('/api/admin/address-reviews/bulk-decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { propertyIds, decision, notes } = req.body;
+      if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+        return res.status(400).json({ error: 'propertyIds must be a non-empty array' });
+      }
+      if (!decision || !['approved', 'denied'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be approved or denied' });
+      }
+
+      const results: { id: string; success: boolean; error?: string }[] = [];
+      for (const propertyId of propertyIds) {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const lockResult = await client.query('SELECT * FROM properties WHERE id = $1 FOR UPDATE', [propertyId]);
+          const property = lockResult.rows[0];
+          if (!property) {
+            await client.query('ROLLBACK');
+            results.push({ id: propertyId, success: false, error: 'Not found' });
+            continue;
+          }
+          if (property.service_status === 'approved' || property.service_status === 'denied') {
+            await client.query('ROLLBACK');
+            results.push({ id: propertyId, success: false, error: `Already ${property.service_status}` });
+            continue;
+          }
+
+          await client.query(
+            `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
+            [decision, notes || null, propertyId]
+          );
+          const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          const pendingSelections = selResult.rows;
+          await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          await client.query('COMMIT');
+
+          await audit(req, `address_review_${decision}`, 'property', propertyId, { notes, bulk: true });
+
+          // Create subscriptions on approval
+          if (decision === 'approved' && pendingSelections.length > 0) {
+            try {
+              const stripe = await getUncachableStripeClient();
+              const user = await storage.getUserById(property.user_id);
+              if (user?.stripe_customer_id) {
+                const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
+                const productMap = new Map(products.data.map((p: any) => [p.id, p]));
+                for (const sel of pendingSelections) {
+                  const product = productMap.get(sel.service_id);
+                  if (product?.default_price?.id) {
+                    await stripe.subscriptions.create({
+                      customer: user.stripe_customer_id,
+                      items: [{ price: product.default_price.id, quantity: sel.quantity }],
+                      metadata: { propertyId, equipmentType: sel.use_sticker ? 'own_can' : 'rental' },
+                      payment_behavior: 'allow_incomplete',
+                    });
+                  }
+                }
+              }
+            } catch (subError: any) {
+              console.error(`Bulk: Failed to create subscriptions for ${propertyId}:`, subError);
+              audit(req, 'subscription_creation_failed', 'property', propertyId, {
+                error: subError?.message || 'Unknown error',
+                pendingSelections: pendingSelections.length,
+              }).catch(() => {});
+            }
+          }
+
+          // Notify customer
+          const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
+          const details = decision === 'approved'
+            ? `Great news! Your address at ${property.address} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`
+            : `Your address at ${property.address} has been reviewed and unfortunately we are unable to service this location at this time.${notes ? ` Note: ${notes}` : ''} Please contact us if you have any questions.`;
+          sendServiceUpdate(property.user_id, updateType, details).catch(() => {});
+
+          results.push({ id: propertyId, success: true });
+        } catch (txErr) {
+          await client.query('ROLLBACK');
+          results.push({ id: propertyId, success: false, error: 'Transaction failed' });
+        } finally {
+          client.release();
+        }
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ results, succeeded, failed });
+    } catch (error) {
+      console.error('Bulk address review error:', error);
+      res.status(500).json({ error: 'Failed to process bulk review' });
+    }
+  });
+
   app.post('/api/admin/address-reviews/:propertyId/check-feasibility', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const propertyId = req.params.propertyId as string;
@@ -1768,6 +1999,10 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: 'decision must be approved or denied' });
       }
 
+      // Hoist for notification after connection is released
+      let notifyUserId: string | undefined;
+      let notifyAddress: string | undefined;
+
       // Use a dedicated connection with FOR UPDATE to prevent double-approval race condition
       const client = await pool.connect();
       try {
@@ -1778,6 +2013,9 @@ export function registerAdminRoutes(app: Express) {
           await client.query('ROLLBACK');
           return res.status(404).json({ error: 'Property not found' });
         }
+        notifyUserId = property.user_id;
+        notifyAddress = property.address;
+
         // Prevent re-processing if already decided
         if (property.service_status === 'approved' || property.service_status === 'denied') {
           await client.query('ROLLBACK');
@@ -1821,9 +2059,14 @@ export function registerAdminRoutes(app: Express) {
                 }
               }
             }
-          } catch (subError) {
+          } catch (subError: any) {
             console.error('Failed to create subscriptions on approval:', subError);
             // Don't fail the approval — subscriptions can be manually created
+            // But DO log it so admins can see the failure
+            audit(req, 'subscription_creation_failed', 'property', propertyId, {
+              error: subError?.message || 'Unknown error',
+              pendingSelections: pendingSelections.length,
+            }).catch(() => {});
           }
         }
       } catch (txErr) {
@@ -1833,9 +2076,16 @@ export function registerAdminRoutes(app: Express) {
         client.release();
       }
 
-      // TODO: Send notification to customer when notification system is ready
-      // await sendServiceUpdate(property.user_id, 'Address Review Update',
-      //   `Your address at ${property.address} has been ${decision}.`);
+      // Notify customer of address review decision (fire-and-forget)
+      if (notifyUserId) {
+        const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
+        const details = decision === 'approved'
+          ? `Great news! Your address at ${notifyAddress} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`
+          : `Your address at ${notifyAddress} has been reviewed and unfortunately we are unable to service this location at this time.${notes ? ` Note: ${notes}` : ''} Please contact us if you have any questions.`;
+        sendServiceUpdate(notifyUserId, updateType, details).catch(err => {
+          console.error('Failed to send address review notification:', err);
+        });
+      }
 
       res.json({ success: true });
     } catch (error) {
