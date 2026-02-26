@@ -62,6 +62,21 @@ const SECTIONS: SectionConfig[] = [
     guide: 'gmail', // rendered dynamically based on gmailMode
   },
   {
+    category: 'google_sso',
+    title: 'Google SSO (Sign-In)',
+    description: 'Google sign-in for customer and team login pages',
+    guide: (
+      <div className="space-y-2">
+        <p>Google SSO uses the same OAuth credentials configured in the <strong>Gmail</strong> section above.</p>
+        <ul className="list-disc list-inside space-y-1">
+          <li>Ensure <strong>OAuth Client ID</strong> and <strong>Client Secret</strong> are configured in the Gmail section</li>
+          <li>The toggle below enables or disables the "Sign in with Google" buttons on login pages</li>
+          <li>When disabled, users must use email/password to sign in</li>
+        </ul>
+      </div>
+    ),
+  },
+  {
     category: 'google_maps',
     title: 'Google Maps',
     description: 'Address autocomplete and geocoding',
@@ -120,6 +135,7 @@ const IntegrationsPanel: React.FC = () => {
   const [testingOne, setTestingOne] = useState<string | null>(null);
   const [gmailMode, setGmailMode] = useState<'oauth' | 'service_account'>('oauth');
   const [gmailAuthorizing, setGmailAuthorizing] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(true);
 
   const fetchSettings = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -152,6 +168,19 @@ const IntegrationsPanel: React.FC = () => {
     const hasOAuth = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••');
     if (hasServiceAcct && !hasOAuth) setGmailMode('service_account');
     else if (hasOAuth) setGmailMode('oauth');
+  }, [settings]);
+
+  // Read SSO enabled state from settings
+  useEffect(() => {
+    const ssoSetting = settings.find(s => s.key === 'GOOGLE_SSO_ENABLED');
+    if (ssoSetting?.value === 'true' || ssoSetting?.value === 'false') {
+      setSsoEnabled(ssoSetting.value === 'true');
+    } else {
+      // No explicit setting — default to enabled if credentials exist
+      const hasCreds = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••')
+        && settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_SECRET' && s.value && s.value !== '••••');
+      setSsoEnabled(hasCreds);
+    }
   }, [settings]);
 
   // Handle gmail_auth callback param from OAuth redirect
@@ -307,6 +336,33 @@ const IntegrationsPanel: React.FC = () => {
     }
   };
 
+  const handleSsoToggle = async () => {
+    const newValue = !ssoEnabled;
+    setSsoEnabled(newValue);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ key: 'GOOGLE_SSO_ENABLED', value: String(newValue) }),
+      });
+      if (!res.ok) {
+        setSsoEnabled(!newValue);
+        const data = await res.json().catch(() => ({}));
+        setError(`Failed to update SSO setting: ${data.error || res.statusText}`);
+        setTimeout(() => setError(null), 5000);
+        return;
+      }
+      setSuccessMsg(`Google SSO ${newValue ? 'enabled' : 'disabled'}`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+      await fetchSettings(true);
+    } catch {
+      setSsoEnabled(!newValue);
+      setError('Failed to update SSO setting — network error');
+      setTimeout(() => setError(null), 5000);
+    }
+  };
+
   const gmailHasClientCreds = settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_ID' && s.value && s.value !== '••••')
     && settings.some(s => s.key === 'GOOGLE_OAUTH_CLIENT_SECRET' && s.value && s.value !== '••••');
   const gmailHasRefreshToken = settings.some(s => s.key === 'GMAIL_REFRESH_TOKEN' && s.value && s.value !== '••••');
@@ -319,6 +375,10 @@ const IntegrationsPanel: React.FC = () => {
     if (category === 'gmail') {
       const visibleKeys = gmailMode === 'oauth' ? GMAIL_OAUTH_KEYS : GMAIL_SA_KEYS;
       filtered = filtered.filter(s => s.key !== 'GMAIL_AUTH_MODE' && visibleKeys.includes(s.key));
+    }
+    // SSO toggle is rendered separately, hide from text fields
+    if (category === 'google_sso') {
+      filtered = filtered.filter(s => s.key !== 'GOOGLE_SSO_ENABLED');
     }
     return filtered;
   };
@@ -359,7 +419,7 @@ const IntegrationsPanel: React.FC = () => {
 
       {SECTIONS.map(section => {
         const sectionSettings = getSettingsForCategory(section.category);
-        if (sectionSettings.length === 0) return null;
+        if (sectionSettings.length === 0 && section.category !== 'google_sso') return null;
         const guideOpen = openGuide === section.category;
 
         return (
@@ -541,6 +601,35 @@ const IntegrationsPanel: React.FC = () => {
                     >
                       {gmailAuthorizing ? 'Redirecting...' : gmailHasRefreshToken ? 'Re-authorize' : 'Authorize Gmail'}
                     </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {section.category === 'google_sso' && (
+              <div className="mb-4 space-y-3">
+                <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Google Sign-In</p>
+                    <p className="text-xs text-gray-500">
+                      {gmailHasClientCreds
+                        ? 'OAuth credentials are configured. Toggle to enable/disable SSO on login pages.'
+                        : 'OAuth credentials are not configured. Set them in the Gmail section first.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    title={ssoEnabled ? 'Disable Google SSO' : 'Enable Google SSO'}
+                    onClick={handleSsoToggle}
+                    disabled={!gmailHasClientCreds || saving}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${ssoEnabled ? 'bg-teal-600' : 'bg-gray-200'}`}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${ssoEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+                {!gmailHasClientCreds && (
+                  <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                    Configure OAuth Client ID and Client Secret in the Gmail section to enable Google SSO.
                   </div>
                 )}
               </div>

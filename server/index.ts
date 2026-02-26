@@ -167,6 +167,37 @@ registerCommunicationRoutes(app);
 const { processScheduledMessages } = await import('./notificationService');
 setInterval(processScheduledMessages, 60_000);
 
+// OptimoRoute automated daily sync — checks every 5 min, runs once per day after SYNC_HOUR
+{
+  const { runAutomatedSync } = await import('./optimoSyncService');
+  const { storage: syncStorage } = await import('./storage');
+  const SYNC_CHECK_INTERVAL = 5 * 60 * 1000;
+  const SYNC_HOUR = parseInt(process.env.OPTIMO_SYNC_HOUR || '6', 10);
+  const SYNC_ENABLED = (process.env.OPTIMO_SYNC_ENABLED || 'true') !== 'false';
+  let syncRunning = false;
+
+  async function checkAndRunSync() {
+    if (!SYNC_ENABLED || syncRunning) return;
+    try {
+      const now = new Date();
+      if (now.getHours() < SYNC_HOUR) return;
+      const alreadyRan = await syncStorage.hasSyncRunToday();
+      if (alreadyRan) return;
+
+      syncRunning = true;
+      console.log(`[OptimoSync] Starting daily automated sync at ${now.toISOString()}`);
+      const result = await runAutomatedSync('scheduled');
+      console.log(`[OptimoSync] Completed: ${result.ordersCreated} created, ${result.ordersSkipped} skipped, ${result.ordersErrored} errors, ${result.ordersDeleted} deleted`);
+    } catch (error: any) {
+      console.error('[OptimoSync] Automated sync failed:', error.message);
+    } finally {
+      syncRunning = false;
+    }
+  }
+
+  setInterval(checkAndRunSync, SYNC_CHECK_INTERVAL);
+}
+
 app.use('/api/team/auth/login', authRateLimit);
 app.use('/api/team/auth/register', authRateLimit);
 const { registerTeamRoutes } = await import('./teamRoutes');

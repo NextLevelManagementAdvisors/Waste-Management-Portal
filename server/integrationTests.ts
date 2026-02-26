@@ -168,12 +168,31 @@ async function testAppConfig(): Promise<IntegrationTestResult> {
   });
 }
 
+async function testGoogleSso(): Promise<IntegrationTestResult> {
+  return timed(async () => {
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return { status: 'not_configured', message: 'Missing OAuth credentials (configure in Gmail section)' };
+    }
+    if (process.env.GOOGLE_SSO_ENABLED === 'false') {
+      return { status: 'not_configured', message: 'Google SSO is disabled' };
+    }
+    const res = await fetch('https://accounts.google.com/.well-known/openid-configuration');
+    if (!res.ok) {
+      return { status: 'error', message: 'Cannot reach Google OpenID discovery endpoint' };
+    }
+    return { status: 'connected', message: 'OAuth credentials configured, SSO enabled' };
+  });
+}
+
 // ── Orchestrator ──
 
 const TEST_MAP: Record<string, () => Promise<IntegrationTestResult>> = {
   twilio: testTwilio,
   stripe: testStripe,
   gmail: testGmail,
+  google_sso: testGoogleSso,
   google_maps: testGoogleMaps,
   optimoroute: testOptimoRoute,
   gemini: testGemini,

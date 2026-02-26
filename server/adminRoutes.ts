@@ -1572,6 +1572,7 @@ export function registerAdminRoutes(app: Express) {
     GEMINI_API_KEY:           { category: 'gemini', isSecret: true,  label: 'API Key' },
     APP_DOMAIN:               { category: 'app', isSecret: false, label: 'App Domain' },
     CORS_ORIGIN:              { category: 'app', isSecret: false, label: 'CORS Origin' },
+    GOOGLE_SSO_ENABLED:       { category: 'google_sso', isSecret: false, label: 'Enable Google Sign-In' },
   };
 
   app.get('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {

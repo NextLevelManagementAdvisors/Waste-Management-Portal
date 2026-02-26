@@ -27,6 +27,160 @@ const roleBadge = (role: string) => {
   );
 };
 
+// ── Pickup Schedule Editor (per-property) ──
+
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const FREQUENCIES = ['weekly', 'bi-weekly', 'monthly'];
+
+const PropertyPickupEditor: React.FC<{
+  property: any;
+  onSaved: (updated: any) => void;
+}> = ({ property, onSaved }) => {
+  const [editing, setEditing] = useState(false);
+  const [day, setDay] = useState(property.pickup_day || '');
+  const [freq, setFreq] = useState(property.pickup_frequency || 'weekly');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/admin/properties/${property.id}/pickup-schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pickup_day: day || null, pickup_frequency: freq }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Failed to save');
+        return;
+      }
+      const data = await res.json();
+      onSaved(data.property);
+      setEditing(false);
+    } catch {
+      setError('Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Pickup:</span>
+          {property.pickup_day ? (
+            <>
+              <span className="text-xs font-bold text-gray-700 capitalize">{property.pickup_day}</span>
+              <span className="text-xs text-gray-400">({property.pickup_frequency || 'weekly'})</span>
+              <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                property.pickup_day_source === 'manual' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
+              }`}>
+                {property.pickup_day_source === 'manual' ? 'Manual' : 'Auto-detected'}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-gray-400 italic">Not set</span>
+          )}
+        </div>
+        <button onClick={() => setEditing(true)} className="text-xs text-teal-600 hover:text-teal-700 font-bold">
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
+      <div className="flex items-center gap-3">
+        <div>
+          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Pickup Day</label>
+          <select
+            value={day}
+            onChange={e => setDay(e.target.value)}
+            className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <option value="">Not set</option>
+            {DAYS.map(d => (
+              <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Frequency</label>
+          <select
+            value={freq}
+            onChange={e => setFreq(e.target.value)}
+            className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            {FREQUENCIES.map(f => (
+              <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-end gap-2 pb-0.5">
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setError(''); }} disabled={saving}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+};
+
+const PropertyTabContent: React.FC<{
+  properties: any[];
+  personId: string;
+  onPersonUpdated: (updated: any) => void;
+}> = ({ properties, personId, onPersonUpdated }) => {
+  const [localProps, setLocalProps] = useState(properties);
+
+  const handlePickupSaved = (propId: string, updated: any) => {
+    setLocalProps(prev => prev.map(p =>
+      p.id === propId ? { ...p, ...updated } : p
+    ));
+  };
+
+  if (localProps.length === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <p className="text-gray-400">No properties registered</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {localProps.map((p: any) => (
+        <Card key={p.id} className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-gray-900">{p.address}</p>
+              <p className="text-sm text-gray-500">
+                {p.service_type}
+                {p.in_hoa && ' | HOA'}
+                {p.community_name && ` | ${p.community_name}`}
+              </p>
+            </div>
+            <StatusBadge status={p.transfer_status || 'active'} />
+          </div>
+          <PropertyPickupEditor
+            property={p}
+            onSaved={(updated) => handlePickupSaved(p.id, updated)}
+          />
+        </Card>
+      ))}
+    </div>
+  );
+};
+
 type TabKey = 'overview' | 'properties' | 'driver' | 'activity' | 'communications';
 
 const PersonDetail: React.FC<{
@@ -432,29 +586,7 @@ const PersonDetail: React.FC<{
       )}
 
       {activeTab === 'properties' && (
-        <div className="space-y-4">
-          {(person.properties || []).length === 0 ? (
-            <Card className="p-8 text-center">
-              <p className="text-gray-400">No properties registered</p>
-            </Card>
-          ) : (
-            (person.properties || []).map((p: any) => (
-              <Card key={p.id} className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-gray-900">{p.address}</p>
-                    <p className="text-sm text-gray-500">
-                      {p.service_type}
-                      {p.in_hoa && ' | HOA'}
-                      {p.community_name && ` | ${p.community_name}`}
-                    </p>
-                  </div>
-                  <StatusBadge status={p.transfer_status || 'active'} />
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
+        <PropertyTabContent properties={person.properties || []} personId={person.id} onPersonUpdated={onPersonUpdated} />
       )}
 
       {activeTab === 'driver' && person.driverProfile && (

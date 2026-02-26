@@ -46,6 +46,10 @@ export interface DbProperty {
   service_status: string | null;
   service_status_updated_at: string | null;
   service_status_notes: string | null;
+  pickup_frequency: string | null;
+  pickup_day: string | null;
+  pickup_day_detected_at: string | null;
+  pickup_day_source: string | null;
   created_at: string;
   updated_at: string;
 }

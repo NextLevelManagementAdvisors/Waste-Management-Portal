@@ -99,6 +99,14 @@ const App: React.FC = () => {
   const [impersonatedBy, setImpersonatedBy] = useState<string | null>(null);
 
   const [initialLoading, setInitialLoading] = useState(true);
+  const [googleSsoEnabled, setGoogleSsoEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/sso-config')
+      .then(r => r.json())
+      .then(data => setGoogleSsoEnabled(data.googleEnabled))
+      .catch(() => setGoogleSsoEnabled(false));
+  }, []);
 
   const setCurrentView = useCallback((view: View, queryString?: string) => {
     setCurrentViewRaw(view);
@@ -458,9 +466,9 @@ const App: React.FC = () => {
         return (
           <AuthLayout>
             {authView === 'register' ? (
-              <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} prefill={registrationPrefill || undefined} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
+              <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} prefill={registrationPrefill || undefined} onGoogleAuthSuccess={handleGoogleAuthSuccess} googleSsoEnabled={googleSsoEnabled ?? true} />
             ) : (
-              <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} prefillEmail={loginPrefillEmail} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
+              <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} prefillEmail={loginPrefillEmail} onGoogleAuthSuccess={handleGoogleAuthSuccess} googleSsoEnabled={googleSsoEnabled ?? true} />
             )}
           </AuthLayout>
         );
@@ -530,9 +538,9 @@ const App: React.FC = () => {
         ) : authView === 'forgot-password' ? (
             <ForgotPassword switchToLogin={switchToLogin} />
         ) : authView === 'register' ? (
-            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
+            <Registration onRegister={handleRegister} switchToLogin={switchToLogin} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} googleSsoEnabled={googleSsoEnabled ?? true} />
         ) : (
-            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} />
+            <Login onLogin={handleLogin} switchToRegister={switchToRegister} switchToForgotPassword={switchToForgotPassword} error={authError} pendingQueryString={pendingDeepLinkQuery} onGoogleAuthSuccess={handleGoogleAuthSuccess} googleSsoEnabled={googleSsoEnabled ?? true} />
         )}
       </AuthLayout>
     );

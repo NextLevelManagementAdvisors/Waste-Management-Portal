@@ -2473,6 +2473,14 @@ const TeamApp: React.FC = () => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [googleSsoEnabled, setGoogleSsoEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/sso-config')
+      .then(r => r.json())
+      .then(data => setGoogleSsoEnabled(data.googleEnabled))
+      .catch(() => setGoogleSsoEnabled(false));
+  }, []);
 
   const setCurrentView = useCallback((view: TeamView) => {
     setCurrentViewRaw(view);
@@ -2593,6 +2601,7 @@ const TeamApp: React.FC = () => {
               setAuthError('');
             }}
             isLoading={authLoading}
+            googleSsoEnabled={googleSsoEnabled ?? true}
           />
         ) : (
           <TeamRegister
@@ -2627,6 +2636,7 @@ const TeamApp: React.FC = () => {
               setAuthError('');
             }}
             isLoading={authLoading}
+            googleSsoEnabled={googleSsoEnabled ?? true}
           />
         )}
       </TeamAuthLayout>

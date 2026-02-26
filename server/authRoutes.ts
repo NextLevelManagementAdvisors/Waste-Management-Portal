@@ -618,10 +618,23 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  // Public endpoint for frontends to check if Google SSO is available
+  app.get('/api/auth/sso-config', (_req: Request, res: Response) => {
+    const hasCredentials = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
+    const ssoEnabled = process.env.GOOGLE_SSO_ENABLED;
+    // Default enabled if credentials exist and no explicit 'false'
+    const googleEnabled = hasCredentials && ssoEnabled !== 'false';
+    res.json({ googleEnabled });
+  });
+
   app.get('/api/auth/google', async (req: Request, res: Response) => {
     try {
       if (!GOOGLE_CLIENT_ID) {
         return res.status(500).json({ error: 'Google OAuth not configured' });
+      }
+
+      if (process.env.GOOGLE_SSO_ENABLED === 'false') {
+        return res.status(403).json({ error: 'Google sign-in is currently disabled' });
       }
 
       const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);

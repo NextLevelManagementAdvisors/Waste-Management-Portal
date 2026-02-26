@@ -1,8 +1,10 @@
 import { type Express, type Request, type Response } from 'express';
 import { requireAdmin } from './adminRoutes';
 import { pool } from './db';
+import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
 import * as optimoSync from './optimoSyncService';
+import { detectAndStorePickupDays } from './pickupDayDetector';
 
 export function registerAdminOptimoRoutes(app: Express) {
   // ── Test Connection ──
@@ -302,6 +304,125 @@ export function registerAdminOptimoRoutes(app: Express) {
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error syncing customer orders:', error);
       res.status(500).json({ error: 'Failed to sync customer orders' });
+    }
+  });
+
+  // ── Automated Sync Management ──
+  // Status, history, manual trigger, pickup-day detection, and per-property schedule editing
+
+  // GET /api/admin/optimoroute/sync/status — last sync info + next run time
+  app.get('/api/admin/optimoroute/sync/status', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const latest = await storage.getLatestSyncLog();
+      const syncHour = parseInt(process.env.OPTIMO_SYNC_HOUR || '6', 10);
+      const syncEnabled = (process.env.OPTIMO_SYNC_ENABLED || 'true') !== 'false';
+
+      // Calculate next run time
+      const now = new Date();
+      const nextRun = new Date(now);
+      if (now.getHours() >= syncHour && latest) {
+        // Already past sync hour — next run is tomorrow
+        nextRun.setDate(nextRun.getDate() + 1);
+      }
+      nextRun.setHours(syncHour, 0, 0, 0);
+
+      res.json({
+        enabled: syncEnabled,
+        syncHour,
+        nextRunAt: nextRun.toISOString(),
+        lastRun: latest || null,
+      });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error fetching sync status:', error);
+      res.status(500).json({ error: 'Failed to fetch sync status' });
+    }
+  });
+
+  // GET /api/admin/optimoroute/sync/history — past sync logs with pagination
+  app.get('/api/admin/optimoroute/sync/history', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      const logs = await storage.getSyncLogHistory(limit);
+      res.json({ logs });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error fetching sync history:', error);
+      res.status(500).json({ error: 'Failed to fetch sync history' });
+    }
+  });
+
+  // POST /api/admin/optimoroute/sync/run — manual trigger
+  app.post('/api/admin/optimoroute/sync/run', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { preview } = req.body;
+      if (preview) {
+        const result = await optimoSync.previewCustomerOrderSync();
+        return res.json(result);
+      }
+      const result = await optimoSync.runAutomatedSync('manual');
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error running manual sync:', error);
+      res.status(500).json({ error: 'Failed to run sync' });
+    }
+  });
+
+  // POST /api/admin/optimoroute/sync/detect-days — manual pickup day detection
+  app.post('/api/admin/optimoroute/sync/detect-days', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await detectAndStorePickupDays();
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error detecting pickup days:', error);
+      res.status(500).json({ error: 'Failed to detect pickup days' });
+    }
+  });
+
+  // PUT /api/admin/properties/:id/pickup-schedule — admin sets pickup day/frequency
+  app.put('/api/admin/properties/:id/pickup-schedule', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { pickup_day, pickup_frequency } = req.body;
+
+      const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const validFreqs = ['weekly', 'bi-weekly', 'monthly'];
+
+      if (pickup_day && !validDays.includes(pickup_day.toLowerCase())) {
+        return res.status(400).json({ error: `Invalid pickup_day. Must be one of: ${validDays.join(', ')}` });
+      }
+      if (pickup_frequency && !validFreqs.includes(pickup_frequency)) {
+        return res.status(400).json({ error: `Invalid pickup_frequency. Must be one of: ${validFreqs.join(', ')}` });
+      }
+
+      const updates: Record<string, any> = {};
+      if (pickup_day !== undefined) {
+        updates.pickup_day = pickup_day ? pickup_day.toLowerCase() : null;
+        updates.pickup_day_source = pickup_day ? 'manual' : null;
+        updates.pickup_day_detected_at = pickup_day ? new Date().toISOString() : null;
+      }
+      if (pickup_frequency !== undefined) {
+        updates.pickup_frequency = pickup_frequency || 'weekly';
+      }
+
+      await storage.updatePropertyPickupSchedule(id, updates);
+
+      // If pickup day was cleared or changed, clean up existing future orders and let next sync recreate
+      if (pickup_day !== undefined) {
+        try {
+          await optimoSync.cleanupFutureOrdersForProperty(id);
+        } catch (err: any) {
+          console.warn(`[Admin OptimoRoute] Cleanup after schedule change failed:`, err.message);
+        }
+      }
+
+      const updated = await pool.query(
+        `SELECT id, pickup_day, pickup_frequency, pickup_day_source, pickup_day_detected_at FROM properties WHERE id = $1`,
+        [id]
+      );
+
+      res.json({ success: true, property: updated.rows[0] || null });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error updating pickup schedule:', error);
+      res.status(500).json({ error: 'Failed to update pickup schedule' });
     }
   });
 }

@@ -377,6 +377,17 @@ export function registerRoutes(app: Express) {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
       const subscription = await stripe.subscriptions.cancel(subId);
+
+      // Clean up future OptimoRoute orders for this property
+      const propertyId = (subscription as any).metadata?.propertyId;
+      if (propertyId) {
+        import('./optimoSyncService').then(({ cleanupFutureOrdersForProperty }) => {
+          cleanupFutureOrdersForProperty(propertyId).catch(err =>
+            console.error(`[OptimoSync] Cancellation cleanup failed for property ${propertyId}:`, err)
+          );
+        });
+      }
+
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error canceling subscription:', error);
@@ -391,6 +402,17 @@ export function registerRoutes(app: Express) {
       const subscription = await stripe.subscriptions.update(subId, {
         pause_collection: { behavior: 'void' },
       });
+
+      // Clean up future OptimoRoute orders while paused
+      const propertyId = (subscription as any).metadata?.propertyId;
+      if (propertyId) {
+        import('./optimoSyncService').then(({ cleanupFutureOrdersForProperty }) => {
+          cleanupFutureOrdersForProperty(propertyId).catch(err =>
+            console.error(`[OptimoSync] Pause cleanup failed for property ${propertyId}:`, err)
+          );
+        });
+      }
+
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error pausing subscription:', error);

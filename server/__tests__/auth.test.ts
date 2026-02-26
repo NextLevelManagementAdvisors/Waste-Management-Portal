@@ -830,3 +830,60 @@ describe('PUT /api/properties/:id/notifications', () => {
     expect((await supertest(createAuthApp()).put('/api/properties/prop-1/notifications').send({ pickupReminders: { email: true } })).status).toBe(403);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SSO Configuration
+// ---------------------------------------------------------------------------
+describe('GET /api/auth/sso-config', () => {
+  it('returns googleEnabled true when credentials exist and SSO not explicitly disabled', async () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-client-secret';
+    delete process.env.GOOGLE_SSO_ENABLED;
+
+    const res = await supertest(createApp()).get('/api/auth/sso-config');
+    expect(res.status).toBe(200);
+    expect(res.body.googleEnabled).toBe(true);
+  });
+
+  it('returns googleEnabled false when SSO explicitly disabled', async () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-client-secret';
+    process.env.GOOGLE_SSO_ENABLED = 'false';
+
+    const res = await supertest(createApp()).get('/api/auth/sso-config');
+    expect(res.status).toBe(200);
+    expect(res.body.googleEnabled).toBe(false);
+  });
+
+  it('returns googleEnabled false when credentials are missing', async () => {
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+    delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    delete process.env.GOOGLE_SSO_ENABLED;
+
+    const res = await supertest(createApp()).get('/api/auth/sso-config');
+    expect(res.status).toBe(200);
+    expect(res.body.googleEnabled).toBe(false);
+  });
+
+  it('returns googleEnabled true when SSO explicitly enabled', async () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-client-secret';
+    process.env.GOOGLE_SSO_ENABLED = 'true';
+
+    const res = await supertest(createApp()).get('/api/auth/sso-config');
+    expect(res.status).toBe(200);
+    expect(res.body.googleEnabled).toBe(true);
+  });
+});
+
+describe('GET /api/auth/google — SSO guard', () => {
+  it('returns 403 when SSO is disabled', async () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-client-secret';
+    process.env.GOOGLE_SSO_ENABLED = 'false';
+
+    const res = await supertest(createApp()).get('/api/auth/google');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/disabled/i);
+  });
+});

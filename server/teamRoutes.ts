@@ -60,6 +60,10 @@ export function registerTeamRoutes(app: Express) {
         return res.status(500).json({ error: 'Google OAuth not configured' });
       }
 
+      if (process.env.GOOGLE_SSO_ENABLED === 'false') {
+        return res.status(403).json({ error: 'Google sign-in is currently disabled' });
+      }
+
       const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
       if (!discoveryRes.ok) {
         return res.status(500).json({ error: 'Failed to reach Google services' });

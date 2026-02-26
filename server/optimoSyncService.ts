@@ -1,5 +1,20 @@
+/**
+ * OptimoRoute Automated Sync Service
+ *
+ * Maintains a rolling 4-week window of pickup orders in OptimoRoute:
+ *  1. Detect/refresh pickup days from completion history (pickupDayDetector)
+ *  2. Generate future pickup dates per property based on day + frequency
+ *  3. Create orders in OptimoRoute with deterministic naming (SYNC-{id}-{date})
+ *  4. Track every order in a local ledger (optimo_sync_orders) for dedup
+ *  5. Clean up orphaned orders when subscriptions are cancelled/paused
+ *
+ * Runs automatically once per day via the scheduler in index.ts, and can be
+ * triggered manually from the admin UI.
+ */
 import { pool } from './db';
+import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
+import { detectAndStorePickupDays } from './pickupDayDetector';
 
 // ── Types ──
 
@@ -17,54 +32,321 @@ interface DriverInfo {
   recentStopAddresses: string[];
 }
 
-// ── Private helpers ──
-
-function getNextBusinessDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
+export interface SyncRunResult {
+  logId: string;
+  propertiesProcessed: number;
+  ordersCreated: number;
+  ordersSkipped: number;
+  ordersErrored: number;
+  ordersDeleted: number;
+  detectionUpdates: number;
 }
 
-async function getPropertiesWithOrderStatus() {
-  const propResult = await pool.query(
-    `SELECT p.id, p.address, p.user_id, u.first_name, u.last_name, u.email,
-            (SELECT COUNT(*) FROM stripe.subscriptions s WHERE s.customer = u.stripe_customer_id AND s.status = 'active') as active_subs
-     FROM properties p
-     JOIN users u ON u.id = p.user_id
-     WHERE p.address IS NOT NULL AND p.address != ''
-       AND u.stripe_customer_id IS NOT NULL
-     ORDER BY u.last_name, u.first_name`
-  );
+// ── Configuration ──
 
-  const properties = propResult.rows.filter((p: any) => parseInt(p.active_subs) > 0);
+const SYNC_WINDOW_DAYS = parseInt(process.env.OPTIMO_SYNC_WINDOW_DAYS || '28', 10);
 
-  const today = new Date().toISOString().split('T')[0];
-  const twoWeeksOut = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+// ── Pickup date generation ──
 
-  const results: any[] = [];
-  for (const prop of properties) {
-    try {
-      const orders = await optimo.findOrdersForAddress(prop.address, today, twoWeeksOut);
-      results.push({
-        property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-        upcomingOrders: orders.length,
-        hasOrders: orders.length > 0,
-      });
-    } catch {
-      results.push({
-        property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-        upcomingOrders: 0,
-        hasOrders: false,
-        error: true,
-      });
+const DAY_MAP: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+};
+
+/**
+ * Generate all future pickup dates within the rolling window based on day + frequency.
+ */
+export function generatePickupDates(
+  pickupDay: string,
+  frequency: string,
+  windowDays: number = SYNC_WINDOW_DAYS,
+  anchorDate?: string
+): string[] {
+  const targetDow = DAY_MAP[pickupDay.toLowerCase()];
+  if (targetDow === undefined) return [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = new Date(today);
+  endDate.setDate(endDate.getDate() + windowDays);
+
+  // Find next occurrence of the target day (starting from tomorrow)
+  const next = new Date(today);
+  next.setDate(next.getDate() + 1);
+  while (next.getDay() !== targetDow) next.setDate(next.getDate() + 1);
+
+  const interval = frequency === 'bi-weekly' ? 14 : frequency === 'monthly' ? 28 : 7;
+
+  // For bi-weekly/monthly: align to anchor date if provided
+  if (interval > 7 && anchorDate) {
+    const anchor = new Date(anchorDate + 'T00:00:00');
+    if (!isNaN(anchor.getTime())) {
+      // Calculate weeks between anchor and next occurrence
+      const diffMs = next.getTime() - anchor.getTime();
+      const diffDays = Math.round(diffMs / 86400000);
+      const remainder = ((diffDays % interval) + interval) % interval;
+      if (remainder !== 0) {
+        next.setDate(next.getDate() + (interval - remainder));
+      }
     }
   }
 
-  return { results, total: results.length };
+  const dates: string[] = [];
+  const cursor = new Date(next);
+  while (cursor <= endDate) {
+    dates.push(cursor.toISOString().split('T')[0]);
+    cursor.setDate(cursor.getDate() + interval);
+  }
+  return dates;
 }
 
-// ── Exported functions ──
+/**
+ * Generate deterministic order number for a property + date.
+ */
+function syncOrderNo(propertyId: string, date: string): string {
+  return `SYNC-${propertyId.substring(0, 8).toUpperCase()}-${date.replace(/-/g, '')}`;
+}
+
+// ── Per-property sync ──
+
+async function syncPropertyOrders(property: any): Promise<{ created: number; skipped: number; errors: string[] }> {
+  if (!property.pickup_day) {
+    return { created: 0, skipped: 1, errors: [] };
+  }
+
+  const dates = generatePickupDates(
+    property.pickup_day,
+    property.pickup_frequency || 'weekly'
+  );
+
+  let created = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const date of dates) {
+    const orderNo = syncOrderNo(property.id, date);
+
+    // Check local ledger for existing active order
+    const existing = await storage.getSyncOrderByOrderNo(orderNo);
+    if (existing && existing.status === 'active') {
+      skipped++;
+      continue;
+    }
+
+    // Check customer skip intent
+    const skipCheck = await pool.query(
+      `SELECT 1 FROM collection_intents WHERE property_id = $1 AND pickup_date = $2 AND intent = 'skip'`,
+      [property.id, date]
+    );
+    if (skipCheck.rows.length > 0) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const customerName = `${property.first_name} ${property.last_name}`;
+      await optimo.createOrder({
+        orderNo,
+        type: 'P',
+        date,
+        address: property.address,
+        locationName: customerName,
+        duration: 10,
+        notes: `Auto-synced | ${property.pickup_frequency || 'weekly'} pickup`,
+      });
+      await storage.createSyncOrder({
+        propertyId: property.id,
+        orderNo,
+        scheduledDate: date,
+      });
+      created++;
+    } catch (err: any) {
+      errors.push(`${orderNo}: ${err.message || 'Unknown error'}`);
+    }
+  }
+
+  return { created, skipped, errors };
+}
+
+// ── Cleanup ──
+
+/**
+ * Delete all future OptimoRoute orders for a property (e.g., after subscription cancellation).
+ */
+export async function cleanupFutureOrdersForProperty(propertyId: string): Promise<{ deleted: number; errors: number }> {
+  const futureOrders = await storage.getFutureSyncOrdersForProperty(propertyId);
+  let deleted = 0;
+  let errors = 0;
+
+  for (const order of futureOrders) {
+    try {
+      await optimo.deleteOrder(order.order_no, true);
+    } catch (err: any) {
+      // Order may already be deleted in OptimoRoute — still mark locally
+      console.warn(`[OptimoSync] Could not delete ${order.order_no} from OptimoRoute:`, err.message);
+    }
+    try {
+      await storage.markSyncOrderDeleted(order.order_no);
+      deleted++;
+    } catch {
+      errors++;
+    }
+  }
+
+  console.log(`[OptimoSync] Cleanup for property ${propertyId}: ${deleted} deleted, ${errors} errors`);
+  return { deleted, errors };
+}
+
+/**
+ * Find and clean up orders for properties that no longer have active subscriptions.
+ */
+async function cleanupOrphanedOrders(): Promise<{ deleted: number; errors: number }> {
+  const orphanedIds = await storage.getOrphanedSyncPropertyIds();
+  let totalDeleted = 0;
+  let totalErrors = 0;
+
+  for (const propertyId of orphanedIds) {
+    const result = await cleanupFutureOrdersForProperty(propertyId);
+    totalDeleted += result.deleted;
+    totalErrors += result.errors;
+  }
+
+  if (orphanedIds.length > 0) {
+    console.log(`[OptimoSync] Orphan cleanup: ${orphanedIds.length} properties, ${totalDeleted} orders deleted`);
+  }
+  return { deleted: totalDeleted, errors: totalErrors };
+}
+
+// ── Main orchestrator ──
+
+/**
+ * Run the full automated sync: detect pickup days, create orders, clean up orphans.
+ */
+export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'scheduled'): Promise<SyncRunResult> {
+  const logId = await storage.createSyncLogEntry(runType);
+
+  try {
+    // Step 1: Detect/update pickup days
+    const detection = await detectAndStorePickupDays();
+
+    // Step 2: Get eligible properties
+    const properties = await storage.getPropertiesForSync();
+
+    // Step 3: Sync orders per property
+    let totalCreated = 0;
+    let totalSkipped = 0;
+    let totalErrored = 0;
+
+    for (const prop of properties) {
+      try {
+        const result = await syncPropertyOrders(prop);
+        totalCreated += result.created;
+        totalSkipped += result.skipped;
+        totalErrored += result.errors.length;
+      } catch (err: any) {
+        totalErrored++;
+        console.error(`[OptimoSync] Error syncing property ${prop.id}:`, err.message);
+      }
+    }
+
+    // Step 4: Clean up orphaned orders
+    const cleanup = await cleanupOrphanedOrders();
+
+    const result: SyncRunResult = {
+      logId,
+      propertiesProcessed: properties.length,
+      ordersCreated: totalCreated,
+      ordersSkipped: totalSkipped,
+      ordersErrored: totalErrored,
+      ordersDeleted: cleanup.deleted,
+      detectionUpdates: detection.updated,
+    };
+
+    await storage.updateSyncLogEntry(logId, {
+      finished_at: new Date().toISOString(),
+      status: 'completed',
+      properties_processed: result.propertiesProcessed,
+      orders_created: result.ordersCreated,
+      orders_skipped: result.ordersSkipped,
+      orders_errored: result.ordersErrored,
+      orders_deleted: result.ordersDeleted,
+      detection_updates: result.detectionUpdates,
+    });
+
+    return result;
+  } catch (error: any) {
+    await storage.updateSyncLogEntry(logId, {
+      finished_at: new Date().toISOString(),
+      status: 'failed',
+      error_message: error.message || 'Unknown error',
+    });
+    throw error;
+  }
+}
+
+// ── Preview (dry-run) ──
+
+/**
+ * Preview what the sync would do without creating any orders.
+ */
+export async function previewCustomerOrderSync() {
+  const properties = await storage.getPropertiesForSync();
+  const preview: any[] = [];
+  let totalWouldCreate = 0;
+  let totalWouldSkip = 0;
+
+  for (const prop of properties) {
+    if (!prop.pickup_day) {
+      preview.push({
+        property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
+        pickupDay: null,
+        frequency: prop.pickup_frequency,
+        dates: [],
+        status: 'no_pickup_day',
+      });
+      totalWouldSkip++;
+      continue;
+    }
+
+    const dates = generatePickupDates(prop.pickup_day, prop.pickup_frequency || 'weekly');
+    const wouldCreate: string[] = [];
+    const alreadyExists: string[] = [];
+
+    for (const date of dates) {
+      const orderNo = syncOrderNo(prop.id, date);
+      const existing = await storage.getSyncOrderByOrderNo(orderNo);
+      if (existing && existing.status === 'active') {
+        alreadyExists.push(date);
+      } else {
+        wouldCreate.push(date);
+      }
+    }
+
+    preview.push({
+      property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
+      pickupDay: prop.pickup_day,
+      frequency: prop.pickup_frequency,
+      dates: wouldCreate,
+      existing: alreadyExists,
+      status: wouldCreate.length > 0 ? 'will_create' : 'up_to_date',
+    });
+
+    totalWouldCreate += wouldCreate.length;
+  }
+
+  return { total: properties.length, wouldCreate: totalWouldCreate, wouldSkip: totalWouldSkip, preview };
+}
+
+/**
+ * Execute customer order sync (calls the full automated sync).
+ */
+export async function executeCustomerOrderSync() {
+  return runAutomatedSync('manual');
+}
+
+// ═══════════════════════════════════════════════════════
+// Driver Sync (unchanged)
+// ═══════════════════════════════════════════════════════
 
 /** Fetch 7 days of OptimoRoute routes and match against local driver_profiles. */
 export async function previewDriverSync() {
@@ -128,8 +410,8 @@ export async function previewDriverSync() {
   const unmatchedOptimo: any[] = [];
   const unmatchedLocal: any[] = [];
 
-  for (const [serial, optimoDriver] of driverMap) {
-    const localMatch = localDrivers.find((d: any) => d.optimoroute_driver_id === serial);
+  for (const [, optimoDriver] of driverMap) {
+    const localMatch = localDrivers.find((d: any) => d.optimoroute_driver_id === optimoDriver.serial);
     if (localMatch) {
       matched.push({ optimoDriver, localDriver: localMatch });
     } else {
@@ -161,49 +443,4 @@ export async function executeDriverSync(
     linked++;
   }
   return { linked };
-}
-
-/** Preview which subscribed properties are missing upcoming OptimoRoute orders. */
-export async function previewCustomerOrderSync() {
-  const { results, total } = await getPropertiesWithOrderStatus();
-  const missing = results.filter((r: any) => !r.hasOrders);
-  return { total, withOrders: total - missing.length, missing };
-}
-
-/** Create OptimoRoute orders for subscribed properties that have none in the next 14 days. */
-export async function executeCustomerOrderSync() {
-  const { results, total } = await getPropertiesWithOrderStatus();
-  const missing = results.filter((r: any) => !r.hasOrders);
-
-  let created = 0;
-  let skipped = 0;
-  for (const item of missing) {
-    if (item.error) continue;
-    try {
-      const nextBusinessDay = getNextBusinessDay();
-
-      // Don't re-create orders the customer has explicitly skipped
-      const skipCheck = await pool.query(
-        `SELECT 1 FROM collection_intents WHERE property_id = $1 AND pickup_date = $2 AND intent = 'skip'`,
-        [item.property.id, nextBusinessDay]
-      );
-      if (skipCheck.rows.length > 0) {
-        skipped++;
-        continue;
-      }
-
-      await optimo.createOrder({
-        orderNo: `SYNC-${item.property.id.substring(0, 8).toUpperCase()}-${Date.now()}`,
-        type: 'P',
-        date: nextBusinessDay,
-        address: item.property.address,
-        locationName: item.property.customer,
-        duration: 10,
-        notes: 'Auto-synced from admin portal',
-      });
-      created++;
-    } catch {}
-  }
-
-  return { total, withOrders: total - missing.length, missing: missing.length, created, skipped };
 }

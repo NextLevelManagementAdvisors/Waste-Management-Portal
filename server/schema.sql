@@ -443,3 +443,41 @@ ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
 ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS assigned_driver_id UUID REFERENCES driver_profiles(id);
 ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
 ALTER TABLE special_pickup_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);
+
+-- Pickup scheduling fields on properties
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_frequency VARCHAR(20) DEFAULT 'weekly';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day VARCHAR(10);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day_detected_at TIMESTAMP;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day_source VARCHAR(20);
+
+-- OptimoRoute sync order ledger (tracks every order the sync system creates)
+CREATE TABLE IF NOT EXISTS optimo_sync_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  order_no VARCHAR(100) NOT NULL UNIQUE,
+  scheduled_date DATE NOT NULL,
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_property ON optimo_sync_orders(property_id);
+CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_date ON optimo_sync_orders(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_order_no ON optimo_sync_orders(order_no);
+
+-- OptimoRoute sync run audit log
+CREATE TABLE IF NOT EXISTS optimo_sync_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_type VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+  started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMP,
+  status VARCHAR(20) DEFAULT 'running',
+  properties_processed INT DEFAULT 0,
+  orders_created INT DEFAULT 0,
+  orders_skipped INT DEFAULT 0,
+  orders_errored INT DEFAULT 0,
+  orders_deleted INT DEFAULT 0,
+  detection_updates INT DEFAULT 0,
+  error_message TEXT,
+  details JSONB DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_optimo_sync_log_started ON optimo_sync_log(started_at DESC);

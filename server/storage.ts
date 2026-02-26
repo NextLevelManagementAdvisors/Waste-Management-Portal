@@ -54,6 +54,10 @@ export interface DbProperty {
   service_status: string | null;
   service_status_updated_at: string | null;
   service_status_notes: string | null;
+  pickup_frequency: string | null;
+  pickup_day: string | null;
+  pickup_day_detected_at: string | null;
+  pickup_day_source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -134,7 +138,7 @@ export class Storage {
   }
 
   async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any }>): Promise<DbProperty> {
-    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner'];
+    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner', 'pickup_frequency', 'pickup_day', 'pickup_day_detected_at', 'pickup_day_source'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1460,6 +1464,153 @@ export class Storage {
       avgBidAmount: parseFloat(row.avg_bid_amount),
       uniqueBidders: parseInt(row.unique_bidders),
     };
+  }
+
+  // ==================== OptimoRoute Sync ====================
+
+  async getPropertiesForSync(): Promise<any[]> {
+    const result = await this.query(
+      `SELECT p.*, u.first_name, u.last_name, u.email, u.stripe_customer_id
+       FROM properties p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.address IS NOT NULL AND p.address != ''
+         AND p.service_status = 'approved'
+         AND u.stripe_customer_id IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM stripe.subscriptions s
+           WHERE s.customer = u.stripe_customer_id AND s.status = 'active'
+         )
+       ORDER BY u.last_name, u.first_name`
+    );
+    return result.rows;
+  }
+
+  async getPropertiesNeedingDayDetection(): Promise<any[]> {
+    const result = await this.query(
+      `SELECT p.*, u.first_name, u.last_name
+       FROM properties p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.address IS NOT NULL AND p.address != ''
+         AND (
+           p.pickup_day IS NULL
+           OR (p.pickup_day_source = 'auto_detected' AND p.pickup_day_detected_at < NOW() - INTERVAL '30 days')
+         )
+         AND (p.pickup_day_source IS NULL OR p.pickup_day_source != 'manual')
+       ORDER BY u.last_name, u.first_name`
+    );
+    return result.rows;
+  }
+
+  async updatePropertyPickupSchedule(propertyId: string, data: { pickup_day?: string | null; pickup_frequency?: string; pickup_day_detected_at?: string; pickup_day_source?: string }): Promise<any> {
+    const sets: string[] = ['updated_at = NOW()'];
+    const params: any[] = [];
+    let idx = 1;
+    if (data.pickup_day !== undefined) { sets.push(`pickup_day = $${idx++}`); params.push(data.pickup_day); }
+    if (data.pickup_frequency !== undefined) { sets.push(`pickup_frequency = $${idx++}`); params.push(data.pickup_frequency); }
+    if (data.pickup_day_detected_at !== undefined) { sets.push(`pickup_day_detected_at = $${idx++}`); params.push(data.pickup_day_detected_at); }
+    if (data.pickup_day_source !== undefined) { sets.push(`pickup_day_source = $${idx++}`); params.push(data.pickup_day_source); }
+    params.push(propertyId);
+    const result = await this.query(
+      `UPDATE properties SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params
+    );
+    return result.rows[0];
+  }
+
+  // -- Sync orders ledger --
+
+  async getSyncOrderByOrderNo(orderNo: string): Promise<any> {
+    const result = await this.query('SELECT * FROM optimo_sync_orders WHERE order_no = $1', [orderNo]);
+    return result.rows[0] || null;
+  }
+
+  async createSyncOrder(data: { propertyId: string; orderNo: string; scheduledDate: string }): Promise<any> {
+    const result = await this.query(
+      `INSERT INTO optimo_sync_orders (property_id, order_no, scheduled_date) VALUES ($1, $2, $3) RETURNING *`,
+      [data.propertyId, data.orderNo, data.scheduledDate]
+    );
+    return result.rows[0];
+  }
+
+  async markSyncOrderDeleted(orderNo: string): Promise<void> {
+    await this.query(
+      `UPDATE optimo_sync_orders SET status = 'deleted', deleted_at = NOW() WHERE order_no = $1`,
+      [orderNo]
+    );
+  }
+
+  async getFutureSyncOrdersForProperty(propertyId: string): Promise<any[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const result = await this.query(
+      `SELECT * FROM optimo_sync_orders WHERE property_id = $1 AND status = 'active' AND scheduled_date >= $2 ORDER BY scheduled_date`,
+      [propertyId, today]
+    );
+    return result.rows;
+  }
+
+  async getOrphanedSyncPropertyIds(): Promise<string[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const result = await this.query(
+      `SELECT DISTINCT oso.property_id FROM optimo_sync_orders oso
+       WHERE oso.status = 'active' AND oso.scheduled_date >= $1
+         AND oso.property_id NOT IN (
+           SELECT p.id FROM properties p
+           JOIN users u ON u.id = p.user_id
+           WHERE u.stripe_customer_id IS NOT NULL
+             AND EXISTS (
+               SELECT 1 FROM stripe.subscriptions s
+               WHERE s.customer = u.stripe_customer_id AND s.status = 'active'
+             )
+         )`,
+      [today]
+    );
+    return result.rows.map((r: any) => r.property_id);
+  }
+
+  // -- Sync log --
+
+  async createSyncLogEntry(runType: string): Promise<string> {
+    const result = await this.query(
+      `INSERT INTO optimo_sync_log (run_type) VALUES ($1) RETURNING id`,
+      [runType]
+    );
+    return result.rows[0].id;
+  }
+
+  async updateSyncLogEntry(id: string, data: {
+    finished_at?: string; status?: string; properties_processed?: number;
+    orders_created?: number; orders_skipped?: number; orders_errored?: number;
+    orders_deleted?: number; detection_updates?: number; error_message?: string; details?: any;
+  }): Promise<void> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        sets.push(`${key} = $${idx++}`);
+        params.push(key === 'details' ? JSON.stringify(val) : val);
+      }
+    }
+    if (sets.length === 0) return;
+    params.push(id);
+    await this.query(`UPDATE optimo_sync_log SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+  }
+
+  async getLatestSyncLog(): Promise<any> {
+    const result = await this.query('SELECT * FROM optimo_sync_log ORDER BY started_at DESC LIMIT 1');
+    return result.rows[0] || null;
+  }
+
+  async getSyncLogHistory(limit: number = 20): Promise<any[]> {
+    const result = await this.query('SELECT * FROM optimo_sync_log ORDER BY started_at DESC LIMIT $1', [limit]);
+    return result.rows;
+  }
+
+  async hasSyncRunToday(): Promise<boolean> {
+    const result = await this.query(
+      `SELECT 1 FROM optimo_sync_log WHERE DATE(started_at) = CURRENT_DATE AND status = 'completed' LIMIT 1`
+    );
+    return result.rows.length > 0;
   }
 }
 
