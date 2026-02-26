@@ -10,6 +10,14 @@ const STRIPE_KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBH
  */
 export async function loadSettingsIntoEnv(): Promise<void> {
   try {
+    // One-time category reconciliation: OAuth creds were originally stored under 'gmail'
+    // but are now canonical under 'google_oauth' (shared by Gmail, SSO, and admin OAuth).
+    // This idempotent UPDATE fixes any stale DB rows on startup.
+    await pool.query(
+      `UPDATE system_settings SET category = 'google_oauth'
+       WHERE key IN ('GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET') AND category = 'gmail'`,
+    );
+
     const result = await pool.query('SELECT key, value FROM system_settings');
     for (const row of result.rows) {
       process.env[row.key] = row.value;

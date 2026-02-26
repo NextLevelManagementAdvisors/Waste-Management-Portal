@@ -1554,28 +1554,39 @@ export function registerAdminRoutes(app: Express) {
   // ── System Settings (Integrations) ─────────────────────────────────
 
   // Allowed setting keys and their metadata
-  const SETTING_DEFINITIONS: Record<string, { category: string; isSecret: boolean; label: string }> = {
-    TWILIO_ACCOUNT_SID:       { category: 'twilio', isSecret: false, label: 'Account SID' },
-    TWILIO_AUTH_TOKEN:        { category: 'twilio', isSecret: true,  label: 'Auth Token' },
-    TWILIO_PHONE_NUMBER:      { category: 'twilio', isSecret: false, label: 'Phone Number' },
-    STRIPE_SECRET_KEY:        { category: 'stripe', isSecret: true,  label: 'Secret Key' },
-    STRIPE_PUBLISHABLE_KEY:   { category: 'stripe', isSecret: false, label: 'Publishable Key' },
-    STRIPE_WEBHOOK_SECRET:    { category: 'stripe', isSecret: true,  label: 'Webhook Secret' },
-    GMAIL_SERVICE_ACCOUNT_JSON: { category: 'gmail', isSecret: true,  label: 'Service Account JSON' },
-    GMAIL_SENDER_EMAIL:       { category: 'gmail', isSecret: false, label: 'Sender Email (Service Acct)' },
-    GOOGLE_OAUTH_CLIENT_ID:   { category: 'gmail', isSecret: false, label: 'OAuth Client ID' },
-    GOOGLE_OAUTH_CLIENT_SECRET: { category: 'gmail', isSecret: true,  label: 'OAuth Client Secret' },
-    GMAIL_REFRESH_TOKEN:      { category: 'gmail', isSecret: true,  label: 'OAuth Refresh Token' },
-    GMAIL_AUTH_MODE:          { category: 'gmail', isSecret: false, label: 'Auth Mode' },
-    GOOGLE_MAPS_API_KEY:      { category: 'google_maps', isSecret: true,  label: 'API Key' },
-    OPTIMOROUTE_API_KEY:      { category: 'optimoroute', isSecret: true,  label: 'API Key' },
-    OPTIMO_SYNC_ENABLED:      { category: 'optimoroute', isSecret: false, label: 'Auto Sync Enabled' },
-    OPTIMO_SYNC_HOUR:         { category: 'optimoroute', isSecret: false, label: 'Sync Hour (0-23)' },
-    OPTIMO_SYNC_WINDOW_DAYS:  { category: 'optimoroute', isSecret: false, label: 'Sync Window (days)' },
-    GEMINI_API_KEY:           { category: 'gemini', isSecret: true,  label: 'API Key' },
-    APP_DOMAIN:               { category: 'app', isSecret: false, label: 'App Domain' },
-    CORS_ORIGIN:              { category: 'app', isSecret: false, label: 'CORS Origin' },
-    GOOGLE_SSO_ENABLED:       { category: 'google_sso', isSecret: false, label: 'Enable Google Sign-In' },
+  // displayType drives frontend rendering: text | secret | toggle | file_json | hidden
+  type DisplayType = 'text' | 'secret' | 'toggle' | 'file_json' | 'hidden';
+  const SETTING_DEFINITIONS: Record<string, { category: string; isSecret: boolean; label: string; displayType: DisplayType }> = {
+    // Google OAuth (shared credentials)
+    GOOGLE_OAUTH_CLIENT_ID:     { category: 'google_oauth', isSecret: false, label: 'OAuth Client ID',     displayType: 'text' },
+    GOOGLE_OAUTH_CLIENT_SECRET: { category: 'google_oauth', isSecret: true,  label: 'OAuth Client Secret', displayType: 'secret' },
+    // Gmail
+    GMAIL_SERVICE_ACCOUNT_JSON: { category: 'gmail', isSecret: true,  label: 'Service Account JSON',       displayType: 'file_json' },
+    GMAIL_SENDER_EMAIL:         { category: 'gmail', isSecret: false, label: 'Sender Email (Service Acct)', displayType: 'text' },
+    GMAIL_REFRESH_TOKEN:        { category: 'gmail', isSecret: true,  label: 'OAuth Refresh Token',         displayType: 'secret' },
+    GMAIL_AUTH_MODE:            { category: 'gmail', isSecret: false, label: 'Auth Mode',                   displayType: 'hidden' },
+    // Google SSO
+    GOOGLE_SSO_ENABLED:         { category: 'google_sso', isSecret: false, label: 'Enable Google Sign-In', displayType: 'toggle' },
+    // Google Maps
+    GOOGLE_MAPS_API_KEY:        { category: 'google_maps', isSecret: true,  label: 'API Key',              displayType: 'secret' },
+    // Gemini AI
+    GEMINI_API_KEY:             { category: 'gemini', isSecret: true,  label: 'API Key',                    displayType: 'secret' },
+    // Twilio
+    TWILIO_ACCOUNT_SID:         { category: 'twilio', isSecret: false, label: 'Account SID',               displayType: 'text' },
+    TWILIO_AUTH_TOKEN:          { category: 'twilio', isSecret: true,  label: 'Auth Token',                 displayType: 'secret' },
+    TWILIO_PHONE_NUMBER:        { category: 'twilio', isSecret: false, label: 'Phone Number',               displayType: 'text' },
+    // Stripe
+    STRIPE_SECRET_KEY:          { category: 'stripe', isSecret: true,  label: 'Secret Key',                displayType: 'secret' },
+    STRIPE_PUBLISHABLE_KEY:     { category: 'stripe', isSecret: false, label: 'Publishable Key',           displayType: 'text' },
+    STRIPE_WEBHOOK_SECRET:      { category: 'stripe', isSecret: true,  label: 'Webhook Secret',            displayType: 'secret' },
+    // OptimoRoute
+    OPTIMOROUTE_API_KEY:        { category: 'optimoroute', isSecret: true,  label: 'API Key',              displayType: 'secret' },
+    OPTIMO_SYNC_ENABLED:        { category: 'optimoroute', isSecret: false, label: 'Auto Sync Enabled',    displayType: 'toggle' },
+    OPTIMO_SYNC_HOUR:           { category: 'optimoroute', isSecret: false, label: 'Sync Hour (0-23)',     displayType: 'text' },
+    OPTIMO_SYNC_WINDOW_DAYS:    { category: 'optimoroute', isSecret: false, label: 'Sync Window (days)',   displayType: 'text' },
+    // App Config
+    APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
+    CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },
   };
 
   app.get('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {
@@ -1583,11 +1594,13 @@ export function registerAdminRoutes(app: Express) {
       const dbSettings = await getAllSettings();
       const dbMap = new Map(dbSettings.map(s => [s.key, s]));
 
-      // Build full list: DB values first, then fill in env-only values
+      // Build full list from SETTING_DEFINITIONS (canonical source of truth).
+      // Category and display_type always come from the definition, not the DB row,
+      // so category renames take effect without a migration.
       const settings = Object.entries(SETTING_DEFINITIONS).map(([key, def]) => {
         const db = dbMap.get(key);
         if (db) {
-          return { ...db, label: def.label };
+          return { ...db, category: def.category, label: def.label, display_type: def.displayType };
         }
         // Not in DB — show env var value (masked if secret)
         const envVal = process.env[key] || '';
@@ -1597,6 +1610,7 @@ export function registerAdminRoutes(app: Express) {
           category: def.category,
           is_secret: def.isSecret,
           label: def.label,
+          display_type: def.displayType,
           source: 'env' as const,
           updated_at: null,
         };
