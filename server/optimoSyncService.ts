@@ -43,8 +43,10 @@ export interface SyncRunResult {
 }
 
 // ── Configuration ──
-
-const SYNC_WINDOW_DAYS = parseInt(process.env.OPTIMO_SYNC_WINDOW_DAYS || '28', 10);
+// Read dynamically so admin UI changes take effect without restart
+function getSyncWindowDays(): number {
+  return parseInt(process.env.OPTIMO_SYNC_WINDOW_DAYS || '28', 10);
+}
 
 // ── Pickup date generation ──
 
@@ -59,7 +61,7 @@ const DAY_MAP: Record<string, number> = {
 export function generatePickupDates(
   pickupDay: string,
   frequency: string,
-  windowDays: number = SYNC_WINDOW_DAYS,
+  windowDays: number = getSyncWindowDays(),
   anchorDate?: string
 ): string[] {
   const targetDow = DAY_MAP[pickupDay.toLowerCase()];

@@ -168,19 +168,20 @@ const { processScheduledMessages } = await import('./notificationService');
 setInterval(processScheduledMessages, 60_000);
 
 // OptimoRoute automated daily sync — checks every 5 min, runs once per day after SYNC_HOUR
+// Reads settings from process.env on each tick so admin changes via UI take effect immediately
 {
   const { runAutomatedSync } = await import('./optimoSyncService');
   const { storage: syncStorage } = await import('./storage');
   const SYNC_CHECK_INTERVAL = 5 * 60 * 1000;
-  const SYNC_HOUR = parseInt(process.env.OPTIMO_SYNC_HOUR || '6', 10);
-  const SYNC_ENABLED = (process.env.OPTIMO_SYNC_ENABLED || 'true') !== 'false';
   let syncRunning = false;
 
   async function checkAndRunSync() {
-    if (!SYNC_ENABLED || syncRunning) return;
+    const syncEnabled = (process.env.OPTIMO_SYNC_ENABLED || 'true') !== 'false';
+    if (!syncEnabled || syncRunning) return;
     try {
+      const syncHour = parseInt(process.env.OPTIMO_SYNC_HOUR || '6', 10);
       const now = new Date();
-      if (now.getHours() < SYNC_HOUR) return;
+      if (now.getHours() < syncHour) return;
       const alreadyRan = await syncStorage.hasSyncRunToday();
       if (alreadyRan) return;
 
