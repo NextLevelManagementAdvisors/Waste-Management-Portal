@@ -181,6 +181,9 @@ registerInvitationRoutes(app);
 const { ensureAdmin } = await import('./ensureAdmin');
 await ensureAdmin();
 
+// Serve uploaded files (photos etc.) in all environments
+app.use('/uploads', express.static(path.resolve(__dirname, '..', 'uploads')));
+
 if (isProduction) {
   const distPath = path.resolve(__dirname, '..', 'dist');
   app.use(express.static(distPath));

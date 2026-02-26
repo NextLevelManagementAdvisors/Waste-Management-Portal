@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS special_pickup_services (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   price NUMERIC(10,2) NOT NULL,
+  icon_name VARCHAR(100),
   active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -117,6 +118,13 @@ CREATE TABLE IF NOT EXISTS special_pickup_requests (
   service_price NUMERIC(10,2) NOT NULL,
   pickup_date DATE NOT NULL,
   status VARCHAR(50) DEFAULT 'pending',
+  notes TEXT,
+  photos JSONB DEFAULT '[]',
+  ai_estimate NUMERIC(10,2),
+  ai_reasoning TEXT,
+  admin_notes TEXT,
+  assigned_driver_id UUID,
+  cancellation_reason TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -128,6 +136,7 @@ CREATE TABLE IF NOT EXISTS collection_intents (
   property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
   intent VARCHAR(50) NOT NULL,
   pickup_date DATE NOT NULL,
+  optimo_order_no TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE (property_id, pickup_date)
 );
@@ -424,3 +433,13 @@ CREATE TABLE IF NOT EXISTS pending_service_selections (
   created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_pending_selections_property ON pending_service_selections(property_id);
+
+-- Special pickup enhancements: customer notes, photos, AI estimate, admin tools, driver assignment
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]';
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS ai_estimate NUMERIC(10,2);
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS assigned_driver_id UUID REFERENCES driver_profiles(id);
+ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+ALTER TABLE special_pickup_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);

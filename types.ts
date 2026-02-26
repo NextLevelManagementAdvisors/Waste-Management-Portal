@@ -83,8 +83,13 @@ export interface SpecialPickupRequest {
     serviceId: string;
     serviceName: string;
     date: string;
-    status: 'Scheduled' | 'Completed';
+    status: 'pending' | 'scheduled' | 'completed' | 'cancelled';
     price: number;
+    notes?: string;
+    photos?: string[];
+    aiEstimate?: number;
+    aiReasoning?: string;
+    cancellationReason?: string;
 }
 
 export interface Subscription {

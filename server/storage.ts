@@ -319,13 +319,62 @@ export class Storage {
     return result.rows;
   }
 
-  async createSpecialPickupRequest(data: { userId: string; propertyId: string; serviceName: string; servicePrice: number; pickupDate: string }) {
+  async createSpecialPickupRequest(data: {
+    userId: string; propertyId: string; serviceName: string; servicePrice: number;
+    pickupDate: string; notes?: string; photos?: any[]; aiEstimate?: number; aiReasoning?: string;
+  }) {
     const result = await this.query(
-      `INSERT INTO special_pickup_requests (user_id, property_id, service_name, service_price, pickup_date)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [data.userId, data.propertyId, data.serviceName, data.servicePrice, data.pickupDate]
+      `INSERT INTO special_pickup_requests (user_id, property_id, service_name, service_price, pickup_date, notes, photos, ai_estimate, ai_reasoning)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [data.userId, data.propertyId, data.serviceName, data.servicePrice, data.pickupDate,
+       data.notes || null, JSON.stringify(data.photos || []), data.aiEstimate || null, data.aiReasoning || null]
     );
     return result.rows[0];
+  }
+
+  async updateSpecialPickupRequest(id: string, data: {
+    pickupDate?: string; status?: string; cancellationReason?: string;
+    adminNotes?: string; assignedDriverId?: string | null; servicePrice?: number;
+  }) {
+    const sets: string[] = ['updated_at = NOW()'];
+    const params: any[] = [];
+    let idx = 1;
+    if (data.pickupDate !== undefined) { sets.push(`pickup_date = $${idx++}`); params.push(data.pickupDate); }
+    if (data.status !== undefined) { sets.push(`status = $${idx++}`); params.push(data.status); }
+    if (data.cancellationReason !== undefined) { sets.push(`cancellation_reason = $${idx++}`); params.push(data.cancellationReason); }
+    if (data.adminNotes !== undefined) { sets.push(`admin_notes = $${idx++}`); params.push(data.adminNotes); }
+    if (data.assignedDriverId !== undefined) { sets.push(`assigned_driver_id = $${idx++}`); params.push(data.assignedDriverId); }
+    if (data.servicePrice !== undefined) { sets.push(`service_price = $${idx++}`); params.push(data.servicePrice); }
+    params.push(id);
+    const result = await this.query(
+      `UPDATE special_pickup_requests SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params
+    );
+    return result.rows[0] || null;
+  }
+
+  async getSpecialPickupById(id: string) {
+    const result = await this.query(
+      `SELECT s.*, u.first_name, u.last_name, u.email, u.phone, p.address
+       FROM special_pickup_requests s
+       JOIN users u ON s.user_id = u.id
+       JOIN properties p ON s.property_id = p.id
+       WHERE s.id = $1`,
+      [id]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getSpecialPickupsForDriver(driverProfileId: string) {
+    const result = await this.query(
+      `SELECT s.*, p.address
+       FROM special_pickup_requests s
+       JOIN properties p ON s.property_id = p.id
+       WHERE s.assigned_driver_id = $1 AND s.status IN ('scheduled', 'pending')
+       ORDER BY s.pickup_date ASC`,
+      [driverProfileId]
+    );
+    return result.rows;
   }
 
   async getSpecialPickupRequests(userId: string) {
@@ -336,13 +385,13 @@ export class Storage {
     return result.rows;
   }
 
-  async upsertCollectionIntent(data: { userId: string; propertyId: string; intent: string; pickupDate: string }) {
+  async upsertCollectionIntent(data: { userId: string; propertyId: string; intent: string; pickupDate: string; optimoOrderNo?: string }) {
     const result = await this.query(
-      `INSERT INTO collection_intents (user_id, property_id, intent, pickup_date)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (property_id, pickup_date) DO UPDATE SET intent = $3
+      `INSERT INTO collection_intents (user_id, property_id, intent, pickup_date, optimo_order_no)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (property_id, pickup_date) DO UPDATE SET intent = $3, optimo_order_no = $5
        RETURNING *`,
-      [data.userId, data.propertyId, data.intent, data.pickupDate]
+      [data.userId, data.propertyId, data.intent, data.pickupDate, data.optimoOrderNo || null]
     );
     return result.rows[0];
   }
@@ -807,7 +856,7 @@ export class Storage {
     return { users: users.rows, properties: properties.rows };
   }
 
-  async getMissedPickupReports(options: { status?: string; limit?: number; offset?: number }) {
+  async getMissedPickupReportsAdmin(options: { status?: string; limit?: number; offset?: number }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -835,7 +884,7 @@ export class Storage {
     );
   }
 
-  async getSpecialPickupRequests(options: { status?: string; limit?: number; offset?: number }) {
+  async getSpecialPickupRequestsAdmin(options: { status?: string; limit?: number; offset?: number }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;

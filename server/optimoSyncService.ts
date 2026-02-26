@@ -176,10 +176,22 @@ export async function executeCustomerOrderSync() {
   const missing = results.filter((r: any) => !r.hasOrders);
 
   let created = 0;
+  let skipped = 0;
   for (const item of missing) {
     if (item.error) continue;
     try {
       const nextBusinessDay = getNextBusinessDay();
+
+      // Don't re-create orders the customer has explicitly skipped
+      const skipCheck = await pool.query(
+        `SELECT 1 FROM collection_intents WHERE property_id = $1 AND pickup_date = $2 AND intent = 'skip'`,
+        [item.property.id, nextBusinessDay]
+      );
+      if (skipCheck.rows.length > 0) {
+        skipped++;
+        continue;
+      }
+
       await optimo.createOrder({
         orderNo: `SYNC-${item.property.id.substring(0, 8).toUpperCase()}-${Date.now()}`,
         type: 'P',
@@ -193,5 +205,5 @@ export async function executeCustomerOrderSync() {
     } catch {}
   }
 
-  return { total, withOrders: total - missing.length, missing: missing.length, created };
+  return { total, withOrders: total - missing.length, missing: missing.length, created, skipped };
 }

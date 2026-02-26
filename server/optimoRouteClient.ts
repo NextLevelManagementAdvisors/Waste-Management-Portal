@@ -306,6 +306,13 @@ export async function deleteOrder(orderNo: string, forceDelete = false): Promise
   return apiPost('delete_order', { orderNo, forceDelete });
 }
 
+export async function updateOrder(orderNo: string, data: { date?: string; notes?: string }): Promise<any> {
+  const update: any = { operation: 'MERGE', orderNo };
+  if (data.date) update.date = data.date;
+  if (data.notes) update.notes = data.notes;
+  return apiPost('create_order', update);
+}
+
 export async function startPlanning(opts: PlanningOptions): Promise<PlanningResult> {
   return apiPost('start_planning', opts);
 }

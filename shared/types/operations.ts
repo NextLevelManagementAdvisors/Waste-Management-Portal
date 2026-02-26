@@ -12,13 +12,22 @@ export interface MissedPickupReport {
 
 export interface PickupScheduleRequest {
   id: string;
+  userId: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   address: string;
   serviceName: string;
   servicePrice: number;
   pickupDate: string;
   status: string;
+  notes?: string;
+  photos?: string[];
+  aiEstimate?: number;
+  aiReasoning?: string;
+  adminNotes?: string;
+  assignedDriverId?: string;
+  cancellationReason?: string;
   createdAt: string;
 }
 

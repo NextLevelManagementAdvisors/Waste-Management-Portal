@@ -1,6 +1,8 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import session from 'express-session';
 import { storage, type DbUser, type DbProperty } from './storage';
 import { pool } from './db';
@@ -9,6 +11,7 @@ import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
 import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
+import { specialPickupUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 
@@ -936,6 +939,90 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  // Photo upload for special pickups
+  app.post('/api/upload/special-pickup', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    specialPickupUpload.array('photos', 5)(req, res, (err: any) => {
+      if (err) {
+        const message = err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' :
+          err.code === 'LIMIT_FILE_COUNT' ? 'Too many files (max 5)' : err.message;
+        return res.status(400).json({ error: message });
+      }
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+      const urls = files.map(f => `/uploads/special-pickups/${f.filename}`);
+      res.json({ urls });
+    });
+  });
+
+  // AI cost estimation for special pickups
+  app.post('/api/special-pickup/estimate', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { description, photoUrls } = req.body;
+      if (!description && (!photoUrls || photoUrls.length === 0)) {
+        return res.status(400).json({ error: 'Provide a description and/or photos' });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: 'AI estimation is not configured' });
+      }
+
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+
+      // Load service catalog for pricing context
+      const services = await storage.getSpecialPickupServices();
+      const catalogContext = services.map(s => `${s.name}: $${parseFloat(s.price).toFixed(2)} - ${s.description || ''}`).join('\n');
+
+      // Build content parts: text + optional images
+      const parts: any[] = [];
+
+      if (photoUrls && photoUrls.length > 0) {
+        for (const url of photoUrls.slice(0, 5)) {
+          try {
+            const filePath = path.resolve(__dirname, '..', url.replace(/^\//, ''));
+            const imageData = fs.readFileSync(filePath);
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+            parts.push({ inlineData: { data: imageData.toString('base64'), mimeType: mimeMap[ext] || 'image/jpeg' } });
+          } catch {
+            // Skip unreadable photos
+          }
+        }
+      }
+
+      parts.push({ text: `You are a waste management pricing assistant for a rural waste collection company. Based on the photos and description of items for bulk pickup, estimate the total cost.
+
+Consider: item type and count, approximate size and weight, disposal complexity (hazardous materials cost more), and number of trips needed.
+
+Our service catalog for reference:
+${catalogContext}
+
+Customer description: ${description || '(no description provided — estimate from photos only)'}
+
+Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "reasoning": "<1-2 sentence explanation>"}` });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [{ role: 'user', parts }],
+      });
+
+      const text = response.text?.trim() || '';
+      // Parse JSON from response, handling possible markdown code fences
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ error: 'AI returned an unparseable response' });
+      }
+      const parsed = JSON.parse(jsonMatch[0]);
+      res.json({ estimate: Number(parsed.estimate), reasoning: String(parsed.reasoning || '') });
+    } catch (error: any) {
+      console.error('AI estimation failed:', error.message);
+      res.status(500).json({ error: 'AI estimation failed. Please try again.' });
+    }
+  });
+
   app.get('/api/special-pickup-services', async (_req: Request, res: Response) => {
     try {
       const services = await storage.getSpecialPickupServices();
@@ -1004,12 +1091,15 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/special-pickup', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, serviceName, servicePrice, date } = req.body;
+      const { propertyId, serviceName, servicePrice, date, notes, photos, aiEstimate, aiReasoning } = req.body;
       const property = await storage.getPropertyById(propertyId);
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
-      const request = await storage.createSpecialPickupRequest({ userId, propertyId, serviceName, servicePrice, pickupDate: date });
+      const request = await storage.createSpecialPickupRequest({
+        userId, propertyId, serviceName, servicePrice: aiEstimate || servicePrice, pickupDate: date,
+        notes, photos, aiEstimate, aiReasoning,
+      });
 
       try {
         const orderNo = `SP-${request.id.substring(0, 8).toUpperCase()}`;
@@ -1020,7 +1110,7 @@ export function registerAuthRoutes(app: Express) {
           address: property.address,
           locationName: `Special Pickup - ${serviceName}`,
           duration: 20,
-          notes: `Special pickup: ${serviceName}`,
+          notes: `Special pickup: ${serviceName}${notes ? ` | Customer notes: ${notes}` : ''}`,
         });
       } catch (optimoErr: any) {
         console.error('OptimoRoute order creation failed (non-blocking):', optimoErr.message);
@@ -1029,6 +1119,7 @@ export function registerAuthRoutes(app: Express) {
       try {
         const user = await storage.getUserById(userId);
         if (user?.stripe_customer_id) {
+          const finalPrice = aiEstimate || servicePrice;
           const stripe = await getUncachableStripeClient();
           const invoice = await stripe.invoices.create({
             customer: user.stripe_customer_id,
@@ -1038,7 +1129,7 @@ export function registerAuthRoutes(app: Express) {
           await stripe.invoiceItems.create({
             customer: user.stripe_customer_id,
             invoice: invoice.id,
-            amount: Math.round(servicePrice * 100),
+            amount: Math.round(finalPrice * 100),
             currency: 'usd',
             description: `Special Pickup: ${serviceName}`,
           });
@@ -1066,6 +1157,60 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  // Customer cancel or reschedule a special pickup
+  app.put('/api/special-pickup/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { id } = req.params;
+      const { status, cancellationReason, date } = req.body;
+
+      const existing = await storage.getSpecialPickupById(id);
+      if (!existing || existing.user_id !== userId) {
+        return res.status(403).json({ error: 'Request not found or access denied' });
+      }
+      if (existing.status !== 'pending' && existing.status !== 'scheduled') {
+        return res.status(400).json({ error: 'Only pending or scheduled pickups can be modified' });
+      }
+
+      const updates: any = {};
+
+      if (status === 'cancelled') {
+        updates.status = 'cancelled';
+        updates.cancellationReason = cancellationReason || 'Cancelled by customer';
+
+        // Cancel OptimoRoute order (non-blocking)
+        try {
+          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          await optimoRoute.deleteOrder(orderNo);
+        } catch (e: any) {
+          console.error('OptimoRoute cancel failed (non-blocking):', e.message);
+        }
+
+        sendServiceUpdate(userId, 'Pickup Cancelled', `Your ${existing.service_name} pickup at ${existing.address} has been cancelled.`).catch(e => console.error('Cancel notification failed:', e));
+      } else if (date) {
+        updates.pickupDate = date;
+
+        // Update OptimoRoute order date (non-blocking)
+        try {
+          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          await optimoRoute.updateOrder(orderNo, { date });
+        } catch (e: any) {
+          console.error('OptimoRoute reschedule failed (non-blocking):', e.message);
+        }
+
+        sendServiceUpdate(userId, 'Pickup Rescheduled', `Your ${existing.service_name} pickup at ${existing.address} has been rescheduled to ${date}.`).catch(e => console.error('Reschedule notification failed:', e));
+      } else {
+        return res.status(400).json({ error: 'Provide status=cancelled or a new date' });
+      }
+
+      const updated = await storage.updateSpecialPickupRequest(id, updates);
+      res.json({ data: updated });
+    } catch (error: any) {
+      console.error('Special pickup update failed:', error.message);
+      res.status(500).json({ error: 'Failed to update pickup request' });
+    }
+  });
+
   app.post('/api/collection-intent', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
@@ -1074,9 +1219,26 @@ export function registerAuthRoutes(app: Express) {
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
-      const result = await storage.upsertCollectionIntent({ userId, propertyId, intent, pickupDate: date });
+
+      // If skipping, remove the OptimoRoute order for this date
+      let deletedOrderNo: string | undefined;
+      if (intent === 'skip' && property.address) {
+        try {
+          const orders = await optimoRoute.findOrdersForAddress(property.address, date, date);
+          for (const order of orders) {
+            await optimoRoute.deleteOrder(order.orderNo, true);
+            deletedOrderNo = deletedOrderNo || order.orderNo;
+            console.log(`[CollectionIntent] Deleted OptimoRoute order ${order.orderNo} for skip on ${date}`);
+          }
+        } catch (err) {
+          console.error('[CollectionIntent] Failed to delete OptimoRoute order:', err);
+        }
+      }
+
+      const result = await storage.upsertCollectionIntent({ userId, propertyId, intent, pickupDate: date, optimoOrderNo: deletedOrderNo });
       res.json({ data: result });
     } catch (error: any) {
+      console.error('[CollectionIntent] Failed to save:', error.message || error);
       res.status(500).json({ error: 'Failed to save collection intent' });
     }
   });
@@ -1089,6 +1251,28 @@ export function registerAuthRoutes(app: Express) {
       if (!property || property.user_id !== userId) {
         return res.status(403).json({ error: 'Property not found or access denied' });
       }
+
+      // Check if the intent was a skip — if so, re-create the OptimoRoute order
+      const existing = await storage.getCollectionIntent(propertyId, date);
+      if (existing?.intent === 'skip' && property.address) {
+        try {
+          const user = await storage.getUserById(userId);
+          const customerName = user ? `${user.first_name} ${user.last_name}` : '';
+          await optimoRoute.createOrder({
+            orderNo: `SKIP-UNDO-${propertyId.substring(0, 8).toUpperCase()}-${Date.now()}`,
+            type: 'P',
+            date,
+            address: property.address,
+            locationName: customerName,
+            duration: 10,
+            notes: 'Re-created after customer cancelled skip',
+          });
+          console.log(`[CollectionIntent] Re-created OptimoRoute order for ${property.address} on ${date}`);
+        } catch (err) {
+          console.error('[CollectionIntent] Failed to re-create OptimoRoute order:', err);
+        }
+      }
+
       await storage.deleteCollectionIntent(propertyId, date);
       res.json({ success: true });
     } catch (error: any) {

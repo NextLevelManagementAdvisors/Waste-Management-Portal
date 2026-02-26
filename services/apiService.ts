@@ -519,12 +519,21 @@ export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]
                 date: r.pickup_date,
                 status: r.status,
                 price: Number(r.service_price),
+                notes: r.notes || undefined,
+                photos: r.photos || [],
+                aiEstimate: r.ai_estimate ? Number(r.ai_estimate) : undefined,
+                aiReasoning: r.ai_reasoning || undefined,
+                cancellationReason: r.cancellation_reason || undefined,
             }));
         }
     } catch {}
     return [];
 };
-export const requestSpecialPickup = async (serviceId: string, propertyId: string, date: string) => {
+
+export const requestSpecialPickup = async (
+    serviceId: string, propertyId: string, date: string,
+    opts?: { notes?: string; photos?: string[]; aiEstimate?: number; aiReasoning?: string }
+) => {
     const services = await getSpecialPickupServices();
     const service = services.find(s => s.id === serviceId);
     if (!service) throw new Error("Service not found");
@@ -532,7 +541,11 @@ export const requestSpecialPickup = async (serviceId: string, propertyId: string
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, serviceName: service.name, servicePrice: service.price, date }),
+        body: JSON.stringify({
+            propertyId, serviceName: service.name, servicePrice: service.price, date,
+            notes: opts?.notes, photos: opts?.photos,
+            aiEstimate: opts?.aiEstimate, aiReasoning: opts?.aiReasoning,
+        }),
     });
     const json = await safeJson(res, 'Failed to create special pickup request');
     if (!res.ok) throw new Error(json.error || 'Failed to create special pickup request');
@@ -542,9 +555,58 @@ export const requestSpecialPickup = async (serviceId: string, propertyId: string
         serviceId,
         serviceName: service.name,
         date,
-        status: 'Scheduled',
-        price: service.price,
+        status: 'pending' as const,
+        price: opts?.aiEstimate || service.price,
     };
+};
+
+export const uploadSpecialPickupPhotos = async (files: File[]): Promise<string[]> => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('photos', f));
+    const res = await fetch('/api/upload/special-pickup', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+    });
+    const json = await safeJson(res, 'Failed to upload photos');
+    if (!res.ok) throw new Error(json.error || 'Failed to upload photos');
+    return json.urls;
+};
+
+export const estimateSpecialPickup = async (description: string, photoUrls: string[]): Promise<{ estimate: number; reasoning: string }> => {
+    const res = await fetch('/api/special-pickup/estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ description, photoUrls }),
+    });
+    const json = await safeJson(res, 'Failed to get AI estimate');
+    if (!res.ok) throw new Error(json.error || 'Failed to get AI estimate');
+    return { estimate: json.estimate, reasoning: json.reasoning };
+};
+
+export const cancelSpecialPickup = async (requestId: string, reason?: string) => {
+    const res = await fetch(`/api/special-pickup/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: 'cancelled', cancellationReason: reason }),
+    });
+    const json = await safeJson(res, 'Failed to cancel pickup');
+    if (!res.ok) throw new Error(json.error || 'Failed to cancel pickup');
+    return json.data;
+};
+
+export const rescheduleSpecialPickup = async (requestId: string, newDate: string) => {
+    const res = await fetch(`/api/special-pickup/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date: newDate }),
+    });
+    const json = await safeJson(res, 'Failed to reschedule pickup');
+    if (!res.ok) throw new Error(json.error || 'Failed to reschedule pickup');
+    return json.data;
 };
 
 export const pauseSubscriptionsForProperty = async (propertyId: string, until: string) => {

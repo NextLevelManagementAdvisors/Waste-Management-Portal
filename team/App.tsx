@@ -4,6 +4,7 @@ import { Button } from '../components/Button.tsx';
 import TeamAuthLayout from './components/TeamAuthLayout';
 import TeamLogin from './components/TeamLogin';
 import TeamRegister from './components/TeamRegister';
+import SpecialPickups from './components/SpecialPickups';
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -12,6 +13,7 @@ import {
   ClockIcon,
   XMarkIcon,
   MapPinIcon,
+  ArchiveBoxIcon,
 } from '../components/Icons.tsx';
 
 interface Driver {
@@ -61,12 +63,13 @@ interface Bid {
   created_at?: string;
 }
 
-type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'pickups' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
   jobs: '/team/jobs',
   schedule: '/team/schedule',
+  pickups: '/team/pickups',
   messages: '/team/messages',
   profile: '/team/profile',
 };
@@ -2638,6 +2641,7 @@ const TeamApp: React.FC = () => {
     { view: 'dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
     { view: 'jobs', label: 'Available Jobs', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
+    { view: 'pickups', label: 'Special Pickups', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
   ];
@@ -2732,6 +2736,7 @@ const TeamApp: React.FC = () => {
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'jobs' && <JobBoard />}
           {currentView === 'schedule' && <Schedule />}
+          {currentView === 'pickups' && <SpecialPickups />}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}
         </div>

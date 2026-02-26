@@ -460,7 +460,7 @@ export function registerAdminRoutes(app: Express) {
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };
-      const result = await storage.getMissedPickupReports(options);
+      const result = await storage.getMissedPickupReportsAdmin(options);
       res.json({
         reports: result.reports.map((r: any) => ({
           id: r.id,
@@ -499,10 +499,11 @@ export function registerAdminRoutes(app: Express) {
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };
-      const result = await storage.getSpecialPickupRequests(options);
+      const result = await storage.getSpecialPickupRequestsAdmin(options);
       res.json({
         requests: result.requests.map((r: any) => ({
           id: r.id,
+          userId: r.user_id,
           customerName: `${r.first_name} ${r.last_name}`,
           customerEmail: r.email,
           address: r.address,
@@ -510,6 +511,13 @@ export function registerAdminRoutes(app: Express) {
           servicePrice: r.service_price,
           pickupDate: r.pickup_date,
           status: r.status,
+          notes: r.notes,
+          photos: r.photos || [],
+          aiEstimate: r.ai_estimate,
+          aiReasoning: r.ai_reasoning,
+          adminNotes: r.admin_notes,
+          assignedDriverId: r.assigned_driver_id,
+          cancellationReason: r.cancellation_reason,
           createdAt: r.created_at,
         })),
         total: result.total,
@@ -519,23 +527,88 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Update Special Pickup Request status
+  // Get single special pickup detail
+  app.get('/api/admin/pickup-schedule/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const record = await storage.getSpecialPickupById(req.params.id);
+      if (!record) return res.status(404).json({ error: 'Pickup request not found' });
+      res.json({
+        id: record.id,
+        userId: record.user_id,
+        customerName: `${record.first_name} ${record.last_name}`,
+        customerEmail: record.email,
+        customerPhone: record.phone,
+        address: record.address,
+        serviceName: record.service_name,
+        servicePrice: record.service_price,
+        pickupDate: record.pickup_date,
+        status: record.status,
+        notes: record.notes,
+        photos: record.photos || [],
+        aiEstimate: record.ai_estimate,
+        aiReasoning: record.ai_reasoning,
+        adminNotes: record.admin_notes,
+        assignedDriverId: record.assigned_driver_id,
+        cancellationReason: record.cancellation_reason,
+        createdAt: record.created_at,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch pickup request' });
+    }
+  });
+
+  // Update Special Pickup Request (status, notes, driver, price, date)
   app.put('/api/admin/pickup-schedule/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
-      const validStatuses = ['pending', 'scheduled', 'completed', 'cancelled'];
-      if (!status || !validStatuses.includes(status)) {
-        return res.status(400).json({ error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+      const { status, adminNotes, assignedDriverId, pickupDate, servicePrice } = req.body;
+
+      if (status) {
+        const validStatuses = ['pending', 'scheduled', 'completed', 'cancelled'];
+        if (!validStatuses.includes(status)) {
+          return res.status(400).json({ error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+        }
       }
-      const result = await storage.query(
-        'UPDATE special_pickup_requests SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, status',
-        [status, id]
-      );
-      if (result.rows.length === 0) {
+
+      // Fetch existing record for notifications
+      const existing = await storage.getSpecialPickupById(id);
+      if (!existing) {
         return res.status(404).json({ error: 'Pickup request not found' });
       }
-      res.json({ success: true, id: result.rows[0].id, status: result.rows[0].status });
+
+      const updates: any = {};
+      if (status !== undefined) updates.status = status;
+      if (adminNotes !== undefined) updates.adminNotes = adminNotes;
+      if (assignedDriverId !== undefined) updates.assignedDriverId = assignedDriverId || null;
+      if (pickupDate !== undefined) updates.pickupDate = pickupDate;
+      if (servicePrice !== undefined) updates.servicePrice = servicePrice;
+
+      const updated = await storage.updateSpecialPickupRequest(id, updates);
+
+      // Send customer notification on status change
+      if (status && status !== existing.status) {
+        const messages: Record<string, string> = {
+          scheduled: `Your ${existing.service_name} pickup at ${existing.address} has been confirmed and scheduled for ${pickupDate || existing.pickup_date}.`,
+          completed: `Your ${existing.service_name} pickup at ${existing.address} has been completed. Thank you!`,
+          cancelled: `Your ${existing.service_name} pickup at ${existing.address} has been cancelled.`,
+        };
+        if (messages[status]) {
+          sendServiceUpdate(existing.user_id, `Pickup ${status.charAt(0).toUpperCase() + status.slice(1)}`, messages[status]).catch(e => console.error('Pickup status notification failed:', e));
+        }
+      }
+
+      // Update OptimoRoute if date changed
+      if (pickupDate && pickupDate !== existing.pickup_date) {
+        try {
+          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          await optimo.updateOrder(orderNo, { date: pickupDate });
+        } catch (e: any) {
+          console.error('OptimoRoute date update failed (non-blocking):', e.message);
+        }
+      }
+
+      await audit(req, 'update_special_pickup', 'special_pickup_request', id, { status, adminNotes, assignedDriverId, pickupDate, servicePrice });
+      res.json({ success: true, data: updated });
     } catch (error) {
       res.status(500).json({ error: 'Failed to update pickup request' });
     }
@@ -1229,6 +1302,16 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Delete user error:', error);
       res.status(500).json({ error: 'Failed to delete user' });
+    }
+  });
+
+  // Driver list for assignment dropdowns
+  app.get('/api/admin/drivers', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const drivers = await storage.getDrivers();
+      res.json(drivers.map((d: any) => ({ id: d.id, name: d.name, email: d.user_email })));
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch drivers' });
     }
   });
 

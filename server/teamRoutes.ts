@@ -1005,6 +1005,55 @@ export function registerTeamRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to get preference' });
     }
   });
+
+  // ── Special Pickups for Driver ──
+
+  app.get('/api/team/special-pickups', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const pickups = await storage.getSpecialPickupsForDriver(driverId);
+      res.json({
+        data: pickups.map((p: any) => ({
+          id: p.id,
+          address: p.address,
+          serviceName: p.service_name,
+          servicePrice: Number(p.service_price),
+          pickupDate: p.pickup_date,
+          status: p.status,
+          notes: p.notes,
+          photos: p.photos || [],
+        })),
+      });
+    } catch (error: any) {
+      console.error('Failed to fetch driver special pickups:', error);
+      res.status(500).json({ error: 'Failed to fetch special pickups' });
+    }
+  });
+
+  app.put('/api/team/special-pickups/:id/complete', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { id } = req.params;
+      // Verify this pickup is assigned to the requesting driver
+      const pickup = await storage.getSpecialPickupById(id);
+      if (!pickup || pickup.assigned_driver_id !== driverId) {
+        return res.status(403).json({ error: 'Pickup not found or not assigned to you' });
+      }
+      if (pickup.status === 'completed' || pickup.status === 'cancelled') {
+        return res.status(400).json({ error: 'Pickup is already ' + pickup.status });
+      }
+      const updated = await storage.updateSpecialPickupRequest(id, { status: 'completed' });
+
+      // Notify customer
+      const { sendServiceUpdate } = await import('./notificationService');
+      sendServiceUpdate(pickup.user_id, 'Pickup Completed', `Your ${pickup.service_name} pickup at ${pickup.address} has been completed. Thank you!`).catch(e => console.error('Completion notification failed:', e));
+
+      res.json({ success: true, data: updated });
+    } catch (error: any) {
+      console.error('Failed to complete special pickup:', error);
+      res.status(500).json({ error: 'Failed to mark pickup as completed' });
+    }
+  });
 }
 
 function formatDriverForClient(driverProfile: any, user?: any) {
