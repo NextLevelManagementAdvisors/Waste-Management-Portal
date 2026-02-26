@@ -28,8 +28,50 @@ let googleMapsPromise: Promise<void> | null = null;
 let googleMapsLoaded = false;
 
 /**
- * Loads the Google Maps JS API with the Places library. Fetches the API key
- * from the server, then loads the script asynchronously with `libraries=places`.
+ * Sets up the Google Maps Dynamic Library Import bootstrap, which provides
+ * google.maps.importLibrary() for loading libraries on demand. This is a
+ * clean TypeScript implementation of Google's recommended inline bootstrap.
+ * @see https://developers.google.com/maps/documentation/javascript/load-maps-js-api
+ */
+function initMapsBootstrap(apiKey: string): void {
+  const w = window as any;
+  if (w.google?.maps?.importLibrary) return;
+
+  w.google = w.google || {};
+  w.google.maps = w.google.maps || {};
+
+  const pendingLibs = new Set<string>();
+  let scriptPromise: Promise<void> | null = null;
+
+  function loadScript(): Promise<void> {
+    if (scriptPromise) return scriptPromise;
+    scriptPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      const params = new URLSearchParams({
+        key: apiKey,
+        callback: 'google.maps.__ib__',
+      });
+      params.set('libraries', [...pendingLibs].join(','));
+      script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
+      w.google.maps.__ib__ = resolve;
+      script.onerror = () => reject(new Error('Failed to load Google Maps'));
+      document.head.appendChild(script);
+    });
+    return scriptPromise;
+  }
+
+  // Shim that collects requested libraries and triggers script load on first call.
+  // Once loaded, Google replaces this with the real importLibrary implementation.
+  w.google.maps.importLibrary = (lib: string): Promise<any> => {
+    pendingLibs.add(lib);
+    return loadScript().then(() => w.google.maps.importLibrary(lib));
+  };
+}
+
+/**
+ * Loads the Google Maps JS API using the recommended Dynamic Library Import
+ * pattern. Fetches the API key from the server, initializes the bootstrap,
+ * then loads the Places library on demand via importLibrary().
  */
 function loadGoogleMaps(): Promise<void> {
   if (googleMapsLoaded) return Promise.resolve();
@@ -37,19 +79,10 @@ function loadGoogleMaps(): Promise<void> {
 
   googleMapsPromise = fetch('/api/google-maps-key')
     .then(res => res.json())
-    .then(({ apiKey }) => {
+    .then(async ({ apiKey }) => {
       if (!apiKey) throw new Error('No API key');
-      return new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Google Maps'));
-        document.head.appendChild(script);
-      });
-    })
-    .then(() => {
+      initMapsBootstrap(apiKey);
+      await (window as any).google.maps.importLibrary('places');
       googleMapsLoaded = true;
     });
 
@@ -150,6 +183,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 
       const components = parseAddressComponents(place);
       suppressSyncRef.current = true;
+      el.value = components.street;
       onChangeRef.current(components.street);
       onAddressSelectRef.current(components);
     };
@@ -175,6 +209,13 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       elementRef.current = null;
     };
   }, [loaded]);
+
+  // Sync placeholder prop reactively
+  useEffect(() => {
+    if (elementRef.current && placeholder !== undefined) {
+      elementRef.current.placeholder = placeholder;
+    }
+  }, [placeholder]);
 
   // Sync the React value prop to the web component (for external changes like form reset)
   useEffect(() => {
@@ -213,7 +254,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
         id={id}
       />
       {name && (
-        <input type="hidden" name={name} value={value} required={required} />
+        <input type="hidden" name={name} value={value} required={required} tabIndex={-1} />
       )}
     </>
   );
