@@ -58,7 +58,7 @@ const LandingPage: React.FC = () => {
       <div className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <h1 className="text-4xl font-black text-center text-gray-900 tracking-tight">
-            ZIP-A-DEE Services
+            Rural Waste Management
           </h1>
           <p className="text-center text-gray-500 font-medium mt-2">
             Choose your portal to continue
@@ -110,7 +110,12 @@ const LandingPage: React.FC = () => {
 
       {/* Footer */}
       <div className="bg-white border-t border-base-200 py-6 text-center text-sm text-gray-500">
-        <p>© {new Date().getFullYear()} ZIP-A-DEE Services. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} Rural Waste Management. All rights reserved.</p>
+        <p className="mt-2">
+          <a href="/privacy.html" className="text-gray-400 hover:text-gray-600 transition-colors">Privacy Policy</a>
+          <span className="mx-2">·</span>
+          <a href="/terms.html" className="text-gray-400 hover:text-gray-600 transition-colors">Terms of Service</a>
+        </p>
       </div>
     </div>
   );

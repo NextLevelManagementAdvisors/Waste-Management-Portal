@@ -6,7 +6,7 @@ import { requireAdmin } from './adminRoutes';
 import { sendEmail } from './gmailClient';
 import { sendSms } from './twilioClient';
 
-const APP_NAME = 'Zip-A-Dee Services';
+const APP_NAME = 'Rural Waste Management';
 
 function invitationEmailTemplate(inviterName: string, roles: string[], token: string, baseUrl: string): string {
   const roleLabels = roles.map(r => r === 'admin' ? 'Administrator' : r.charAt(0).toUpperCase() + r.slice(1));

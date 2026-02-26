@@ -92,8 +92,8 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
                <TruckIcon className="w-7 h-7 text-white" />
            </div>
            <div className="ml-4">
-                <h1 className="text-xl font-black text-gray-900 tracking-tighter leading-none">ZIP-A-DEE</h1>
-                <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mt-0.5">Services</p>
+                <h1 className="text-xl font-black text-gray-900 tracking-tighter leading-none">Rural Waste</h1>
+                <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mt-0.5">Management</p>
            </div>
          </div>
          

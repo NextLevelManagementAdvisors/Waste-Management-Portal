@@ -3,7 +3,7 @@ import { sendSms } from './twilioClient';
 import { storage } from './storage';
 import { pool } from './db';
 
-const APP_NAME = 'Zip-A-Dee Services';
+const APP_NAME = 'Rural Waste Management';
 
 /** Log an outbound communication to the communication_log table */
 export async function logCommunication(entry: {
