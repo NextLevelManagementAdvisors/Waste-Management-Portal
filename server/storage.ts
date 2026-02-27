@@ -138,8 +138,8 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any }>): Promise<DbProperty> {
-    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner', 'pickup_frequency', 'pickup_day', 'pickup_day_detected_at', 'pickup_day_source'];
+  async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any; zone_id: string | null; latitude: number | null; longitude: number | null }>): Promise<DbProperty> {
+    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner', 'pickup_frequency', 'pickup_day', 'pickup_day_detected_at', 'pickup_day_source', 'zone_id', 'latitude', 'longitude'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;

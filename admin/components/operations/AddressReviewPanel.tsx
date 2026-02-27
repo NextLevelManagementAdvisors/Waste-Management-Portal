@@ -21,6 +21,14 @@ interface FeasibilityResult {
   reason: string;
 }
 
+interface RouteSuggestion {
+  zone_id: string;
+  zone_name: string;
+  pickup_day: string;
+  confidence: number;
+  distance_miles: number;
+}
+
 const reasonLabels: Record<string, { text: string; color: string; bg: string }> = {
   scheduled: { text: 'Feasible', color: 'text-green-700', bg: 'bg-green-100' },
   not_schedulable: { text: 'Infeasible', color: 'text-red-700', bg: 'bg-red-100' },
@@ -39,6 +47,23 @@ const AddressReviewPanel: React.FC = () => {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [routeSuggestions, setRouteSuggestions] = useState<Record<string, RouteSuggestion | null>>({});
+  const [suggestingIds, setSuggestingIds] = useState<Set<string>>(new Set());
+
+  const fetchRouteSuggestion = async (propertyId: string) => {
+    setSuggestingIds(prev => new Set(prev).add(propertyId));
+    try {
+      const res = await fetch(`/api/admin/address-reviews/${propertyId}/route-suggestion`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setRouteSuggestions(prev => ({ ...prev, [propertyId]: data.suggestion }));
+      }
+    } catch (e) {
+      console.error('Route suggestion failed:', e);
+    } finally {
+      setSuggestingIds(prev => { const next = new Set(prev); next.delete(propertyId); return next; });
+    }
+  };
 
   const fetchProperties = async () => {
     setLoading(true);
@@ -57,6 +82,15 @@ const AddressReviewPanel: React.FC = () => {
   };
 
   useEffect(() => { fetchProperties(); }, []);
+
+  // Auto-fetch route suggestions for all pending properties
+  useEffect(() => {
+    for (const prop of properties) {
+      if (!(prop.id in routeSuggestions) && !suggestingIds.has(prop.id)) {
+        fetchRouteSuggestion(prop.id);
+      }
+    }
+  }, [properties]);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -212,6 +246,7 @@ const AddressReviewPanel: React.FC = () => {
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Type</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Submitted</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Feasibility</th>
+              <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Route</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -262,6 +297,24 @@ const AddressReviewPanel: React.FC = () => {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {suggestingIds.has(prop.id) ? (
+                        <span className="text-[10px] font-black uppercase text-gray-400 animate-pulse">Loading...</span>
+                      ) : routeSuggestions[prop.id] ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
+                            {routeSuggestions[prop.id]!.zone_name}
+                          </span>
+                          {routeSuggestions[prop.id]!.pickup_day !== 'unknown' && (
+                            <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded capitalize">
+                              {routeSuggestions[prop.id]!.pickup_day.slice(0, 3)}
+                            </span>
+                          )}
+                        </div>
+                      ) : routeSuggestions[prop.id] === null ? (
+                        <span className="text-[10px] text-gray-300">&mdash;</span>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => checkFeasibility(prop.id)}
@@ -289,7 +342,7 @@ const AddressReviewPanel: React.FC = () => {
                   </tr>
                   {isDenying && (
                     <tr className="bg-red-50">
-                      <td colSpan={7} className="px-4 py-3">
+                      <td colSpan={8} className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <input
                             type="text"

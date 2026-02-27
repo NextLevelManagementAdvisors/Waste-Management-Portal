@@ -51,6 +51,9 @@ export interface DbProperty {
   pickup_day: string | null;
   pickup_day_detected_at: string | null;
   pickup_day_source: string | null;
+  zone_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
   created_at: string;
   updated_at: string;
 }

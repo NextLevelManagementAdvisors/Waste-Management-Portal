@@ -11,6 +11,7 @@ import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 import { expenseRepo } from './repositories/ExpenseRepository';
 import { optimizeJobRoute, checkJobOptimizationStatus } from './optimoSyncService';
+import { suggestRoute } from './routeSuggestionService';
 
 declare module 'express-session' {
   interface SessionData {
@@ -2085,12 +2086,33 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Route suggestion for a property (geocode → nearest zone → day detection)
+  app.get('/api/admin/address-reviews/:propertyId/route-suggestion', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const suggestion = await suggestRoute(req.params.propertyId as string);
+      res.json({ suggestion });
+    } catch (error) {
+      console.error('Route suggestion error:', error);
+      res.status(500).json({ error: 'Failed to get route suggestion' });
+    }
+  });
+
   app.put('/api/admin/address-reviews/:propertyId/decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const propertyId = req.params.propertyId as string;
       const { decision, notes } = req.body;
       if (!decision || !['approved', 'denied'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be approved or denied' });
+      }
+
+      // Pre-compute route suggestion before acquiring lock (geocoding is slow)
+      let routeSuggestion: Awaited<ReturnType<typeof suggestRoute>> = null;
+      if (decision === 'approved') {
+        try {
+          routeSuggestion = await suggestRoute(propertyId);
+        } catch (e) {
+          console.error('Route suggestion failed (non-blocking):', e);
+        }
       }
 
       // Hoist for notification after connection is released
@@ -2120,6 +2142,14 @@ export function registerAdminRoutes(app: Express) {
           `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
           [decision, notes || null, propertyId]
         );
+
+        // Auto-assign zone + pickup day from route suggestion
+        if (routeSuggestion && routeSuggestion.pickup_day !== 'unknown') {
+          await client.query(
+            `UPDATE properties SET zone_id = $1, pickup_day = $2, pickup_day_source = 'route_suggestion', pickup_day_detected_at = NOW() WHERE id = $3`,
+            [routeSuggestion.zone_id, routeSuggestion.pickup_day, propertyId]
+          );
+        }
 
         // Fetch and delete pending selections atomically within the transaction
         const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
