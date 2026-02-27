@@ -186,7 +186,7 @@ All three portals are built as independent React SPAs served from a single Expre
 │       ├── dashboard/              # DashboardView (charts, KPIs, activity)
 │       ├── customers/              # CustomerList, CustomerDetail, EditCustomerModal, BulkNotifyDialog
 │       ├── billing/                # BillingView
-│       ├── operations/             # MissedPickupsList, PickupSchedule, RouteJobsList, ActivityFeed, NotificationSender, CreateJobModal
+│       ├── operations/             # MissedPickupsList, PickupSchedule, JobsList, WeeklyPlanner, ActivityFeed, NotificationSender, CreateJobModal
 │       ├── communications/         # CommunicationsView (tabbed: Conversations + Notifications)
 │       ├── system/                 # AuditLog, AdminRoles
 │       ├── team/                   # TeamView (driver roster)

@@ -198,7 +198,7 @@ const ExpensesTab: React.FC = () => {
                             ? 'bg-blue-100 text-blue-700'
                             : 'bg-gray-100 text-gray-700'
                         }`}>
-                          {item.isDriverPay && <span title="Auto-synced from route job">&#128274;</span>}
+                          {item.isDriverPay && <span title="Auto-synced from job">&#128274;</span>}
                           {getCategoryLabel(item.category)}
                         </span>
                       </td>

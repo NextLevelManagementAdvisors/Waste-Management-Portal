@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
-import type { RouteJob, ServiceZone } from '../../../shared/types/index.ts';
+import type { Job, ServiceZone } from '../../../shared/types/index.ts';
 
 interface PlanningProperty {
   id: string;
@@ -125,7 +125,7 @@ const PlanningCalendar: React.FC = () => {
   // Day detail state
   const [dayProperties, setDayProperties] = useState<PlanningProperty[]>([]);
   const [daySpecials, setDaySpecials] = useState<SpecialPickup[]>([]);
-  const [dayJobs, setDayJobs] = useState<RouteJob[]>([]);
+  const [dayJobs, setDayJobs] = useState<Job[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [autoGrouping, setAutoGrouping] = useState(false);
 

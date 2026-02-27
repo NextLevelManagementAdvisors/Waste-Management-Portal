@@ -86,7 +86,7 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   const dateTo = today.toISOString().split('T')[0];
   const dateFrom = sevenDaysAgo.toISOString().split('T')[0];
 
-  const jobs = await storage.getAllRouteJobs({
+  const jobs = await storage.getAllJobs({
     zone_id: zone.zone_id,
     date_from: dateFrom,
     date_to: dateTo,

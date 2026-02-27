@@ -81,7 +81,7 @@ const CreateJobModal: React.FC<CreateJobModalProps> = ({ onClose, onCreated }) =
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-lg font-black text-gray-900">Create Route Job</h2>
+          <h2 className="text-lg font-black text-gray-900">Create Job</h2>
           <p className="text-sm text-gray-500 mt-0.5">Posted to the driver portal for bidding or direct assignment.</p>
         </div>
 

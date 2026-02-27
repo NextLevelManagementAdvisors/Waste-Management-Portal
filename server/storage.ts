@@ -1235,7 +1235,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async createRouteJob(data: {
+  async createJob(data: {
     title: string;
     description?: string;
     area?: string;
@@ -1283,7 +1283,7 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getAllRouteJobs(filters?: { job_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
+  async getAllJobs(filters?: { job_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -1823,7 +1823,7 @@ export class Storage {
     );
     return result.rows;
   }
-  // ── Route Planner Queries ──
+  // ── Weekly Planner Queries ──
 
   async getMissingClientsForDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
@@ -1871,7 +1871,7 @@ export class Storage {
   }
 
   async copyWeekJobs(sourceFrom: string, sourceTo: string, targetOffset: number = 7) {
-    const sourceJobs = await this.getAllRouteJobs({ date_from: sourceFrom, date_to: sourceTo });
+    const sourceJobs = await this.getAllJobs({ date_from: sourceFrom, date_to: sourceTo });
     const nonCancelled = sourceJobs.filter((j: any) => j.status !== 'cancelled');
     const created: any[] = [];
 
@@ -1880,7 +1880,7 @@ export class Storage {
       srcDate.setDate(srcDate.getDate() + targetOffset);
       const targetDate = srcDate.toISOString().split('T')[0];
 
-      const newJob = await this.createRouteJob({
+      const newJob = await this.createJob({
         title: job.title,
         description: job.description || undefined,
         scheduled_date: targetDate,

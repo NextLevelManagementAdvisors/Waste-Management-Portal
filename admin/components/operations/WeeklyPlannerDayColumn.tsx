@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { RouteJob, MissingClient } from '../../../shared/types/index.ts';
+import type { Job, MissingClient } from '../../../shared/types/index.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -17,14 +17,14 @@ const FREQ_LABELS: Record<string, string> = {
   monthly: 'M',
 };
 
-interface RoutePlannerDayColumnProps {
+interface WeeklyPlannerDayColumnProps {
   date: string;
-  jobs: RouteJob[];
+  jobs: Job[];
   missingClients: MissingClient[];
   onRefresh: () => void;
 }
 
-const RoutePlannerDayColumn: React.FC<RoutePlannerDayColumnProps> = ({ date, jobs, missingClients, onRefresh }) => {
+const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, jobs, missingClients, onRefresh }) => {
   const [showMissing, setShowMissing] = useState(false);
   const [addingTo, setAddingTo] = useState<{ propertyId: string; jobId: string } | null>(null);
   const [publishingJob, setPublishingJob] = useState<string | null>(null);
@@ -81,7 +81,7 @@ const RoutePlannerDayColumn: React.FC<RoutePlannerDayColumnProps> = ({ date, job
       {/* Job Cards */}
       <div className="p-2 space-y-2 flex-1">
         {jobs.length === 0 && missingClients.length === 0 && (
-          <div className="text-xs text-gray-300 text-center py-4">No routes</div>
+          <div className="text-xs text-gray-300 text-center py-4">No jobs</div>
         )}
 
         {jobs.map(job => (
@@ -186,4 +186,4 @@ const RoutePlannerDayColumn: React.FC<RoutePlannerDayColumnProps> = ({ date, job
   );
 };
 
-export default RoutePlannerDayColumn;
+export default WeeklyPlannerDayColumn;

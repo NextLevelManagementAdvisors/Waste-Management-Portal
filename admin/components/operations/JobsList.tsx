@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
-import type { RouteJob, JobBid, JobPickup } from '../../../shared/types/index.ts';
+import type { Job, JobBid, JobPickup } from '../../../shared/types/index.ts';
 import CreateJobModal from './CreateJobModal.tsx';
 import EditJobModal from './EditJobModal.tsx';
 
@@ -138,13 +138,13 @@ const PickupsExpansion: React.FC<{ pickups: JobPickup[] }> = ({ pickups }) => (
   </>
 );
 
-const RouteJobsList: React.FC = () => {
-  const [jobs, setJobs] = useState<RouteJob[]>([]);
+const JobsList: React.FC = () => {
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
-  const [editingJob, setEditingJob] = useState<RouteJob | null>(null);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandMode, setExpandMode] = useState<'bids' | 'pickups'>('bids');
   const [bidsMap, setBidsMap] = useState<Record<string, JobBid[]>>({});
@@ -441,4 +441,4 @@ const RouteJobsList: React.FC = () => {
   );
 };
 
-export default RouteJobsList;
+export default JobsList;

@@ -44,7 +44,7 @@ export type JobType = 'daily_route' | 'bulk_pickup' | 'special_pickup';
 export type JobStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'processing' | 'paid';
 
-export interface RouteJob {
+export interface Job {
   id: string;
   title: string;
   description?: string;
@@ -132,7 +132,7 @@ export interface PlanningDayData {
   }>;
 }
 
-// ── Route Planner types ──
+// ── Weekly Planner types ──
 
 export interface MissingClient {
   id: string;
@@ -159,7 +159,7 @@ export interface CancelledPickup {
 }
 
 export interface WeekPlannerData {
-  jobs: RouteJob[];
+  jobs: Job[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
   zones: ServiceZone[];

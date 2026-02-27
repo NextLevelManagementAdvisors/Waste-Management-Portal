@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
-import RoutePlannerDayColumn from './RoutePlannerDayColumn.tsx';
-import type { RouteJob, ServiceZone, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
+import WeeklyPlannerDayColumn from './WeeklyPlannerDayColumn.tsx';
+import type { Job, ServiceZone, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
 
 interface WeekData {
-  jobs: RouteJob[];
+  jobs: Job[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
   zones: ServiceZone[];
@@ -26,7 +26,7 @@ function formatShortDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-const RoutePlanner: React.FC = () => {
+const WeeklyPlanner: React.FC = () => {
   const [weekStart, setWeekStart] = useState(() => getMondayOfWeek(new Date()));
   const [data, setData] = useState<WeekData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,7 +135,7 @@ const RoutePlanner: React.FC = () => {
   };
 
   // Group jobs by date
-  const jobsByDate: Record<string, RouteJob[]> = {};
+  const jobsByDate: Record<string, Job[]> = {};
   for (const date of dayDates) {
     jobsByDate[date] = [];
   }
@@ -194,7 +194,7 @@ const RoutePlanner: React.FC = () => {
       {data && data.cancelled.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <h3 className="text-xs font-black uppercase tracking-widest text-red-600 mb-2">
-            Cancelled Clients in Routes ({data.cancelled.length})
+            Cancelled Clients in Jobs ({data.cancelled.length})
           </h3>
           <div className="space-y-1">
             {data.cancelled.map(cp => (
@@ -234,7 +234,7 @@ const RoutePlanner: React.FC = () => {
       {/* Board: 6 columns */}
       <div className="grid grid-cols-6 gap-3">
         {dayDates.map(date => (
-          <RoutePlannerDayColumn
+          <WeeklyPlannerDayColumn
             key={date}
             date={date}
             jobs={jobsByDate[date] || []}
@@ -247,12 +247,12 @@ const RoutePlanner: React.FC = () => {
       {/* Empty state */}
       {data && data.jobs.length === 0 && Object.values(data.missingByDay).every(m => m.length === 0) && (
         <EmptyState
-          title="No Routes This Week"
-          message="Use 'Copy to Next Week' from a previous week, or go to the Planning tab to create jobs."
+          title="No Jobs This Week"
+          message="Use 'Copy to Next Week' from a previous week, or go to the Planning Calendar to create jobs."
         />
       )}
     </div>
   );
 };
 
-export default RoutePlanner;
+export default WeeklyPlanner;

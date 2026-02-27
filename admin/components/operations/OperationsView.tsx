@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import type { NavFilter } from '../../../shared/types/index.ts';
 import MissedPickupsList from './MissedPickupsList.tsx';
-import RouteJobsList from './RouteJobsList.tsx';
-import RoutesView from './RoutesView.tsx';
+import JobsList from './JobsList.tsx';
+import OptimoRoutesView from './OptimoRoutesView.tsx';
 import AddressReviewPanel from './AddressReviewPanel.tsx';
 import PlanningCalendar from './PlanningCalendar.tsx';
-import RoutePlanner from './RoutePlanner.tsx';
+import WeeklyPlanner from './WeeklyPlanner.tsx';
 
 export type OpsTabType = 'planning' | 'route-planner' | 'job-board' | 'live-ops' | 'issues' | 'address-review';
 
@@ -39,10 +39,10 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
   }, [navFilter, onFilterConsumed]);
 
   const tabs: { key: OpsTabType; label: string }[] = [
-    { key: 'planning', label: 'Planning' },
-    { key: 'route-planner', label: 'Route Planner' },
-    { key: 'job-board', label: 'Job Board' },
-    { key: 'live-ops', label: 'Live Ops' },
+    { key: 'planning', label: 'Planning Calendar' },
+    { key: 'route-planner', label: 'Weekly Planner' },
+    { key: 'job-board', label: 'Jobs' },
+    { key: 'live-ops', label: 'Optimo Routes' },
     { key: 'issues', label: 'Issues' },
     { key: 'address-review', label: 'Address Review' },
   ];
@@ -67,9 +67,9 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
 
       <div>
         {activeTab === 'planning' && <PlanningCalendar />}
-        {activeTab === 'route-planner' && <RoutePlanner />}
-        {activeTab === 'job-board' && <RouteJobsList />}
-        {activeTab === 'live-ops' && <RoutesView />}
+        {activeTab === 'route-planner' && <WeeklyPlanner />}
+        {activeTab === 'job-board' && <JobsList />}
+        {activeTab === 'live-ops' && <OptimoRoutesView />}
         {activeTab === 'issues' && <MissedPickupsList />}
         {activeTab === 'address-review' && <AddressReviewPanel />}
       </div>

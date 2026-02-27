@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import type { Driver, RouteJob } from '../../../shared/types/index.ts';
+import type { Driver, Job } from '../../../shared/types/index.ts';
 import AddressAutocomplete from '../../../components/AddressAutocomplete.tsx';
 
 interface EditJobModalProps {
-  job: RouteJob;
+  job: Job;
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -92,7 +92,7 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-lg font-black text-gray-900">Edit Route Job</h2>
+          <h2 className="text-lg font-black text-gray-900">Edit Job</h2>
           <p className="text-sm text-gray-500 mt-0.5">Update job details, status, or driver assignment.</p>
         </div>
 
