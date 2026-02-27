@@ -5,6 +5,7 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { transferPropertyOwnership } from '../services/apiService.ts';
 import { ArrowPathRoundedSquareIcon, CheckCircleIcon, PaperAirplaneIcon, ClockIcon } from './Icons.tsx';
+import { ConfirmationModal } from './ConfirmationModal.tsx';
 
 const AccountTransfer: React.FC = () => {
     const { selectedProperty, refreshUser, sendTransferReminder } = useProperty();
@@ -15,6 +16,7 @@ const AccountTransfer: React.FC = () => {
     const [transferSuccess, setTransferSuccess] = useState(false);
     const [reminderSent, setReminderSent] = useState(false);
     const [isCancelling, setIsCancelling] = useState(false);
+    const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string} | null>(null);
 
     const showNotification = (type: 'success' | 'error', message: string) => {
@@ -58,6 +60,7 @@ const AccountTransfer: React.FC = () => {
             showNotification('error', e.message || 'Could not cancel transfer.');
         } finally {
             setIsCancelling(false);
+            setIsCancelModalOpen(false);
         }
     };
 
@@ -93,7 +96,7 @@ const AccountTransfer: React.FC = () => {
                         <Button onClick={handleSendReminder} disabled={reminderSent} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
                             {reminderSent ? <><CheckCircleIcon className="w-5 h-5 mr-2" /> Reminder Sent!</> : <><PaperAirplaneIcon className="w-5 h-5 mr-2" /> Send Reminder</>}
                         </Button>
-                        <Button onClick={handleCancelTransfer} disabled={isCancelling} className="bg-red-500 hover:bg-red-600 focus:ring-red-500 rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
+                        <Button onClick={() => setIsCancelModalOpen(true)} disabled={isCancelling} className="bg-red-500 hover:bg-red-600 focus:ring-red-500 rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
                             {isCancelling ? 'Cancelling...' : 'Cancel Transfer'}
                         </Button>
                     </div>
@@ -140,8 +143,13 @@ const AccountTransfer: React.FC = () => {
                     {notification.message}
                 </div>
             )}
+            <ConfirmationModal
+                isOpen={isCancelModalOpen}
+                onClose={() => setIsCancelModalOpen(false)}
+                onConfirm={handleCancelTransfer}
+                title="Confirm Cancellation"
+                message="Are you sure you want to cancel this account transfer? This action cannot be undone."
+            />
         </Card>
     );
 };
-
-export default AccountTransfer;

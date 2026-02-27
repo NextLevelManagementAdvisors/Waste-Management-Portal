@@ -271,8 +271,8 @@ CREATE TABLE IF NOT EXISTS driver_w9 (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Route jobs
-CREATE TABLE IF NOT EXISTS route_jobs (
+-- Routes
+CREATE TABLE IF NOT EXISTS routes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title VARCHAR(255) NOT NULL,
   description TEXT,
@@ -290,16 +290,16 @@ CREATE TABLE IF NOT EXISTS route_jobs (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Job bids
-CREATE TABLE IF NOT EXISTS job_bids (
+-- Route bids
+CREATE TABLE IF NOT EXISTS route_bids (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id UUID NOT NULL REFERENCES route_jobs(id) ON DELETE CASCADE,
+  route_id UUID NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
   driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
   bid_amount NUMERIC(10,2) NOT NULL,
   message TEXT,
   driver_rating_at_bid NUMERIC(3,2),
   created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE (job_id, driver_id)
+  UNIQUE (route_id, driver_id)
 );
 
 -- Conversations
@@ -495,34 +495,40 @@ CREATE TABLE IF NOT EXISTS service_zones (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Job pickups junction table (links properties to jobs)
-CREATE TABLE IF NOT EXISTS job_pickups (
+-- Route stops (links properties/locations to routes)
+CREATE TABLE IF NOT EXISTS route_stops (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id UUID NOT NULL REFERENCES route_jobs(id) ON DELETE CASCADE,
+  route_id UUID NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
   property_id UUID NOT NULL REFERENCES properties(id),
-  pickup_type VARCHAR(30) DEFAULT 'recurring',
+  order_type VARCHAR(30) DEFAULT 'recurring',
   special_pickup_id UUID REFERENCES special_pickup_requests(id),
   optimo_order_no VARCHAR(100),
-  sequence_number INTEGER,
+  stop_number INTEGER,
   status VARCHAR(30) DEFAULT 'pending',
+  scheduled_at VARCHAR(20),
+  duration INTEGER DEFAULT 15,
+  notes TEXT,
+  location_name VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_job_pickups_job ON job_pickups(job_id);
-CREATE INDEX IF NOT EXISTS idx_job_pickups_property ON job_pickups(property_id);
+CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_stops_property ON route_stops(property_id);
 
--- Job-centric extensions to route_jobs
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS job_type VARCHAR(30) DEFAULT 'daily_route';
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual';
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS special_pickup_id UUID REFERENCES special_pickup_requests(id);
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS optimo_planning_id VARCHAR(100);
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS accepted_bid_id UUID REFERENCES job_bids(id);
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS actual_pay NUMERIC(10,2);
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'unpaid';
-ALTER TABLE route_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
-CREATE INDEX IF NOT EXISTS idx_route_jobs_date_status ON route_jobs(scheduled_date, status);
-CREATE INDEX IF NOT EXISTS idx_route_jobs_zone ON route_jobs(zone_id);
-CREATE INDEX IF NOT EXISTS idx_route_jobs_type ON route_jobs(job_type);
+-- Route extensions
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS route_type VARCHAR(30) DEFAULT 'daily_route';
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual';
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS special_pickup_id UUID REFERENCES special_pickup_requests(id);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_planning_id VARCHAR(100);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS accepted_bid_id UUID REFERENCES route_bids(id);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS actual_pay NUMERIC(10,2);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'unpaid';
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_routes_date_status ON routes(scheduled_date, status);
+CREATE INDEX IF NOT EXISTS idx_routes_zone ON routes(zone_id);
+CREATE INDEX IF NOT EXISTS idx_routes_type ON routes(route_type);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_synced BOOLEAN DEFAULT FALSE;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_synced_at TIMESTAMP;
 
 -- Zone and coordinate fields on properties
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);

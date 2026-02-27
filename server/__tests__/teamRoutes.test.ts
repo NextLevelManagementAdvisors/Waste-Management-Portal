@@ -27,15 +27,15 @@ vi.mock('../storage', () => ({
     updateDriver: vi.fn(),
     getW9ByDriverId: vi.fn(),
     createW9: vi.fn(),
-    getOpenJobs: vi.fn(),
-    getDriverJobs: vi.fn(),
-    getJobById: vi.fn(),
-    getJobBids: vi.fn(),
-    getJobPickups: vi.fn(),
-    getBidByJobAndDriver: vi.fn(),
-    createBid: vi.fn(),
-    updateJob: vi.fn(),
-    deleteBid: vi.fn(),
+    getOpenRoutes: vi.fn(),
+    getDriverRoutes: vi.fn(),
+    getRouteById: vi.fn(),
+    getRouteBids: vi.fn(),
+    getRouteStops: vi.fn(),
+    getBidByRouteAndDriver: vi.fn(),
+    createRouteBid: vi.fn(),
+    updateRoute: vi.fn(),
+    deleteRouteBid: vi.fn(),
     getDriverSchedule: vi.fn(),
     getUserById: vi.fn(),
     query: vi.fn(),
@@ -105,8 +105,8 @@ const mockW9 = {
   account_type: null as string | null,
 };
 
-const mockJob = {
-  id: 'job-1',
+const mockRoute = {
+  id: 'route-1',
   status: 'open',
   assigned_driver_id: null as string | null,
   address: '456 Elm St',
@@ -114,16 +114,16 @@ const mockJob = {
   service_type: 'pickup',
 };
 
-const assignedJob = {
-  ...mockJob,
-  id: 'job-2',
+const assignedRoute = {
+  ...mockRoute,
+  id: 'route-2',
   status: 'assigned',
   assigned_driver_id: 'driver-1',
 };
 
 const mockBid = {
   id: 'bid-1',
-  job_id: 'job-1',
+  route_id: 'route-1',
   driver_id: 'driver-1',
   bid_amount: 50,
   message: null,
@@ -198,15 +198,15 @@ beforeEach(() => {
   vi.mocked(storage.updateDriver).mockResolvedValue({ ...mockDriver } as any);
   vi.mocked(storage.getW9ByDriverId).mockResolvedValue(null as any);
   vi.mocked(storage.createW9).mockResolvedValue({ ...mockW9 } as any);
-  vi.mocked(storage.getOpenJobs).mockResolvedValue([] as any);
-  vi.mocked(storage.getDriverJobs).mockResolvedValue([] as any);
-  vi.mocked(storage.getJobById).mockResolvedValue({ ...mockJob } as any);
-  vi.mocked(storage.getJobBids).mockResolvedValue([] as any);
-  vi.mocked(storage.getJobPickups).mockResolvedValue([] as any);
-  vi.mocked(storage.getBidByJobAndDriver).mockResolvedValue(null as any);
-  vi.mocked(storage.createBid).mockResolvedValue({ ...mockBid } as any);
-  vi.mocked(storage.updateJob).mockResolvedValue(undefined as any);
-  vi.mocked(storage.deleteBid).mockResolvedValue(undefined as any);
+  vi.mocked(storage.getOpenRoutes).mockResolvedValue([] as any);
+  vi.mocked(storage.getDriverRoutes).mockResolvedValue([] as any);
+  vi.mocked(storage.getRouteById).mockResolvedValue({ ...mockRoute } as any);
+  vi.mocked(storage.getRouteBids).mockResolvedValue([] as any);
+  vi.mocked(storage.getRouteStops).mockResolvedValue([] as any);
+  vi.mocked(storage.getBidByRouteAndDriver).mockResolvedValue(null as any);
+  vi.mocked(storage.createRouteBid).mockResolvedValue({ ...mockBid } as any);
+  vi.mocked(storage.updateRoute).mockResolvedValue(undefined as any);
+  vi.mocked(storage.deleteRouteBid).mockResolvedValue(undefined as any);
   vi.mocked(storage.getDriverSchedule).mockResolvedValue([] as any);
   vi.mocked(storage.getUserById).mockResolvedValue({ ...mockUser } as any);
   vi.mocked(storage.query).mockResolvedValue({ rows: [] } as any);
@@ -677,11 +677,11 @@ describe('GET /api/team/onboarding/stripe-connect/refresh', () => {
 });
 
 // ===========================================================================
-// GET /api/team/jobs
+// GET /api/team/routes
 // ===========================================================================
-describe('GET /api/team/jobs', () => {
+describe('GET /api/team/routes', () => {
   it('returns 401 without auth', async () => {
-    const res = await supertest(createApp()).get('/api/team/jobs');
+    const res = await supertest(createApp()).get('/api/team/routes');
     expect(res.status).toBe(401);
   });
 
@@ -690,24 +690,24 @@ describe('GET /api/team/jobs', () => {
       ...mockDriver,
       onboarding_status: 'w9_pending',
     } as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs');
+    const res = await supertest(createDriverAuthApp()).get('/api/team/routes');
     expect(res.status).toBe(403);
   });
 
-  it('returns 200 with jobs list', async () => {
-    vi.mocked(storage.getOpenJobs).mockResolvedValueOnce([mockJob] as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs');
+  it('returns 200 with routes list', async () => {
+    vi.mocked(storage.getOpenRoutes).mockResolvedValueOnce([mockRoute] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/routes');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
 });
 
 // ===========================================================================
-// GET /api/team/my-jobs
+// GET /api/team/my-routes
 // ===========================================================================
-describe('GET /api/team/my-jobs', () => {
+describe('GET /api/team/my-routes', () => {
   it('returns 401 without auth', async () => {
-    const res = await supertest(createApp()).get('/api/team/my-jobs');
+    const res = await supertest(createApp()).get('/api/team/my-routes');
     expect(res.status).toBe(401);
   });
 
@@ -716,90 +716,90 @@ describe('GET /api/team/my-jobs', () => {
       ...mockDriver,
       onboarding_status: 'deposit_pending',
     } as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/my-jobs');
+    const res = await supertest(createDriverAuthApp()).get('/api/team/my-routes');
     expect(res.status).toBe(403);
   });
 
-  it('returns 200 with driver jobs', async () => {
-    vi.mocked(storage.getDriverJobs).mockResolvedValueOnce([assignedJob] as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/my-jobs');
+  it('returns 200 with driver routes', async () => {
+    vi.mocked(storage.getDriverRoutes).mockResolvedValueOnce([assignedRoute] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/my-routes');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
 });
 
 // ===========================================================================
-// GET /api/team/jobs/:jobId
+// GET /api/team/routes/:routeId
 // ===========================================================================
-describe('GET /api/team/jobs/:jobId', () => {
+describe('GET /api/team/routes/:routeId', () => {
   it('returns 401 without auth', async () => {
-    const res = await supertest(createApp()).get('/api/team/jobs/job-1');
+    const res = await supertest(createApp()).get('/api/team/routes/route-1');
     expect(res.status).toBe(401);
   });
 
-  it('returns 404 if job not found', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs/nope');
+  it('returns 404 if route not found', async () => {
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/routes/nope');
     expect(res.status).toBe(404);
   });
 
-  it('returns 200 with job and bids', async () => {
-    vi.mocked(storage.getJobBids).mockResolvedValueOnce([mockBid] as any);
-    const res = await supertest(createDriverAuthApp()).get('/api/team/jobs/job-1');
+  it('returns 200 with route and bids', async () => {
+    vi.mocked(storage.getRouteBids).mockResolvedValueOnce([mockBid] as any);
+    const res = await supertest(createDriverAuthApp()).get('/api/team/routes/route-1');
     expect(res.status).toBe(200);
-    expect(res.body.data.id).toBe('job-1');
+    expect(res.body.data.id).toBe('route-1');
     expect(res.body.data.bids).toHaveLength(1);
   });
 });
 
 // ===========================================================================
-// POST /api/team/jobs/:jobId/bid
+// POST /api/team/routes/:routeId/bid
 // ===========================================================================
-describe('POST /api/team/jobs/:jobId/bid', () => {
+describe('POST /api/team/routes/:routeId/bid', () => {
   it('returns 401 without auth', async () => {
     const res = await supertest(createApp())
-      .post('/api/team/jobs/job-1/bid')
+      .post('/api/team/routes/route-1/bid')
       .send({ bid_amount: 50 });
     expect(res.status).toBe(401);
   });
 
   it('returns 400 if bid_amount is missing or zero', async () => {
     const res = await supertest(createDriverAuthApp())
-      .post('/api/team/jobs/job-1/bid')
+      .post('/api/team/routes/route-1/bid')
       .send({ bid_amount: 0 });
     expect(res.status).toBe(400);
   });
 
-  it('returns 404 if job not found', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
+  it('returns 404 if route not found', async () => {
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce(null as any);
     const res = await supertest(createDriverAuthApp())
-      .post('/api/team/jobs/nope/bid')
+      .post('/api/team/routes/nope/bid')
       .send({ bid_amount: 50 });
     expect(res.status).toBe(404);
   });
 
-  it('returns 400 if job is not open or bidding', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce({
-      ...mockJob,
+  it('returns 400 if route is not open or bidding', async () => {
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce({
+      ...mockRoute,
       status: 'completed',
     } as any);
     const res = await supertest(createDriverAuthApp())
-      .post('/api/team/jobs/job-1/bid')
+      .post('/api/team/routes/route-1/bid')
       .send({ bid_amount: 50 });
     expect(res.status).toBe(400);
   });
 
-  it('returns 409 if driver already bid on this job', async () => {
-    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
+  it('returns 409 if driver already bid on this route', async () => {
+    vi.mocked(storage.getBidByRouteAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
     const res = await supertest(createDriverAuthApp())
-      .post('/api/team/jobs/job-1/bid')
+      .post('/api/team/routes/route-1/bid')
       .send({ bid_amount: 50 });
     expect(res.status).toBe(409);
   });
 
   it('returns 201 with bid data on success', async () => {
     const res = await supertest(createDriverAuthApp())
-      .post('/api/team/jobs/job-1/bid')
+      .post('/api/team/routes/route-1/bid')
       .send({ bid_amount: 75, message: 'I can do it!' });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ id: 'bid-1' });
@@ -807,64 +807,64 @@ describe('POST /api/team/jobs/:jobId/bid', () => {
 });
 
 // ===========================================================================
-// DELETE /api/team/jobs/:jobId/bid
+// DELETE /api/team/routes/:routeId/bid
 // ===========================================================================
-describe('DELETE /api/team/jobs/:jobId/bid', () => {
+describe('DELETE /api/team/routes/:routeId/bid', () => {
   it('returns 401 without auth', async () => {
-    const res = await supertest(createApp()).delete('/api/team/jobs/job-1/bid');
+    const res = await supertest(createApp()).delete('/api/team/routes/route-1/bid');
     expect(res.status).toBe(401);
   });
 
   it('returns 404 if bid not found', async () => {
-    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce(null as any);
-    const res = await supertest(createDriverAuthApp()).delete('/api/team/jobs/job-1/bid');
+    vi.mocked(storage.getBidByRouteAndDriver).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).delete('/api/team/routes/route-1/bid');
     expect(res.status).toBe(404);
   });
 
   it('returns 200 on success', async () => {
-    vi.mocked(storage.getBidByJobAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
-    const res = await supertest(createDriverAuthApp()).delete('/api/team/jobs/job-1/bid');
+    vi.mocked(storage.getBidByRouteAndDriver).mockResolvedValueOnce({ ...mockBid } as any);
+    const res = await supertest(createDriverAuthApp()).delete('/api/team/routes/route-1/bid');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
 });
 
 // ===========================================================================
-// POST /api/team/jobs/:jobId/complete
+// POST /api/team/routes/:routeId/complete
 // ===========================================================================
-describe('POST /api/team/jobs/:jobId/complete', () => {
+describe('POST /api/team/routes/:routeId/complete', () => {
   it('returns 401 without auth', async () => {
-    const res = await supertest(createApp()).post('/api/team/jobs/job-2/complete');
+    const res = await supertest(createApp()).post('/api/team/routes/route-2/complete');
     expect(res.status).toBe(401);
   });
 
-  it('returns 404 if job not found', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce(null as any);
-    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/nope/complete');
+  it('returns 404 if route not found', async () => {
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce(null as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/routes/nope/complete');
     expect(res.status).toBe(404);
   });
 
   it('returns 403 if driver is not assigned', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce({
-      ...assignedJob,
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce({
+      ...assignedRoute,
       assigned_driver_id: 'other-driver',
     } as any);
-    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    const res = await supertest(createDriverAuthApp()).post('/api/team/routes/route-2/complete');
     expect(res.status).toBe(403);
   });
 
-  it('returns 400 if job status is not assigned/in_progress', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce({
-      ...assignedJob,
+  it('returns 400 if route status is not assigned/in_progress', async () => {
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce({
+      ...assignedRoute,
       status: 'completed',
     } as any);
-    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    const res = await supertest(createDriverAuthApp()).post('/api/team/routes/route-2/complete');
     expect(res.status).toBe(400);
   });
 
   it('returns 200 on success', async () => {
-    vi.mocked(storage.getJobById).mockResolvedValueOnce({ ...assignedJob } as any);
-    const res = await supertest(createDriverAuthApp()).post('/api/team/jobs/job-2/complete');
+    vi.mocked(storage.getRouteById).mockResolvedValueOnce({ ...assignedRoute } as any);
+    const res = await supertest(createDriverAuthApp()).post('/api/team/routes/route-2/complete');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
@@ -889,7 +889,7 @@ describe('GET /api/team/schedule', () => {
   });
 
   it('returns 200 with schedule', async () => {
-    vi.mocked(storage.getDriverSchedule).mockResolvedValueOnce([assignedJob] as any);
+    vi.mocked(storage.getDriverSchedule).mockResolvedValueOnce([assignedRoute] as any);
     const res = await supertest(createDriverAuthApp()).get('/api/team/schedule');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);

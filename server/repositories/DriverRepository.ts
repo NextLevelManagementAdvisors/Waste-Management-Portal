@@ -65,60 +65,60 @@ export class DriverRepository extends BaseRepository {
     return result.rows[0] || null;
   }
 
-  // Jobs
-  async getOpenJobs(filters?: { startDate?: string; endDate?: string }) {
+  // Routes
+  async getOpenRoutes(filters?: { startDate?: string; endDate?: string }) {
     const conditions: string[] = [`status IN ('open', 'bidding')`];
     const params: any[] = [];
     let idx = 1;
     if (filters?.startDate) { conditions.push(`scheduled_date >= $${idx++}`); params.push(filters.startDate); }
     if (filters?.endDate) { conditions.push(`scheduled_date <= $${idx++}`); params.push(filters.endDate); }
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
+      `SELECT * FROM routes WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
       params
     );
     return result.rows;
   }
 
-  async getJobById(jobId: string) {
-    const result = await this.query('SELECT * FROM route_jobs WHERE id = $1', [jobId]);
+  async getRouteById(routeId: string) {
+    const result = await this.query('SELECT * FROM routes WHERE id = $1', [routeId]);
     return result.rows[0] || null;
   }
 
-  async getJobBids(jobId: string) {
+  async getRouteBids(routeId: string) {
     const result = await this.query(
-      `SELECT jb.*, d.name as driver_name, d.rating as driver_rating
-       FROM job_bids jb
-       JOIN driver_profiles d ON jb.driver_id = d.id
-       WHERE jb.job_id = $1
-       ORDER BY jb.created_at ASC`,
-      [jobId]
+      `SELECT rb.*, d.name as driver_name, d.rating as driver_rating
+       FROM route_bids rb
+       JOIN driver_profiles d ON rb.driver_id = d.id
+       WHERE rb.route_id = $1
+       ORDER BY rb.created_at ASC`,
+      [routeId]
     );
     return result.rows;
   }
 
-  async createBid(data: { jobId: string; driverId: string; bidAmount: number; message?: string; driverRatingAtBid: number }) {
+  async createRouteBid(data: { routeId: string; driverId: string; bidAmount: number; message?: string; driverRatingAtBid: number }) {
     const result = await this.query(
-      `INSERT INTO job_bids (job_id, driver_id, bid_amount, message, driver_rating_at_bid)
+      `INSERT INTO route_bids (route_id, driver_id, bid_amount, message, driver_rating_at_bid)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [data.jobId, data.driverId, data.bidAmount, data.message || null, data.driverRatingAtBid]
+      [data.routeId, data.driverId, data.bidAmount, data.message || null, data.driverRatingAtBid]
     );
     return result.rows[0];
   }
 
-  async deleteBid(jobId: string, driverId: string) {
-    await this.query('DELETE FROM job_bids WHERE job_id = $1 AND driver_id = $2', [jobId, driverId]);
+  async deleteRouteBid(routeId: string, driverId: string) {
+    await this.query('DELETE FROM route_bids WHERE route_id = $1 AND driver_id = $2', [routeId, driverId]);
   }
 
-  async getBidByJobAndDriver(jobId: string, driverId: string) {
+  async getBidByRouteAndDriver(routeId: string, driverId: string) {
     const result = await this.query(
-      'SELECT * FROM job_bids WHERE job_id = $1 AND driver_id = $2',
-      [jobId, driverId]
+      'SELECT * FROM route_bids WHERE route_id = $1 AND driver_id = $2',
+      [routeId, driverId]
     );
     return result.rows[0] || null;
   }
 
-  async updateJob(jobId: string, data: Partial<{ title: string; description: string; area: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -131,17 +131,17 @@ export class DriverRepository extends BaseRepository {
     }
     if (fields.length === 0) return null;
     fields.push(`updated_at = NOW()`);
-    values.push(jobId);
+    values.push(routeId);
     const result = await this.query(
-      `UPDATE route_jobs SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE routes SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
   }
 
-  async getDriverJobs(driverId: string) {
+  async getDriverRoutes(driverId: string) {
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 ORDER BY scheduled_date DESC, start_time ASC`,
+      `SELECT * FROM routes WHERE assigned_driver_id = $1 ORDER BY scheduled_date DESC, start_time ASC`,
       [driverId]
     );
     return result.rows;
@@ -149,7 +149,7 @@ export class DriverRepository extends BaseRepository {
 
   async getDriverSchedule(driverId: string, start: string, end: string) {
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 AND scheduled_date >= $2 AND scheduled_date <= $3 ORDER BY scheduled_date ASC, start_time ASC`,
+      `SELECT * FROM routes WHERE assigned_driver_id = $1 AND scheduled_date >= $2 AND scheduled_date <= $3 ORDER BY scheduled_date ASC, start_time ASC`,
       [driverId, start, end]
     );
     return result.rows;

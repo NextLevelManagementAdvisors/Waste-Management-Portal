@@ -70,7 +70,7 @@ const DriverPayTab: React.FC = () => {
     if (!markPaidJob) return;
     setMarkLoading(true);
     try {
-      const res = await fetch(`/api/admin/jobs/${markPaidJob.id}/payment-status`, {
+      const res = await fetch(`/api/admin/routes/${markPaidJob.id}/payment-status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

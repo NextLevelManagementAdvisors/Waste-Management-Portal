@@ -775,60 +775,60 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  app.get('/api/team/jobs', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.get('/api/team/routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const filters: { startDate?: string; endDate?: string } = {};
       if (req.query.startDate) filters.startDate = req.query.startDate as string;
       if (req.query.endDate) filters.endDate = req.query.endDate as string;
 
-      const jobs = await storage.getOpenJobs(filters);
-      // Enrich with pickup counts
-      const enriched = await Promise.all(jobs.map(async (job: any) => {
+      const routes = await storage.getOpenRoutes(filters);
+      // Enrich with stop counts
+      const enriched = await Promise.all(routes.map(async (route: any) => {
         try {
-          const pickups = await storage.getJobPickups(job.id);
-          return { ...job, pickup_count: pickups.length };
-        } catch { return { ...job, pickup_count: 0 }; }
+          const stops = await storage.getRouteStops(route.id);
+          return { ...route, stop_count: stops.length };
+        } catch { return { ...route, stop_count: 0 }; }
       }));
       res.json({ data: enriched });
     } catch (error: any) {
-      console.error('Get jobs error:', error);
-      res.status(500).json({ error: 'Failed to get jobs' });
+      console.error('Get routes error:', error);
+      res.status(500).json({ error: 'Failed to get routes' });
     }
   });
 
-  app.get('/api/team/my-jobs', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.get('/api/team/my-routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobs = await storage.getDriverJobs(res.locals.driverProfile.id);
-      res.json({ data: jobs });
+      const myRoutes = await storage.getDriverRoutes(res.locals.driverProfile.id);
+      res.json({ data: myRoutes });
     } catch (error: any) {
-      console.error('Get my jobs error:', error);
-      res.status(500).json({ error: 'Failed to get jobs' });
+      console.error('Get my routes error:', error);
+      res.status(500).json({ error: 'Failed to get routes' });
     }
   });
 
-  app.get('/api/team/jobs/:jobId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.get('/api/team/routes/:routeId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.jobId;
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
+      const routeId = req.params.routeId;
+      const route = await storage.getRouteById(routeId);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
       }
 
-      const [bids, pickups] = await Promise.all([
-        storage.getJobBids(jobId),
-        storage.getJobPickups(jobId),
+      const [bids, stops] = await Promise.all([
+        storage.getRouteBids(routeId),
+        storage.getRouteStops(routeId),
       ]);
 
-      res.json({ data: { ...job, bids, pickups: pickups.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
+      res.json({ data: { ...route, bids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
     } catch (error: any) {
-      console.error('Get job error:', error);
-      res.status(500).json({ error: 'Failed to get job' });
+      console.error('Get route error:', error);
+      res.status(500).json({ error: 'Failed to get route' });
     }
   });
 
-  app.post('/api/team/jobs/:jobId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.post('/api/team/routes/:routeId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.jobId;
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
       const { bid_amount, message } = req.body;
 
@@ -836,32 +836,32 @@ export function registerTeamRoutes(app: Express) {
         return res.status(400).json({ error: 'Valid bid amount is required' });
       }
 
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
+      const route = await storage.getRouteById(routeId);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
       }
 
-      if (job.status !== 'open' && job.status !== 'bidding') {
-        return res.status(400).json({ error: 'Job is not available for bidding' });
+      if (route.status !== 'open' && route.status !== 'bidding') {
+        return res.status(400).json({ error: 'Route is not available for bidding' });
       }
 
-      const existingBid = await storage.getBidByJobAndDriver(jobId, driverId);
+      const existingBid = await storage.getBidByRouteAndDriver(routeId, driverId);
       if (existingBid) {
-        return res.status(409).json({ error: 'You have already bid on this job' });
+        return res.status(409).json({ error: 'You have already bid on this route' });
       }
 
       const driver = await storage.getDriverById(driverId);
 
-      const bid = await storage.createBid({
-        jobId,
+      const bid = await storage.createRouteBid({
+        routeId,
         driverId,
         bidAmount: bid_amount,
         message: message || undefined,
         driverRatingAtBid: parseFloat(driver.rating) || 5.00,
       });
 
-      if (job.status === 'open') {
-        await storage.updateJob(jobId, { status: 'bidding' });
+      if (route.status === 'open') {
+        await storage.updateRoute(routeId, { status: 'bidding' });
       }
 
       res.status(201).json({ data: bid });
@@ -871,17 +871,17 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/team/jobs/:jobId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.delete('/api/team/routes/:routeId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.jobId;
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
 
-      const existingBid = await storage.getBidByJobAndDriver(jobId, driverId);
+      const existingBid = await storage.getBidByRouteAndDriver(routeId, driverId);
       if (!existingBid) {
         return res.status(404).json({ error: 'Bid not found' });
       }
 
-      await storage.deleteBid(jobId, driverId);
+      await storage.deleteRouteBid(routeId, driverId);
 
       res.json({ success: true });
     } catch (error: any) {
@@ -890,30 +890,30 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  // Driver marks an assigned job as completed. Accepts optional notes and
+  // Driver marks an assigned route as completed. Accepts optional notes and
   // auto-creates a driver_pay expense record so payroll stays in sync.
-  app.post('/api/team/jobs/:jobId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.post('/api/team/routes/:routeId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.jobId;
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
       const { notes } = req.body || {};
 
-      const job = await storage.getJobById(jobId);
-      if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
+      const route = await storage.getRouteById(routeId);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
       }
 
-      if (job.assigned_driver_id !== driverId) {
-        return res.status(403).json({ error: 'You are not assigned to this job' });
+      if (route.assigned_driver_id !== driverId) {
+        return res.status(403).json({ error: 'You are not assigned to this route' });
       }
 
-      if (job.status !== 'assigned' && job.status !== 'in_progress') {
-        return res.status(400).json({ error: 'Job cannot be completed in its current status' });
+      if (route.status !== 'assigned' && route.status !== 'in_progress') {
+        return res.status(400).json({ error: 'Route cannot be completed in its current status' });
       }
 
-      await storage.updateJob(jobId, {
+      await storage.updateRoute(routeId, {
         status: 'completed',
-        ...(notes ? { notes: job.notes ? `${job.notes}\n\nDriver notes: ${notes}` : `Driver notes: ${notes}` } : {}),
+        ...(notes ? { notes: route.notes ? `${route.notes}\n\nDriver notes: ${notes}` : `Driver notes: ${notes}` } : {}),
       });
 
       const driver = await storage.getDriverById(driverId);
@@ -922,16 +922,16 @@ export function registerTeamRoutes(app: Express) {
       });
 
       // Auto-sync driver pay expense
-      const pay = job.base_pay ? parseFloat(job.base_pay) : 0;
+      const pay = route.base_pay ? parseFloat(route.base_pay) : 0;
       if (pay > 0) {
         try {
           const { expenseRepo } = await import('./repositories/ExpenseRepository');
           await expenseRepo.create({
             category: 'driver_pay',
-            description: `Driver pay for: ${job.title}`,
+            description: `Driver pay for: ${route.title}`,
             amount: pay,
-            expenseDate: job.scheduled_date || new Date().toISOString().split('T')[0],
-            referenceId: jobId,
+            expenseDate: route.scheduled_date || new Date().toISOString().split('T')[0],
+            referenceId: routeId,
             referenceType: 'route_job',
             createdBy: null as any,
           });
@@ -942,8 +942,8 @@ export function registerTeamRoutes(app: Express) {
 
       res.json({ success: true });
     } catch (error: any) {
-      console.error('Complete job error:', error);
-      res.status(500).json({ error: 'Failed to complete job' });
+      console.error('Complete route error:', error);
+      res.status(500).json({ error: 'Failed to complete route' });
     }
   });
 
@@ -953,8 +953,8 @@ export function registerTeamRoutes(app: Express) {
       const start = (req.query.start as string) || new Date().toISOString().split('T')[0];
       const end = (req.query.end as string) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const jobs = await storage.getDriverSchedule(driverId, start, end);
-      res.json({ data: jobs });
+      const routes = await storage.getDriverSchedule(driverId, start, end);
+      res.json({ data: routes });
     } catch (error: any) {
       console.error('Get schedule error:', error);
       res.status(500).json({ error: 'Failed to get schedule' });

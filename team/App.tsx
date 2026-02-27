@@ -12,7 +12,6 @@ import {
   CheckCircleIcon,
   ClockIcon,
   XMarkIcon,
-  MapPinIcon,
   ArchiveBoxIcon,
 } from '../components/Icons.tsx';
 
@@ -37,11 +36,11 @@ interface OnboardingStatus {
   direct_deposit_completed: boolean;
 }
 
-interface Job {
+interface Route {
   id: string;
   title: string;
   description?: string;
-  area?: string;
+  route_type?: string;
   scheduled_date?: string;
   start_time?: string;
   end_time?: string;
@@ -55,7 +54,7 @@ interface Job {
 
 interface Bid {
   id: string;
-  job_id: string;
+  route_id: string;
   driver_id: string;
   bid_amount: number;
   message?: string;
@@ -63,11 +62,11 @@ interface Bid {
   created_at?: string;
 }
 
-type TeamView = 'dashboard' | 'jobs' | 'schedule' | 'pickups' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
-  jobs: '/team/jobs',
+  routes: '/team/routes',
   schedule: '/team/schedule',
   pickups: '/team/pickups',
   messages: '/team/messages',
@@ -428,7 +427,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
       <div className="max-w-2xl w-full">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-black text-gray-900 mb-2">Complete Your Onboarding</h1>
-          <p className="text-gray-500">Please complete the following steps to start accepting jobs.</p>
+          <p className="text-gray-500">Please complete the following steps to start accepting routes.</p>
         </div>
 
         <div className="flex items-center justify-center mb-8">
@@ -759,39 +758,39 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
 };
 
 const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }> = ({ driver, onNavigate }) => {
-  const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
-  const [myJobs, setMyJobs] = useState<Job[]>([]);
+  const [availableRoutes, setAvailableRoutes] = useState<Route[]>([]);
+  const [myRoutes, setMyRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
-  const [completingJobId, setCompletingJobId] = useState<string | null>(null);
+  const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [jobsRes, myJobsRes] = await Promise.all([
-        fetch('/api/team/jobs', { credentials: 'include' }),
-        fetch('/api/team/my-jobs', { credentials: 'include' }),
+      const [routesRes, myRoutesRes] = await Promise.all([
+        fetch('/api/team/routes', { credentials: 'include' }),
+        fetch('/api/team/my-routes', { credentials: 'include' }),
       ]);
-      if (jobsRes.ok) { const j = await jobsRes.json(); setAvailableJobs(j.data || []); }
-      if (myJobsRes.ok) { const j = await myJobsRes.json(); setMyJobs(j.data || []); }
+      if (routesRes.ok) { const j = await routesRes.json(); setAvailableRoutes(j.data || []); }
+      if (myRoutesRes.ok) { const j = await myRoutesRes.json(); setMyRoutes(j.data || []); }
     } catch {}
     setLoading(false);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleCompleteJob = async (jobId: string) => {
-    if (!window.confirm('Mark this job as complete?')) return;
-    setCompletingJobId(jobId);
+  const handleCompleteRoute = async (routeId: string) => {
+    if (!window.confirm('Mark this route as complete?')) return;
+    setCompletingRouteId(routeId);
     try {
-      const res = await fetch(`/api/team/jobs/${jobId}/complete`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`/api/team/routes/${routeId}/complete`, { method: 'POST', credentials: 'include' });
       if (res.ok) await loadData();
     } catch {}
-    setCompletingJobId(null);
+    setCompletingRouteId(null);
   };
 
   const rating = parseFloat(driver.rating ?? '') || 0;
   const totalCompleted = driver.total_jobs_completed || 0;
-  const activeJobs = myJobs.filter(j => j.status === 'assigned' || j.status === 'in_progress');
-  const upcomingJobs = myJobs
+  const activeRoutes = myRoutes.filter(j => j.status === 'assigned' || j.status === 'in_progress');
+  const upcomingRoutes = myRoutes
     .filter(j => j.status === 'assigned')
     .sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''))
     .slice(0, 3);
@@ -833,7 +832,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
             <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center">
               <BriefcaseIcon className="w-5 h-5 text-teal-600" />
             </div>
-            <p className="text-sm font-bold text-gray-500">Jobs Completed</p>
+            <p className="text-sm font-bold text-gray-500">Routes Completed</p>
           </div>
           <p className="text-3xl font-black text-gray-900">{totalCompleted}</p>
           <p className="text-xs text-gray-400 mt-1">All time</p>
@@ -843,37 +842,36 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
             <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
               <ClockIcon className="w-5 h-5 text-blue-600" />
             </div>
-            <p className="text-sm font-bold text-gray-500">Active Jobs</p>
+            <p className="text-sm font-bold text-gray-500">Active Routes</p>
           </div>
-          <p className="text-3xl font-black text-gray-900">{activeJobs.length}</p>
+          <p className="text-3xl font-black text-gray-900">{activeRoutes.length}</p>
           <p className="text-xs text-gray-400 mt-1">Assigned or in progress</p>
         </Card>
       </div>
 
-      {upcomingJobs.length > 0 && (
+      {upcomingRoutes.length > 0 && (
         <Card className="p-6 mb-6">
           <div className="flex items-center gap-3 mb-4">
             <CalendarDaysIcon className="w-5 h-5 text-teal-600" />
-            <h3 className="text-lg font-bold text-gray-900">Upcoming Jobs</h3>
+            <h3 className="text-lg font-bold text-gray-900">Upcoming Routes</h3>
           </div>
           <div className="space-y-3">
-            {upcomingJobs.map(job => (
-              <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+            {upcomingRoutes.map(route => (
+              <div key={route.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
                 <div className="min-w-0">
-                  <p className="font-bold text-gray-900 text-sm">{job.title}</p>
+                  <p className="font-bold text-gray-900 text-sm">{route.title}</p>
                   <p className="text-xs text-gray-500">
-                    {formatDate(job.scheduled_date)} · {job.start_time}–{job.end_time}
-                    {job.area && <> · {job.area}</>}
+                    {formatDate(route.scheduled_date)} · {route.start_time}–{route.end_time}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <StatusBadge status={job.status} />
+                  <StatusBadge status={route.status} />
                   <Button
                     size="sm"
-                    onClick={() => handleCompleteJob(job.id)}
-                    disabled={completingJobId === job.id}
+                    onClick={() => handleCompleteRoute(route.id)}
+                    disabled={completingRouteId === route.id}
                   >
-                    {completingJobId === job.id ? 'Completing…' : 'Complete'}
+                    {completingRouteId === route.id ? 'Completing...' : 'Complete'}
                   </Button>
                 </div>
               </div>
@@ -886,35 +884,34 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <BriefcaseIcon className="w-5 h-5 text-teal-600" />
-            <h3 className="text-lg font-bold text-gray-900">Available Jobs</h3>
+            <h3 className="text-lg font-bold text-gray-900">Available Routes</h3>
           </div>
-          {availableJobs.length > 0 && (
-            <button type="button" onClick={() => onNavigate('jobs')} className="text-sm font-bold text-teal-600 hover:underline">
+          {availableRoutes.length > 0 && (
+            <button type="button" onClick={() => onNavigate('routes')} className="text-sm font-bold text-teal-600 hover:underline">
               View All →
             </button>
           )}
         </div>
-        {availableJobs.length === 0 ? (
-          <p className="text-gray-500 text-sm">No available jobs at the moment. Check back later.</p>
+        {availableRoutes.length === 0 ? (
+          <p className="text-gray-500 text-sm">No available routes at the moment. Check back later.</p>
         ) : (
           <>
             <div className="space-y-2">
-              {availableJobs.slice(0, 3).map(job => (
-                <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+              {availableRoutes.slice(0, 3).map(route => (
+                <div key={route.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
                   <div className="min-w-0">
-                    <p className="font-bold text-gray-900 text-sm truncate">{job.title}</p>
+                    <p className="font-bold text-gray-900 text-sm truncate">{route.title}</p>
                     <p className="text-xs text-gray-500">
-                      {job.area && <>{job.area} · </>}
-                      {formatDate(job.scheduled_date)}
-                      {job.base_pay != null && <> · <span className="font-bold text-teal-700">${Number(job.base_pay).toFixed(2)}</span></>}
+                      {formatDate(route.scheduled_date)}
+                      {route.base_pay != null && <> · <span className="font-bold text-teal-700">${Number(route.base_pay).toFixed(2)}</span></>}
                     </p>
                   </div>
-                  <StatusBadge status={job.status} />
+                  <StatusBadge status={route.status} />
                 </div>
               ))}
             </div>
-            {availableJobs.length > 3 && (
-              <p className="text-xs text-gray-400 mt-2">+{availableJobs.length - 3} more on the job board</p>
+            {availableRoutes.length > 3 && (
+              <p className="text-xs text-gray-400 mt-2">+{availableRoutes.length - 3} more on the route board</p>
             )}
           </>
         )}
@@ -923,59 +920,58 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   );
 };
 
-const JobBoard: React.FC = () => {
-  const [jobs, setJobs] = useState<Job[]>([]);
+const RouteBoard: React.FC = () => {
+  const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedJob, setSelectedJob] = useState<(Job & { bids?: Bid[] }) | null>(null);
-  const [jobDetailLoading, setJobDetailLoading] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<(Route & { bids?: Bid[] }) | null>(null);
+  const [routeDetailLoading, setRouteDetailLoading] = useState(false);
   const [bidAmount, setBidAmount] = useState('');
   const [bidMessage, setBidMessage] = useState('');
   const [bidLoading, setBidLoading] = useState(false);
   const [bidError, setBidError] = useState('');
   const [myBid, setMyBid] = useState<Bid | null>(null);
-  const [sortBy, setSortBy] = useState<'date' | 'area' | 'pay'>('date');
-  const [filterArea, setFilterArea] = useState('');
+  const [sortBy, setSortBy] = useState<'date' | 'pay'>('date');
 
-  const fetchJobs = async () => {
+  const fetchRoutes = async () => {
     try {
-      const res = await fetch('/api/team/jobs', { credentials: 'include' });
-      if (res.ok) { const j = await res.json(); setJobs(j.data || []); }
+      const res = await fetch('/api/team/routes', { credentials: 'include' });
+      if (res.ok) { const j = await res.json(); setRoutes(j.data || []); }
     } catch {}
     setLoading(false);
   };
 
-  useEffect(() => { fetchJobs(); }, []);
+  useEffect(() => { fetchRoutes(); }, []);
 
-  const openJobDetail = async (jobId: string) => {
-    setJobDetailLoading(true);
+  const openRouteDetail = async (routeId: string) => {
+    setRouteDetailLoading(true);
     setBidError('');
     setMyBid(null);
     try {
-      const res = await fetch(`/api/team/jobs/${jobId}`, { credentials: 'include' });
+      const res = await fetch(`/api/team/routes/${routeId}`, { credentials: 'include' });
       if (res.ok) {
         const j = await res.json();
-        const job = j.data;
-        setSelectedJob(job);
-        setBidAmount(job.base_pay && job.estimated_hours ? (Number(job.base_pay) * Number(job.estimated_hours)).toFixed(2) : (job.base_pay?.toString() || ''));
+        const route = j.data;
+        setSelectedRoute(route);
+        setBidAmount(route.base_pay && route.estimated_hours ? (Number(route.base_pay) * Number(route.estimated_hours)).toFixed(2) : (route.base_pay?.toString() || ''));
         setBidMessage('');
         const profileRes = await fetch('/api/team/profile', { credentials: 'include' });
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           const driverId = profileData.data?.id?.toString();
-          const existing = job.bids?.find((b: Bid) => b.driver_id?.toString() === driverId);
+          const existing = route.bids?.find((b: Bid) => b.driver_id?.toString() === driverId);
           setMyBid(existing || null);
         }
       }
     } catch {}
-    setJobDetailLoading(false);
+    setRouteDetailLoading(false);
   };
 
   const handleBid = async () => {
-    if (!selectedJob) return;
+    if (!selectedRoute) return;
     setBidError('');
     setBidLoading(true);
     try {
-      const res = await fetch(`/api/team/jobs/${selectedJob.id}/bid`, {
+      const res = await fetch(`/api/team/routes/${selectedRoute.id}/bid`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -983,8 +979,8 @@ const JobBoard: React.FC = () => {
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'Failed to place bid');
-      await openJobDetail(selectedJob.id);
-      fetchJobs();
+      await openRouteDetail(selectedRoute.id);
+      fetchRoutes();
     } catch (err: any) {
       setBidError(err.message);
     } finally {
@@ -993,15 +989,15 @@ const JobBoard: React.FC = () => {
   };
 
   const handleWithdrawBid = async () => {
-    if (!selectedJob) return;
+    if (!selectedRoute) return;
     if (!window.confirm('Are you sure you want to withdraw your bid? This cannot be undone.')) return;
     setBidLoading(true);
     try {
-      const res = await fetch(`/api/team/jobs/${selectedJob.id}/bid`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`/api/team/routes/${selectedRoute.id}/bid`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error); }
       setMyBid(null);
-      await openJobDetail(selectedJob.id);
-      fetchJobs();
+      await openRouteDetail(selectedRoute.id);
+      fetchRoutes();
     } catch (err: any) {
       setBidError(err.message);
     } finally {
@@ -1009,13 +1005,9 @@ const JobBoard: React.FC = () => {
     }
   };
 
-  const areas = Array.from(new Set(jobs.map(j => j.area).filter(Boolean))) as string[];
-
-  const filteredJobs = jobs
-    .filter(j => !filterArea || j.area === filterArea)
+  const filteredRoutes = routes
     .sort((a, b) => {
       if (sortBy === 'date') return (a.scheduled_date || '').localeCompare(b.scheduled_date || '');
-      if (sortBy === 'area') return (a.area || '').localeCompare(b.area || '');
       if (sortBy === 'pay') return (b.base_pay || 0) - (a.base_pay || 0);
       return 0;
     });
@@ -1031,10 +1023,10 @@ const JobBoard: React.FC = () => {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <p className="text-gray-500">Browse and bid on available jobs in your area.</p>
+        <p className="text-gray-500">Browse and bid on available routes.</p>
         <button
           type="button"
-          onClick={fetchJobs}
+          onClick={fetchRoutes}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex-shrink-0"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1045,42 +1037,36 @@ const JobBoard: React.FC = () => {
       </div>
 
       <div className="flex flex-wrap gap-3 mb-6">
-        <select title="Sort jobs" value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+        <select title="Sort routes" value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
           <option value="date">Sort by Date</option>
-          <option value="area">Sort by Area</option>
           <option value="pay">Sort by Pay (High to Low)</option>
-        </select>
-        <select title="Filter by area" value={filterArea} onChange={e => setFilterArea(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-          <option value="">All Areas</option>
-          {areas.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
       </div>
 
-      {filteredJobs.length === 0 ? (
+      {filteredRoutes.length === 0 ? (
         <Card className="p-8 text-center">
           <BriefcaseIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-bold">No available jobs</p>
-          <p className="text-gray-400 text-sm mt-1">Check back later for new job postings.</p>
+          <p className="text-gray-500 font-bold">No available routes</p>
+          <p className="text-gray-400 text-sm mt-1">Check back later for new route postings.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredJobs.map(job => (
-            <Card key={job.id} className="p-5">
+          {filteredRoutes.map(route => (
+            <Card key={route.id} className="p-5">
               <div className="flex items-start justify-between mb-3">
-                <h3 className="font-bold text-gray-900">{job.title}</h3>
-                <StatusBadge status={job.status} />
+                <h3 className="font-bold text-gray-900">{route.title}</h3>
+                <StatusBadge status={route.status} />
               </div>
               <div className="space-y-1 text-sm text-gray-500 mb-4">
-                {job.area && <p className="flex items-center gap-1"><MapPinIcon className="w-4 h-4" />{job.area}</p>}
-                {job.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(job.scheduled_date)}</p>}
-                {(job.start_time || job.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{job.start_time}–{job.end_time}</p>}
+                {route.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(route.scheduled_date)}</p>}
+                {(route.start_time || route.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.start_time}–{route.end_time}</p>}
                 <div className="flex gap-4 mt-2">
-                  {job.estimated_stops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_stops} stops</span>}
-                  {job.estimated_hours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{job.estimated_hours}h est.</span>}
-                  {job.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(job.base_pay).toFixed(2)}</span>}
+                  {route.estimated_stops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimated_stops} stops</span>}
+                  {route.estimated_hours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimated_hours}h est.</span>}
+                  {route.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(route.base_pay).toFixed(2)}</span>}
                 </div>
               </div>
-              <Button size="sm" onClick={() => openJobDetail(job.id)} className="w-full">
+              <Button size="sm" onClick={() => openRouteDetail(route.id)} className="w-full">
                 View Details & Bid
               </Button>
             </Card>
@@ -1088,40 +1074,39 @@ const JobBoard: React.FC = () => {
         </div>
       )}
 
-      {selectedJob && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedJob(null)}>
+      {selectedRoute && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedRoute(null)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900">{selectedJob.title}</h3>
-              <button type="button" title="Close" onClick={() => setSelectedJob(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
+              <h3 className="text-lg font-bold text-gray-900">{selectedRoute.title}</h3>
+              <button type="button" title="Close" onClick={() => setSelectedRoute(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
             </div>
 
-            {jobDetailLoading ? (
+            {routeDetailLoading ? (
               <div className="p-8 flex items-center justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-teal-600"></div>
               </div>
             ) : (
               <div className="p-6 space-y-5">
                 <div className="flex items-center gap-2">
-                  <StatusBadge status={selectedJob.status} />
-                  {selectedJob.area && <span className="text-sm text-gray-500 flex items-center gap-1"><MapPinIcon className="w-4 h-4" />{selectedJob.area}</span>}
+                  <StatusBadge status={selectedRoute.status} />
                 </div>
 
-                {selectedJob.description && <p className="text-sm text-gray-600">{selectedJob.description}</p>}
+                {selectedRoute.description && <p className="text-sm text-gray-600">{selectedRoute.description}</p>}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  {selectedJob.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedJob.scheduled_date)}</span></div>}
-                  {(selectedJob.start_time || selectedJob.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedJob.start_time}–{selectedJob.end_time}</span></div>}
-                  {selectedJob.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedJob.estimated_stops}</span></div>}
-                  {selectedJob.estimated_hours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedJob.estimated_hours}</span></div>}
-                  {selectedJob.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedJob.base_pay).toFixed(2)}</span></div>}
+                  {selectedRoute.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedRoute.scheduled_date)}</span></div>}
+                  {(selectedRoute.start_time || selectedRoute.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedRoute.start_time}–{selectedRoute.end_time}</span></div>}
+                  {selectedRoute.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedRoute.estimated_stops}</span></div>}
+                  {selectedRoute.estimated_hours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedRoute.estimated_hours}</span></div>}
+                  {selectedRoute.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedRoute.base_pay).toFixed(2)}</span></div>}
                 </div>
 
-                {selectedJob.bids && selectedJob.bids.length > 0 && (
+                {selectedRoute.bids && selectedRoute.bids.length > 0 && (
                   <div>
-                    <h4 className="font-bold text-gray-900 text-sm mb-2">Bids ({selectedJob.bids.length})</h4>
+                    <h4 className="font-bold text-gray-900 text-sm mb-2">Bids ({selectedRoute.bids.length})</h4>
                     <div className="space-y-2">
-                      {selectedJob.bids.map((bid, idx) => {
+                      {selectedRoute.bids.map((bid, idx) => {
                         const isMyBid = myBid && bid.id === myBid.id;
                         return (
                           <div key={bid.id} className={`p-3 rounded-lg text-sm ${isMyBid ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50'}`}>
@@ -1149,13 +1134,13 @@ const JobBoard: React.FC = () => {
 
                 {myBid ? (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-                    <p className="text-sm font-bold text-teal-800 mb-2">You have already bid on this job</p>
+                    <p className="text-sm font-bold text-teal-800 mb-2">You have already bid on this route</p>
                     <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${Number(myBid.bid_amount).toFixed(2)}</span></p>
                     <Button variant="secondary" size="sm" onClick={handleWithdrawBid} disabled={bidLoading} className="mt-3">
                       {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
                     </Button>
                   </div>
-                ) : (selectedJob.status === 'open' || selectedJob.status === 'bidding') ? (
+                ) : (selectedRoute.status === 'open' || selectedRoute.status === 'bidding') ? (
                   <div className="border-t border-gray-100 pt-4">
                     <h4 className="font-bold text-gray-900 text-sm mb-3">Place Your Bid</h4>
                     <div className="space-y-3">
@@ -1201,7 +1186,7 @@ const JobBoard: React.FC = () => {
 
 const Schedule: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
@@ -1209,7 +1194,7 @@ const Schedule: React.FC = () => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  const [completingJobId, setCompletingJobId] = useState<string | null>(null);
+  const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
 
   const fetchSchedule = useCallback(async () => {
     setLoading(true);
@@ -1219,19 +1204,19 @@ const Schedule: React.FC = () => {
     const endStr = end.toISOString().split('T')[0];
     try {
       const res = await fetch(`/api/team/schedule?start=${startStr}&end=${endStr}`, { credentials: 'include' });
-      if (res.ok) { const j = await res.json(); setJobs(j.data || []); }
+      if (res.ok) { const j = await res.json(); setRoutes(j.data || []); }
     } catch {}
     setLoading(false);
   }, [year, month]);
 
-  const handleCompleteJob = useCallback(async (jobId: string) => {
-    if (!window.confirm('Mark this job as complete?')) return;
-    setCompletingJobId(jobId);
+  const handleCompleteRoute = useCallback(async (routeId: string) => {
+    if (!window.confirm('Mark this route as complete?')) return;
+    setCompletingRouteId(routeId);
     try {
-      const res = await fetch(`/api/team/jobs/${jobId}/complete`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`/api/team/routes/${routeId}/complete`, { method: 'POST', credentials: 'include' });
       if (res.ok) await fetchSchedule();
     } catch {}
-    setCompletingJobId(null);
+    setCompletingRouteId(null);
   }, [fetchSchedule]);
 
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
@@ -1244,15 +1229,15 @@ const Schedule: React.FC = () => {
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
   const goToday = () => setCurrentDate(new Date());
 
-  const jobsByDate: Record<string, Job[]> = {};
-  jobs.forEach(j => {
-    if (j.scheduled_date) {
-      if (!jobsByDate[j.scheduled_date]) jobsByDate[j.scheduled_date] = [];
-      jobsByDate[j.scheduled_date].push(j);
+  const routesByDate: Record<string, Route[]> = {};
+  routes.forEach(r => {
+    if (r.scheduled_date) {
+      if (!routesByDate[r.scheduled_date]) routesByDate[r.scheduled_date] = [];
+      routesByDate[r.scheduled_date].push(r);
     }
   });
 
-  const getJobColor = (status: string) => {
+  const getRouteColor = (status: string) => {
     if (status === 'assigned') return 'bg-teal-100 text-teal-700';
     if (status === 'in_progress') return 'bg-yellow-100 text-yellow-700';
     if (status === 'completed') return 'bg-green-100 text-green-700';
@@ -1260,14 +1245,14 @@ const Schedule: React.FC = () => {
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const selectedDayJobs = selectedDay ? (jobsByDate[selectedDay] || []) : [];
+  const selectedDayRoutes = selectedDay ? (routesByDate[selectedDay] || []) : [];
 
-  const allJobsSorted = [...jobs].sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
+  const allRoutesSorted = [...routes].sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <p className="text-gray-500">View your upcoming jobs and schedule.</p>
+        <p className="text-gray-500">View your upcoming routes and schedule.</p>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1314,7 +1299,7 @@ const Schedule: React.FC = () => {
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
                 const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayJobs = jobsByDate[dateStr] || [];
+                const dayRoutes = routesByDate[dateStr] || [];
                 const isToday = dateStr === todayStr;
                 const isSelected = dateStr === selectedDay;
 
@@ -1329,13 +1314,13 @@ const Schedule: React.FC = () => {
                       {day}
                     </span>
                     <div className="mt-1 space-y-0.5">
-                      {dayJobs.slice(0, 2).map(j => (
-                        <div key={j.id} className={`text-[10px] font-bold px-1 py-0.5 rounded truncate ${getJobColor(j.status)}`}>
-                          {j.title}
+                      {dayRoutes.slice(0, 2).map(r => (
+                        <div key={r.id} className={`text-[10px] font-bold px-1 py-0.5 rounded truncate ${getRouteColor(r.status)}`}>
+                          {r.title}
                         </div>
                       ))}
-                      {dayJobs.length > 2 && (
-                        <div className="text-[10px] text-gray-400 font-bold">+{dayJobs.length - 2} more</div>
+                      {dayRoutes.length > 2 && (
+                        <div className="text-[10px] text-gray-400 font-bold">+{dayRoutes.length - 2} more</div>
                       )}
                     </div>
                   </button>
@@ -1349,29 +1334,28 @@ const Schedule: React.FC = () => {
               <h3 className="font-bold text-gray-900 mb-3">
                 {new Date(selectedDay + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
               </h3>
-              {selectedDayJobs.length === 0 ? (
-                <p className="text-sm text-gray-400">No jobs scheduled for this day.</p>
+              {selectedDayRoutes.length === 0 ? (
+                <p className="text-sm text-gray-400">No routes scheduled for this day.</p>
               ) : (
                 <div className="space-y-3">
-                  {selectedDayJobs.map(job => (
-                    <div key={job.id} className="p-3 bg-gray-50 rounded-lg">
+                  {selectedDayRoutes.map(route => (
+                    <div key={route.id} className="p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-gray-900 text-sm">{job.title}</span>
-                        <StatusBadge status={job.status} />
+                        <span className="font-bold text-gray-900 text-sm">{route.title}</span>
+                        <StatusBadge status={route.status} />
                       </div>
                       <div className="text-xs text-gray-500 space-y-0.5">
-                        {job.area && <p>Area: {job.area}</p>}
-                        {(job.start_time || job.end_time) && <p>Time: {job.start_time}–{job.end_time}</p>}
-                        {job.estimated_stops != null && <p>Estimated stops: {job.estimated_stops}</p>}
+                        {(route.start_time || route.end_time) && <p>Time: {route.start_time}–{route.end_time}</p>}
+                        {route.estimated_stops != null && <p>Estimated stops: {route.estimated_stops}</p>}
                       </div>
-                      {(job.status === 'assigned' || job.status === 'in_progress') && (
+                      {(route.status === 'assigned' || route.status === 'in_progress') && (
                         <Button
                           size="sm"
-                          onClick={() => handleCompleteJob(job.id)}
-                          disabled={completingJobId === job.id}
+                          onClick={() => handleCompleteRoute(route.id)}
+                          disabled={completingRouteId === route.id}
                           className="mt-2"
                         >
-                          {completingJobId === job.id ? 'Completing…' : 'Mark Complete'}
+                          {completingRouteId === route.id ? 'Completing...' : 'Mark Complete'}
                         </Button>
                       )}
                     </div>
@@ -1383,32 +1367,31 @@ const Schedule: React.FC = () => {
         </>
       ) : (
         <Card className="p-6">
-          {allJobsSorted.length === 0 ? (
+          {allRoutesSorted.length === 0 ? (
             <div className="text-center py-8">
               <CalendarDaysIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">No scheduled jobs.</p>
+              <p className="text-gray-500">No scheduled routes.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {allJobsSorted.map(job => (
-                <div key={job.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg gap-3">
+              {allRoutesSorted.map(route => (
+                <div key={route.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg gap-3">
                   <div className="min-w-0">
-                    <p className="font-bold text-gray-900 text-sm">{job.title}</p>
+                    <p className="font-bold text-gray-900 text-sm">{route.title}</p>
                     <p className="text-xs text-gray-500">
-                      {formatDate(job.scheduled_date)} · {job.start_time}–{job.end_time}
-                      {job.area && <> · {job.area}</>}
-                      {job.estimated_stops != null && <> · {job.estimated_stops} stops</>}
+                      {formatDate(route.scheduled_date)} · {route.start_time}–{route.end_time}
+                      {route.estimated_stops != null && <> · {route.estimated_stops} stops</>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <StatusBadge status={job.status} />
-                    {(job.status === 'assigned' || job.status === 'in_progress') && (
+                    <StatusBadge status={route.status} />
+                    {(route.status === 'assigned' || route.status === 'in_progress') && (
                       <Button
                         size="sm"
-                        onClick={() => handleCompleteJob(job.id)}
-                        disabled={completingJobId === job.id}
+                        onClick={() => handleCompleteRoute(route.id)}
+                        disabled={completingRouteId === route.id}
                       >
-                        {completingJobId === job.id ? 'Completing…' : 'Complete'}
+                        {completingRouteId === route.id ? 'Completing...' : 'Complete'}
                       </Button>
                     )}
                   </div>
@@ -1847,7 +1830,7 @@ const Profile: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex justify-between py-2">
-                  <span className="text-sm text-gray-500">Jobs Completed</span>
+                  <span className="text-sm text-gray-500">Routes Completed</span>
                   <span className="text-sm font-bold text-gray-900">{profile.total_jobs_completed || 0}</span>
                 </div>
               </div>
@@ -2649,7 +2632,7 @@ const TeamApp: React.FC = () => {
 
   const navItems: { view: TeamView; label: string; icon: React.ReactNode; badge?: number }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
-    { view: 'jobs', label: 'Available Jobs', icon: <BriefcaseIcon className="w-5 h-5" /> },
+    { view: 'routes', label: 'Available Routes', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
     { view: 'pickups', label: 'Special Pickups', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
@@ -2744,7 +2727,7 @@ const TeamApp: React.FC = () => {
 
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
-          {currentView === 'jobs' && <JobBoard />}
+          {currentView === 'routes' && <RouteBoard />}
           {currentView === 'schedule' && <Schedule />}
           {currentView === 'pickups' && <SpecialPickups />}
           {currentView === 'messages' && <DriverMessages />}

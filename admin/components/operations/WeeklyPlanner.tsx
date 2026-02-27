@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import WeeklyPlannerDayColumn from './WeeklyPlannerDayColumn.tsx';
-import type { Job, ServiceZone, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
+import type { Route, ServiceZone, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
 
 interface WeekData {
-  jobs: Job[];
+  routes: Route[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
   zones: ServiceZone[];
@@ -119,10 +119,10 @@ const WeeklyPlanner: React.FC = () => {
     }
   };
 
-  const handleRemovePickup = async (jobId: string, pickupId: string) => {
-    setRemovingPickup(pickupId);
+  const handleRemovePickup = async (routeId: string, stopId: string) => {
+    setRemovingPickup(stopId);
     try {
-      const res = await fetch(`/api/admin/jobs/${jobId}/pickups/${pickupId}`, {
+      const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -134,21 +134,21 @@ const WeeklyPlanner: React.FC = () => {
     }
   };
 
-  // Group jobs by date
-  const jobsByDate: Record<string, Job[]> = {};
+  // Group routes by date
+  const routesByDate: Record<string, Route[]> = {};
   for (const date of dayDates) {
-    jobsByDate[date] = [];
+    routesByDate[date] = [];
   }
   if (data) {
-    for (const job of data.jobs) {
-      const jDate = job.scheduled_date.split('T')[0];
-      if (jobsByDate[jDate]) {
-        jobsByDate[jDate].push(job);
+    for (const route of data.routes) {
+      const rDate = route.scheduled_date.split('T')[0];
+      if (routesByDate[rDate]) {
+        routesByDate[rDate].push(route);
       }
     }
   }
 
-  const draftCount = data?.jobs.filter(j => j.status === 'draft').length ?? 0;
+  const draftCount = data?.routes.filter(r => r.status === 'draft').length ?? 0;
 
   if (loading) return <LoadingSpinner />;
 
@@ -175,7 +175,7 @@ const WeeklyPlanner: React.FC = () => {
           )}
           <button
             onClick={handleCopyWeek}
-            disabled={copying || (data?.jobs.length ?? 0) === 0}
+            disabled={copying || (data?.routes.length ?? 0) === 0}
             className="px-4 py-2 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 rounded-lg transition-colors"
           >
             {copying ? 'Copying...' : 'Copy to Next Week'}
@@ -194,7 +194,7 @@ const WeeklyPlanner: React.FC = () => {
       {data && data.cancelled.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <h3 className="text-xs font-black uppercase tracking-widest text-red-600 mb-2">
-            Cancelled Clients in Jobs ({data.cancelled.length})
+            Cancelled Clients in Routes ({data.cancelled.length})
           </h3>
           <div className="space-y-1">
             {data.cancelled.map(cp => (
@@ -203,10 +203,10 @@ const WeeklyPlanner: React.FC = () => {
                   <span className="font-medium text-gray-900">{cp.customer_name}</span>
                   <span className="text-gray-400 ml-2 truncate">{cp.address}</span>
                   <span className="text-red-500 ml-2">({cp.service_status})</span>
-                  <span className="text-gray-400 ml-2">in {cp.job_title}</span>
+                  <span className="text-gray-400 ml-2">in {cp.route_title}</span>
                 </div>
                 <button
-                  onClick={() => handleRemovePickup(cp.job_id, cp.pickup_id)}
+                  onClick={() => handleRemovePickup(cp.route_id, cp.pickup_id)}
                   disabled={removingPickup === cp.pickup_id}
                   className="flex-shrink-0 ml-2 text-xs font-bold text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50"
                 >
@@ -237,7 +237,7 @@ const WeeklyPlanner: React.FC = () => {
           <WeeklyPlannerDayColumn
             key={date}
             date={date}
-            jobs={jobsByDate[date] || []}
+            routes={routesByDate[date] || []}
             missingClients={data?.missingByDay[date] || []}
             onRefresh={fetchWeekData}
           />
@@ -245,10 +245,10 @@ const WeeklyPlanner: React.FC = () => {
       </div>
 
       {/* Empty state */}
-      {data && data.jobs.length === 0 && Object.values(data.missingByDay).every(m => m.length === 0) && (
+      {data && data.routes.length === 0 && Object.values(data.missingByDay).every((m: MissingClient[]) => m.length === 0) && (
         <EmptyState
-          title="No Jobs This Week"
-          message="Use 'Copy to Next Week' from a previous week, or go to the Planning Calendar to create jobs."
+          title="No Routes This Week"
+          message="Use 'Copy to Next Week' from a previous week, or go to the Planning Calendar to create routes."
         />
       )}
     </div>

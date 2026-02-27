@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Job, MissingClient } from '../../../shared/types/index.ts';
+import type { Route, MissingClient } from '../../../shared/types/index.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -19,27 +19,27 @@ const FREQ_LABELS: Record<string, string> = {
 
 interface WeeklyPlannerDayColumnProps {
   date: string;
-  jobs: Job[];
+  routes: Route[];
   missingClients: MissingClient[];
   onRefresh: () => void;
 }
 
-const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, jobs, missingClients, onRefresh }) => {
+const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, routes, missingClients, onRefresh }) => {
   const [showMissing, setShowMissing] = useState(false);
-  const [addingTo, setAddingTo] = useState<{ propertyId: string; jobId: string } | null>(null);
-  const [publishingJob, setPublishingJob] = useState<string | null>(null);
+  const [addingTo, setAddingTo] = useState<{ propertyId: string; routeId: string } | null>(null);
+  const [publishingRoute, setPublishingRoute] = useState<string | null>(null);
 
   const dt = new Date(date + 'T12:00:00');
   const dayName = dt.toLocaleDateString('en-US', { weekday: 'short' });
   const dayNum = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const isToday = date === new Date().toISOString().split('T')[0];
 
-  const draftJobs = jobs.filter(j => j.status === 'draft' || j.status === 'open' || j.status === 'bidding');
+  const draftRoutes = routes.filter(r => r.status === 'draft' || r.status === 'open' || r.status === 'bidding');
 
-  const handleAddToJob = async (propertyId: string, jobId: string) => {
-    setAddingTo({ propertyId, jobId });
+  const handleAddToRoute = async (propertyId: string, routeId: string) => {
+    setAddingTo({ propertyId, routeId });
     try {
-      const res = await fetch(`/api/admin/jobs/${jobId}/pickups`, {
+      const res = await fetch(`/api/admin/routes/${routeId}/stops`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -47,24 +47,24 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, j
       });
       if (res.ok) onRefresh();
     } catch (e) {
-      console.error('Failed to add pickup:', e);
+      console.error('Failed to add stop:', e);
     } finally {
       setAddingTo(null);
     }
   };
 
-  const handlePublishJob = async (jobId: string) => {
-    setPublishingJob(jobId);
+  const handlePublishRoute = async (routeId: string) => {
+    setPublishingRoute(routeId);
     try {
-      const res = await fetch(`/api/admin/jobs/${jobId}/publish`, {
+      const res = await fetch(`/api/admin/routes/${routeId}/publish`, {
         method: 'POST',
         credentials: 'include',
       });
       if (res.ok) onRefresh();
     } catch (e) {
-      console.error('Failed to publish job:', e);
+      console.error('Failed to publish route:', e);
     } finally {
-      setPublishingJob(null);
+      setPublishingRoute(null);
     }
   };
 
@@ -78,40 +78,40 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, j
         <div className={`text-sm font-bold ${isToday ? 'text-teal-700' : 'text-gray-700'}`}>{dayNum}</div>
       </div>
 
-      {/* Job Cards */}
+      {/* Route Cards */}
       <div className="p-2 space-y-2 flex-1">
-        {jobs.length === 0 && missingClients.length === 0 && (
-          <div className="text-xs text-gray-300 text-center py-4">No jobs</div>
+        {routes.length === 0 && missingClients.length === 0 && (
+          <div className="text-xs text-gray-300 text-center py-4">No routes</div>
         )}
 
-        {jobs.map(job => (
-          <div key={job.id} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100 hover:border-gray-200 transition-colors">
+        {routes.map(route => (
+          <div key={route.id} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100 hover:border-gray-200 transition-colors">
             <div className="flex items-center gap-1.5 mb-1">
-              {job.zone_color && (
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: job.zone_color }} />
+              {route.zone_color && (
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: route.zone_color }} />
               )}
-              <span className="text-xs font-bold text-gray-900 truncate flex-1">{job.zone_name || job.title}</span>
+              <span className="text-xs font-bold text-gray-900 truncate flex-1">{route.zone_name || route.title}</span>
             </div>
             <div className="flex items-center gap-1 flex-wrap">
-              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${STATUS_COLORS[job.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                {job.status.replace('_', ' ')}
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${STATUS_COLORS[route.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                {route.status.replace('_', ' ')}
               </span>
-              <span className="text-[10px] text-gray-500">{job.pickup_count || 0} stops</span>
+              <span className="text-[10px] text-gray-500">{route.stop_count || 0} stops</span>
             </div>
-            {job.driver_name && (
-              <div className="text-[10px] text-gray-400 mt-1 truncate">{job.driver_name}</div>
+            {route.driver_name && (
+              <div className="text-[10px] text-gray-400 mt-1 truncate">{route.driver_name}</div>
             )}
-            {job.base_pay != null && (
-              <div className="text-[10px] text-gray-400">${Number(job.base_pay).toFixed(0)}</div>
+            {route.base_pay != null && (
+              <div className="text-[10px] text-gray-400">${Number(route.base_pay).toFixed(0)}</div>
             )}
-            {job.status === 'draft' && (
+            {route.status === 'draft' && (
               <button
                 type="button"
-                onClick={() => handlePublishJob(job.id)}
-                disabled={publishingJob === job.id}
+                onClick={() => handlePublishRoute(route.id)}
+                disabled={publishingRoute === route.id}
                 className="mt-1.5 w-full px-2 py-1 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded transition-colors"
               >
-                {publishingJob === job.id ? 'Publishing...' : 'Publish'}
+                {publishingRoute === route.id ? 'Publishing...' : 'Publish'}
               </button>
             )}
           </div>
@@ -146,24 +146,24 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, j
                       )}
                     </div>
                     <div className="text-[10px] text-gray-400 truncate mb-1">{client.address}</div>
-                    {draftJobs.length > 0 ? (
+                    {draftRoutes.length > 0 ? (
                       <div className="flex gap-1 flex-wrap">
-                        {draftJobs.map(job => (
+                        {draftRoutes.map(route => (
                           <button
-                            key={job.id}
-                            onClick={() => handleAddToJob(client.id, job.id)}
+                            key={route.id}
+                            onClick={() => handleAddToRoute(client.id, route.id)}
                             disabled={addingTo?.propertyId === client.id}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors disabled:opacity-50"
                           >
-                            {job.zone_color && (
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: job.zone_color }} />
+                            {route.zone_color && (
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: route.zone_color }} />
                             )}
-                            + {job.zone_name || 'Job'}
+                            + {route.zone_name || 'Route'}
                           </button>
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[9px] text-gray-400 italic">No draft jobs to add to</div>
+                      <div className="text-[9px] text-gray-400 italic">No draft routes to add to</div>
                     )}
                   </div>
                 ))}
@@ -174,11 +174,11 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, j
       </div>
 
       {/* Day summary footer */}
-      {jobs.length > 0 && (
+      {routes.length > 0 && (
         <div className="px-2 py-1.5 border-t border-gray-100 text-center">
           <span className="text-[10px] text-gray-400">
-            {jobs.length} job{jobs.length !== 1 ? 's' : ''} &middot;{' '}
-            {jobs.reduce((sum, j) => sum + (j.pickup_count || 0), 0)} stops
+            {routes.length} route{routes.length !== 1 ? 's' : ''} &middot;{' '}
+            {routes.reduce((sum, r) => sum + (r.stop_count || 0), 0)} stops
           </span>
         </div>
       )}

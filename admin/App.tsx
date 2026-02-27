@@ -46,9 +46,8 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 ) as Record<string, AdminView>;
 
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
-  planning: '/admin/operations',
-  'route-planner': '/admin/operations/route-planner',
-  'job-board': '/admin/operations/jobs',
+  routes: '/admin/operations',
+  'route-board': '/admin/operations/routes',
   'live-ops': '/admin/operations/live',
   issues: '/admin/operations/issues',
   'address-review': '/admin/operations/address-review',
@@ -113,7 +112,7 @@ function parseAdminPath(pathname: string): { view: AdminView; personId: string |
     if (normalized === '/admin/operations/customer-sync') {
       return { ...base, view: 'settings', settingsTab: 'sync' };
     }
-    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'planning' };
+    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'routes' };
   }
 
   // Settings (new paths)

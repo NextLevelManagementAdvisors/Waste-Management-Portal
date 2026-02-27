@@ -536,10 +536,13 @@ export class Storage {
     return result.rows;
   }
 
-  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string })[]> {
+  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string; zone_name?: string; zone_color?: string })[]> {
     const result = await this.query(
-      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
-       FROM properties p LEFT JOIN users u ON p.user_id = u.id
+      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name,
+              sz.name as zone_name, sz.color as zone_color
+       FROM properties p
+       LEFT JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        ORDER BY p.created_at DESC`
     );
     return result.rows;
@@ -1235,10 +1238,9 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async createJob(data: {
+  async createRoute(data: {
     title: string;
     description?: string;
-    area?: string;
     scheduled_date: string;
     start_time?: string;
     end_time?: string;
@@ -1247,7 +1249,7 @@ export class Storage {
     base_pay?: number;
     notes?: string;
     assigned_driver_id?: string;
-    job_type?: string;
+    route_type?: string;
     zone_id?: string;
     source?: string;
     special_pickup_id?: string;
@@ -1255,16 +1257,15 @@ export class Storage {
   }) {
     const status = data.status ?? (data.assigned_driver_id ? 'assigned' : 'open');
     const result = await this.query(
-      `INSERT INTO route_jobs
-         (title, description, area, scheduled_date, start_time, end_time,
+      `INSERT INTO routes
+         (title, description, scheduled_date, start_time, end_time,
           estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status,
-          job_type, zone_id, source, special_pickup_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+          route_type, zone_id, source, special_pickup_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         data.title,
         data.description ?? null,
-        data.area ?? null,
         data.scheduled_date,
         data.start_time ?? null,
         data.end_time ?? null,
@@ -1274,7 +1275,7 @@ export class Storage {
         data.notes ?? null,
         data.assigned_driver_id ?? null,
         status,
-        data.job_type ?? 'daily_route',
+        data.route_type ?? 'daily_route',
         data.zone_id ?? null,
         data.source ?? 'manual',
         data.special_pickup_id ?? null,
@@ -1283,33 +1284,34 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getAllJobs(filters?: { job_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
+  async getAllRoutes(filters?: { route_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
-    if (filters?.job_type) { conditions.push(`rj.job_type = $${idx++}`); params.push(filters.job_type); }
-    if (filters?.zone_id) { conditions.push(`rj.zone_id = $${idx++}`); params.push(filters.zone_id); }
-    if (filters?.status) { conditions.push(`rj.status = $${idx++}`); params.push(filters.status); }
-    if (filters?.date_from) { conditions.push(`rj.scheduled_date >= $${idx++}`); params.push(filters.date_from); }
-    if (filters?.date_to) { conditions.push(`rj.scheduled_date <= $${idx++}`); params.push(filters.date_to); }
+    if (filters?.route_type) { conditions.push(`r.route_type = $${idx++}`); params.push(filters.route_type); }
+    if (filters?.zone_id) { conditions.push(`r.zone_id = $${idx++}`); params.push(filters.zone_id); }
+    if (filters?.status) { conditions.push(`r.status = $${idx++}`); params.push(filters.status); }
+    if (filters?.date_from) { conditions.push(`r.scheduled_date >= $${idx++}`); params.push(filters.date_from); }
+    if (filters?.date_to) { conditions.push(`r.scheduled_date <= $${idx++}`); params.push(filters.date_to); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
-      `SELECT rj.*, d.name AS driver_name, sz.name AS zone_name, sz.color AS zone_color,
+      `SELECT r.*, r.optimo_synced, r.optimo_synced_at,
+              d.name AS driver_name, sz.name AS zone_name, sz.color AS zone_color,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
-              COALESCE(pc.pickup_count, 0)::int AS pickup_count
-       FROM route_jobs rj
-       LEFT JOIN driver_profiles d ON rj.assigned_driver_id = d.id
-       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
-       LEFT JOIN (SELECT job_id, COUNT(*) AS bid_count FROM job_bids GROUP BY job_id) bc ON bc.job_id = rj.id
-       LEFT JOIN (SELECT job_id, COUNT(*) AS pickup_count FROM job_pickups GROUP BY job_id) pc ON pc.job_id = rj.id
+              COALESCE(sc.stop_count, 0)::int AS stop_count
+       FROM routes r
+       LEFT JOIN driver_profiles d ON r.assigned_driver_id = d.id
+       LEFT JOIN service_zones sz ON r.zone_id = sz.id
+       LEFT JOIN (SELECT route_id, COUNT(*) AS bid_count FROM route_bids GROUP BY route_id) bc ON bc.route_id = r.id
+       LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
        ${where}
-       ORDER BY rj.scheduled_date DESC, rj.created_at DESC`,
+       ORDER BY r.scheduled_date DESC, r.created_at DESC`,
       params
     );
     return result.rows;
   }
 
-  async getOpenJobs(filters?: { startDate?: string; endDate?: string }) {
+  async getOpenRoutes(filters?: { startDate?: string; endDate?: string }) {
     const conditions: string[] = [`status IN ('open', 'bidding')`];
     const params: any[] = [];
     let idx = 1;
@@ -1322,52 +1324,52 @@ export class Storage {
       params.push(filters.endDate);
     }
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
+      `SELECT * FROM routes WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
       params
     );
     return result.rows;
   }
 
-  async getJobById(jobId: string) {
-    const result = await this.query('SELECT * FROM route_jobs WHERE id = $1', [jobId]);
+  async getRouteById(routeId: string) {
+    const result = await this.query('SELECT * FROM routes WHERE id = $1', [routeId]);
     return result.rows[0] || null;
   }
 
-  async getJobBids(jobId: string) {
+  async getRouteBids(routeId: string) {
     const result = await this.query(
-      `SELECT jb.*, d.name as driver_name, d.rating as driver_rating
-       FROM job_bids jb
-       JOIN driver_profiles d ON jb.driver_id = d.id
-       WHERE jb.job_id = $1
-       ORDER BY jb.created_at ASC`,
-      [jobId]
+      `SELECT rb.*, d.name as driver_name, d.rating as driver_rating
+       FROM route_bids rb
+       JOIN driver_profiles d ON rb.driver_id = d.id
+       WHERE rb.route_id = $1
+       ORDER BY rb.created_at ASC`,
+      [routeId]
     );
     return result.rows;
   }
 
-  async createBid(data: { jobId: string; driverId: string; bidAmount: number; message?: string; driverRatingAtBid: number }) {
+  async createRouteBid(data: { routeId: string; driverId: string; bidAmount: number; message?: string; driverRatingAtBid: number }) {
     const result = await this.query(
-      `INSERT INTO job_bids (job_id, driver_id, bid_amount, message, driver_rating_at_bid)
+      `INSERT INTO route_bids (route_id, driver_id, bid_amount, message, driver_rating_at_bid)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [data.jobId, data.driverId, data.bidAmount, data.message || null, data.driverRatingAtBid]
+      [data.routeId, data.driverId, data.bidAmount, data.message || null, data.driverRatingAtBid]
     );
     return result.rows[0];
   }
 
-  async deleteBid(jobId: string, driverId: string) {
-    await this.query('DELETE FROM job_bids WHERE job_id = $1 AND driver_id = $2', [jobId, driverId]);
+  async deleteRouteBid(routeId: string, driverId: string) {
+    await this.query('DELETE FROM route_bids WHERE route_id = $1 AND driver_id = $2', [routeId, driverId]);
   }
 
-  async getBidByJobAndDriver(jobId: string, driverId: string) {
+  async getBidByRouteAndDriver(routeId: string, driverId: string) {
     const result = await this.query(
-      'SELECT * FROM job_bids WHERE job_id = $1 AND driver_id = $2',
-      [jobId, driverId]
+      'SELECT * FROM route_bids WHERE route_id = $1 AND driver_id = $2',
+      [routeId, driverId]
     );
     return result.rows[0] || null;
   }
 
-  async updateJob(jobId: string, data: Partial<{ title: string; description: string; area: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; job_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1380,17 +1382,17 @@ export class Storage {
     }
     if (fields.length === 0) return null;
     fields.push(`updated_at = NOW()`);
-    values.push(jobId);
+    values.push(routeId);
     const result = await this.query(
-      `UPDATE route_jobs SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE routes SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
   }
 
-  async getDriverJobs(driverId: string) {
+  async getDriverRoutes(driverId: string) {
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 ORDER BY scheduled_date DESC, start_time ASC`,
+      `SELECT * FROM routes WHERE assigned_driver_id = $1 ORDER BY scheduled_date DESC, start_time ASC`,
       [driverId]
     );
     return result.rows;
@@ -1398,7 +1400,7 @@ export class Storage {
 
   async getDriverSchedule(driverId: string, start: string, end: string) {
     const result = await this.query(
-      `SELECT * FROM route_jobs WHERE assigned_driver_id = $1 AND scheduled_date >= $2 AND scheduled_date <= $3 ORDER BY scheduled_date ASC, start_time ASC`,
+      `SELECT * FROM routes WHERE assigned_driver_id = $1 AND scheduled_date >= $2 AND scheduled_date <= $3 ORDER BY scheduled_date ASC, start_time ASC`,
       [driverId, start, end]
     );
     return result.rows;
@@ -1406,7 +1408,7 @@ export class Storage {
 
   async getAllBidsPaginated(options: {
     driverId?: string;
-    jobStatus?: string;
+    routeStatus?: string;
     search?: string;
     sortBy?: string;
     sortDir?: string;
@@ -1418,15 +1420,15 @@ export class Storage {
     let idx = 1;
 
     if (options.driverId) {
-      conditions.push(`jb.driver_id = $${idx++}`);
+      conditions.push(`rb.driver_id = $${idx++}`);
       params.push(options.driverId);
     }
-    if (options.jobStatus && options.jobStatus !== 'all') {
-      conditions.push(`rj.status = $${idx++}`);
-      params.push(options.jobStatus);
+    if (options.routeStatus && options.routeStatus !== 'all') {
+      conditions.push(`r.status = $${idx++}`);
+      params.push(options.routeStatus);
     }
     if (options.search) {
-      conditions.push(`(LOWER(rj.title) LIKE LOWER($${idx}) OR LOWER(d.name) LIKE LOWER($${idx}))`);
+      conditions.push(`(LOWER(r.title) LIKE LOWER($${idx}) OR LOWER(d.name) LIKE LOWER($${idx}))`);
       params.push(`%${options.search}%`);
       idx++;
     }
@@ -1434,13 +1436,13 @@ export class Storage {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const validSorts: Record<string, string> = {
-      bid_date: 'jb.created_at',
-      bid_amount: 'jb.bid_amount',
-      job_date: 'rj.scheduled_date',
+      bid_date: 'rb.created_at',
+      bid_amount: 'rb.bid_amount',
+      route_date: 'r.scheduled_date',
       driver_name: 'd.name',
-      job_title: 'rj.title',
+      route_title: 'r.title',
     };
-    const sortCol = validSorts[options.sortBy || ''] || 'jb.created_at';
+    const sortCol = validSorts[options.sortBy || ''] || 'rb.created_at';
     const sortDir = options.sortDir === 'asc' ? 'ASC' : 'DESC';
 
     const limit = options.limit || 50;
@@ -1448,23 +1450,23 @@ export class Storage {
 
     const countResult = await this.query(
       `SELECT COUNT(*) as count
-       FROM job_bids jb
-       JOIN route_jobs rj ON jb.job_id = rj.id
-       JOIN driver_profiles d ON jb.driver_id = d.id
+       FROM route_bids rb
+       JOIN routes r ON rb.route_id = r.id
+       JOIN driver_profiles d ON rb.driver_id = d.id
        ${where}`,
       params
     );
 
     const result = await this.query(
-      `SELECT jb.id, jb.job_id, jb.driver_id, jb.bid_amount, jb.message,
-              jb.driver_rating_at_bid, jb.created_at,
-              rj.title AS job_title, rj.status AS job_status,
-              rj.scheduled_date AS job_scheduled_date, rj.area AS job_area,
-              rj.base_pay AS job_base_pay,
+      `SELECT rb.id, rb.route_id, rb.driver_id, rb.bid_amount, rb.message,
+              rb.driver_rating_at_bid, rb.created_at,
+              r.title AS route_title, r.status AS route_status,
+              r.scheduled_date AS route_scheduled_date,
+              r.base_pay AS route_base_pay,
               d.name AS driver_name, d.rating AS driver_rating
-       FROM job_bids jb
-       JOIN route_jobs rj ON jb.job_id = rj.id
-       JOIN driver_profiles d ON jb.driver_id = d.id
+       FROM route_bids rb
+       JOIN routes r ON rb.route_id = r.id
+       JOIN driver_profiles d ON rb.driver_id = d.id
        ${where}
        ORDER BY ${sortCol} ${sortDir}
        LIMIT $${idx++} OFFSET $${idx}`,
@@ -1478,15 +1480,15 @@ export class Storage {
     const result = await this.query(`
       SELECT
         COUNT(*) AS total_bids,
-        COUNT(DISTINCT job_id) AS jobs_with_bids,
+        COUNT(DISTINCT route_id) AS routes_with_bids,
         COALESCE(AVG(bid_amount), 0) AS avg_bid_amount,
         COUNT(DISTINCT driver_id) AS unique_bidders
-      FROM job_bids
+      FROM route_bids
     `);
     const row = result.rows[0];
     return {
       totalBids: parseInt(row.total_bids),
-      jobsWithBids: parseInt(row.jobs_with_bids),
+      routesWithBids: parseInt(row.routes_with_bids),
       avgBidAmount: parseFloat(row.avg_bid_amount),
       uniqueBidders: parseInt(row.unique_bidders),
     };
@@ -1681,19 +1683,19 @@ export class Storage {
     await this.query('UPDATE service_zones SET active = FALSE WHERE id = $1', [id]);
   }
 
-  // ── Job Pickups ──
+  // ── Route Stops ──
 
-  async addJobPickups(jobId: string, pickups: Array<{ property_id: string; pickup_type?: string; special_pickup_id?: string }>) {
-    if (pickups.length === 0) return [];
+  async addRouteStops(routeId: string, stops: Array<{ property_id: string; order_type?: string; special_pickup_id?: string }>) {
+    if (stops.length === 0) return [];
     const values: any[] = [];
     const placeholders: string[] = [];
     let idx = 1;
-    for (const p of pickups) {
+    for (const s of stops) {
       placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
-      values.push(jobId, p.property_id, p.pickup_type ?? 'recurring', p.special_pickup_id ?? null);
+      values.push(routeId, s.property_id, s.order_type ?? 'recurring', s.special_pickup_id ?? null);
     }
     const result = await this.query(
-      `INSERT INTO job_pickups (job_id, property_id, pickup_type, special_pickup_id)
+      `INSERT INTO route_stops (route_id, property_id, order_type, special_pickup_id)
        VALUES ${placeholders.join(', ')}
        ON CONFLICT DO NOTHING
        RETURNING *`,
@@ -1702,24 +1704,24 @@ export class Storage {
     return result.rows;
   }
 
-  async getJobPickups(jobId: string) {
+  async getRouteStops(routeId: string) {
     const result = await this.query(
-      `SELECT jp.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
-       FROM job_pickups jp
-       JOIN properties p ON jp.property_id = p.id
+      `SELECT rs.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
+       FROM route_stops rs
+       JOIN properties p ON rs.property_id = p.id
        JOIN users u ON p.user_id = u.id
-       WHERE jp.job_id = $1
-       ORDER BY jp.sequence_number NULLS LAST, jp.created_at`,
-      [jobId]
+       WHERE rs.route_id = $1
+       ORDER BY rs.stop_number NULLS LAST, rs.created_at`,
+      [routeId]
     );
     return result.rows;
   }
 
-  async removeJobPickup(pickupId: string) {
-    await this.query('DELETE FROM job_pickups WHERE id = $1', [pickupId]);
+  async removeRouteStop(stopId: string) {
+    await this.query('DELETE FROM route_stops WHERE id = $1', [stopId]);
   }
 
-  async updateJobPickup(pickupId: string, data: Partial<{ optimo_order_no: string; sequence_number: number; status: string }>) {
+  async updateRouteStop(stopId: string, data: Partial<{ optimo_order_no: string; stop_number: number; status: string; scheduled_at: string; duration: number; notes: string; location_name: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1727,12 +1729,36 @@ export class Storage {
       if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
     }
     if (fields.length === 0) return null;
-    values.push(pickupId);
+    values.push(stopId);
     const result = await this.query(
-      `UPDATE job_pickups SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE route_stops SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
+  }
+
+  async bulkUpdateRouteStops(routeId: string, updates: Array<{ stop_id: string; stop_number?: number; scheduled_at?: string; status?: string }>) {
+    for (const u of updates) {
+      const data: Record<string, any> = {};
+      if (u.stop_number !== undefined) data.stop_number = u.stop_number;
+      if (u.scheduled_at !== undefined) data.scheduled_at = u.scheduled_at;
+      if (u.status !== undefined) data.status = u.status;
+      await this.updateRouteStop(u.stop_id, data);
+    }
+  }
+
+  async getRouteStopsByOrderNos(orderNos: string[]) {
+    if (orderNos.length === 0) return [];
+    const placeholders = orderNos.map((_, i) => `$${i + 1}`).join(', ');
+    const result = await this.query(
+      `SELECT rs.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
+       FROM route_stops rs
+       JOIN properties p ON rs.property_id = p.id
+       JOIN users u ON p.user_id = u.id
+       WHERE rs.optimo_order_no IN (${placeholders})`,
+      orderNos
+    );
+    return result.rows;
   }
 
   // ── Planning Queries ──
@@ -1754,15 +1780,15 @@ export class Storage {
   }
 
   async getPlanningCalendarData(fromDate: string, toDate: string) {
-    // Get existing jobs grouped by date
-    const jobsResult = await this.query(
-      `SELECT rj.scheduled_date, rj.status, rj.job_type, rj.zone_id, sz.name AS zone_name, sz.color AS zone_color,
-              COUNT(*)::int AS job_count
-       FROM route_jobs rj
-       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
-       WHERE rj.scheduled_date >= $1 AND rj.scheduled_date <= $2
-       GROUP BY rj.scheduled_date, rj.status, rj.job_type, rj.zone_id, sz.name, sz.color
-       ORDER BY rj.scheduled_date`,
+    // Get existing routes grouped by date
+    const routesResult = await this.query(
+      `SELECT r.scheduled_date, r.status, r.route_type, r.zone_id, sz.name AS zone_name, sz.color AS zone_color,
+              COUNT(*)::int AS route_count
+       FROM routes r
+       LEFT JOIN service_zones sz ON r.zone_id = sz.id
+       WHERE r.scheduled_date >= $1 AND r.scheduled_date <= $2
+       GROUP BY r.scheduled_date, r.status, r.route_type, r.zone_id, sz.name, sz.color
+       ORDER BY r.scheduled_date`,
       [fromDate, toDate]
     );
 
@@ -1787,7 +1813,7 @@ export class Storage {
     );
 
     return {
-      jobs: jobsResult.rows,
+      routes: routesResult.rows,
       specials: specialsResult.rows,
       propertyCounts: propertyCountsResult.rows,
     };
@@ -1823,7 +1849,37 @@ export class Storage {
     );
     return result.rows;
   }
-  // ── Weekly Planner Queries ──
+  // ── Route Management Queries ──
+
+  async getExistingRouteDates(startDate: string, endDate: string): Promise<string[]> {
+    const result = await this.query(
+      `SELECT DISTINCT scheduled_date::text
+       FROM routes
+       WHERE scheduled_date >= $1 AND scheduled_date <= $2
+         AND status != 'cancelled'
+       ORDER BY scheduled_date`,
+      [startDate, endDate]
+    );
+    return result.rows.map((r: any) => r.scheduled_date.split('T')[0]);
+  }
+
+  async markRouteSynced(routeId: string) {
+    await this.query(
+      `UPDATE routes SET optimo_synced = TRUE, optimo_synced_at = NOW() WHERE id = $1`,
+      [routeId]
+    );
+  }
+
+  async getRouteSyncStatus(routeId: string): Promise<{ synced: boolean; synced_at: string | null }> {
+    const result = await this.query(
+      `SELECT optimo_synced, optimo_synced_at FROM routes WHERE id = $1`,
+      [routeId]
+    );
+    const row = result.rows[0];
+    return { synced: row?.optimo_synced ?? false, synced_at: row?.optimo_synced_at ?? null };
+  }
+
+  // ── Planner Queries ──
 
   async getMissingClientsForDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
@@ -1837,11 +1893,11 @@ export class Storage {
        WHERE p.service_status = 'approved'
          AND p.pickup_day = $1
          AND NOT EXISTS (
-           SELECT 1 FROM job_pickups jp
-           JOIN route_jobs rj ON jp.job_id = rj.id
-           WHERE jp.property_id = p.id
-             AND rj.scheduled_date = $2
-             AND rj.status != 'cancelled'
+           SELECT 1 FROM route_stops rs
+           JOIN routes r ON rs.route_id = r.id
+           WHERE rs.property_id = p.id
+             AND r.scheduled_date = $2
+             AND r.status != 'cancelled'
          )
        ORDER BY sz.name NULLS LAST, p.address`,
       [dayOfWeek, date]
@@ -1851,62 +1907,62 @@ export class Storage {
 
   async getCancelledPickupsForWeek(fromDate: string, toDate: string) {
     const result = await this.query(
-      `SELECT jp.id AS pickup_id, jp.job_id, jp.property_id,
+      `SELECT rs.id AS stop_id, rs.route_id, rs.property_id,
               p.address, p.service_status,
               u.first_name || ' ' || u.last_name AS customer_name,
-              rj.scheduled_date, rj.title AS job_title,
+              r.scheduled_date, r.title AS route_title,
               sz.name AS zone_name, sz.color AS zone_color
-       FROM job_pickups jp
-       JOIN route_jobs rj ON jp.job_id = rj.id
-       JOIN properties p ON jp.property_id = p.id
+       FROM route_stops rs
+       JOIN routes r ON rs.route_id = r.id
+       JOIN properties p ON rs.property_id = p.id
        JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON rj.zone_id = sz.id
-       WHERE rj.scheduled_date >= $1 AND rj.scheduled_date <= $2
-         AND rj.status != 'cancelled'
+       LEFT JOIN service_zones sz ON r.zone_id = sz.id
+       WHERE r.scheduled_date >= $1 AND r.scheduled_date <= $2
+         AND r.status != 'cancelled'
          AND p.service_status != 'approved'
-       ORDER BY rj.scheduled_date, rj.title`,
+       ORDER BY r.scheduled_date, r.title`,
       [fromDate, toDate]
     );
     return result.rows;
   }
 
-  async copyWeekJobs(sourceFrom: string, sourceTo: string, targetOffset: number = 7) {
-    const sourceJobs = await this.getAllJobs({ date_from: sourceFrom, date_to: sourceTo });
-    const nonCancelled = sourceJobs.filter((j: any) => j.status !== 'cancelled');
+  async copyWeekRoutes(sourceFrom: string, sourceTo: string, targetOffset: number = 7) {
+    const sourceRoutes = await this.getAllRoutes({ date_from: sourceFrom, date_to: sourceTo });
+    const nonCancelled = sourceRoutes.filter((r: any) => r.status !== 'cancelled');
     const created: any[] = [];
 
-    for (const job of nonCancelled) {
-      const srcDate = new Date(job.scheduled_date.split('T')[0] + 'T12:00:00');
+    for (const route of nonCancelled) {
+      const srcDate = new Date(route.scheduled_date.split('T')[0] + 'T12:00:00');
       srcDate.setDate(srcDate.getDate() + targetOffset);
       const targetDate = srcDate.toISOString().split('T')[0];
 
-      const newJob = await this.createJob({
-        title: job.title,
-        description: job.description || undefined,
+      const newRoute = await this.createRoute({
+        title: route.title,
+        description: route.description || undefined,
         scheduled_date: targetDate,
-        start_time: job.start_time || undefined,
-        end_time: job.end_time || undefined,
-        estimated_stops: job.estimated_stops ?? undefined,
-        estimated_hours: job.estimated_hours ? Number(job.estimated_hours) : undefined,
-        base_pay: job.base_pay ? Number(job.base_pay) : undefined,
-        notes: job.notes || undefined,
-        zone_id: job.zone_id || undefined,
-        job_type: job.job_type || 'daily_route',
+        start_time: route.start_time || undefined,
+        end_time: route.end_time || undefined,
+        estimated_stops: route.estimated_stops ?? undefined,
+        estimated_hours: route.estimated_hours ? Number(route.estimated_hours) : undefined,
+        base_pay: route.base_pay ? Number(route.base_pay) : undefined,
+        notes: route.notes || undefined,
+        zone_id: route.zone_id || undefined,
+        route_type: route.route_type || 'daily_route',
         source: 'copied',
         status: 'draft',
       });
 
-      // Copy only recurring pickups (skip one-time specials)
-      const sourcePickups = await this.getJobPickups(job.id);
-      const recurringPickups = sourcePickups.filter((p: any) => p.pickup_type !== 'special');
-      if (recurringPickups.length > 0) {
-        await this.addJobPickups(
-          newJob.id,
-          recurringPickups.map((p: any) => ({ property_id: p.property_id, pickup_type: p.pickup_type }))
+      // Copy only recurring stops (skip one-time specials)
+      const sourceStops = await this.getRouteStops(route.id);
+      const recurringStops = sourceStops.filter((s: any) => s.order_type !== 'special');
+      if (recurringStops.length > 0) {
+        await this.addRouteStops(
+          newRoute.id,
+          recurringStops.map((s: any) => ({ property_id: s.property_id, order_type: s.order_type }))
         );
       }
 
-      created.push(newJob);
+      created.push(newRoute);
     }
     return created;
   }

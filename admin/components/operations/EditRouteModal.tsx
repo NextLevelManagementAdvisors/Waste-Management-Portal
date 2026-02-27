@@ -1,27 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import type { Driver, Job } from '../../../shared/types/index.ts';
-import AddressAutocomplete from '../../../components/AddressAutocomplete.tsx';
+import type { Driver, Route } from '../../../shared/types/index.ts';
 
-interface EditJobModalProps {
-  job: Job;
+interface EditRouteModalProps {
+  route: Route;
   onClose: () => void;
   onUpdated: () => void;
 }
 
-const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) => {
+const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdated }) => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [form, setForm] = useState({
-    title: job.title,
-    area: job.area ?? '',
-    scheduled_date: job.scheduled_date?.split('T')[0] ?? '',
-    start_time: job.start_time ?? '',
-    end_time: job.end_time ?? '',
-    estimated_stops: job.estimated_stops != null ? String(job.estimated_stops) : '',
-    estimated_hours: job.estimated_hours != null ? String(job.estimated_hours) : '',
-    base_pay: job.base_pay != null ? String(job.base_pay) : '',
-    notes: job.notes ?? '',
-    assigned_driver_id: job.assigned_driver_id ?? '',
-    status: job.status,
+    title: route.title,
+    scheduled_date: route.scheduled_date?.split('T')[0] ?? '',
+    start_time: route.start_time ?? '',
+    end_time: route.end_time ?? '',
+    estimated_stops: route.estimated_stops != null ? String(route.estimated_stops) : '',
+    estimated_hours: route.estimated_hours != null ? String(route.estimated_hours) : '',
+    base_pay: route.base_pay != null ? String(route.base_pay) : '',
+    notes: route.notes ?? '',
+    assigned_driver_id: route.assigned_driver_id ?? '',
+    status: route.status,
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -52,8 +50,6 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
         scheduled_date: form.scheduled_date,
         status: form.status,
       };
-      if (form.area.trim()) body.area = form.area.trim();
-      else body.area = null;
       if (form.start_time) body.start_time = form.start_time;
       else body.start_time = null;
       if (form.end_time) body.end_time = form.end_time;
@@ -69,7 +65,7 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
       if (form.assigned_driver_id) body.assigned_driver_id = form.assigned_driver_id;
       else body.assigned_driver_id = null;
 
-      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+      const res = await fetch(`/api/admin/routes/${route.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -77,7 +73,7 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Failed to update job.');
+        setError(data.error || 'Failed to update route.');
         return;
       }
       onUpdated();
@@ -92,8 +88,8 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-lg font-black text-gray-900">Edit Job</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Update job details, status, or driver assignment.</p>
+          <h2 className="text-lg font-black text-gray-900">Edit Route</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Update route details, status, or driver assignment.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
@@ -108,27 +104,15 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
             />
           </div>
 
-          {/* Address + Date */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Address</label>
-              <AddressAutocomplete
-                value={form.area}
-                onChange={(val) => setForm(prev => ({ ...prev, area: val }))}
-                onAddressSelect={(addr) => setForm(prev => ({ ...prev, area: `${addr.street}, ${addr.city}, ${addr.state} ${addr.zip}`.replace(/^, |, $/g, '') }))}
-                placeholder="e.g. 123 Main St"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Scheduled Date <span className="text-red-500">*</span></label>
-              <input
-                type="date"
-                value={form.scheduled_date}
-                onChange={set('scheduled_date')}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              />
-            </div>
+          {/* Scheduled Date */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Scheduled Date <span className="text-red-500">*</span></label>
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={set('scheduled_date')}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+            />
           </div>
 
           {/* Start / End time */}
@@ -230,7 +214,7 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
               value={form.notes}
               onChange={set('notes')}
               rows={3}
-              placeholder="Internal notes for this job..."
+              placeholder="Internal notes for this route..."
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none"
             />
           </div>
@@ -259,4 +243,4 @@ const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) 
   );
 };
 
-export default EditJobModal;
+export default EditRouteModal;

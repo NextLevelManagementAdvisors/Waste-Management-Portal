@@ -86,7 +86,7 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   const dateTo = today.toISOString().split('T')[0];
   const dateFrom = sevenDaysAgo.toISOString().split('T')[0];
 
-  const jobs = await storage.getAllJobs({
+  const routes = await storage.getAllRoutes({
     zone_id: zone.zone_id,
     date_from: dateFrom,
     date_to: dateTo,
@@ -94,9 +94,9 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
 
   // Filter to active statuses only
   const activeStatuses = new Set(['open', 'assigned', 'in_progress', 'completed']);
-  const activeJobs = jobs.filter(j => activeStatuses.has(j.status));
+  const activeRoutes = routes.filter(r => activeStatuses.has(r.status));
 
-  if (activeJobs.length === 0) {
+  if (activeRoutes.length === 0) {
     // No history — still return zone info with low confidence
     return {
       zone_id: zone.zone_id,
@@ -107,10 +107,10 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
     };
   }
 
-  // Count jobs by day of week
+  // Count routes by day of week
   const dayCounts: Record<string, number> = {};
-  for (const job of activeJobs) {
-    const d = new Date(job.scheduled_date + 'T12:00:00');
+  for (const route of activeRoutes) {
+    const d = new Date(route.scheduled_date + 'T12:00:00');
     const dayName = DAY_NAMES[d.getDay()];
     dayCounts[dayName] = (dayCounts[dayName] || 0) + 1;
   }
@@ -125,7 +125,7 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
     }
   }
 
-  const confidence = Math.min(bestCount / activeJobs.length, 1);
+  const confidence = Math.min(bestCount / activeRoutes.length, 1);
 
   return {
     zone_id: zone.zone_id,

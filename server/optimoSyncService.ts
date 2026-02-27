@@ -447,70 +447,70 @@ export async function executeDriverSync(
   return { linked };
 }
 
-// ── Per-Job Route Optimization ──
+// ── Per-Route Optimization ──
 
-export interface OptimizeJobResult {
+export interface OptimizeRouteResult {
   planningId: string;
   ordersCreated: number;
 }
 
 /**
- * Create OptimoRoute orders for a job's pickups and trigger route optimization.
+ * Create OptimoRoute orders for a route's stops and trigger route optimization.
  * Returns the planningId for status polling.
  */
-export async function optimizeJobRoute(jobId: string): Promise<OptimizeJobResult> {
-  // 1. Load job and validate
-  const job = await storage.getJobById(jobId);
-  if (!job) throw new Error('Job not found');
-  if (!job.assigned_driver_id) throw new Error('Job has no assigned driver');
+export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResult> {
+  // 1. Load route and validate
+  const route = await storage.getRouteById(routeId);
+  if (!route) throw new Error('Route not found');
+  if (!route.assigned_driver_id) throw new Error('Route has no assigned driver');
 
   // 2. Get driver's OptimoRoute serial
-  const driver = await storage.getDriverById(job.assigned_driver_id);
+  const driver = await storage.getDriverById(route.assigned_driver_id);
   if (!driver) throw new Error('Assigned driver not found');
   if (!driver.optimoroute_driver_id) throw new Error('Driver has no OptimoRoute ID — sync the driver first');
 
-  // 3. Load pickups
-  const pickups = await storage.getJobPickups(jobId);
-  if (pickups.length === 0) throw new Error('Job has no pickups');
+  // 3. Load stops
+  const stops = await storage.getRouteStops(routeId);
+  if (stops.length === 0) throw new Error('Route has no stops');
 
-  // 4. Create OptimoRoute orders for each pickup
+  // 4. Create OptimoRoute orders for each stop
   const orderNos: string[] = [];
-  const jobPrefix = jobId.substring(0, 8);
+  const routePrefix = routeId.substring(0, 8);
 
-  for (let i = 0; i < pickups.length; i++) {
-    const pickup = pickups[i];
-    const orderNo = `JOB-${jobPrefix}-${String(i + 1).padStart(3, '0')}`;
+  for (let i = 0; i < stops.length; i++) {
+    const stop = stops[i];
+    const orderNo = `RTE-${routePrefix}-${String(i + 1).padStart(3, '0')}`;
 
     try {
       await optimo.createOrder({
         orderNo,
-        date: job.scheduled_date,
+        date: route.scheduled_date,
         type: 'P',
-        address: pickup.address || '',
+        address: stop.address || '',
         duration: 15,
       });
 
-      await storage.updateJobPickup(pickup.id, { optimo_order_no: orderNo, status: 'optimized' });
+      await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo, status: 'optimized' });
       orderNos.push(orderNo);
     } catch (err) {
-      console.error(`Failed to create OptimoRoute order for pickup ${pickup.id}:`, err);
+      console.error(`Failed to create OptimoRoute order for stop ${stop.id}:`, err);
     }
   }
 
   if (orderNos.length === 0) throw new Error('No OptimoRoute orders could be created');
 
-  // 5. Start route planning scoped to this job's orders and driver
+  // 5. Start route planning scoped to this route's orders and driver
   const planning = await optimo.startPlanning({
-    date: job.scheduled_date,
+    date: route.scheduled_date,
     balancing: 'OFF',
     balanceBy: 'WT',
     useOrders: orderNos,
     useDrivers: [{ driverSerial: driver.optimoroute_driver_id }],
   });
 
-  // 6. Store planning ID on the job
+  // 6. Store planning ID on the route
   const planId = planning.planningId != null ? String(planning.planningId) : undefined;
-  await storage.updateJob(jobId, { optimo_planning_id: planId });
+  await storage.updateRoute(routeId, { optimo_planning_id: planId });
 
   return {
     planningId: planId,
@@ -519,27 +519,27 @@ export async function optimizeJobRoute(jobId: string): Promise<OptimizeJobResult
 }
 
 /**
- * Check the optimization status for a job and update stop sequence when done.
+ * Check the optimization status for a route and update stop sequence when done.
  */
-export async function checkJobOptimizationStatus(jobId: string): Promise<{ status: string; progress?: number }> {
-  const job = await storage.getJobById(jobId);
-  if (!job?.optimo_planning_id) throw new Error('No active optimization for this job');
+export async function checkRouteOptimizationStatus(routeId: string): Promise<{ status: string; progress?: number }> {
+  const route = await storage.getRouteById(routeId);
+  if (!route?.optimo_planning_id) throw new Error('No active optimization for this route');
 
-  const result = await optimo.getPlanningStatus(Number(job.optimo_planning_id));
+  const result = await optimo.getPlanningStatus(Number(route.optimo_planning_id));
 
-  // If finished, update pickup sequence numbers from the optimized route
+  // If finished, update stop sequence numbers from the optimized route
   if (result.status === 'F') {
     try {
-      const routeData = await optimo.getRoutes(job.scheduled_date);
-      const pickups = await storage.getJobPickups(jobId);
-      const pickupsByOrder = new Map(pickups.map(p => [p.optimo_order_no, p]));
+      const routeData = await optimo.getRoutes(route.scheduled_date);
+      const stops = await storage.getRouteStops(routeId);
+      const stopsByOrder = new Map(stops.map(s => [s.optimo_order_no, s]));
 
-      for (const route of routeData.routes) {
-        if (!route.stops) continue;
-        for (const stop of route.stops) {
-          const pickup = pickupsByOrder.get(stop.orderNo);
-          if (pickup) {
-            await storage.updateJobPickup(pickup.id, { sequence_number: stop.stopNumber });
+      for (const optimoRoute of routeData.routes) {
+        if (!optimoRoute.stops) continue;
+        for (const optimoStop of optimoRoute.stops) {
+          const stop = stopsByOrder.get(optimoStop.orderNo);
+          if (stop) {
+            await storage.updateRouteStop(stop.id, { sequence_number: optimoStop.stopNumber });
           }
         }
       }
@@ -553,3 +553,6 @@ export async function checkJobOptimizationStatus(jobId: string): Promise<{ statu
     progress: result.percentageComplete,
   };
 }
+
+// Backward-compatible aliases
+export const optimizeRouteJob = optimizeRoute;
