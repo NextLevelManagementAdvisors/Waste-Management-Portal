@@ -8,7 +8,8 @@ import { useProperty } from '../PropertyContext.tsx';
 import PayBalanceModal from './PayBalanceModal.tsx';
 import { 
     BanknotesIcon, ArrowRightIcon, CheckCircleIcon, SparklesIcon,
-    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon, CurrencyDollarIcon
+    TruckIcon, CalendarDaysIcon, ExclamationTriangleIcon, ClockIcon, CurrencyDollarIcon,
+    GiftIcon, PlusCircleIcon
 } from './Icons.tsx';
 
 interface DashboardProps {
@@ -118,11 +119,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             <div className="space-y-8">
                  <Card className="p-6">
                      <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                     <div className="grid grid-cols-3 gap-4">
                         <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-8 h-8"/>} onClick={() => setIsPayBalanceModalOpen(true)} />
                         <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
                         <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'requests', targetTab: 'missed', action: 'openTab' })} />
                         <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
+                        <QuickActionButton label="Start Service" icon={<PlusCircleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'myservice', action: 'openSetupWizard' })} />
+                        <QuickActionButton label="Referral" icon={<GiftIcon className="w-8 h-8"/>} onClick={() => setCurrentView('referrals')} />
                      </div>
                 </Card>
 

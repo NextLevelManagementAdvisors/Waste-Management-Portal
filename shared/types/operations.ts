@@ -1,5 +1,6 @@
 export interface MissedPickupReport {
   id: string;
+  propertyId: string;
   customerName: string;
   customerEmail: string;
   address: string;
@@ -40,29 +41,28 @@ export interface Driver {
   rating?: number;
 }
 
-export type JobType = 'daily_route' | 'bulk_pickup' | 'special_pickup';
-export type JobStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+export type RouteType = 'daily_route' | 'bulk_pickup' | 'special_pickup';
+export type RouteStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'processing' | 'paid';
 
-export interface Job {
+export interface Route {
   id: string;
   title: string;
   description?: string;
-  area?: string;
   scheduled_date: string;
   start_time?: string;
   end_time?: string;
   estimated_stops?: number;
   estimated_hours?: number;
   base_pay?: number;
-  status: JobStatus;
+  status: RouteStatus;
   assigned_driver_id?: string;
   driver_name?: string;
   notes?: string;
   created_at: string;
   bid_count?: number;
-  // Job-centric fields
-  job_type?: JobType;
+  // Route-centric fields
+  route_type?: RouteType;
   zone_id?: string;
   zone_name?: string;
   zone_color?: string;
@@ -73,10 +73,13 @@ export interface Job {
   actual_pay?: number;
   payment_status?: PaymentStatus;
   completed_at?: string;
-  pickup_count?: number;
+  stop_count?: number;
+  // OptimoRoute sync tracking
+  optimo_synced?: boolean;
+  optimo_synced_at?: string;
 }
 
-export interface JobBid {
+export interface RouteBid {
   id: string;
   driverId: string;
   driverName: string;
@@ -87,15 +90,19 @@ export interface JobBid {
   createdAt: string;
 }
 
-export interface JobPickup {
+export interface RouteStop {
   id: string;
-  job_id: string;
+  route_id: string;
   property_id: string;
-  pickup_type: 'recurring' | 'special' | 'missed_redo';
+  order_type: 'recurring' | 'special' | 'missed_redo';
   special_pickup_id?: string;
   optimo_order_no?: string;
-  sequence_number?: number;
+  stop_number?: number;
   status: string;
+  scheduled_at?: string;
+  duration?: number;
+  notes?: string;
+  location_name?: string;
   created_at: string;
   // Joined fields
   address?: string;
@@ -124,15 +131,33 @@ export interface PlanningDayData {
     property_count: number;
   }>;
   specialPickupCount: number;
-  jobs: Array<{
+  routes: Array<{
     status: string;
-    job_type: string;
+    route_type: string;
     zone_name: string | null;
-    job_count: number;
+    route_count: number;
   }>;
 }
 
-// ── Weekly Planner types ──
+// ── Route capacity warnings ──
+
+export interface CapacityWarning {
+  routeId: string;
+  title: string;
+  date: string;
+  stops: number;
+  maxStops: number;
+  estimatedHours: number;
+  maxHours: number;
+}
+
+export interface AutoPlanResult {
+  routesCreated: number;
+  daysPlanned: number;
+  skippedDays: number;
+}
+
+// ── Planner types ──
 
 export interface MissingClient {
   id: string;
@@ -147,19 +172,19 @@ export interface MissingClient {
 
 export interface CancelledPickup {
   pickup_id: string;
-  job_id: string;
+  route_id: string;
   property_id: string;
   address: string;
   service_status: string;
   customer_name: string;
   scheduled_date: string;
-  job_title: string;
+  route_title: string;
   zone_name: string | null;
   zone_color: string | null;
 }
 
 export interface WeekPlannerData {
-  jobs: Job[];
+  routes: Route[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
   zones: ServiceZone[];

@@ -86,6 +86,9 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
         if (postNavAction && postNavAction.targetTab) {
             setActiveTab(postNavAction.targetTab);
         }
+        if (postNavAction && postNavAction.action === 'openSetupWizard') {
+            setShowSetupWizard(true);
+        }
     }, [postNavAction]);
 
     useEffect(() => {

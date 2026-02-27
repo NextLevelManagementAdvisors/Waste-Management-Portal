@@ -5,7 +5,7 @@ export type View = 'home' | 'myservice' | 'requests' | 'help' | 'profile-setting
 export interface PostNavAction {
   targetView: View;
   targetTab?: string;
-  action: 'openTipModal' | 'openTab';
+  action: 'openTipModal' | 'openTab' | 'openSetupWizard';
   targetDate?: string;
 }
 

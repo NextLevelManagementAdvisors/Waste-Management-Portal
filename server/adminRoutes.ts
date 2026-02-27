@@ -10,7 +10,7 @@ import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 import { expenseRepo } from './repositories/ExpenseRepository';
-import { optimizeJobRoute, checkJobOptimizationStatus } from './optimoSyncService';
+import { optimizeRouteJob, checkRouteOptimizationStatus } from './optimoSyncService';
 import { suggestRoute } from './routeSuggestionService';
 
 declare module 'express-session' {
@@ -251,9 +251,13 @@ export function registerAdminRoutes(app: Express) {
         id: p.id,
         address: p.address,
         serviceType: p.service_type,
+        serviceStatus: p.service_status,
         ownerName: p.user_name,
         ownerEmail: p.user_email,
         transferStatus: p.transfer_status,
+        zoneId: p.zone_id,
+        zoneName: p.zone_name,
+        zoneColor: p.zone_color,
         createdAt: p.created_at,
       })));
     } catch (error) {
@@ -485,6 +489,7 @@ export function registerAdminRoutes(app: Express) {
       res.json({
         reports: result.reports.map((r: any) => ({
           id: r.id,
+          propertyId: r.property_id,
           customerName: `${r.first_name} ${r.last_name}`,
           customerEmail: r.email,
           address: r.address,
@@ -635,26 +640,26 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Jobs
-  app.get('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
+  // Routes
+  app.get('/api/admin/routes', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { job_type, zone_id, status, date_from, date_to } = req.query;
-      const jobs = await storage.getAllJobs({
-        job_type: job_type as string | undefined,
+      const { route_type, zone_id, status, date_from, date_to } = req.query;
+      const routes = await storage.getAllRoutes({
+        route_type: route_type as string | undefined,
         zone_id: zone_id as string | undefined,
         status: status as string | undefined,
         date_from: date_from as string | undefined,
         date_to: date_to as string | undefined,
       });
-      res.json({ jobs });
+      res.json({ routes });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch jobs' });
+      res.status(500).json({ error: 'Failed to fetch routes' });
     }
   });
 
-  app.get('/api/admin/jobs/:id/bids', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/routes/:id/bids', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const bids = await storage.getJobBids(req.params.id as string);
+      const bids = await storage.getRouteBids(req.params.id as string);
       res.json({
         bids: bids.map((b: any) => ({
           id: b.id,
@@ -668,38 +673,38 @@ export function registerAdminRoutes(app: Express) {
         })),
       });
     } catch (error) {
-      console.error('Failed to fetch job bids:', error);
+      console.error('Failed to fetch route bids:', error);
       res.status(500).json({ error: 'Failed to fetch bids' });
     }
   });
 
-  app.post('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { title, scheduled_date, ...rest } = req.body;
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
-      const job = await storage.createJob({ title, scheduled_date, ...rest });
-      await audit(req, 'create_job', 'route_job', job.id, { title, scheduled_date });
-      res.status(201).json({ job });
+      const route = await storage.createRoute({ title, scheduled_date, ...rest });
+      await audit(req, 'create_route', 'route', route.id, { title, scheduled_date });
+      res.status(201).json({ route });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to create job' });
+      res.status(500).json({ error: 'Failed to create route' });
     }
   });
 
-  app.put('/api/admin/jobs/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/routes/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const existing = await storage.getJobById(jobId);
+      const routeId = req.params.id as string;
+      const existing = await storage.getRouteById(routeId);
       if (!existing) {
-        return res.status(404).json({ error: 'Job not found' });
+        return res.status(404).json({ error: 'Route not found' });
       }
-      const { title, description, area, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, job_type, zone_id, accepted_bid_id, actual_pay, payment_status } = req.body;
+      const { title, description, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, zone_id, accepted_bid_id, actual_pay, payment_status } = req.body;
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
 
-      // Enforce job lifecycle: prevent invalid status jumps (e.g. draft→completed)
+      // Enforce route lifecycle: prevent invalid status jumps (e.g. draft→completed)
       if (status && status !== existing.status) {
         const VALID_TRANSITIONS: Record<string, string[]> = {
           draft: ['open', 'cancelled'],
@@ -718,14 +723,14 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      const updated = await storage.updateJob(jobId, {
-        title, description, area, scheduled_date, start_time, end_time,
+      const updated = await storage.updateRoute(routeId, {
+        title, description, scheduled_date, start_time, end_time,
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
-        job_type, zone_id, accepted_bid_id, actual_pay, payment_status,
+        route_type, zone_id, accepted_bid_id, actual_pay, payment_status,
       });
-      await audit(req, 'update_job', 'route_job', jobId, req.body);
+      await audit(req, 'update_route', 'route', routeId, req.body);
 
-      // Auto-sync driver pay expense when job is marked completed
+      // Auto-sync driver pay expense when route is marked completed
       if (status === 'completed' && existing.status !== 'completed' && base_pay && parseFloat(base_pay) > 0) {
         try {
           await expenseRepo.create({
@@ -733,8 +738,8 @@ export function registerAdminRoutes(app: Express) {
             description: `Driver pay for: ${title}`,
             amount: parseFloat(base_pay),
             expenseDate: scheduled_date || new Date().toISOString().split('T')[0],
-            referenceId: jobId,
-            referenceType: 'route_job',
+            referenceId: routeId,
+            referenceType: 'route',
             createdBy: getAdminId(req),
           });
         } catch (e) {
@@ -742,95 +747,100 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json({ job: updated });
+      res.json({ route: updated });
     } catch (error) {
-      console.error('Failed to update job:', error);
-      res.status(500).json({ error: 'Failed to update job' });
+      console.error('Failed to update route:', error);
+      res.status(500).json({ error: 'Failed to update route' });
     }
   });
 
-  // Job Pickups
-  app.get('/api/admin/jobs/:id/pickups', requireAdmin, async (req: Request, res: Response) => {
+  // Route Stops
+  app.get('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const pickups = await storage.getJobPickups(req.params.id as string);
-      res.json({ pickups });
+      const stops = await storage.getRouteStops(req.params.id as string);
+      res.json({ stops });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch job pickups' });
+      res.status(500).json({ error: 'Failed to fetch route stops' });
     }
   });
 
-  app.post('/api/admin/jobs/:id/pickups', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const { propertyIds, specialPickupIds } = req.body;
-      const pickups: Array<{ property_id: string; pickup_type?: string; special_pickup_id?: string }> = [];
+      const routeId = req.params.id as string;
+      const { propertyIds, specialPickupIds, missedRedoPropertyIds } = req.body;
+      const stops: Array<{ property_id: string; order_type?: string; special_pickup_id?: string }> = [];
       if (propertyIds?.length) {
         for (const pid of propertyIds) {
-          pickups.push({ property_id: pid, pickup_type: 'recurring' });
+          stops.push({ property_id: pid, order_type: 'recurring' });
         }
       }
       if (specialPickupIds?.length) {
         for (const spId of specialPickupIds) {
           const sp = await storage.getSpecialPickupById(spId);
           if (sp) {
-            pickups.push({ property_id: sp.property_id, pickup_type: 'special', special_pickup_id: spId });
+            stops.push({ property_id: sp.property_id, order_type: 'special', special_pickup_id: spId });
           }
         }
       }
-      const added = await storage.addJobPickups(jobId, pickups);
-      await audit(req, 'add_job_pickups', 'route_job', jobId, { count: added.length });
-      res.json({ pickups: added });
+      if (missedRedoPropertyIds?.length) {
+        for (const pid of missedRedoPropertyIds) {
+          stops.push({ property_id: pid, order_type: 'missed_redo' });
+        }
+      }
+      const added = await storage.addRouteStops(routeId, stops);
+      await audit(req, 'add_route_stops', 'route', routeId, { count: added.length });
+      res.json({ stops: added });
     } catch (error) {
-      console.error('Failed to add job pickups:', error);
-      res.status(500).json({ error: 'Failed to add pickups' });
+      console.error('Failed to add route stops:', error);
+      res.status(500).json({ error: 'Failed to add stops' });
     }
   });
 
-  app.delete('/api/admin/jobs/:id/pickups/:pickupId', requireAdmin, async (req: Request, res: Response) => {
+  app.delete('/api/admin/routes/:id/stops/:stopId', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const pickupId = req.params.pickupId as string;
-      await storage.removeJobPickup(pickupId);
-      await audit(req, 'remove_job_pickup', 'route_job', jobId, { pickupId });
+      const routeId = req.params.id as string;
+      const stopId = req.params.stopId as string;
+      await storage.removeRouteStop(stopId);
+      await audit(req, 'remove_route_stop', 'route', routeId, { stopId });
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to remove pickup' });
+      res.status(500).json({ error: 'Failed to remove stop' });
     }
   });
 
-  // Job Actions
-  app.post('/api/admin/jobs/:id/publish', requireAdmin, async (req: Request, res: Response) => {
+  // Route Actions
+  app.post('/api/admin/routes/:id/publish', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const job = await storage.getJobById(jobId);
-      if (!job) return res.status(404).json({ error: 'Job not found' });
-      if (job.status !== 'draft') return res.status(400).json({ error: 'Only draft jobs can be published' });
-      const updated = await storage.updateJob(jobId, { status: 'open' });
-      await audit(req, 'publish_job', 'route_job', jobId, {});
-      res.json({ job: updated });
+      const routeId = req.params.id as string;
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (route.status !== 'draft') return res.status(400).json({ error: 'Only draft routes can be published' });
+      const updated = await storage.updateRoute(routeId, { status: 'open' });
+      await audit(req, 'publish_route', 'route', routeId, {});
+      res.json({ route: updated });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to publish job' });
+      res.status(500).json({ error: 'Failed to publish route' });
     }
   });
 
-  app.post('/api/admin/jobs/:id/assign', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes/:id/assign', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
+      const routeId = req.params.id as string;
       const { driverId, bidId, actualPay } = req.body;
       if (!driverId) return res.status(400).json({ error: 'driverId is required' });
-      const job = await storage.getJobById(jobId);
-      if (!job) return res.status(404).json({ error: 'Job not found' });
-      const updated = await storage.updateJob(jobId, {
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      const updated = await storage.updateRoute(routeId, {
         status: 'assigned',
         assigned_driver_id: driverId,
         accepted_bid_id: bidId || undefined,
-        actual_pay: actualPay || job.base_pay,
+        actual_pay: actualPay || route.base_pay,
       });
-      await audit(req, 'assign_job', 'route_job', jobId, { driverId, bidId, actualPay });
-      res.json({ job: updated });
+      await audit(req, 'assign_route', 'route', routeId, { driverId, bidId, actualPay });
+      res.json({ route: updated });
     } catch (error) {
-      console.error('Failed to assign job:', error);
-      res.status(500).json({ error: 'Failed to assign job' });
+      console.error('Failed to assign route:', error);
+      res.status(500).json({ error: 'Failed to assign route' });
     }
   });
 
@@ -926,12 +936,12 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/planning/date/:date', requireAdmin, async (req: Request, res: Response) => {
     try {
       const date = req.params.date as string;
-      const [properties, specials, existingJobs] = await Promise.all([
+      const [properties, specials, existingRoutes] = await Promise.all([
         storage.getPropertiesDueOnDate(date),
         storage.getSpecialPickupsForDate(date),
-        storage.getAllJobs({ date_from: date, date_to: date }),
+        storage.getAllRoutes({ date_from: date, date_to: date }),
       ]);
-      res.json({ properties, specials, existingJobs });
+      res.json({ properties, specials, existingRoutes });
     } catch (error) {
       console.error('Failed to fetch planning date:', error);
       res.status(500).json({ error: 'Failed to fetch planning data for date' });
@@ -958,20 +968,20 @@ export function registerAdminRoutes(app: Express) {
       for (const [zoneId, zoneProps] of byZone) {
         const zone = zones.find((z: any) => z.id === zoneId);
         const zoneName = zone?.name || 'Unassigned Area';
-        const job = await storage.createJob({
+        const route = await storage.createRoute({
           title: `${zoneName} - ${date}`,
           scheduled_date: date,
           estimated_stops: zoneProps.length,
           zone_id: zoneId === 'unassigned' ? undefined : zoneId,
-          job_type: 'daily_route',
+          route_type: 'daily_route',
           source: 'auto_planned',
           status: 'draft',
         });
-        await storage.addJobPickups(
-          job.id,
-          zoneProps.map((p: any) => ({ property_id: p.id, pickup_type: 'recurring' }))
+        await storage.addRouteStops(
+          route.id,
+          zoneProps.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
         );
-        created.push(job);
+        created.push(route);
       }
 
       // Auto-bundle small special pickups
@@ -979,44 +989,354 @@ export function registerAdminRoutes(app: Express) {
       const bulkThreshold = 200; // TODO: make configurable via system_settings
       for (const sp of specials) {
         if (Number(sp.service_price) < bulkThreshold) {
-          // Find a matching daily_route draft job for this zone
-          const matchingJob = created.find((j: any) =>
-            j.zone_id === sp.zone_id && j.job_type === 'daily_route'
+          // Find a matching daily_route draft route for this zone
+          const matchingRoute = created.find((r: any) =>
+            r.zone_id === sp.zone_id && r.route_type === 'daily_route'
           );
-          if (matchingJob) {
-            await storage.addJobPickups(matchingJob.id, [{
+          if (matchingRoute) {
+            await storage.addRouteStops(matchingRoute.id, [{
               property_id: sp.property_id,
-              pickup_type: 'special',
+              order_type: 'special',
               special_pickup_id: sp.id,
             }]);
           }
         } else {
-          // Create standalone bulk_pickup job
-          const bulkJob = await storage.createJob({
+          // Create standalone bulk_pickup route
+          const bulkRoute = await storage.createRoute({
             title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
             scheduled_date: date,
             estimated_stops: 1,
             zone_id: sp.zone_id || undefined,
-            job_type: 'bulk_pickup',
+            route_type: 'bulk_pickup',
             source: 'special_pickup',
             special_pickup_id: sp.id,
             base_pay: Number(sp.service_price),
             status: 'draft',
           });
-          await storage.addJobPickups(bulkJob.id, [{
+          await storage.addRouteStops(bulkRoute.id, [{
             property_id: sp.property_id,
-            pickup_type: 'special',
+            order_type: 'special',
             special_pickup_id: sp.id,
           }]);
-          created.push(bulkJob);
+          created.push(bulkRoute);
         }
       }
 
-      await audit(req, 'auto_group_jobs', 'route_job', null as any, { date, jobCount: created.length });
-      res.json({ jobs: created });
+      await audit(req, 'auto_group_routes', 'route', null as any, { date, routeCount: created.length });
+      res.json({ routes: created });
     } catch (error) {
-      console.error('Failed to auto-group jobs:', error);
-      res.status(500).json({ error: 'Failed to auto-group jobs' });
+      console.error('Failed to auto-group routes:', error);
+      res.status(500).json({ error: 'Failed to auto-group routes' });
+    }
+  });
+
+  // ── Route Auto-Plan (multi-day) ──
+
+  app.post('/api/admin/planning/auto-plan', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { startDate, days } = req.body;
+      if (!startDate || !days) return res.status(400).json({ error: 'startDate and days are required' });
+
+      const maxStops = parseInt(process.env.ROUTE_MAX_STOPS || '50', 10);
+      const existingDates = new Set(await storage.getExistingRouteDates(
+        startDate,
+        new Date(new Date(startDate + 'T12:00:00').getTime() + (days - 1) * 86400000).toISOString().split('T')[0]
+      ));
+
+      const zones = await storage.getAllZones(true);
+      let routesCreated = 0;
+      let daysPlanned = 0;
+      let skippedDays = 0;
+
+      for (let i = 0; i < days; i++) {
+        const d = new Date(new Date(startDate + 'T12:00:00').getTime() + i * 86400000);
+        const dateStr = d.toISOString().split('T')[0];
+        const dayOfWeek = d.getDay();
+
+        // Skip Sundays
+        if (dayOfWeek === 0) { skippedDays++; continue; }
+
+        // Skip dates that already have routes
+        if (existingDates.has(dateStr)) { skippedDays++; continue; }
+
+        const properties = await storage.getPropertiesDueOnDate(dateStr);
+        if (properties.length === 0) { skippedDays++; continue; }
+
+        // Group properties by zone
+        const byZone = new Map<string, typeof properties>();
+        for (const prop of properties) {
+          const key = prop.zone_id || 'unassigned';
+          if (!byZone.has(key)) byZone.set(key, []);
+          byZone.get(key)!.push(prop);
+        }
+
+        for (const [zoneId, zoneProps] of byZone) {
+          const zone = zones.find((z: any) => z.id === zoneId);
+          const zoneName = zone?.name || 'Unassigned Area';
+
+          // Split into multiple routes if exceeding capacity
+          const chunks: typeof zoneProps[] = [];
+          if (zoneProps.length > maxStops) {
+            for (let c = 0; c < zoneProps.length; c += maxStops) {
+              chunks.push(zoneProps.slice(c, c + maxStops));
+            }
+          } else {
+            chunks.push(zoneProps);
+          }
+
+          for (let ci = 0; ci < chunks.length; ci++) {
+            const chunk = chunks[ci];
+            const suffix = chunks.length > 1 ? ` (${String.fromCharCode(65 + ci)})` : '';
+            const route = await storage.createRoute({
+              title: `${zoneName}${suffix} - ${dateStr}`,
+              scheduled_date: dateStr,
+              estimated_stops: chunk.length,
+              zone_id: zoneId === 'unassigned' ? undefined : zoneId,
+              route_type: 'daily_route',
+              source: 'auto_planned',
+              status: 'draft',
+            });
+            await storage.addRouteStops(
+              route.id,
+              chunk.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
+            );
+            routesCreated++;
+          }
+        }
+
+        // Auto-bundle small special pickups
+        const specials = await storage.getSpecialPickupsForDate(dateStr);
+        const bulkThreshold = 200;
+        for (const sp of specials) {
+          if (Number(sp.service_price) >= bulkThreshold) {
+            const bulkRoute = await storage.createRoute({
+              title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
+              scheduled_date: dateStr,
+              estimated_stops: 1,
+              zone_id: sp.zone_id || undefined,
+              route_type: 'bulk_pickup',
+              source: 'special_pickup',
+              special_pickup_id: sp.id,
+              base_pay: Number(sp.service_price),
+              status: 'draft',
+            });
+            await storage.addRouteStops(bulkRoute.id, [{
+              property_id: sp.property_id,
+              order_type: 'special',
+              special_pickup_id: sp.id,
+            }]);
+            routesCreated++;
+          }
+        }
+
+        daysPlanned++;
+      }
+
+      await audit(req, 'auto_plan_routes', 'route', null as any, { startDate, days, routesCreated, daysPlanned });
+      res.json({ routesCreated, daysPlanned, skippedDays });
+    } catch (error) {
+      console.error('Failed to auto-plan routes:', error);
+      res.status(500).json({ error: 'Failed to auto-plan routes' });
+    }
+  });
+
+  // ── Sync Route to OptimoRoute ──
+
+  app.post('/api/admin/routes/:id/sync-to-optimo', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.id;
+      const stops = await storage.getRouteStops(routeId);
+      const route = (await storage.getAllRoutes()).find((r: any) => r.id === routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+
+      let ordersSynced = 0;
+      let ordersSkipped = 0;
+      const errors: string[] = [];
+
+      for (const stop of stops) {
+        const orderNo = `ROUTE-${routeId.substring(0, 8)}-${stop.property_id.substring(0, 8)}`;
+        try {
+          await optimo.createOrder({
+            orderNo,
+            type: 'P',
+            date: route.scheduled_date.split('T')[0],
+            duration: 8,
+            address: stop.address || '',
+            locationName: stop.customer_name || '',
+            notes: `Route: ${route.title}`,
+          });
+          // Save order number on the stop for future pull-back
+          await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
+          ordersSynced++;
+        } catch (err: any) {
+          if (err.message?.includes('already exists')) {
+            ordersSkipped++;
+          } else {
+            errors.push(`${stop.address}: ${err.message}`);
+          }
+        }
+      }
+
+      await storage.markRouteSynced(routeId);
+      await audit(req, 'sync_route_to_optimo', 'route', routeId, { ordersSynced, ordersSkipped, errors: errors.length });
+      res.json({ ordersSynced, ordersSkipped, errors });
+    } catch (error) {
+      console.error('Failed to sync route to OptimoRoute:', error);
+      res.status(500).json({ error: 'Failed to sync route to OptimoRoute' });
+    }
+  });
+
+  app.post('/api/admin/planning/sync-day', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { date } = req.body;
+      if (!date) return res.status(400).json({ error: 'date is required' });
+
+      const routes = await storage.getAllRoutes({ date_from: date, date_to: date });
+      const publishedRoutes = routes.filter((r: any) => r.status !== 'draft' && r.status !== 'cancelled');
+
+      let totalSynced = 0;
+      let totalSkipped = 0;
+      const allErrors: string[] = [];
+
+      for (const route of publishedRoutes) {
+        const stops = await storage.getRouteStops(route.id);
+        let routeSynced = 0;
+
+        for (const stop of stops) {
+          const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stop.property_id.substring(0, 8)}`;
+          try {
+            await optimo.createOrder({
+              orderNo,
+              type: 'P',
+              date: route.scheduled_date.split('T')[0],
+              duration: 8,
+              address: stop.address || '',
+              locationName: stop.customer_name || '',
+              notes: `Route: ${route.title}`,
+            });
+            await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
+            routeSynced++;
+          } catch (err: any) {
+            if (err.message?.includes('already exists')) {
+              totalSkipped++;
+            } else {
+              allErrors.push(`${stop.address}: ${err.message}`);
+            }
+          }
+        }
+
+        totalSynced += routeSynced;
+        await storage.markRouteSynced(route.id);
+      }
+
+      await audit(req, 'sync_day_to_optimo', 'route', null as any, { date, totalSynced, totalSkipped });
+      res.json({ routesSynced: publishedRoutes.length, ordersSynced: totalSynced, ordersSkipped: totalSkipped, errors: allErrors });
+    } catch (error) {
+      console.error('Failed to sync day to OptimoRoute:', error);
+      res.status(500).json({ error: 'Failed to sync day to OptimoRoute' });
+    }
+  });
+
+  // ── Pull optimized sequence from OptimoRoute ──
+
+  app.post('/api/admin/routes/:id/pull-sequence', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.id;
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+
+      const stops = await storage.getRouteStops(routeId);
+      const stopsWithOrders = stops.filter((s: any) => s.optimo_order_no);
+      if (stopsWithOrders.length === 0) {
+        return res.status(400).json({ error: 'No stops have OptimoRoute order numbers. Sync to Optimo first.' });
+      }
+
+      // Fetch routes from OptimoRoute for this date
+      const date = route.scheduled_date.split('T')[0];
+      const optimoData = await optimo.getRoutes(date);
+      const optimoRoutes = optimoData.routes || [];
+
+      // Build a map of orderNo -> { stopNumber, scheduledAt }
+      const orderMap = new Map<string, { stopNumber: number; scheduledAt: string }>();
+      for (const oRoute of optimoRoutes) {
+        for (const oStop of (oRoute.stops || [])) {
+          if (oStop.orderNo) {
+            orderMap.set(oStop.orderNo, {
+              stopNumber: oStop.stopNumber || 0,
+              scheduledAt: oStop.scheduledAt || '',
+            });
+          }
+        }
+      }
+
+      // Update portal stops with optimized sequence
+      let updated = 0;
+      for (const stop of stopsWithOrders) {
+        const optimoInfo = orderMap.get(stop.optimo_order_no);
+        if (optimoInfo) {
+          await storage.updateRouteStop(stop.id, {
+            stop_number: optimoInfo.stopNumber,
+            scheduled_at: optimoInfo.scheduledAt,
+          });
+          updated++;
+        }
+      }
+
+      res.json({ stopsUpdated: updated, totalStops: stops.length });
+    } catch (error) {
+      console.error('Failed to pull sequence from OptimoRoute:', error);
+      res.status(500).json({ error: 'Failed to pull sequence from OptimoRoute' });
+    }
+  });
+
+  app.post('/api/admin/routes/:id/pull-completion', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.id;
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+
+      const stops = await storage.getRouteStops(routeId);
+      const orderNos = stops.filter((s: any) => s.optimo_order_no).map((s: any) => s.optimo_order_no);
+      if (orderNos.length === 0) {
+        return res.status(400).json({ error: 'No stops have OptimoRoute order numbers.' });
+      }
+
+      // Fetch completion details from OptimoRoute
+      const completionData = await optimo.getCompletionDetails(orderNos);
+      const completionOrders = completionData?.orders || [];
+
+      // Build a map of orderNo -> status
+      const statusMap = new Map<string, string>();
+      for (const order of completionOrders) {
+        if (order.orderNo && order.data?.status) {
+          statusMap.set(order.orderNo, order.data.status);
+        }
+      }
+
+      // Update portal stops with completion status
+      let updated = 0;
+      for (const stop of stops) {
+        if (stop.optimo_order_no) {
+          const status = statusMap.get(stop.optimo_order_no);
+          if (status && status !== stop.status) {
+            const portalStatus = status === 'success' ? 'completed' : status === 'failed' ? 'failed' : status;
+            await storage.updateRouteStop(stop.id, { status: portalStatus });
+            updated++;
+          }
+        }
+      }
+
+      // If all stops are completed, update route status
+      const updatedStops = await storage.getRouteStops(routeId);
+      const allCompleted = updatedStops.length > 0 && updatedStops.every((s: any) => s.status === 'completed');
+      if (allCompleted && route.status !== 'completed') {
+        await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
+      }
+
+      res.json({ stopsUpdated: updated, totalStops: stops.length });
+    } catch (error) {
+      console.error('Failed to pull completion from OptimoRoute:', error);
+      res.status(500).json({ error: 'Failed to pull completion from OptimoRoute' });
     }
   });
 
@@ -1032,8 +1352,8 @@ export function registerAdminRoutes(app: Express) {
       satDate.setDate(satDate.getDate() + 5);
       const saturday = satDate.toISOString().split('T')[0];
 
-      const [jobs, cancelled, zones] = await Promise.all([
-        storage.getAllJobs({ date_from: monday, date_to: saturday }),
+      const [routes, cancelled, zones] = await Promise.all([
+        storage.getAllRoutes({ date_from: monday, date_to: saturday }),
         storage.getCancelledPickupsForWeek(monday, saturday),
         storage.getAllZones(true),
       ]);
@@ -1047,7 +1367,7 @@ export function registerAdminRoutes(app: Express) {
         missingByDay[dateStr] = await storage.getMissingClientsForDate(dateStr);
       }
 
-      res.json({ jobs, cancelled, missingByDay, zones });
+      res.json({ routes, cancelled, missingByDay, zones });
     } catch (error) {
       console.error('Failed to fetch week planning data:', error);
       res.status(500).json({ error: 'Failed to fetch week planning data' });
@@ -1064,25 +1384,25 @@ export function registerAdminRoutes(app: Express) {
       satDate.setDate(satDate.getDate() + 5);
       const saturday = satDate.toISOString().split('T')[0];
 
-      // Check if target week already has jobs
+      // Check if target week already has routes
       const targetMonday = new Date(monDate);
       targetMonday.setDate(targetMonday.getDate() + 7);
       const targetSaturday = new Date(targetMonday);
       targetSaturday.setDate(targetSaturday.getDate() + 5);
-      const existingTarget = await storage.getAllJobs({
+      const existingTarget = await storage.getAllRoutes({
         date_from: targetMonday.toISOString().split('T')[0],
         date_to: targetSaturday.toISOString().split('T')[0],
       });
       if (existingTarget.length > 0) {
         return res.status(409).json({
-          error: 'Target week already has jobs. Delete them first or choose a different week.',
+          error: 'Target week already has routes. Delete them first or choose a different week.',
           existingCount: existingTarget.length,
         });
       }
 
-      const created = await storage.copyWeekJobs(sourceMondayDate, saturday);
-      await audit(req, 'copy_week_jobs', 'route_job', undefined, { sourceMondayDate, jobsCopied: created.length });
-      res.json({ jobs: created });
+      const created = await storage.copyWeekRoutes(sourceMondayDate, saturday);
+      await audit(req, 'copy_week_routes', 'route', undefined, { sourceMondayDate, routesCopied: created.length });
+      res.json({ routes: created });
     } catch (error) {
       console.error('Failed to copy week:', error);
       res.status(500).json({ error: 'Failed to copy week' });
@@ -1099,14 +1419,14 @@ export function registerAdminRoutes(app: Express) {
       satDate.setDate(satDate.getDate() + 5);
       const saturday = satDate.toISOString().split('T')[0];
 
-      const jobs = await storage.getAllJobs({ date_from: mondayDate, date_to: saturday, status: 'draft' });
+      const routes = await storage.getAllRoutes({ date_from: mondayDate, date_to: saturday, status: 'draft' });
       let published = 0;
-      for (const job of jobs) {
-        await storage.updateJob(job.id, { status: 'open' });
+      for (const route of routes) {
+        await storage.updateRoute(route.id, { status: 'open' });
         published++;
       }
 
-      await audit(req, 'publish_week_jobs', 'route_job', undefined, { mondayDate, publishedCount: published });
+      await audit(req, 'publish_week_routes', 'route', undefined, { mondayDate, publishedCount: published });
       res.json({ published });
     } catch (error) {
       console.error('Failed to publish week:', error);
@@ -1114,23 +1434,23 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Job Optimization
-  app.post('/api/admin/jobs/:id/optimize', requireAdmin, async (req: Request, res: Response) => {
+  // Route Optimization
+  app.post('/api/admin/routes/:id/optimize', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const result = await optimizeJobRoute(jobId);
-      await audit(req, 'optimize_job', 'route_job', jobId, { planningId: result.planningId, ordersCreated: result.ordersCreated });
+      const routeId = req.params.id as string;
+      const result = await optimizeRouteJob(routeId);
+      await audit(req, 'optimize_route', 'route', routeId, { planningId: result.planningId, ordersCreated: result.ordersCreated });
       res.json(result);
     } catch (error: any) {
-      console.error('Failed to optimize job route:', error);
-      res.status(400).json({ error: error.message || 'Failed to optimize job route' });
+      console.error('Failed to optimize route:', error);
+      res.status(400).json({ error: error.message || 'Failed to optimize route' });
     }
   });
 
-  app.get('/api/admin/jobs/:id/optimize-status', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/routes/:id/optimize-status', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const jobId = req.params.id as string;
-      const result = await checkJobOptimizationStatus(jobId);
+      const routeId = req.params.id as string;
+      const result = await checkRouteOptimizationStatus(routeId);
       res.json(result);
     } catch (error: any) {
       res.status(400).json({ error: error.message || 'Failed to check optimization status' });
@@ -1152,7 +1472,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const options = {
         driverId: (req.query.driverId as string) || undefined,
-        jobStatus: (req.query.jobStatus as string) || undefined,
+        routeStatus: (req.query.routeStatus as string) || undefined,
         search: (req.query.search as string) || undefined,
         sortBy: (req.query.sortBy as string) || 'bid_date',
         sortDir: (req.query.sortDir as string) || 'desc',
@@ -1163,12 +1483,11 @@ export function registerAdminRoutes(app: Express) {
       res.json({
         bids: result.bids.map((b: any) => ({
           id: b.id,
-          jobId: b.job_id,
-          jobTitle: b.job_title,
-          jobStatus: b.job_status,
-          jobScheduledDate: b.job_scheduled_date,
-          jobArea: b.job_area,
-          jobBasePay: b.job_base_pay ? Number(b.job_base_pay) : null,
+          routeId: b.job_id,
+          routeTitle: b.job_title,
+          routeStatus: b.job_status,
+          routeScheduledDate: b.job_scheduled_date,
+          routeBasePay: b.job_base_pay ? Number(b.job_base_pay) : null,
           driverId: b.driver_id,
           driverName: b.driver_name,
           driverRating: b.driver_rating ? Number(b.driver_rating) : null,
@@ -1186,7 +1505,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // ── Driver Payment Tracking ──
-  // Lists completed jobs with assigned drivers and their payment status.
+  // Lists completed routes with assigned drivers and their payment status.
   // Used by the Expenses > Driver Pay tab in the admin accounting view.
 
   app.get('/api/admin/driver-payments', requireAdmin, requirePermission('billing.read'), async (req: Request, res: Response) => {
@@ -1205,7 +1524,7 @@ export function registerAdminRoutes(app: Express) {
         `SELECT rj.id, rj.title, rj.scheduled_date, rj.base_pay, rj.actual_pay,
                 rj.payment_status, rj.assigned_driver_id, rj.status,
                 d.name AS driver_name, d.stripe_connect_account_id AS driver_stripe_id
-         FROM route_jobs rj
+         FROM routes rj
          LEFT JOIN driver_profiles d ON rj.assigned_driver_id = d.id
          ${where}
          ORDER BY rj.scheduled_date DESC`,
@@ -1219,21 +1538,21 @@ export function registerAdminRoutes(app: Express) {
            COUNT(*) FILTER (WHERE payment_status = 'paid')::int AS paid_count,
            COALESCE(SUM(COALESCE(actual_pay, base_pay)) FILTER (WHERE payment_status = 'unpaid'), 0)::numeric AS unpaid_total,
            COALESCE(SUM(COALESCE(actual_pay, base_pay)) FILTER (WHERE payment_status = 'paid'), 0)::numeric AS paid_total
-         FROM route_jobs
+         FROM routes
          WHERE status = 'completed' AND assigned_driver_id IS NOT NULL`
       );
 
       res.json({
-        jobs: result.rows.map((j: any) => ({
-          id: j.id,
-          title: j.title,
-          scheduledDate: j.scheduled_date,
-          basePay: j.base_pay ? Number(j.base_pay) : null,
-          actualPay: j.actual_pay ? Number(j.actual_pay) : null,
-          paymentStatus: j.payment_status || 'unpaid',
-          driverId: j.assigned_driver_id,
-          driverName: j.driver_name,
-          driverStripeId: j.driver_stripe_id,
+        routes: result.rows.map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          scheduledDate: r.scheduled_date,
+          basePay: r.base_pay ? Number(r.base_pay) : null,
+          actualPay: r.actual_pay ? Number(r.actual_pay) : null,
+          paymentStatus: r.payment_status || 'unpaid',
+          driverId: r.assigned_driver_id,
+          driverName: r.driver_name,
+          driverStripeId: r.driver_stripe_id,
         })),
         summary: {
           unpaidCount: summaryResult.rows[0]?.unpaid_count || 0,
@@ -1248,22 +1567,22 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Update a job's payment status (unpaid → processing → paid) for driver payroll tracking
-  app.put('/api/admin/jobs/:id/payment-status', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
+  // Update a route's payment status (unpaid → processing → paid) for driver payroll tracking
+  app.put('/api/admin/routes/:id/payment-status', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
       const { payment_status, actual_pay } = req.body;
       if (!payment_status || !['unpaid', 'paid', 'processing'].includes(payment_status)) {
         return res.status(400).json({ error: 'payment_status must be unpaid, processing, or paid' });
       }
-      const job = await storage.getJobById(req.params.id as string);
-      if (!job) return res.status(404).json({ error: 'Job not found' });
+      const route = await storage.getRouteById(req.params.id as string);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
 
-      const updated = await storage.updateJob(req.params.id as string, {
+      const updated = await storage.updateRoute(req.params.id as string, {
         payment_status,
         ...(actual_pay !== undefined ? { actual_pay: parseFloat(actual_pay) } : {}),
       });
-      await audit(req, 'update_payment_status', 'route_job', req.params.id as string, { payment_status, actual_pay });
-      res.json({ job: updated });
+      await audit(req, 'update_payment_status', 'route', req.params.id as string, { payment_status, actual_pay });
+      res.json({ route: updated });
     } catch (error) {
       console.error('Update payment status error:', error);
       res.status(500).json({ error: 'Failed to update payment status' });
@@ -1805,9 +2124,9 @@ export function registerAdminRoutes(app: Express) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        // Unlink route_jobs assigned to this user's driver profile
+        // Unlink routes assigned to this user's driver profile
         await client.query(
-          `UPDATE route_jobs SET assigned_driver_id = NULL WHERE assigned_driver_id IN (SELECT id FROM driver_profiles WHERE user_id = $1)`,
+          `UPDATE routes SET assigned_driver_id = NULL WHERE assigned_driver_id IN (SELECT id FROM driver_profiles WHERE user_id = $1)`,
           [userId]
         );
         // Delete driver_profiles (no ON DELETE CASCADE on user_id FK)
