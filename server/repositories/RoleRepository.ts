@@ -96,6 +96,7 @@ export class RoleRepository {
     sortDir?: string;
     limit?: number;
     offset?: number;
+    pickupDay?: string;
   } = {}): Promise<{ users: any[]; total: number }> {
     const conditions: string[] = [];
     const params: any[] = [];
@@ -113,6 +114,16 @@ export class RoleRepository {
       idx++;
     }
 
+    if (options.pickupDay) {
+      if (options.pickupDay === 'unassigned') {
+        conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_status = 'approved' AND p.pickup_day IS NULL)`);
+      } else {
+        conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.pickup_day = $${idx})`);
+        params.push(options.pickupDay);
+        idx++;
+      }
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const validSorts: Record<string, string> = { name: 'u.first_name', email: 'u.email', created_at: 'u.created_at' };
     const sortCol = validSorts[options.sortBy || ''] || 'u.created_at';
@@ -126,6 +137,7 @@ export class RoleRepository {
       `SELECT u.*,
         (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
         (SELECT array_agg(ur.role) FROM user_roles ur WHERE ur.user_id = u.id) as roles,
+        (SELECT array_agg(DISTINCT p.pickup_day) FROM properties p WHERE p.user_id = u.id AND p.pickup_day IS NOT NULL) as pickup_days,
         dp.rating as driver_rating,
         dp.onboarding_status as driver_onboarding_status,
         dp.total_jobs_completed as driver_jobs_completed,

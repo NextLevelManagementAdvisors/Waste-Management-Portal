@@ -635,11 +635,11 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Route Jobs
+  // Jobs
   app.get('/api/admin/jobs', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { job_type, zone_id, status, date_from, date_to } = req.query;
-      const jobs = await storage.getAllRouteJobs({
+      const jobs = await storage.getAllJobs({
         job_type: job_type as string | undefined,
         zone_id: zone_id as string | undefined,
         status: status as string | undefined,
@@ -679,7 +679,7 @@ export function registerAdminRoutes(app: Express) {
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
-      const job = await storage.createRouteJob({ title, scheduled_date, ...rest });
+      const job = await storage.createJob({ title, scheduled_date, ...rest });
       await audit(req, 'create_job', 'route_job', job.id, { title, scheduled_date });
       res.status(201).json({ job });
     } catch (error) {
@@ -929,7 +929,7 @@ export function registerAdminRoutes(app: Express) {
       const [properties, specials, existingJobs] = await Promise.all([
         storage.getPropertiesDueOnDate(date),
         storage.getSpecialPickupsForDate(date),
-        storage.getAllRouteJobs({ date_from: date, date_to: date }),
+        storage.getAllJobs({ date_from: date, date_to: date }),
       ]);
       res.json({ properties, specials, existingJobs });
     } catch (error) {
@@ -958,7 +958,7 @@ export function registerAdminRoutes(app: Express) {
       for (const [zoneId, zoneProps] of byZone) {
         const zone = zones.find((z: any) => z.id === zoneId);
         const zoneName = zone?.name || 'Unassigned Area';
-        const job = await storage.createRouteJob({
+        const job = await storage.createJob({
           title: `${zoneName} - ${date}`,
           scheduled_date: date,
           estimated_stops: zoneProps.length,
@@ -992,7 +992,7 @@ export function registerAdminRoutes(app: Express) {
           }
         } else {
           // Create standalone bulk_pickup job
-          const bulkJob = await storage.createRouteJob({
+          const bulkJob = await storage.createJob({
             title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
             scheduled_date: date,
             estimated_stops: 1,
@@ -1020,7 +1020,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── Route Planner ──
+  // ── Weekly Planner ──
 
   app.get('/api/admin/planning/week', requireAdmin, async (req: Request, res: Response) => {
     try {
@@ -1033,7 +1033,7 @@ export function registerAdminRoutes(app: Express) {
       const saturday = satDate.toISOString().split('T')[0];
 
       const [jobs, cancelled, zones] = await Promise.all([
-        storage.getAllRouteJobs({ date_from: monday, date_to: saturday }),
+        storage.getAllJobs({ date_from: monday, date_to: saturday }),
         storage.getCancelledPickupsForWeek(monday, saturday),
         storage.getAllZones(true),
       ]);
@@ -1069,7 +1069,7 @@ export function registerAdminRoutes(app: Express) {
       targetMonday.setDate(targetMonday.getDate() + 7);
       const targetSaturday = new Date(targetMonday);
       targetSaturday.setDate(targetSaturday.getDate() + 5);
-      const existingTarget = await storage.getAllRouteJobs({
+      const existingTarget = await storage.getAllJobs({
         date_from: targetMonday.toISOString().split('T')[0],
         date_to: targetSaturday.toISOString().split('T')[0],
       });
@@ -1099,7 +1099,7 @@ export function registerAdminRoutes(app: Express) {
       satDate.setDate(satDate.getDate() + 5);
       const saturday = satDate.toISOString().split('T')[0];
 
-      const jobs = await storage.getAllRouteJobs({ date_from: mondayDate, date_to: saturday, status: 'draft' });
+      const jobs = await storage.getAllJobs({ date_from: mondayDate, date_to: saturday, status: 'draft' });
       let published = 0;
       for (const job of jobs) {
         await storage.updateJob(job.id, { status: 'open' });
@@ -1665,6 +1665,7 @@ export function registerAdminRoutes(app: Express) {
       const search = req.query.search as string | undefined;
       const sortBy = req.query.sortBy as string | undefined;
       const sortDir = req.query.sortDir as string | undefined;
+      const pickupDay = req.query.pickupDay as string | undefined;
       const limit = parseInt(req.query.limit as string) || 50;
       const page = parseInt(req.query.page as string) || 1;
       const offset = (page - 1) * limit;
@@ -1676,6 +1677,7 @@ export function registerAdminRoutes(app: Express) {
         sortDir,
         limit,
         offset,
+        pickupDay: pickupDay || undefined,
       });
 
       res.json({
@@ -1689,6 +1691,7 @@ export function registerAdminRoutes(app: Express) {
           isAdmin: (u.roles || []).includes('admin'),
           createdAt: u.created_at,
           propertyCount: parseInt(u.property_count) || 0,
+          pickupDays: u.pickup_days || [],
           driverRating: u.driver_rating ? parseFloat(u.driver_rating) : null,
           driverOnboardingStatus: u.driver_onboarding_status || null,
           driverJobsCompleted: u.driver_jobs_completed || null,

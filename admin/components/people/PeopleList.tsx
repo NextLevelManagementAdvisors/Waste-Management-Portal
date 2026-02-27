@@ -43,6 +43,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [pickupDayFilter, setPickupDayFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [showCreateDriver, setShowCreateDriver] = useState(false);
@@ -93,6 +94,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
       const params = new URLSearchParams();
       if (searchQuery) params.set('search', searchQuery);
       if (roleFilter !== 'all') params.set('role', roleFilter);
+      if (pickupDayFilter) params.set('pickupDay', pickupDayFilter);
       const sortMap: Record<string, { sortBy: string; sortDir: string }> = {
         newest:    { sortBy: 'created_at', sortDir: 'desc' },
         oldest:    { sortBy: 'created_at', sortDir: 'asc' },
@@ -115,7 +117,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, roleFilter, sortBy, limit, page]);
+  }, [searchQuery, roleFilter, sortBy, pickupDayFilter, limit, page]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
 
@@ -247,6 +249,20 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
           />
         </div>
+        <select
+          value={pickupDayFilter}
+          onChange={e => { setPickupDayFilter(e.target.value); setPage(1); clearSelection(); }}
+          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+        >
+          <option value="">All Days</option>
+          <option value="monday">Monday</option>
+          <option value="tuesday">Tuesday</option>
+          <option value="wednesday">Wednesday</option>
+          <option value="thursday">Thursday</option>
+          <option value="friday">Friday</option>
+          <option value="saturday">Saturday</option>
+          <option value="unassigned">Unassigned</option>
+        </select>
         <select
           value={sortBy}
           onChange={e => { setSortBy(e.target.value); setPage(1); clearSelection(); }}
@@ -407,6 +423,11 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
                       {person.propertyCount > 0 && (
                         <span className="text-xs text-gray-400 flex-shrink-0">{person.propertyCount} properties</span>
                       )}
+                      {person.pickupDays?.length > 0 && person.pickupDays.map((day: string) => (
+                        <span key={day} className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded capitalize flex-shrink-0">
+                          {day.slice(0, 3)}
+                        </span>
+                      ))}
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-xs text-gray-400">{formatDate(person.createdAt)}</span>
