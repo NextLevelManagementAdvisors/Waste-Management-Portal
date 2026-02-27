@@ -1298,12 +1298,14 @@ export class Storage {
       `SELECT r.*, r.optimo_synced, r.optimo_synced_at,
               d.name AS driver_name, sz.name AS zone_name, sz.color AS zone_color,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
-              COALESCE(sc.stop_count, 0)::int AS stop_count
+              COALESCE(sc.stop_count, 0)::int AS stop_count,
+              COALESCE(dc.done_count, 0)::int AS completed_stop_count
        FROM routes r
        LEFT JOIN driver_profiles d ON r.assigned_driver_id = d.id
        LEFT JOIN service_zones sz ON r.zone_id = sz.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS bid_count FROM route_bids GROUP BY route_id) bc ON bc.route_id = r.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
+       LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_stops WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
        ${where}
        ORDER BY r.scheduled_date DESC, r.created_at DESC`,
       params

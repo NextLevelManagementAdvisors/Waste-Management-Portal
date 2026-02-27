@@ -74,6 +74,7 @@ export interface Route {
   payment_status?: PaymentStatus;
   completed_at?: string;
   stop_count?: number;
+  completed_stop_count?: number;
   // OptimoRoute sync tracking
   optimo_synced?: boolean;
   optimo_synced_at?: string;

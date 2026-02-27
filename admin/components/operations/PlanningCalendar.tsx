@@ -553,6 +553,18 @@ const PlanningCalendar: React.FC = () => {
                           const overCapacity = stopCount > ROUTE_MAX_STOPS;
                           const isExpanded = expandedRouteId === route.id;
                           const stops = routeStops[route.id];
+                          const isLive = route.status === 'in_progress';
+
+                          // Compute completed stops: use loaded stops + live statuses when available, else DB count
+                          let completedStops = route.completed_stop_count ?? 0;
+                          if (stops && stops.length > 0) {
+                            const DONE = new Set(['completed', 'success', 'failed', 'rejected']);
+                            completedStops = stops.filter(s => {
+                              const live = s.optimo_order_no ? liveStopStatuses[s.optimo_order_no] : null;
+                              return DONE.has(live || '') || DONE.has(s.status);
+                            }).length;
+                          }
+                          const progressPct = stopCount > 0 ? Math.round((completedStops / stopCount) * 100) : 0;
 
                           return (
                             <div key={route.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -598,6 +610,23 @@ const PlanningCalendar: React.FC = () => {
                                   <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                                 </svg>
                               </button>
+
+                              {/* Live progress bar */}
+                              {isLive && stopCount > 0 && (
+                                <div className="px-3 pb-2 -mt-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-teal-500 rounded-full transition-all duration-500"
+                                        style={{ width: `${progressPct}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-[10px] font-bold text-gray-500 whitespace-nowrap">
+                                      {completedStops}/{stopCount}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Expanded: stops table + actions */}
                               {isExpanded && (
