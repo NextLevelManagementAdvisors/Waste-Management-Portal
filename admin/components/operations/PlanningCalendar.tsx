@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import type { Route, RouteStop, ServiceZone } from '../../../shared/types/index.ts';
 import EditRouteModal from './EditRouteModal.tsx';
+import CreateRouteModal from './CreateRouteModal.tsx';
+import OptimoStatusBanner from './OptimoStatusBanner.tsx';
+import LiveEventsPanel from './LiveEventsPanel.tsx';
+import CompletionDetailModal from './CompletionDetailModal.tsx';
+import RouteOptimizerModal from './RouteOptimizerModal.tsx';
+import BidSection from './BidSection.tsx';
 
 interface PlanningProperty {
   id: string;
@@ -120,13 +126,53 @@ const PlanningCalendar: React.FC = () => {
   const [loadingStops, setLoadingStops] = useState<string | null>(null);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
 
-  // Plan Ahead popover
-  const [showPlanAhead, setShowPlanAhead] = useState(false);
-  const [planningAhead, setPlanningAhead] = useState(false);
-
   // Sync state
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncingDay, setSyncingDay] = useState(false);
+
+  // Unified view state
+  const [liveStopStatuses, setLiveStopStatuses] = useState<Record<string, string>>({});
+  const [completionStop, setCompletionStop] = useState<{ id?: string; orderNo?: string } | null>(null);
+  const [showCreateRoute, setShowCreateRoute] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
+  const [expandedBidRouteId, setExpandedBidRouteId] = useState<string | null>(null);
+  const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
+
+  const handleLiveStatusUpdate = useCallback((_driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => {
+    setLiveStopStatuses(stopStatuses);
+  }, []);
+
+  const handleRemoveStop = async (routeId: string, stopId: string) => {
+    if (!confirm('Remove this stop?')) return;
+    try {
+      const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, { method: 'DELETE', credentials: 'include' });
+      if (res.ok) {
+        setRouteStops(prev => ({ ...prev, [routeId]: (prev[routeId] ?? []).filter(s => s.id !== stopId) }));
+        setDayRoutes(prev => prev.map(r => r.id === routeId ? { ...r, stop_count: Math.max(0, (r.stop_count ?? 0) - 1) } : r));
+        fetchCalendarData();
+      }
+    } catch (e) {
+      console.error('Failed to remove stop:', e);
+    }
+  };
+
+  const handleDeleteRoute = async (routeId: string) => {
+    if (!confirm('Cancel this route?')) return;
+    setDeletingRoute(routeId);
+    try {
+      await fetch(`/api/admin/routes/${routeId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      await refreshDay();
+    } catch (e) {
+      console.error('Failed to cancel route:', e);
+    } finally {
+      setDeletingRoute(null);
+    }
+  };
 
   const fetchCalendarData = useCallback(async () => {
     setLoading(true);
@@ -208,7 +254,6 @@ const PlanningCalendar: React.FC = () => {
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
-    setShowPlanAhead(false);
     fetchDayDetail(date);
   };
 
@@ -234,31 +279,6 @@ const PlanningCalendar: React.FC = () => {
       console.error('Failed to plan routes:', e);
     } finally {
       setAutoPlanning(false);
-    }
-  };
-
-  // Plan ahead for N days
-  const handlePlanAhead = async (weeks: number) => {
-    if (!selectedDate) return;
-    setPlanningAhead(true);
-    setShowPlanAhead(false);
-    try {
-      const res = await fetch('/api/admin/planning/auto-plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ startDate: selectedDate, days: weeks * 7 }),
-      });
-      if (res.ok) {
-        const result = await res.json();
-        alert(`Planned ${result.routesCreated} routes across ${result.daysPlanned} days (${result.skippedDays} skipped).`);
-        await fetchCalendarData();
-        if (selectedDate) await fetchDayDetail(selectedDate);
-      }
-    } catch (e) {
-      console.error('Failed to plan ahead:', e);
-    } finally {
-      setPlanningAhead(false);
     }
   };
 
@@ -363,6 +383,9 @@ const PlanningCalendar: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* OptimoRoute Connection Status */}
+      <OptimoStatusBanner />
+
       {/* Calendar Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -491,23 +514,6 @@ const PlanningCalendar: React.FC = () => {
                       </button>
                     )}
 
-                    <div className="relative">
-                      <button type="button" onClick={() => setShowPlanAhead(!showPlanAhead)} disabled={planningAhead}
-                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 text-gray-700 text-xs font-bold rounded-lg transition-colors">
-                        {planningAhead ? 'Planning...' : 'Plan Ahead'}
-                      </button>
-                      {showPlanAhead && (
-                        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 min-w-[140px]">
-                          {[1, 2, 4].map(w => (
-                            <button key={w} type="button" onClick={() => handlePlanAhead(w)}
-                              className="w-full px-4 py-2 text-left text-xs font-bold text-gray-700 hover:bg-gray-50">
-                              Next {w} week{w > 1 ? 's' : ''}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
                     {draftCount > 0 && (
                       <button type="button" onClick={handlePublishAllDrafts}
                         className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors">
@@ -519,6 +525,18 @@ const PlanningCalendar: React.FC = () => {
                       <button type="button" onClick={handleSyncDay} disabled={syncingDay}
                         className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-colors">
                         {syncingDay ? 'Syncing...' : `Sync to Optimo (${publishedUnsyncedCount})`}
+                      </button>
+                    )}
+
+                    <button type="button" onClick={() => setShowCreateRoute(true)}
+                      className="px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg transition-colors">
+                      + Create Route
+                    </button>
+
+                    {selectedDate && (
+                      <button type="button" onClick={() => setShowOptimizer(true)}
+                        className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors">
+                        Optimize
                       </button>
                     )}
                   </div>
@@ -555,6 +573,12 @@ const PlanningCalendar: React.FC = () => {
                                     </span>
                                     {route.optimo_synced && (
                                       <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Synced</span>
+                                    )}
+                                    {(route.bid_count ?? 0) > 0 && (
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); setExpandedBidRouteId(expandedBidRouteId === route.id ? null : route.id); }}
+                                        className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+                                        {route.bid_count} bid{(route.bid_count ?? 0) !== 1 ? 's' : ''}
+                                      </button>
                                     )}
                                   </div>
                                   <div className="flex flex-wrap gap-2 text-xs text-gray-500">
@@ -597,6 +621,13 @@ const PlanningCalendar: React.FC = () => {
                                       className="px-2.5 py-1 text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">
                                       Edit
                                     </button>
+                                    {route.status !== 'completed' && route.status !== 'cancelled' && (
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteRoute(route.id); }}
+                                        disabled={deletingRoute === route.id}
+                                        className="px-2.5 py-1 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+                                        {deletingRoute === route.id ? 'Cancelling...' : 'Cancel'}
+                                      </button>
+                                    )}
                                   </div>
 
                                   {/* Stops table */}
@@ -611,10 +642,14 @@ const PlanningCalendar: React.FC = () => {
                                             <th className="px-3 py-1.5 text-[10px] font-black uppercase text-gray-400">Address</th>
                                             <th className="px-3 py-1.5 text-[10px] font-black uppercase text-gray-400">Type</th>
                                             <th className="px-3 py-1.5 text-[10px] font-black uppercase text-gray-400">Status</th>
+                                            <th className="px-3 py-1.5 text-[10px] font-black uppercase text-gray-400"></th>
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {stops.map((p, idx) => (
+                                          {stops.map((p, idx) => {
+                                            const liveStatus = p.optimo_order_no ? liveStopStatuses[p.optimo_order_no] : null;
+                                            const displayStatus = liveStatus || p.status;
+                                            return (
                                             <tr key={p.id} className="border-t border-gray-50">
                                               <td className="px-3 py-1.5 text-gray-400 font-bold">{p.stop_number ?? idx + 1}</td>
                                               <td className="px-3 py-1.5">
@@ -628,16 +663,41 @@ const PlanningCalendar: React.FC = () => {
                                               </td>
                                               <td className="px-3 py-1.5">
                                                 <span className={`text-xs font-bold ${
-                                                  p.status === 'completed' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-gray-400'
-                                                }`}>{p.status}</span>
+                                                  displayStatus === 'completed' || displayStatus === 'success' ? 'text-green-600' : displayStatus === 'failed' || displayStatus === 'rejected' ? 'text-red-600' : displayStatus === 'in_progress' || displayStatus === 'on_route' || displayStatus === 'servicing' ? 'text-blue-600' : 'text-gray-400'
+                                                }`}>{displayStatus}</span>
+                                              </td>
+                                              <td className="px-3 py-1.5 flex items-center gap-1">
+                                                {p.optimo_order_no && (
+                                                  <button type="button" onClick={(e) => { e.stopPropagation(); setCompletionStop({ orderNo: p.optimo_order_no }); }}
+                                                    className="text-xs font-bold text-teal-600 hover:text-teal-800">
+                                                    POD
+                                                  </button>
+                                                )}
+                                                {route.status !== 'completed' && route.status !== 'cancelled' && (
+                                                  <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveStop(route.id, p.id); }}
+                                                    className="text-xs font-bold text-red-400 hover:text-red-600" title="Remove stop">
+                                                    &times;
+                                                  </button>
+                                                )}
                                               </td>
                                             </tr>
-                                          ))}
+                                            );
+                                          })}
                                         </tbody>
                                       </table>
                                     </div>
                                   ) : (
                                     <div className="p-3 text-center text-xs text-gray-400">No stops assigned</div>
+                                  )}
+
+                                  {/* Bid Section */}
+                                  {expandedBidRouteId === route.id && (
+                                    <BidSection
+                                      routeId={route.id}
+                                      basePay={route.base_pay != null ? Number(route.base_pay) : undefined}
+                                      canAcceptBids={route.status === 'open' || route.status === 'bidding'}
+                                      onBidAccepted={refreshDay}
+                                    />
                                   )}
                                 </div>
                               )}
@@ -700,9 +760,27 @@ const PlanningCalendar: React.FC = () => {
         )}
       </div>
 
+      {/* Live Events */}
+      <LiveEventsPanel onStatusUpdate={handleLiveStatusUpdate} />
+
       {/* Edit Route Modal */}
       {editingRoute && (
         <EditRouteModal route={editingRoute} onClose={() => setEditingRoute(null)} onUpdated={() => { setEditingRoute(null); refreshDay(); }} />
+      )}
+
+      {/* Create Route Modal */}
+      {showCreateRoute && (
+        <CreateRouteModal onClose={() => setShowCreateRoute(false)} onCreated={() => { setShowCreateRoute(false); refreshDay(); }} />
+      )}
+
+      {/* Route Optimizer Modal */}
+      {showOptimizer && selectedDate && (
+        <RouteOptimizerModal date={selectedDate} onClose={() => setShowOptimizer(false)} onComplete={() => { setShowOptimizer(false); refreshDay(); }} />
+      )}
+
+      {/* Completion Detail Modal */}
+      {completionStop && (
+        <CompletionDetailModal stopIdentifier={completionStop} onClose={() => setCompletionStop(null)} />
       )}
     </div>
   );

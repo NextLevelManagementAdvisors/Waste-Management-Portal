@@ -7,7 +7,7 @@ import { transferPropertyOwnership } from '../services/apiService.ts';
 import { ArrowPathRoundedSquareIcon, CheckCircleIcon, PaperAirplaneIcon, ClockIcon } from './Icons.tsx';
 import { ConfirmationModal } from './ConfirmationModal.tsx';
 
-const AccountTransfer: React.FC = () => {
+export default function AccountTransfer() {
     const { selectedProperty, refreshUser, sendTransferReminder } = useProperty();
     
     const [transferData, setTransferData] = useState({ firstName: '', lastName: '', email: '' });
@@ -152,4 +152,4 @@ const AccountTransfer: React.FC = () => {
             />
         </Card>
     );
-};
+}

@@ -210,9 +210,6 @@ registerAdminOptimoRoutes(app);
 const { registerInvitationRoutes } = await import('./invitationRoutes');
 registerInvitationRoutes(app);
 
-const { ensureAdmin } = await import('./ensureAdmin');
-await ensureAdmin();
-
 // Serve uploaded files (photos etc.) in all environments
 app.use('/uploads', express.static(path.resolve(__dirname, '..', 'uploads')));
 
@@ -259,6 +256,10 @@ async function initSchema() {
 }
 
 await initSchema();
+
+const { ensureAdmin } = await import('./ensureAdmin');
+await ensureAdmin();
+
 await loadSettingsIntoEnv();
 
 const httpServer = http.createServer(app);

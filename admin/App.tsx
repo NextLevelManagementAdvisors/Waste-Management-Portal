@@ -54,6 +54,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   // Backward compat: old tab paths → unified operations tab
   '/admin/operations/routes': 'operations',
   '/admin/operations/live': 'operations',
+  '/admin/operations/route-board': 'operations',
 };
 
 const SETTINGS_TAB_TO_PATH: Record<SettingsTabType, string> = {
@@ -265,7 +266,7 @@ const AdminApp: React.FC = () => {
       const parsed = parseAdminPath(window.location.pathname);
       setCurrentViewRaw(parsed.view);
       setSelectedPersonIdRaw(parsed.personId);
-      if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'planning');
+      if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'operations');
       if (parsed.view === 'settings') setSettingsTabRaw(parsed.settingsTab || 'integrations');
       if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
       if (parsed.view === 'accounting') setAcctTabRaw(parsed.acctTab || 'overview');

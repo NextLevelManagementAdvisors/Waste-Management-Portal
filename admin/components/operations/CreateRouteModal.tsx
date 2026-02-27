@@ -26,7 +26,6 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
     scheduled_date: '',
     start_time: '',
     end_time: '',
-    estimated_stops: '',
     estimated_hours: '',
     base_pay: '',
     notes: '',
@@ -96,8 +95,6 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
       };
       if (form.start_time) body.start_time = form.start_time;
       if (form.end_time) body.end_time = form.end_time;
-      if (form.estimated_stops) body.estimated_stops = Number(form.estimated_stops);
-      else if (selectedIds.size > 0) body.estimated_stops = selectedIds.size;
       if (form.estimated_hours) body.estimated_hours = Number(form.estimated_hours);
       if (form.base_pay) body.base_pay = Number(form.base_pay);
       if (form.notes.trim()) body.notes = form.notes.trim();
@@ -193,19 +190,8 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
             </div>
           </div>
 
-          {/* Stops / Hours / Pay */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Est. Stops</label>
-              <input
-                type="number"
-                min="0"
-                value={form.estimated_stops || (selectedIds.size > 0 ? String(selectedIds.size) : '')}
-                onChange={set('estimated_stops')}
-                placeholder="0"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-              />
-            </div>
+          {/* Hours / Pay */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">Est. Hours</label>
               <input

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal } from './Modal';
+import Modal from './Modal';
 import { Button } from './Button';
 import {ExclamationTriangleIcon} from "./Icons.tsx";
 
@@ -15,7 +15,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ isOpen, on
     if (!isOpen) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose}>
+        <Modal isOpen={isOpen} onClose={onClose} title={title}>
             <div className="p-6">
                 <div className="text-center">
                     <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />

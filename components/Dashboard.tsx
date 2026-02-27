@@ -17,7 +17,7 @@ interface DashboardProps {
 }
 
 const QuickActionButton: React.FC<{ label: string; icon: React.ReactNode; onClick: () => void; }> = ({ label, icon, onClick }) => (
-    <button onClick={onClick} className="flex flex-col items-center justify-center gap-3 p-6 bg-gray-50 hover:bg-primary/5 rounded-2xl transition-all duration-300 text-center group aspect-square">
+    <button onClick={onClick} className="flex flex-col items-center justify-center gap-2 p-4 bg-gray-50 hover:bg-primary/5 rounded-2xl transition-all duration-300 text-center group">
         <div className="text-gray-400 group-hover:text-primary transition-colors">
             {icon}
         </div>
@@ -119,12 +119,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             <div className="space-y-8">
                  <Card className="p-6">
                      <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h2>
-                     <div className="grid grid-cols-3 gap-4">
+                     <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                        <QuickActionButton label="Start Service" icon={<PlusCircleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'myservice', action: 'openSetupWizard' })} />
                         <QuickActionButton label="Pay Balance" icon={<BanknotesIcon className="w-8 h-8"/>} onClick={() => setIsPayBalanceModalOpen(true)} />
                         <QuickActionButton label="Extra Pickup" icon={<CalendarDaysIcon className="w-8 h-8"/>} onClick={() => setCurrentView('requests')} />
                         <QuickActionButton label="Report Issue" icon={<ExclamationTriangleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'requests', targetTab: 'missed', action: 'openTab' })} />
                         <QuickActionButton label="Manage Plan" icon={<TruckIcon className="w-8 h-8"/>} onClick={() => setCurrentView('myservice')} />
-                        <QuickActionButton label="Start Service" icon={<PlusCircleIcon className="w-8 h-8"/>} onClick={() => setPostNavAction({ targetView: 'myservice', action: 'openSetupWizard' })} />
                         <QuickActionButton label="Referral" icon={<GiftIcon className="w-8 h-8"/>} onClick={() => setCurrentView('referrals')} />
                      </div>
                 </Card>
