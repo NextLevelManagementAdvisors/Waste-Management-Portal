@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card } from '../components/Card.tsx';
-import { Button } from '../components/Button.tsx';
 import {
-  UsersIcon,
   ChartPieIcon,
   MagnifyingGlassIcon,
-  ShieldCheckIcon,
 } from '../components/Icons.tsx';
 import DashboardView from './components/dashboard/DashboardView.tsx';
 import PeopleView from './components/people/PeopleView.tsx';
@@ -46,16 +42,19 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 ) as Record<string, AdminView>;
 
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
-  routes: '/admin/operations',
-  'route-board': '/admin/operations/routes',
-  'live-ops': '/admin/operations/live',
+  operations: '/admin/operations',
   issues: '/admin/operations/issues',
   'address-review': '/admin/operations/address-review',
 };
 
-const OPS_PATH_TO_TAB: Record<string, OpsTabType> = Object.fromEntries(
-  Object.entries(OPS_TAB_TO_PATH).map(([tab, path]) => [path, tab as OpsTabType])
-) as Record<string, OpsTabType>;
+const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
+  '/admin/operations': 'operations',
+  '/admin/operations/issues': 'issues',
+  '/admin/operations/address-review': 'address-review',
+  // Backward compat: old tab paths → unified operations tab
+  '/admin/operations/routes': 'operations',
+  '/admin/operations/live': 'operations',
+};
 
 const SETTINGS_TAB_TO_PATH: Record<SettingsTabType, string> = {
   integrations: '/admin/settings',
@@ -112,7 +111,7 @@ function parseAdminPath(pathname: string): { view: AdminView; personId: string |
     if (normalized === '/admin/operations/customer-sync') {
       return { ...base, view: 'settings', settingsTab: 'sync' };
     }
-    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'routes' };
+    return { ...base, view: 'operations', opsTab: OPS_PATH_TO_TAB[normalized] || 'operations' };
   }
 
   // Settings (new paths)
@@ -191,7 +190,7 @@ const AdminApp: React.FC = () => {
   const initialSearch = new URLSearchParams(window.location.search).get('search');
   const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
-  const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'planning');
+  const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'operations');
   const [settingsTab, setSettingsTabRaw] = useState<SettingsTabType>(initialParsed.settingsTab || 'integrations');
   const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
   const [acctTab, setAcctTabRaw] = useState<AccountingTabType>(initialParsed.acctTab || 'overview');
@@ -218,7 +217,7 @@ const AdminApp: React.FC = () => {
     setNavFilter(filter || null);
     setCurrentViewRaw(view);
     setSelectedPersonIdRaw(null);
-    if (view === 'operations') setOpsTabRaw('planning');
+    if (view === 'operations') setOpsTabRaw('operations');
     if (view === 'settings') setSettingsTabRaw('integrations');
     if (view === 'communications') setCommsTabRaw('conversations');
     if (view === 'accounting') setAcctTabRaw(filter?.tab as AccountingTabType || 'overview');

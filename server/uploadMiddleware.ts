@@ -46,4 +46,3 @@ export const specialPickupUpload = multer({
   },
 });
 
-export const UPLOADS_BASE_DIR = path.resolve(__dirname, '..', 'uploads');

@@ -64,14 +64,6 @@ export async function saveSetting(
 }
 
 /**
- * Delete a setting from the DB and remove it from process.env.
- */
-export async function deleteSetting(key: string): Promise<void> {
-  await pool.query('DELETE FROM system_settings WHERE key = $1', [key]);
-  delete process.env[key];
-}
-
-/**
  * Returns all settings from the DB, with secret values masked.
  * Non-secret fields from process.env are included as fallback
  * (so the UI shows current effective values even if only set via .env file).
@@ -91,14 +83,6 @@ export async function getAllSettings(): Promise<
     source: 'db' as const,
     updated_at: row.updated_at,
   }));
-}
-
-/**
- * Get the current effective value for a setting key.
- * Checks process.env (which includes both .env file and DB-loaded values).
- */
-export function getSetting(key: string): string | undefined {
-  return process.env[key];
 }
 
 function maskSecret(value: string): string {

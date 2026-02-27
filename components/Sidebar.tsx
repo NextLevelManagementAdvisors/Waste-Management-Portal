@@ -4,7 +4,7 @@ import { useProperty } from '../PropertyContext.tsx';
 import { VIEW_TO_PATH } from '../constants.ts';
 import {
   HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon,
-  CalendarDaysIcon, GiftIcon, PlusCircleIcon, UserIcon, CreditCardIcon, ArrowRightOnRectangleIcon, ClipboardDocumentIcon
+  GiftIcon, UserIcon, ArrowRightOnRectangleIcon, ClipboardDocumentIcon
 } from './Icons.tsx';
 
 interface SidebarProps {
