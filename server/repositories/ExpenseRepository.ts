@@ -164,11 +164,14 @@ export class ExpenseRepository extends BaseRepository {
     return result.rows[0].count;
   }
 
-  async getTotals(opts: { startDate?: string; endDate?: string }): Promise<number> {
+  async getTotals(opts: { startDate?: string; endDate?: string; excludeDriverPay?: boolean }): Promise<number> {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
+    if (opts.excludeDriverPay) {
+      conditions.push(`category != 'driver_pay'`);
+    }
     if (opts.startDate) {
       conditions.push(`expense_date >= $${idx++}`);
       params.push(opts.startDate);
@@ -221,6 +224,7 @@ export class ExpenseRepository extends BaseRepository {
         SELECT date_trunc('month', expense_date)::date as m, COALESCE(SUM(amount), 0) as total
         FROM expenses
         WHERE expense_date >= date_trunc('month', NOW()) - $1 * interval '1 month'
+          AND category != 'driver_pay'
         GROUP BY m
       ),
       dp AS (

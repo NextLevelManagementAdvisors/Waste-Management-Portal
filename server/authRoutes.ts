@@ -12,6 +12,8 @@ import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
 import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
 import { findOptimalPickupDay } from './pickupDayOptimizer';
+import { activatePendingSelections } from './activateSelections';
+import { runFeasibilityAndApprove } from './feasibilityCheck';
 import { specialPickupUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -399,6 +401,9 @@ export function registerAuthRoutes(app: Express) {
               pickup_day_source: 'route_optimized',
               pickup_day_detected_at: new Date().toISOString(),
             };
+            await storage.updateProperty(property.id, updates);
+            Object.assign(property, updates);
+
             // Auto-approve if address is in a service zone, setting is on, and within thresholds
             if (process.env.PICKUP_AUTO_APPROVE === 'true') {
               const maxMiles = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MILES || '0');
@@ -409,12 +414,21 @@ export function registerAuthRoutes(app: Express) {
               const withinMinutes = maxMinutes <= 0 || insertionMinutes <= maxMinutes;
 
               if (withinMiles && withinMinutes) {
-                updates.service_status = 'approved';
-                updates.service_status_updated_at = new Date().toISOString();
+                const useFeasibility = process.env.PICKUP_AUTO_APPROVE_USE_FEASIBILITY !== 'false'
+                  && !!process.env.OPTIMOROUTE_API_KEY;
+
+                if (useFeasibility) {
+                  // Run full OptimoRoute feasibility check in background
+                  runFeasibilityAndApprove(property.id, userId, property.address).catch(err => {
+                    console.error('Background feasibility check failed (non-blocking):', err);
+                  });
+                } else {
+                  // Immediate zone-based approval (no feasibility check)
+                  await storage.updateServiceStatus(property.id, 'approved');
+                  Object.assign(property, { service_status: 'approved' });
+                }
               }
             }
-            await storage.updateProperty(property.id, updates);
-            Object.assign(property, updates);
           }
         } catch (e) {
           console.error('Auto pickup day assignment failed (non-blocking):', e);
@@ -479,6 +493,16 @@ export function registerAuthRoutes(app: Express) {
         quantity: s.quantity || 1,
         useSticker: !!s.useSticker,
       })));
+
+      // If the property was already auto-approved, activate selections into Stripe subscriptions now
+      if (property.service_status === 'approved') {
+        activatePendingSelections(propertyId, userId, {
+          source: 'auto_approval',
+        }).catch(err => {
+          console.error('Auto-activation of pending selections failed (non-blocking):', err);
+        });
+      }
+
       res.json({ success: true });
     } catch (error: any) {
       console.error('Save pending selections error:', error);

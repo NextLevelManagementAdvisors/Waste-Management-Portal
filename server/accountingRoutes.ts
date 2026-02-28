@@ -39,8 +39,8 @@ export function registerAccountingRoutes(app: Express) {
       ] = await Promise.all([
         billingRepo.getRevenueForPeriod(start30, end),
         billingRepo.getRevenueForPeriod(start90, end),
-        expenseRepo.getTotals({ startDate: d30.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] }),
-        expenseRepo.getTotals({ startDate: d90.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] }),
+        expenseRepo.getTotals({ startDate: d30.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0], excludeDriverPay: true }),
+        expenseRepo.getTotals({ startDate: d90.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0], excludeDriverPay: true }),
         expenseRepo.getDriverPayTotals({ startDate: d30.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] }),
         expenseRepo.getDriverPayTotals({ startDate: d90.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] }),
         billingRepo.getOutstandingAR(),
@@ -325,7 +325,7 @@ export function registerAccountingRoutes(app: Express) {
           paymentMethod: e.payment_method,
           referenceId: e.reference_id,
           referenceType: e.reference_type,
-          isDriverPay: e.reference_type === 'route_job',
+          isDriverPay: e.reference_type === 'route_job' || e.reference_type === 'route',
           notes: e.notes,
           createdAt: e.created_at,
         })),
@@ -383,7 +383,7 @@ export function registerAccountingRoutes(app: Express) {
       if (!existing) {
         return res.status(404).json({ error: 'Expense not found' });
       }
-      if (existing.reference_type === 'route_job') {
+      if (existing.reference_type === 'route_job' || existing.reference_type === 'route') {
         return res.status(403).json({ error: 'Cannot edit auto-synced driver pay expenses' });
       }
 
@@ -415,7 +415,7 @@ export function registerAccountingRoutes(app: Express) {
       if (!existing) {
         return res.status(404).json({ error: 'Expense not found' });
       }
-      if (existing.reference_type === 'route_job') {
+      if (existing.reference_type === 'route_job' || existing.reference_type === 'route') {
         return res.status(403).json({ error: 'Cannot delete auto-synced driver pay expenses' });
       }
 

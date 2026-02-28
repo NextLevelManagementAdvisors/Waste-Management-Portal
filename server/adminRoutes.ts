@@ -10,9 +10,12 @@ import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 import { expenseRepo } from './repositories/ExpenseRepository';
+import { billingRepo } from './repositories/BillingRepository';
 import { optimizeRouteJob, checkRouteOptimizationStatus } from './optimoSyncService';
 import { suggestRoute } from './routeSuggestionService';
 import { findOptimalPickupDay } from './pickupDayOptimizer';
+import { activatePendingSelections } from './activateSelections';
+import { checkRouteFeasibility } from './feasibilityCheck';
 
 declare module 'express-session' {
   interface SessionData {
@@ -79,22 +82,21 @@ export function registerAdminRoutes(app: Express) {
 
       let stripeStats = { revenue: 0, activeSubscriptions: 0, openInvoices: 0 };
       try {
-        const stripe = await getUncachableStripeClient();
+        const now = new Date();
+        const d30 = new Date(now);
+        d30.setDate(d30.getDate() - 30);
 
-        const balanceTransactions = await stripe.balanceTransactions.list({
-          limit: 100,
-          created: { gte: Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60 },
-          type: 'charge',
-        });
-        stripeStats.revenue = balanceTransactions.data.reduce((sum: number, t: any) => sum + t.net, 0) / 100;
+        const [revenue, subStats, openInvoiceCount] = await Promise.all([
+          billingRepo.getRevenueForPeriod(d30.toISOString(), now.toISOString()),
+          billingRepo.getActiveSubscriptionStats(),
+          billingRepo.countAllInvoices({ status: 'open' }),
+        ]);
 
-        const subs = await stripe.subscriptions.list({ status: 'active', limit: 1 });
-        stripeStats.activeSubscriptions = subs.data.length > 0 ? (subs as any).total_count || subs.data.length : 0;
-
-        const invoices = await stripe.invoices.list({ status: 'open', limit: 1 });
-        stripeStats.openInvoices = invoices.data.length > 0 ? (invoices as any).total_count || invoices.data.length : 0;
+        stripeStats.revenue = revenue;
+        stripeStats.activeSubscriptions = subStats.count;
+        stripeStats.openInvoices = openInvoiceCount;
       } catch (e) {
-        console.error('Error fetching Stripe stats:', e);
+        console.error('Error fetching billing stats:', e);
       }
 
       res.json({ ...stats, ...stripeStats });
@@ -756,7 +758,7 @@ export function registerAdminRoutes(app: Express) {
             amount: parseFloat(base_pay),
             expenseDate: scheduled_date || new Date().toISOString().split('T')[0],
             referenceId: routeId,
-            referenceType: 'route',
+            referenceType: 'route_job',
             createdBy: getAdminId(req),
           });
         } catch (e) {
@@ -2298,36 +2300,17 @@ export function registerAdminRoutes(app: Express) {
 
           await audit(req, `address_review_${decision}`, 'property', propertyId, { notes, bulk: true });
 
-          // Create subscriptions on approval
+          // Activate subscriptions on approval
           if (decision === 'approved' && pendingSelections.length > 0) {
-            try {
-              const stripe = await getUncachableStripeClient();
-              const user = await storage.getUserById(property.user_id);
-              if (user?.stripe_customer_id) {
-                const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
-                const productMap = new Map(products.data.map((p: any) => [p.id, p]));
-                for (const sel of pendingSelections) {
-                  const product = productMap.get(sel.service_id);
-                  if (product?.default_price?.id) {
-                    await stripe.subscriptions.create({
-                      customer: user.stripe_customer_id,
-                      items: [{ price: product.default_price.id, quantity: sel.quantity }],
-                      metadata: { propertyId, equipmentType: sel.use_sticker ? 'own_can' : 'rental' },
-                      payment_behavior: 'allow_incomplete',
-                    });
-                  }
-                }
-              }
-            } catch (subError: any) {
-              console.error(`Bulk: Failed to create subscriptions for ${propertyId}:`, subError);
-              audit(req, 'subscription_creation_failed', 'property', propertyId, {
-                error: subError?.message || 'Unknown error',
-                pendingSelections: pendingSelections.length,
-              }).catch(() => {});
-            }
+            activatePendingSelections(propertyId, property.user_id, {
+              source: 'bulk_approval',
+              preloadedSelections: pendingSelections,
+            }).catch(err => {
+              console.error(`Bulk: Failed to activate subscriptions for ${propertyId}:`, err);
+            });
           }
 
-          // Notify customer
+          // Notify customer of decision
           const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
           const details = decision === 'approved'
             ? `Great news! Your address at ${property.address} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`
@@ -2358,64 +2341,7 @@ export function registerAdminRoutes(app: Express) {
       const property = await storage.getPropertyById(propertyId);
       if (!property) return res.status(404).json({ error: 'Property not found' });
 
-      const tempOrderNo = `FEASIBILITY-${property.id.substring(0, 8).toUpperCase()}-${Date.now()}`;
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      // Skip weekends
-      while (tomorrow.getDay() === 0 || tomorrow.getDay() === 6) {
-        tomorrow.setDate(tomorrow.getDate() + 1);
-      }
-      const dateStr = tomorrow.toISOString().split('T')[0];
-
-      // Step 1: Create temporary order
-      await optimo.createOrder({
-        orderNo: tempOrderNo,
-        type: 'P',
-        date: dateStr,
-        address: property.address,
-        locationName: 'Feasibility Check',
-        duration: 10,
-        notes: 'Temporary order for address feasibility check',
-      });
-
-      // Step 2: Start planning with this order
-      const planResult = await optimo.startPlanning({
-        date: dateStr,
-        useOrders: [tempOrderNo],
-        startWith: 'CURRENT',
-      });
-
-      let feasibilityResult: { feasible: boolean; reason: string } = { feasible: false, reason: 'unknown' };
-
-      if (planResult.ordersWithInvalidLocation?.includes(tempOrderNo)) {
-        feasibilityResult = { feasible: false, reason: 'invalid_address' };
-      } else if (planResult.planningId) {
-        // Step 3: Poll planning status until complete
-        let status = await optimo.getPlanningStatus(planResult.planningId);
-        let attempts = 0;
-        while (status.status === 'R' && attempts < 30) {
-          await new Promise(r => setTimeout(r, 2000));
-          status = await optimo.getPlanningStatus(planResult.planningId);
-          attempts++;
-        }
-
-        if (status.status === 'F') {
-          // Step 4: Check if order got scheduled
-          const schedInfo = await optimo.getSchedulingInfo(tempOrderNo);
-          feasibilityResult = schedInfo.orderScheduled
-            ? { feasible: true, reason: 'scheduled' }
-            : { feasible: false, reason: 'not_schedulable' };
-        } else {
-          feasibilityResult = { feasible: false, reason: 'planning_timeout' };
-        }
-      }
-
-      // Step 5: Cleanup
-      try {
-        await optimo.deleteOrder(tempOrderNo, true);
-      } catch (e) {
-        console.error('Failed to cleanup feasibility check order:', e);
-      }
+      const feasibilityResult = await checkRouteFeasibility(property.address, property.id);
 
       await audit(req, 'check_feasibility', 'property', property.id, feasibilityResult);
       res.json(feasibilityResult);
@@ -2498,39 +2424,14 @@ export function registerAdminRoutes(app: Express) {
 
         await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
 
-        // Activate deferred subscriptions on approval (outside transaction — Stripe is external)
+        // Activate subscriptions on approval (outside transaction — Stripe is external)
         if (decision === 'approved' && pendingSelections.length > 0) {
-          try {
-            const stripe = await getUncachableStripeClient();
-            const user = await storage.getUserById(property.user_id);
-            if (user?.stripe_customer_id) {
-              const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
-              const productMap = new Map(products.data.map((p: any) => [p.id, p]));
-
-              for (const sel of pendingSelections) {
-                const product = productMap.get(sel.service_id);
-                if (product?.default_price?.id) {
-                  await stripe.subscriptions.create({
-                    customer: user.stripe_customer_id,
-                    items: [{ price: product.default_price.id, quantity: sel.quantity }],
-                    metadata: {
-                      propertyId,
-                      equipmentType: sel.use_sticker ? 'own_can' : 'rental',
-                    },
-                    payment_behavior: 'allow_incomplete',
-                  });
-                }
-              }
-            }
-          } catch (subError: any) {
-            console.error('Failed to create subscriptions on approval:', subError);
-            // Don't fail the approval — subscriptions can be manually created
-            // But DO log it so admins can see the failure
-            audit(req, 'subscription_creation_failed', 'property', propertyId, {
-              error: subError?.message || 'Unknown error',
-              pendingSelections: pendingSelections.length,
-            }).catch(() => {});
-          }
+          activatePendingSelections(propertyId, property.user_id, {
+            source: 'admin_approval',
+            preloadedSelections: pendingSelections,
+          }).catch(err => {
+            console.error('Failed to activate subscriptions on approval:', err);
+          });
         }
       } catch (txErr) {
         await client.query('ROLLBACK');
@@ -2539,7 +2440,7 @@ export function registerAdminRoutes(app: Express) {
         client.release();
       }
 
-      // Notify customer of address review decision (fire-and-forget)
+      // Notify customer of decision (fire-and-forget)
       if (notifyUserId) {
         const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
         const details = decision === 'approved'
@@ -2597,6 +2498,7 @@ export function registerAdminRoutes(app: Express) {
     PICKUP_AUTO_APPROVE:             { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Addresses in Zone', displayType: 'toggle' },
     PICKUP_AUTO_APPROVE_MAX_MILES:   { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Distance (miles)', displayType: 'text' },
     PICKUP_AUTO_APPROVE_MAX_MINUTES: { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Time (minutes)', displayType: 'text' },
+    PICKUP_AUTO_APPROVE_USE_FEASIBILITY: { category: 'optimoroute', isSecret: false, label: 'Use Route Feasibility Check', displayType: 'toggle' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },

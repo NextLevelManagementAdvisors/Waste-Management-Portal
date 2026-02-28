@@ -742,6 +742,16 @@ export class Storage {
     return result.rows[0];
   }
 
+  /** Approve only if still pending_review. Returns true if the update happened (no one else decided first). */
+  async approveIfPending(propertyId: string): Promise<boolean> {
+    const result = await this.query(
+      `UPDATE properties SET service_status = 'approved', service_status_updated_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND service_status = 'pending_review' RETURNING id`,
+      [propertyId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   // ── Pending Service Selections (deferred billing) ─────────────────
 
   async savePendingSelections(propertyId: string, userId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> {
@@ -775,6 +785,15 @@ export class Storage {
 
   async deletePendingSelections(propertyId: string): Promise<void> {
     await this.query(`DELETE FROM pending_service_selections WHERE property_id = $1`, [propertyId]);
+  }
+
+  /** Atomically delete and return pending selections (prevents race condition on concurrent activation). */
+  async claimPendingSelections(propertyId: string): Promise<any[]> {
+    const result = await this.query(
+      `DELETE FROM pending_service_selections WHERE property_id = $1 RETURNING *`,
+      [propertyId],
+    );
+    return result.rows;
   }
 
   async getAllUsersPaginated(options: { limit?: number; offset?: number; search?: string; sortBy?: string; sortDir?: string; serviceType?: string; hasStripe?: string }) {

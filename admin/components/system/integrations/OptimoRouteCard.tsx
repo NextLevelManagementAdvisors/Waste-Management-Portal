@@ -23,6 +23,7 @@ const CUSTOM_UI_KEYS = [
   'PICKUP_OPTIMIZATION_WINDOW_DAYS', 'PICKUP_OPTIMIZATION_METRIC',
   'PICKUP_AUTO_ASSIGN', 'PICKUP_AUTO_APPROVE',
   'PICKUP_AUTO_APPROVE_MAX_MILES', 'PICKUP_AUTO_APPROVE_MAX_MINUTES',
+  'PICKUP_AUTO_APPROVE_USE_FEASIBILITY',
 ];
 
 const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
@@ -51,6 +52,7 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
   const [autoApprove, setAutoApprove] = useState(false);
   const [maxMiles, setMaxMiles] = useState('');
   const [maxMinutes, setMaxMinutes] = useState('');
+  const [useFeasibility, setUseFeasibility] = useState(true);
   const [savingOpt, setSavingOpt] = useState(false);
 
   useEffect(() => {
@@ -87,6 +89,11 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
 
     const maxMinutesSetting = allSettings.find(s => s.key === 'PICKUP_AUTO_APPROVE_MAX_MINUTES');
     if (maxMinutesSetting?.value && maxMinutesSetting.value !== '0') setMaxMinutes(maxMinutesSetting.value);
+
+    const feasibilitySetting = allSettings.find(s => s.key === 'PICKUP_AUTO_APPROVE_USE_FEASIBILITY');
+    if (feasibilitySetting?.value === 'true' || feasibilitySetting?.value === 'false') {
+      setUseFeasibility(feasibilitySetting.value === 'true');
+    }
   }, [allSettings]);
 
   const handleSyncToggle = async () => {
@@ -164,6 +171,16 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     const ok = await saveSetting('PICKUP_AUTO_APPROVE', String(newValue));
     if (ok) flashSuccess(`Auto-approve ${newValue ? 'enabled' : 'disabled'}`);
     else setAutoApprove(!newValue);
+    setSavingOpt(false);
+  };
+
+  const handleUseFeasibilityToggle = async () => {
+    const newValue = !useFeasibility;
+    setUseFeasibility(newValue);
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_AUTO_APPROVE_USE_FEASIBILITY', String(newValue));
+    if (ok) flashSuccess(`Route feasibility check ${newValue ? 'enabled' : 'disabled'}`);
+    else setUseFeasibility(!newValue);
     setSavingOpt(false);
   };
 
@@ -341,6 +358,22 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
                 Save
               </Button>
             </div>
+          </div>
+          {/* Route Feasibility Toggle */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+            <div>
+              <p className="text-xs font-bold text-gray-600">Route Feasibility Check</p>
+              <p className="text-[10px] text-gray-400">Verify with OptimoRoute that the address can actually be scheduled before approving. When off, approval is immediate based on zone and thresholds only.</p>
+            </div>
+            <button
+              type="button"
+              title={useFeasibility ? 'Disable feasibility check' : 'Enable feasibility check'}
+              onClick={handleUseFeasibilityToggle}
+              disabled={savingOpt}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${useFeasibility ? 'bg-teal-600' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${useFeasibility ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
           </div>
         </div>
       )}
