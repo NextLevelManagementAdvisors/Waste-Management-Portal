@@ -58,6 +58,25 @@ export interface InvoiceItem {
   hostedInvoiceUrl: string | null;
 }
 
+export interface SubscriptionListItem {
+  id: string;
+  status: string;
+  customerName: string;
+  customerEmail: string;
+  userId: string | null;
+  stripeCustomerId: string;
+  created: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  mrr: number;
+  items: {
+    productName: string;
+    amount: number;
+    interval: string;
+    quantity: number;
+  }[];
+}
+
 export const EXPENSE_CATEGORIES = [
   { value: 'driver_pay', label: 'Driver Pay' },
   { value: 'fuel', label: 'Fuel' },

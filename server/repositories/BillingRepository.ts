@@ -260,6 +260,92 @@ export class BillingRepository extends BaseRepository {
     };
   }
 
+  async listAllActiveSubscriptions(opts: {
+    status?: string;
+    search?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    const status = opts.status || 'active';
+    if (status !== 'all') {
+      conditions.push(`s.status = $${idx++}`);
+      params.push(status);
+    }
+
+    if (opts.search) {
+      conditions.push(`(
+        COALESCE(u.first_name || ' ' || u.last_name, '') ILIKE $${idx}
+        OR COALESCE(u.email, '') ILIKE $${idx}
+        OR COALESCE(c.name, '') ILIKE $${idx}
+        OR COALESCE(c.email, '') ILIKE $${idx}
+      )`);
+      params.push(`%${opts.search}%`);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(opts.limit, opts.offset);
+
+    const result = await this.query(
+      `SELECT
+        s.id, s.status, s.created, s.current_period_start, s.current_period_end,
+        s.cancel_at_period_end, s.canceled_at, s.items,
+        s.customer as stripe_customer_id,
+        COALESCE(u.first_name || ' ' || u.last_name, c.name, c.email) as customer_name,
+        COALESCE(u.email, c.email) as customer_email,
+        u.id as user_id
+       FROM stripe.subscriptions s
+       LEFT JOIN stripe.customers c ON c.id = s.customer
+       LEFT JOIN users u ON u.stripe_customer_id = s.customer
+       ${where}
+       ORDER BY s.created DESC
+       LIMIT $${idx++} OFFSET $${idx}`,
+      params
+    );
+    return result.rows;
+  }
+
+  async countAllActiveSubscriptions(opts: {
+    status?: string;
+    search?: string;
+  }): Promise<number> {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    const status = opts.status || 'active';
+    if (status !== 'all') {
+      conditions.push(`s.status = $${idx++}`);
+      params.push(status);
+    }
+
+    if (opts.search) {
+      conditions.push(`(
+        COALESCE(u.first_name || ' ' || u.last_name, '') ILIKE $${idx}
+        OR COALESCE(u.email, '') ILIKE $${idx}
+        OR COALESCE(c.name, '') ILIKE $${idx}
+        OR COALESCE(c.email, '') ILIKE $${idx}
+      )`);
+      params.push(`%${opts.search}%`);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.query(
+      `SELECT COUNT(*)::int as count
+       FROM stripe.subscriptions s
+       LEFT JOIN stripe.customers c ON c.id = s.customer
+       LEFT JOIN users u ON u.stripe_customer_id = s.customer
+       ${where}`,
+      params
+    );
+    return result.rows[0].count;
+  }
+
   async getOutstandingAR(): Promise<number> {
     const result = await this.query(
       `SELECT COALESCE(SUM(amount_remaining), 0)::numeric as total

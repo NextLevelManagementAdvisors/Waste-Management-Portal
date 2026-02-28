@@ -4,12 +4,13 @@ import OverviewTab from './OverviewTab.tsx';
 import IncomeTab from './IncomeTab.tsx';
 import InvoicesTab from './InvoicesTab.tsx';
 import CustomerBillingTab from './CustomerBillingTab.tsx';
+import SubscriptionsTab from './SubscriptionsTab.tsx';
 import ExpensesTab from './ExpensesTab.tsx';
 import DriverPayTab from './DriverPayTab.tsx';
 
 export type AccountingTabType = 'overview' | 'income' | 'expenses';
 
-type IncomeSubTab = 'revenue' | 'invoices' | 'customer-billing';
+type IncomeSubTab = 'revenue' | 'subscriptions' | 'invoices' | 'customer-billing';
 type ExpensesSubTab = 'operational' | 'driver-pay';
 
 interface AccountingViewProps {
@@ -47,6 +48,9 @@ const AccountingView: React.FC<AccountingViewProps> = ({ navFilter, onFilterCons
       } else if (navFilter.tab === 'customer-billing') {
         setActiveTab('income');
         setIncomeSubTab('customer-billing');
+      } else if (navFilter.tab === 'subscriptions') {
+        setActiveTab('income');
+        setIncomeSubTab('subscriptions');
       } else if (navFilter.tab === 'driver-pay') {
         setActiveTab('expenses');
         setExpensesSubTab('driver-pay');
@@ -62,6 +66,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ navFilter, onFilterCons
 
   const incomeSubTabs: { key: IncomeSubTab; label: string }[] = [
     { key: 'revenue', label: 'Revenue' },
+    { key: 'subscriptions', label: 'Subscriptions' },
     { key: 'invoices', label: 'Invoices' },
     { key: 'customer-billing', label: 'Customer Billing' },
   ];
@@ -112,6 +117,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ navFilter, onFilterCons
             ))}
           </div>
           {incomeSubTab === 'revenue' && <IncomeTab />}
+          {incomeSubTab === 'subscriptions' && <SubscriptionsTab />}
           {incomeSubTab === 'invoices' && <InvoicesTab navFilter={navFilter} onFilterConsumed={onFilterConsumed} />}
           {incomeSubTab === 'customer-billing' && <CustomerBillingTab navFilter={navFilter} onFilterConsumed={onFilterConsumed} />}
         </div>
