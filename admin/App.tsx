@@ -144,15 +144,20 @@ function parseAdminPath(pathname: string): { view: AdminView; personId: string |
   return { ...base, view: PATH_TO_VIEW[normalized] || 'dashboard' };
 }
 
-function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; opsTab?: OpsTabType | null; settingsTab?: SettingsTabType | null; commsTab?: CommsTabType | null; acctTab?: AccountingTabType | null }): string {
+function buildAdminUrl(view: AdminView, opts?: { personId?: string | null; search?: string | null; filter?: string | null; sort?: string | null; tab?: string | null; opsTab?: OpsTabType | null; settingsTab?: SettingsTabType | null; commsTab?: CommsTabType | null; acctTab?: AccountingTabType | null }): string {
   if (view === 'contacts' && opts?.personId) return `/admin/contacts/${opts.personId}`;
   if (view === 'operations' && opts?.opsTab) return OPS_TAB_TO_PATH[opts.opsTab] || '/admin/operations';
   if (view === 'settings' && opts?.settingsTab) return SETTINGS_TAB_TO_PATH[opts.settingsTab] || '/admin/settings';
   if (view === 'communications' && opts?.commsTab) return COMMS_TAB_TO_PATH[opts.commsTab] || '/admin/communications';
   if (view === 'accounting' && opts?.acctTab) return ACCT_TAB_TO_PATH[opts.acctTab] || '/admin/accounting';
   const base = VIEW_TO_PATH[view] || '/admin';
-  if (opts?.search) return `${base}?search=${encodeURIComponent(opts.search)}`;
-  return base;
+  const qp = new URLSearchParams();
+  if (opts?.search) qp.set('search', opts.search);
+  if (opts?.filter) qp.set('filter', opts.filter);
+  if (opts?.sort) qp.set('sort', opts.sort);
+  if (opts?.tab) qp.set('tab', opts.tab);
+  const qs = qp.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 const CurrencyIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -191,14 +196,25 @@ const AdminApp: React.FC = () => {
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const initialParsed = parseAdminPath(window.location.pathname);
-  const initialSearch = new URLSearchParams(window.location.search).get('search');
+  const initialParams = new URLSearchParams(window.location.search);
+  const initialSearch = initialParams.get('search');
+  const initialFilter = initialParams.get('filter');
+  const initialSort = initialParams.get('sort');
+  const initialTab = initialParams.get('tab');
   const [currentView, setCurrentViewRaw] = useState<AdminView>(initialParsed.view);
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
   const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'operations');
   const [settingsTab, setSettingsTabRaw] = useState<SettingsTabType>(initialParsed.settingsTab || 'integrations');
   const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
   const [acctTab, setAcctTabRaw] = useState<AccountingTabType>(initialParsed.acctTab || 'overview');
-  const [navFilter, setNavFilter] = useState<NavFilter | null>(initialSearch ? { search: initialSearch } : null);
+  const [navFilter, setNavFilter] = useState<NavFilter | null>(() => {
+    const nf: NavFilter = {};
+    if (initialSearch) nf.search = initialSearch;
+    if (initialFilter) nf.filter = initialFilter;
+    if (initialSort) nf.sort = initialSort;
+    if (initialTab) nf.tab = initialTab;
+    return Object.keys(nf).length > 0 ? nf : null;
+  });
   const [pendingDeepLink] = useState(() => {
     const parsed = parseAdminPath(window.location.pathname);
     if (parsed.view !== 'dashboard' || parsed.personId) return { view: parsed.view, personId: parsed.personId, search: initialSearch, opsTab: parsed.opsTab, settingsTab: parsed.settingsTab, commsTab: parsed.commsTab, acctTab: parsed.acctTab };
@@ -241,8 +257,15 @@ const AdminApp: React.FC = () => {
     }
     if (view === 'settings') setSettingsTabRaw('integrations');
     if (view === 'communications') setCommsTabRaw('conversations');
-    if (view === 'accounting') setAcctTabRaw(filter?.tab as AccountingTabType || 'overview');
-    const url = buildAdminUrl(view, { search: filter?.search, opsTab: filter?.tab as OpsTabType, acctTab: filter?.tab as AccountingTabType });
+    // Resolve legacy accounting sub-tab names to parent tabs for URL
+    const ACCT_LEGACY_MAP: Record<string, AccountingTabType> = {
+      subscriptions: 'income', invoices: 'income', 'customer-billing': 'income', 'driver-pay': 'expenses',
+    };
+    const resolvedAcctTab = ACCT_LEGACY_MAP[filter?.tab || ''] || (filter?.tab as AccountingTabType);
+    if (view === 'accounting') setAcctTabRaw(resolvedAcctTab || 'overview');
+    // For dashboard, pass tab as query param; for other views, use path-based tabs
+    const dashboardTab = view === 'dashboard' ? filter?.tab : undefined;
+    const url = buildAdminUrl(view, { search: filter?.search, filter: filter?.filter, sort: filter?.sort, tab: dashboardTab, opsTab: filter?.tab as OpsTabType, acctTab: resolvedAcctTab });
     window.history.pushState({ view }, '', url);
   }, []);
 
@@ -290,8 +313,13 @@ const AdminApp: React.FC = () => {
       if (parsed.view === 'settings') setSettingsTabRaw(parsed.settingsTab || 'integrations');
       if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
       if (parsed.view === 'accounting') setAcctTabRaw(parsed.acctTab || 'overview');
-      const search = new URLSearchParams(window.location.search).get('search');
-      setNavFilter(search ? { search } : null);
+      const params = new URLSearchParams(window.location.search);
+      const nf: NavFilter = {};
+      if (params.get('search')) nf.search = params.get('search')!;
+      if (params.get('filter')) nf.filter = params.get('filter')!;
+      if (params.get('sort')) nf.sort = params.get('sort')!;
+      if (params.get('tab')) nf.tab = params.get('tab')!;
+      setNavFilter(Object.keys(nf).length > 0 ? nf : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);

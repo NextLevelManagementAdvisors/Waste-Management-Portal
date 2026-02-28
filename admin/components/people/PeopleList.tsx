@@ -83,6 +83,10 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
       if (navFilter.search) setSearchQuery(navFilter.search);
       if (navFilter.tab) setRoleFilter(navFilter.tab);
       if (navFilter.sort) setSortBy(navFilter.sort);
+      if (navFilter.filter === 'no-pickup-day') {
+        setPickupDayFilter('unassigned');
+        setRoleFilter('customer');
+      }
       setPage(1);
       onFilterConsumed?.();
     }
