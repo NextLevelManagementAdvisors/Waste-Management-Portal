@@ -3,6 +3,7 @@ import { requireAdmin, requirePermission } from './adminRoutes';
 import { billingRepo } from './repositories/BillingRepository';
 import { expenseRepo, EXPENSE_CATEGORIES } from './repositories/ExpenseRepository';
 import { storage } from './storage';
+import { getUncachableStripeClient } from './stripeClient';
 
 function getAdminId(req: Request) {
   return req.session.originalAdminUserId || req.session.userId!;
@@ -136,81 +137,100 @@ export function registerAccountingRoutes(app: Express) {
   });
 
   // ========================================================================
-  // GET /api/admin/accounting/subscriptions — All subscriptions list
+  // GET /api/admin/accounting/subscriptions — All subscriptions list (Stripe API)
   // ========================================================================
   app.get('/api/admin/accounting/subscriptions', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-      const page = parseInt(req.query.page as string) || 1;
-      const offset = (page - 1) * limit;
       const status = (req.query.status as string) || 'active';
       const search = (req.query.search as string) || undefined;
+      const stripe = await getUncachableStripeClient();
 
-      // Load product/price lookup maps for resolving item names
-      const [prices, products] = await Promise.all([
-        billingRepo.listPrices(true),
-        billingRepo.listProducts(true),
-      ]);
-      const productMap = new Map(products.map((p: any) => [p.id, p.name]));
-      const priceMap = new Map(prices.map((p: any) => [p.id, { unitAmount: p.unit_amount, product: p.product, nickname: p.nickname, recurring: p.recurring }]));
+      // Fetch subscriptions from Stripe API with expanded price+product info
+      const stripeStatus = status === 'all' ? undefined : status as any;
+      const allSubs: any[] = [];
+      for await (const sub of stripe.subscriptions.list({
+        status: stripeStatus,
+        limit: 100,
+        expand: ['data.items.data.price.product', 'data.customer'],
+      })) {
+        allSubs.push(sub);
+      }
 
-      const [items, total, subStats] = await Promise.all([
-        billingRepo.listAllActiveSubscriptions({ status, search, limit, offset }),
-        billingRepo.countAllActiveSubscriptions({ status, search }),
-        billingRepo.getActiveSubscriptionStats(),
-      ]);
+      // Build a user lookup map for customer names from our DB
+      const customerIds = [...new Set(allSubs.map(s => typeof s.customer === 'string' ? s.customer : s.customer?.id).filter(Boolean))];
+      const userMap = new Map<string, { name: string; email: string; userId: string }>();
+      if (customerIds.length > 0) {
+        const placeholders = customerIds.map((_, i) => `$${i + 1}`).join(',');
+        const userRows = await billingRepo.query(
+          `SELECT u.id, u.first_name, u.last_name, u.email, u.stripe_customer_id
+           FROM users u WHERE u.stripe_customer_id IN (${placeholders})`,
+          customerIds
+        );
+        for (const u of userRows.rows) {
+          userMap.set(u.stripe_customer_id, {
+            name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
+            email: u.email,
+            userId: u.id,
+          });
+        }
+      }
+
+      // Map subscriptions to response format
+      let items = allSubs.map(sub => {
+        const custObj = typeof sub.customer === 'object' ? sub.customer : null;
+        const custId = typeof sub.customer === 'string' ? sub.customer : custObj?.id;
+        const dbUser = custId ? userMap.get(custId) : null;
+        const customerName = dbUser?.name || custObj?.name || custObj?.email || 'Unknown';
+        const customerEmail = dbUser?.email || custObj?.email || '';
+
+        const subItems = (sub.items?.data || []).map((si: any) => {
+          const price = si.price;
+          const product = typeof price?.product === 'object' ? price.product : null;
+          return {
+            productName: product?.name || price?.nickname || 'Subscription',
+            amount: (price?.unit_amount || 0) / 100,
+            interval: price?.recurring?.interval || 'month',
+            quantity: si.quantity || 1,
+          };
+        });
+
+        const mrr = subItems.reduce((sum: number, item: any) => sum + item.amount * item.quantity, 0);
+
+        return {
+          id: sub.id,
+          status: sub.status,
+          customerName,
+          customerEmail,
+          userId: dbUser?.userId || null,
+          stripeCustomerId: custId || '',
+          created: sub.created ? new Date(sub.created * 1000).toISOString() : null,
+          currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+          cancelAtPeriodEnd: sub.cancel_at_period_end || false,
+          mrr,
+          items: subItems,
+        };
+      });
+
+      // Apply search filter (client-side since Stripe API doesn't support customer name search)
+      if (search) {
+        const q = search.toLowerCase();
+        items = items.filter(i =>
+          i.customerName.toLowerCase().includes(q) ||
+          i.customerEmail.toLowerCase().includes(q)
+        );
+      }
+
+      // Calculate totals from active subs
+      const activeSubs = allSubs.filter(s => s.status === 'active');
+      const totalMrr = items
+        .filter(i => i.status === 'active')
+        .reduce((sum, i) => sum + i.mrr, 0);
 
       res.json({
-        items: items.map(s => {
-          // Parse the items JSONB — could be an array or Stripe list object
-          let rawItems: any[] = [];
-          if (s.items) {
-            const parsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            if (Array.isArray(parsed)) {
-              rawItems = parsed;
-            } else if (parsed?.data && Array.isArray(parsed.data)) {
-              rawItems = parsed.data;
-            }
-          }
-
-          // Resolve item details using price/product maps
-          const resolvedItems = rawItems.map((item: any) => {
-            const priceId = item.price?.id || item.price || item.plan?.id;
-            const priceInfo = priceId ? priceMap.get(priceId) : null;
-            const productName = priceInfo?.product ? productMap.get(priceInfo.product) : null;
-            const amount = (priceInfo?.unitAmount || item.price?.unit_amount || item.amount || item.plan?.amount || 0) / 100;
-            const interval = priceInfo?.recurring?.interval || item.price?.recurring?.interval || item.plan?.interval || 'month';
-            const quantity = item.quantity || 1;
-
-            return {
-              productName: productName || priceInfo?.nickname || item.price?.nickname || item.plan?.nickname || 'Subscription',
-              amount,
-              interval,
-              quantity,
-            };
-          });
-
-          const mrr = resolvedItems.reduce((sum: number, item: any) => sum + item.amount * item.quantity, 0);
-
-          return {
-            id: s.id,
-            status: s.status,
-            customerName: s.customer_name,
-            customerEmail: s.customer_email,
-            userId: s.user_id,
-            stripeCustomerId: s.stripe_customer_id,
-            created: s.created ? new Date(s.created * 1000).toISOString() : null,
-            currentPeriodEnd: s.current_period_end ? new Date(s.current_period_end * 1000).toISOString() : null,
-            cancelAtPeriodEnd: s.cancel_at_period_end || false,
-            mrr,
-            items: resolvedItems,
-          };
-        }),
-        total,
-        page,
-        limit,
-        totalMrr: subStats.mrr,
-        activeCount: subStats.count,
+        items,
+        total: items.length,
+        totalMrr,
+        activeCount: activeSubs.length,
       });
     } catch (error) {
       console.error('Subscriptions list error:', error);
