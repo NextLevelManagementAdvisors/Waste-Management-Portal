@@ -15,6 +15,7 @@ import { pool } from './db';
 import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
 import { detectAndStorePickupDays } from './pickupDayDetector';
+import { findOptimalPickupDay } from './pickupDayOptimizer';
 
 // ── Types ──
 
@@ -230,6 +231,32 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
   try {
     // Step 1: Detect/update pickup days
     const detection = await detectAndStorePickupDays();
+
+    // Step 1.5: Retry optimization for approved properties still missing pickup_day
+    let routeAssignments = 0;
+    try {
+      const unassigned = await storage.getApprovedPropertiesWithoutPickupDay();
+      for (const prop of unassigned) {
+        try {
+          const result = await findOptimalPickupDay(prop.id);
+          if (result) {
+            await storage.updatePropertyPickupSchedule(prop.id, {
+              pickup_day: result.pickup_day,
+              pickup_day_source: 'route_optimized',
+              pickup_day_detected_at: new Date().toISOString(),
+            });
+            routeAssignments++;
+          }
+        } catch (e: any) {
+          console.error(`[OptimoSync] Pickup day optimization failed for property ${prop.id}:`, e.message);
+        }
+      }
+      if (routeAssignments > 0) {
+        console.log(`[OptimoSync] Auto-assigned pickup day to ${routeAssignments} properties`);
+      }
+    } catch (e: any) {
+      console.error('[OptimoSync] Failed to retry pickup day assignments:', e.message);
+    }
 
     // Step 2: Get eligible properties
     const properties = await storage.getPropertiesForSync();

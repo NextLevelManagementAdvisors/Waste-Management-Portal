@@ -59,6 +59,9 @@ export interface DbProperty {
   pickup_day: string | null;
   pickup_day_detected_at: string | null;
   pickup_day_source: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  zone_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -557,8 +560,9 @@ export class Storage {
     pendingReferrals: number;
     pendingReviews: number;
     pendingMissedPickups: number;
+    propertiesWithoutPickupDay: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews, pendingMissedPickups] = await Promise.all([
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews, pendingMissedPickups, noPickupDay] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
       this.query('SELECT COUNT(*) as count FROM properties'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
@@ -567,6 +571,7 @@ export class Storage {
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
       this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
       this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'approved' AND pickup_day IS NULL`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
@@ -577,7 +582,18 @@ export class Storage {
       pendingReferrals: parseInt(pendingRefs.rows[0].count),
       pendingReviews: parseInt(pendingReviews.rows[0].count),
       pendingMissedPickups: parseInt(pendingMissedPickups.rows[0].count),
+      propertiesWithoutPickupDay: parseInt(noPickupDay.rows[0].count),
     };
+  }
+
+  async getApprovedPropertiesWithoutPickupDay() {
+    const result = await this.query(
+      `SELECT * FROM properties
+       WHERE service_status = 'approved'
+         AND pickup_day IS NULL
+         AND (pickup_day_source IS NULL OR pickup_day_source != 'manual')`
+    );
+    return result.rows;
   }
 
   async setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
@@ -1712,6 +1728,7 @@ export class Storage {
   async getRouteStops(routeId: string) {
     const result = await this.query(
       `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
+              p.latitude, p.longitude,
               CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
        FROM route_stops rs
        LEFT JOIN properties p ON rs.property_id = p.id

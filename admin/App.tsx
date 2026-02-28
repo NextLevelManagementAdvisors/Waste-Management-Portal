@@ -581,7 +581,8 @@ const AdminApp: React.FC = () => {
         {(() => {
           const mpCount = badgeCounts.missedPickups || 0;
           const arCount = badgeCounts.addressReviews || 0;
-          if (mpCount === 0 && arCount === 0) return null;
+          const pdCount = badgeCounts.propertiesNeedingPickupDay || 0;
+          if (mpCount === 0 && arCount === 0 && pdCount === 0) return null;
           if (actionBarDismissed) return null;
           const worstHours = Math.max(badgeCounts.oldestMissedPickupHours || 0, badgeCounts.oldestAddressReviewHours || 0);
           const barBg = worstHours >= 72 ? 'bg-red-50 border-red-200' : worstHours >= 24 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200';
@@ -625,6 +626,20 @@ const AdminApp: React.FC = () => {
                   {ageLabel(badgeCounts.oldestAddressReviewHours) && (
                     <span className="text-[10px] font-bold text-amber-400">{ageLabel(badgeCounts.oldestAddressReviewHours)} old</span>
                   )}
+                </button>
+              )}
+              {pdCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigateTo('contacts', { filter: 'no-pickup-day' })}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-indigo-200 hover:bg-indigo-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                  </svg>
+                  <span className="text-xs font-bold text-indigo-700">
+                    {pdCount} Need Pickup Day
+                  </span>
                 </button>
               )}
               <button

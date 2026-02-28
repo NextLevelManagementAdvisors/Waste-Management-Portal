@@ -11,6 +11,7 @@ import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
 import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
+import { findOptimalPickupDay } from './pickupDayOptimizer';
 import { specialPickupUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -386,6 +387,30 @@ export function registerAuthRoutes(app: Express) {
         notes,
         notificationPreferences,
       });
+
+      // Auto-assign pickup day if enabled
+      if (process.env.PICKUP_AUTO_ASSIGN === 'true') {
+        try {
+          const result = await findOptimalPickupDay(property.id);
+          if (result) {
+            const updates: Record<string, any> = {
+              zone_id: result.zone_id,
+              pickup_day: result.pickup_day,
+              pickup_day_source: 'route_optimized',
+              pickup_day_detected_at: new Date().toISOString(),
+            };
+            // Auto-approve if address is in a service zone and setting is on
+            if (process.env.PICKUP_AUTO_APPROVE === 'true') {
+              updates.service_status = 'approved';
+              updates.service_status_updated_at = new Date().toISOString();
+            }
+            await storage.updateProperty(property.id, updates);
+            Object.assign(property, updates);
+          }
+        } catch (e) {
+          console.error('Auto pickup day assignment failed (non-blocking):', e);
+        }
+      }
 
       res.status(201).json({ data: formatPropertyForClient(property) });
     } catch (error: any) {

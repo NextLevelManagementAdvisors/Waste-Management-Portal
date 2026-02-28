@@ -12,6 +12,7 @@ import { testAllIntegrations, testSingleIntegration } from './integrationTests';
 import { expenseRepo } from './repositories/ExpenseRepository';
 import { optimizeRouteJob, checkRouteOptimizationStatus } from './optimoSyncService';
 import { suggestRoute } from './routeSuggestionService';
+import { findOptimalPickupDay } from './pickupDayOptimizer';
 
 declare module 'express-session' {
   interface SessionData {
@@ -107,15 +108,17 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedPickups, unreadMessages, oldestMissedPickup, oldestReview] = await Promise.all([
+      const [pendingReviews, pendingMissedPickups, unreadMessages, oldestMissedPickup, oldestReview, noPickupDay] = await Promise.all([
         storage.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
         storage.query(`SELECT MIN(created_at) as oldest FROM missed_pickup_reports WHERE status = 'pending'`),
         storage.query(`SELECT MIN(created_at) as oldest FROM properties WHERE service_status = 'pending_review'`),
+        storage.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'approved' AND pickup_day IS NULL`),
       ]);
       const missedPickups = parseInt(pendingMissedPickups.rows[0]?.count || '0');
       const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
+      const propertiesNeedingPickupDay = parseInt(noPickupDay.rows[0]?.count || '0');
       const oldestMpDate = oldestMissedPickup.rows[0]?.oldest;
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
@@ -124,6 +127,7 @@ export function registerAdminRoutes(app: Express) {
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
         missedPickups,
         addressReviews,
+        propertiesNeedingPickupDay,
         oldestMissedPickupHours: hoursAgo(oldestMpDate),
         oldestAddressReviewHours: hoursAgo(oldestArDate),
       });
@@ -2438,13 +2442,13 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: 'decision must be approved or denied' });
       }
 
-      // Pre-compute route suggestion before acquiring lock (geocoding is slow)
-      let routeSuggestion: Awaited<ReturnType<typeof suggestRoute>> = null;
+      // Pre-compute optimal pickup day before acquiring lock (geocoding is slow)
+      let optimizationResult: Awaited<ReturnType<typeof findOptimalPickupDay>> = null;
       if (decision === 'approved') {
         try {
-          routeSuggestion = await suggestRoute(propertyId);
+          optimizationResult = await findOptimalPickupDay(propertyId);
         } catch (e) {
-          console.error('Route suggestion failed (non-blocking):', e);
+          console.error('Pickup day optimization failed (non-blocking):', e);
         }
       }
 
@@ -2476,11 +2480,11 @@ export function registerAdminRoutes(app: Express) {
           [decision, notes || null, propertyId]
         );
 
-        // Auto-assign zone + pickup day from route suggestion
-        if (routeSuggestion && routeSuggestion.pickup_day !== 'unknown') {
+        // Auto-assign zone + pickup day from route insertion optimization
+        if (optimizationResult) {
           await client.query(
-            `UPDATE properties SET zone_id = $1, pickup_day = $2, pickup_day_source = 'route_suggestion', pickup_day_detected_at = NOW() WHERE id = $3`,
-            [routeSuggestion.zone_id, routeSuggestion.pickup_day, propertyId]
+            `UPDATE properties SET zone_id = $1, pickup_day = $2, pickup_day_source = 'route_optimized', pickup_day_detected_at = NOW() WHERE id = $3`,
+            [optimizationResult.zone_id, optimizationResult.pickup_day, propertyId]
           );
         }
 
@@ -2584,6 +2588,11 @@ export function registerAdminRoutes(app: Express) {
     OPTIMO_SYNC_ENABLED:        { category: 'optimoroute', isSecret: false, label: 'Auto Sync Enabled',    displayType: 'toggle' },
     OPTIMO_SYNC_HOUR:           { category: 'optimoroute', isSecret: false, label: 'Sync Hour (0-23)',     displayType: 'text' },
     OPTIMO_SYNC_WINDOW_DAYS:    { category: 'optimoroute', isSecret: false, label: 'Sync Window (days)',   displayType: 'text' },
+    // Pickup Day Optimization
+    PICKUP_OPTIMIZATION_WINDOW_DAYS: { category: 'optimoroute', isSecret: false, label: 'Optimization Window (days)', displayType: 'text' },
+    PICKUP_OPTIMIZATION_METRIC:      { category: 'optimoroute', isSecret: false, label: 'Optimize By (distance/time/both)', displayType: 'text' },
+    PICKUP_AUTO_ASSIGN:              { category: 'optimoroute', isSecret: false, label: 'Auto-Assign Pickup Day at Signup', displayType: 'toggle' },
+    PICKUP_AUTO_APPROVE:             { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Addresses in Zone', displayType: 'toggle' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },

@@ -9,6 +9,7 @@ import {
   ArrowRightIcon,
   MapPinIcon,
   ExclamationTriangleIcon,
+  CalendarDaysIcon,
 } from '../../../components/Icons.tsx';
 import ActivityFeed from '../operations/ActivityFeed.tsx';
 import type { NavFilter } from '../../../shared/types/index.ts';
@@ -22,6 +23,7 @@ interface AdminStats {
   pendingReferrals: number;
   pendingReviews: number;
   pendingMissedPickups: number;
+  propertiesWithoutPickupDay: number;
   revenue: number;
   activeSubscriptions: number;
   openInvoices: number;
@@ -373,6 +375,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
+            <StatCard label="No Pickup Day" value={stats.propertiesWithoutPickupDay} icon={<CalendarDaysIcon className="w-8 h-8" />} accent={stats.propertiesWithoutPickupDay > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('contacts', { filter: 'no-pickup-day' })} />
           </div>
         </div>
       ) : (
