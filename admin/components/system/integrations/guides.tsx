@@ -21,22 +21,24 @@ export const stripeGuide = (
         Create a webhook at <ExtLink href="https://dashboard.stripe.com/webhooks">Webhooks</ExtLink>:
         <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
           <li>Click <strong>+ Add endpoint</strong></li>
+          <li>Destination type: <strong>Webhook endpoint</strong></li>
           <li>Endpoint URL: <code className="bg-gray-100 px-1 rounded text-xs select-all">{window.location.origin}/api/stripe/webhook</code></li>
           <li>Listen to events from <strong>Your account</strong></li>
           <li>API version: <strong>2026-01-28.clover</strong></li>
-          <li>Under <strong>Select events</strong>, add:
-            <div className="mt-1 ml-3 space-y-0.5">
-              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">invoice.payment_succeeded</code>
-              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">invoice.payment_failed</code>
-              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.created</code>
-              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.updated</code>
-              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.deleted</code>
-            </div>
-          </li>
+          <li>Under <strong>Events</strong>, check <strong>Select all</strong> and click <strong>Continue</strong></li>
         </ul>
       </li>
       <li>Copy the <strong>Signing secret</strong> (starts with <code className="bg-gray-100 px-1 rounded text-xs">whsec_</code>) and paste it as the <strong>Webhook Secret</strong> below</li>
     </ol>
+    <div className="mt-3 pt-3 border-t border-gray-200">
+      <p className="font-semibold text-gray-800 text-xs">Local development</p>
+      <p className="text-xs text-gray-600 mt-1">Stripe can&apos;t reach localhost. Use the <ExtLink href="https://docs.stripe.com/stripe-cli">Stripe CLI</ExtLink> to forward events:</p>
+      <ol className="list-decimal list-inside text-xs text-gray-600 mt-1 space-y-0.5">
+        <li>Install the CLI and run <code className="bg-gray-100 px-1 rounded">stripe login</code></li>
+        <li>Forward events: <code className="bg-gray-100 px-1 rounded select-all">stripe listen --forward-to localhost:5000/api/stripe/webhook</code></li>
+        <li>Copy the <code className="bg-gray-100 px-1 rounded">whsec_</code> signing secret printed by the CLI and paste it as the <strong>Webhook Secret</strong> below</li>
+      </ol>
+    </div>
   </div>
 );
 

@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx tsx server/index.ts & vite",
+    "dev": "npx tsx server/index.ts & stripe listen --forward-to localhost:3001/api/stripe/webhook & vite",
     "dev:frontend": "vite",
     "dev:backend": "npx tsx server/index.ts",
+    "dev:stripe": "stripe listen --forward-to localhost:3001/api/stripe/webhook",
     "seed": "npx tsx server/seed-products.ts",
     "build": "vite build",
     "preview": "vite preview",

@@ -2747,7 +2747,7 @@ export function registerAdminRoutes(app: Express) {
 
       const { tokens } = await oauth2Client.getToken(code);
       if (!tokens.refresh_token) {
-        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=no_refresh_token');
+        return res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=no_refresh_token');
       }
 
       // Save the refresh token via settings system
@@ -2755,11 +2755,11 @@ export function registerAdminRoutes(app: Express) {
       await saveSetting('GMAIL_REFRESH_TOKEN', tokens.refresh_token, 'gmail', true, userId);
 
       req.session.save(() => {
-        res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=success');
+        res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=success');
       });
     } catch (error) {
       console.error('Gmail callback error:', error);
-      res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=error');
+      res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=error');
     }
   });
 }
