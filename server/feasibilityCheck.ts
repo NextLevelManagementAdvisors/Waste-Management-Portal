@@ -2,6 +2,7 @@ import * as optimo from './optimoRouteClient';
 import { storage } from './storage';
 import { activatePendingSelections } from './activateSelections';
 import { sendServiceUpdate } from './notificationService';
+import { approvalMessage } from './addressReviewMessages';
 
 export interface FeasibilityResult {
   feasible: boolean;
@@ -118,19 +119,22 @@ export async function runFeasibilityAndApprove(
     return;
   }
 
-  // Activate any pending selections into Stripe subscriptions
-  activatePendingSelections(propertyId, userId, {
-    source: 'auto_approval',
-  }).catch(err => {
-    console.error('Auto-activation after feasibility failed:', err);
-  });
+  // Activate pending selections, then notify based on outcome
+  try {
+    const activation = await activatePendingSelections(propertyId, userId, {
+      source: 'auto_approval',
+    });
 
-  // Notify customer
-  sendServiceUpdate(
-    userId,
-    'Address Approved',
-    `Great news! Your address at ${address} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`,
-  ).catch(err => {
-    console.error('Auto-approval notification failed:', err);
-  });
+    // Notify customer if activation succeeded or there were simply no selections yet
+    if (activation.activated > 0 || activation.failed === 0) {
+      const msg = approvalMessage(address);
+      sendServiceUpdate(userId, msg.subject, msg.body).catch(err => {
+        console.error('Auto-approval notification failed:', err);
+      });
+    } else {
+      console.error(`Auto-activation failed for all ${activation.failed} selections on property ${propertyId} — notification withheld`);
+    }
+  } catch (err) {
+    console.error('Auto-activation after feasibility failed:', err);
+  }
 }

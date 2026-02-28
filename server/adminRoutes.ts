@@ -1,7 +1,7 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
 import { auth } from '@googleapis/gmail';
-import { storage } from './storage';
+import { storage, DbPendingSelection } from './storage';
 import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
@@ -16,6 +16,7 @@ import { suggestRoute } from './routeSuggestionService';
 import { findOptimalPickupDay } from './pickupDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
+import { approvalMessage, denialMessage } from './addressReviewMessages';
 
 declare module 'express-session' {
   interface SessionData {
@@ -2294,7 +2295,7 @@ export function registerAdminRoutes(app: Express) {
             [decision, notes || null, propertyId]
           );
           const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
-          const pendingSelections = selResult.rows;
+          const pendingSelections: DbPendingSelection[] = selResult.rows;
           await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
           await client.query('COMMIT');
 
@@ -2311,11 +2312,10 @@ export function registerAdminRoutes(app: Express) {
           }
 
           // Notify customer of decision
-          const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
-          const details = decision === 'approved'
-            ? `Great news! Your address at ${property.address} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`
-            : `Your address at ${property.address} has been reviewed and unfortunately we are unable to service this location at this time.${notes ? ` Note: ${notes}` : ''} Please contact us if you have any questions.`;
-          sendServiceUpdate(property.user_id, updateType, details).catch(() => {});
+          const msg = decision === 'approved'
+            ? approvalMessage(property.address)
+            : denialMessage(property.address, notes);
+          sendServiceUpdate(property.user_id, msg.subject, msg.body).catch(() => {});
 
           results.push({ id: propertyId, success: true });
         } catch (txErr) {
@@ -2418,7 +2418,7 @@ export function registerAdminRoutes(app: Express) {
 
         // Fetch and delete pending selections atomically within the transaction
         const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
-        const pendingSelections = selResult.rows;
+        const pendingSelections: DbPendingSelection[] = selResult.rows;
         await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
         await client.query('COMMIT');
 
@@ -2442,11 +2442,10 @@ export function registerAdminRoutes(app: Express) {
 
       // Notify customer of decision (fire-and-forget)
       if (notifyUserId) {
-        const updateType = decision === 'approved' ? 'Address Approved' : 'Address Denied';
-        const details = decision === 'approved'
-          ? `Great news! Your address at ${notifyAddress} has been approved. Your waste collection service is now being set up and you will be billed according to your selected plan.`
-          : `Your address at ${notifyAddress} has been reviewed and unfortunately we are unable to service this location at this time.${notes ? ` Note: ${notes}` : ''} Please contact us if you have any questions.`;
-        sendServiceUpdate(notifyUserId, updateType, details).catch(err => {
+        const msg = decision === 'approved'
+          ? approvalMessage(notifyAddress!)
+          : denialMessage(notifyAddress!, notes);
+        sendServiceUpdate(notifyUserId, msg.subject, msg.body).catch(err => {
           console.error('Failed to send address review notification:', err);
         });
       }

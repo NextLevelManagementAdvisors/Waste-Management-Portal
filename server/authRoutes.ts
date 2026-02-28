@@ -497,9 +497,9 @@ export function registerAuthRoutes(app: Express) {
       // If the property was already auto-approved, activate selections into Stripe subscriptions now
       if (property.service_status === 'approved') {
         activatePendingSelections(propertyId, userId, {
-          source: 'auto_approval',
+          source: 'deferred_activation',
         }).catch(err => {
-          console.error('Auto-activation of pending selections failed (non-blocking):', err);
+          console.error('Deferred activation of pending selections failed (non-blocking):', err);
         });
       }
 

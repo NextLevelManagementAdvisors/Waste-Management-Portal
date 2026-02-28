@@ -66,6 +66,17 @@ export interface DbProperty {
   updated_at: string;
 }
 
+/** Raw DB row from pending_service_selections (snake_case columns). */
+export interface DbPendingSelection {
+  id: string;
+  property_id: string;
+  user_id: string;
+  service_id: string;
+  quantity: number;
+  use_sticker: boolean;
+  created_at: Date;
+}
+
 export class Storage {
   async query(text: string, params?: any[]) {
     const result = await pool.query(text, params);
@@ -788,7 +799,7 @@ export class Storage {
   }
 
   /** Atomically delete and return pending selections (prevents race condition on concurrent activation). */
-  async claimPendingSelections(propertyId: string): Promise<any[]> {
+  async claimPendingSelections(propertyId: string): Promise<DbPendingSelection[]> {
     const result = await this.query(
       `DELETE FROM pending_service_selections WHERE property_id = $1 RETURNING *`,
       [propertyId],

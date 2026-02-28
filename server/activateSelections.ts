@@ -1,11 +1,11 @@
-import { storage } from './storage';
+import { storage, DbPendingSelection } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 
 interface ActivateOptions {
-  /** Identifies the caller for audit logging: 'auto_approval' | 'admin_approval' | 'bulk_approval' */
+  /** Identifies the caller for audit logging: 'auto_approval' | 'admin_approval' | 'bulk_approval' | 'deferred_activation' */
   source?: string;
   /** Use already-fetched selections instead of claiming from DB (caller already deleted in its own transaction) */
-  preloadedSelections?: any[];
+  preloadedSelections?: DbPendingSelection[];
 }
 
 /**
@@ -13,6 +13,10 @@ interface ActivateOptions {
  *
  * When no `preloadedSelections` are provided, uses an atomic DELETE...RETURNING
  * to claim the rows — this prevents duplicate activations if two callers race.
+ *
+ * Validates that the user has a stripe_customer_id BEFORE claiming rows to
+ * prevent data loss. If preloadedSelections were provided (already deleted by
+ * caller) and the user lacks a Stripe ID, selections are restored to the DB.
  *
  * Callers are responsible for sending customer notifications.
  *
@@ -28,6 +32,27 @@ export async function activatePendingSelections(
 ): Promise<{ activated: number; failed: number }> {
   const { source = 'unknown', preloadedSelections } = options;
 
+  // Validate user BEFORE claiming (deleting) rows — prevents data loss
+  const stripe = await getUncachableStripeClient();
+  const user = await storage.getUserById(userId);
+  if (!user?.stripe_customer_id) {
+    console.error(`activatePendingSelections: user ${userId} has no stripe_customer_id`);
+    // If caller pre-deleted selections, restore them so they aren't lost
+    if (preloadedSelections && preloadedSelections.length > 0) {
+      try {
+        await storage.savePendingSelections(propertyId, userId, preloadedSelections.map(sel => ({
+          serviceId: sel.service_id,
+          quantity: sel.quantity,
+          useSticker: sel.use_sticker,
+        })));
+        console.log(`activatePendingSelections: restored ${preloadedSelections.length} preloaded selections for property ${propertyId}`);
+      } catch (restoreErr) {
+        console.error('activatePendingSelections: failed to restore preloaded selections:', restoreErr);
+      }
+    }
+    return { activated: 0, failed: preloadedSelections?.length ?? 0 };
+  }
+
   // Atomic claim: DELETE...RETURNING ensures only one concurrent caller gets the rows
   const selections = preloadedSelections ?? await storage.claimPendingSelections(propertyId);
   if (selections.length === 0) {
@@ -38,13 +63,6 @@ export async function activatePendingSelections(
   let failed = 0;
 
   try {
-    const stripe = await getUncachableStripeClient();
-    const user = await storage.getUserById(userId);
-    if (!user?.stripe_customer_id) {
-      console.error(`activatePendingSelections: user ${userId} has no stripe_customer_id`);
-      return { activated: 0, failed: selections.length };
-    }
-
     const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
     const productMap = new Map(products.data.map((p: any) => [p.id, p]));
 
