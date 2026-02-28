@@ -13,11 +13,31 @@ export const twilioGuide = (
 );
 
 export const stripeGuide = (
-  <ol className="list-decimal list-inside space-y-1">
-    <li>Sign up at <ExtLink href="https://dashboard.stripe.com/register">stripe.com</ExtLink></li>
-    <li>Get your keys at <ExtLink href="https://dashboard.stripe.com/apikeys">API Keys</ExtLink></li>
-    <li>Create a webhook at <ExtLink href="https://dashboard.stripe.com/webhooks">Webhooks</ExtLink> &mdash; set the endpoint to <code className="bg-gray-100 px-1 rounded text-xs">https://yourdomain.com/api/stripe/webhook</code></li>
-  </ol>
+  <div className="space-y-2">
+    <ol className="list-decimal list-inside space-y-2">
+      <li>Sign up at <ExtLink href="https://dashboard.stripe.com/register">stripe.com</ExtLink></li>
+      <li>Get your keys at <ExtLink href="https://dashboard.stripe.com/apikeys">API Keys</ExtLink></li>
+      <li>
+        Create a webhook at <ExtLink href="https://dashboard.stripe.com/webhooks">Webhooks</ExtLink>:
+        <ul className="list-disc list-inside ml-5 mt-1 text-xs text-gray-600 space-y-0.5">
+          <li>Click <strong>+ Add endpoint</strong></li>
+          <li>Endpoint URL: <code className="bg-gray-100 px-1 rounded text-xs select-all">{window.location.origin}/api/stripe/webhook</code></li>
+          <li>Listen to events from <strong>Your account</strong></li>
+          <li>API version: <strong>2026-01-28.clover</strong></li>
+          <li>Under <strong>Select events</strong>, add:
+            <div className="mt-1 ml-3 space-y-0.5">
+              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">invoice.payment_succeeded</code>
+              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">invoice.payment_failed</code>
+              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.created</code>
+              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.updated</code>
+              <code className="bg-gray-100 px-2 py-0.5 rounded text-xs block w-fit">customer.subscription.deleted</code>
+            </div>
+          </li>
+        </ul>
+      </li>
+      <li>Copy the <strong>Signing secret</strong> (starts with <code className="bg-gray-100 px-1 rounded text-xs">whsec_</code>) and paste it as the <strong>Webhook Secret</strong> below</li>
+    </ol>
+  </div>
 );
 
 export const googleOAuthGuide = (

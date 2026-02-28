@@ -202,7 +202,7 @@ export class ExpenseRepository extends BaseRepository {
 
     const where = `WHERE ${conditions.join(' AND ')}`;
     const result = await this.query(
-      `SELECT COALESCE(SUM(base_pay), 0)::numeric as total FROM route_jobs ${where}`,
+      `SELECT COALESCE(SUM(base_pay), 0)::numeric as total FROM routes ${where}`,
       params
     );
     return parseFloat(result.rows[0].total);
@@ -225,7 +225,7 @@ export class ExpenseRepository extends BaseRepository {
       ),
       dp AS (
         SELECT date_trunc('month', scheduled_date)::date as m, COALESCE(SUM(base_pay), 0) as total
-        FROM route_jobs
+        FROM routes
         WHERE status = 'completed' AND base_pay IS NOT NULL
           AND scheduled_date >= date_trunc('month', NOW()) - $1 * interval '1 month'
         GROUP BY m
