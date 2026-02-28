@@ -469,7 +469,7 @@ const AdminApp: React.FC = () => {
   }
 
   const navItems: { view: AdminView; label: string; icon: React.ReactNode; badgeKey?: string }[] = [
-    { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-5 h-5" /> },
+    { view: 'dashboard', label: 'Dashboard', icon: <ChartPieIcon className="w-5 h-5" />, badgeKey: 'dashboard' },
     { view: 'operations', label: 'Operations', icon: <TruckIcon className="w-5 h-5" />, badgeKey: 'operations' },
     { view: 'contacts', label: 'Contacts', icon: <PeopleIcon className="w-5 h-5" /> },
     { view: 'communications', label: 'Communications', icon: <ChatIcon className="w-5 h-5" />, badgeKey: 'communications' },

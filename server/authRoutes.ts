@@ -399,10 +399,19 @@ export function registerAuthRoutes(app: Express) {
               pickup_day_source: 'route_optimized',
               pickup_day_detected_at: new Date().toISOString(),
             };
-            // Auto-approve if address is in a service zone and setting is on
+            // Auto-approve if address is in a service zone, setting is on, and within thresholds
             if (process.env.PICKUP_AUTO_APPROVE === 'true') {
-              updates.service_status = 'approved';
-              updates.service_status_updated_at = new Date().toISOString();
+              const maxMiles = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MILES || '0');
+              const maxMinutes = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MINUTES || '0');
+              const insertionMinutes = (result.insertion_cost_miles / 25) * 60;
+
+              const withinMiles = maxMiles <= 0 || result.insertion_cost_miles <= maxMiles;
+              const withinMinutes = maxMinutes <= 0 || insertionMinutes <= maxMinutes;
+
+              if (withinMiles && withinMinutes) {
+                updates.service_status = 'approved';
+                updates.service_status_updated_at = new Date().toISOString();
+              }
             }
             await storage.updateProperty(property.id, updates);
             Object.assign(property, updates);

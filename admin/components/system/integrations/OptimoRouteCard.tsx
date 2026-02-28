@@ -22,6 +22,7 @@ const CUSTOM_UI_KEYS = [
   'OPTIMO_SYNC_ENABLED', 'OPTIMO_SYNC_HOUR', 'OPTIMO_SYNC_WINDOW_DAYS',
   'PICKUP_OPTIMIZATION_WINDOW_DAYS', 'PICKUP_OPTIMIZATION_METRIC',
   'PICKUP_AUTO_ASSIGN', 'PICKUP_AUTO_APPROVE',
+  'PICKUP_AUTO_APPROVE_MAX_MILES', 'PICKUP_AUTO_APPROVE_MAX_MINUTES',
 ];
 
 const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
@@ -48,6 +49,8 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
   const [optMetric, setOptMetric] = useState<'distance' | 'time' | 'both'>('distance');
   const [autoAssign, setAutoAssign] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
+  const [maxMiles, setMaxMiles] = useState('');
+  const [maxMinutes, setMaxMinutes] = useState('');
   const [savingOpt, setSavingOpt] = useState(false);
 
   useEffect(() => {
@@ -78,6 +81,12 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     if (autoApproveSetting?.value === 'true' || autoApproveSetting?.value === 'false') {
       setAutoApprove(autoApproveSetting.value === 'true');
     }
+
+    const maxMilesSetting = allSettings.find(s => s.key === 'PICKUP_AUTO_APPROVE_MAX_MILES');
+    if (maxMilesSetting?.value && maxMilesSetting.value !== '0') setMaxMiles(maxMilesSetting.value);
+
+    const maxMinutesSetting = allSettings.find(s => s.key === 'PICKUP_AUTO_APPROVE_MAX_MINUTES');
+    if (maxMinutesSetting?.value && maxMinutesSetting.value !== '0') setMaxMinutes(maxMinutesSetting.value);
   }, [allSettings]);
 
   const handleSyncToggle = async () => {
@@ -155,6 +164,34 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     const ok = await saveSetting('PICKUP_AUTO_APPROVE', String(newValue));
     if (ok) flashSuccess(`Auto-approve ${newValue ? 'enabled' : 'disabled'}`);
     else setAutoApprove(!newValue);
+    setSavingOpt(false);
+  };
+
+  const handleMaxMilesSave = async () => {
+    if (maxMiles !== '' && maxMiles !== '0') {
+      const v = parseFloat(maxMiles);
+      if (isNaN(v) || v < 0) {
+        flashError('Max distance must be a positive number or empty (no limit)');
+        return;
+      }
+    }
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_AUTO_APPROVE_MAX_MILES', maxMiles || '0');
+    if (ok) flashSuccess(maxMiles && maxMiles !== '0' ? `Max distance set to ${maxMiles} miles` : 'Max distance limit removed');
+    setSavingOpt(false);
+  };
+
+  const handleMaxMinutesSave = async () => {
+    if (maxMinutes !== '' && maxMinutes !== '0') {
+      const v = parseFloat(maxMinutes);
+      if (isNaN(v) || v < 0) {
+        flashError('Max time must be a positive number or empty (no limit)');
+        return;
+      }
+    }
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_AUTO_APPROVE_MAX_MINUTES', maxMinutes || '0');
+    if (ok) flashSuccess(maxMinutes && maxMinutes !== '0' ? `Max time set to ${maxMinutes} minutes` : 'Max time limit removed');
     setSavingOpt(false);
   };
 
@@ -258,6 +295,55 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
           <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoApprove && autoAssign ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
+
+      {/* Auto-Approve Thresholds (only shown when auto-approve is enabled) */}
+      {autoApprove && autoAssign && (
+        <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3 ml-4 border-l-4 border-l-teal-200">
+          <p className="text-xs font-bold text-gray-500">Auto-Approve Thresholds</p>
+          <p className="text-xs text-gray-400">
+            Set maximum route insertion costs for auto-approval. Leave empty or 0 for no limit.
+            If either threshold is exceeded, the address stays as pending review.
+          </p>
+          {/* Max Distance */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Max Distance Increase</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={maxMiles}
+                onChange={e => setMaxMiles(e.target.value)}
+                placeholder="No limit"
+                className="w-24 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <span className="text-xs text-gray-400">miles</span>
+              <Button size="sm" variant="secondary" onClick={handleMaxMilesSave} disabled={savingOpt}>
+                Save
+              </Button>
+            </div>
+          </div>
+          {/* Max Time */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Max Time Increase</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={maxMinutes}
+                onChange={e => setMaxMinutes(e.target.value)}
+                placeholder="No limit"
+                className="w-24 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <span className="text-xs text-gray-400">minutes</span>
+              <Button size="sm" variant="secondary" onClick={handleMaxMinutesSave} disabled={savingOpt}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Optimization Window + Metric */}
       <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3">

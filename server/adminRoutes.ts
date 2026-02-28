@@ -123,7 +123,8 @@ export function registerAdminRoutes(app: Express) {
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
       res.json({
-        operations: missedPickups + addressReviews,
+        operations: missedPickups,
+        dashboard: addressReviews,
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
         missedPickups,
         addressReviews,
@@ -133,7 +134,7 @@ export function registerAdminRoutes(app: Express) {
       });
     } catch (error) {
       console.error('Badge counts error:', error);
-      res.json({ operations: 0, communications: 0, missedPickups: 0, addressReviews: 0 });
+      res.json({ operations: 0, dashboard: 0, communications: 0, missedPickups: 0, addressReviews: 0 });
     }
   });
 
@@ -2594,6 +2595,8 @@ export function registerAdminRoutes(app: Express) {
     PICKUP_OPTIMIZATION_METRIC:      { category: 'optimoroute', isSecret: false, label: 'Optimize By (distance/time/both)', displayType: 'text' },
     PICKUP_AUTO_ASSIGN:              { category: 'optimoroute', isSecret: false, label: 'Auto-Assign Pickup Day at Signup', displayType: 'toggle' },
     PICKUP_AUTO_APPROVE:             { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Addresses in Zone', displayType: 'toggle' },
+    PICKUP_AUTO_APPROVE_MAX_MILES:   { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Distance (miles)', displayType: 'text' },
+    PICKUP_AUTO_APPROVE_MAX_MINUTES: { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Time (minutes)', displayType: 'text' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },
