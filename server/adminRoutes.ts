@@ -495,8 +495,9 @@ export function registerAdminRoutes(app: Express) {
   // Missed Pickup Reports
   app.get('/api/admin/missed-pickups', requireAdmin, async (req: Request, res: Response) => {
     try {
+      const statusParam = req.query.status as string | undefined;
       const options = {
-        status: (req.query.status as string) || undefined,
+        status: statusParam && statusParam !== 'all' ? statusParam : undefined,
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };

@@ -44,18 +44,18 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
   routes: '/admin/operations/routes',
-  actions: '/admin/operations/actions',
-  issues: '/admin/operations/actions',
-  'address-review': '/admin/operations/actions',
+  issues: '/admin/operations/issues',
+  actions: '/admin/operations/issues',
+  'address-review': '/admin/operations/issues',
 };
 
 const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
   '/admin/operations/routes': 'routes',
-  '/admin/operations/actions': 'actions',
+  '/admin/operations/issues': 'issues',
   // Backward compat: old tab paths
-  '/admin/operations/issues': 'actions',
-  '/admin/operations/address-review': 'actions',
+  '/admin/operations/actions': 'issues',
+  '/admin/operations/address-review': 'issues',
   '/admin/operations/live': 'operations',
   '/admin/operations/route-board': 'operations',
 };
@@ -613,7 +613,7 @@ const AdminApp: React.FC = () => {
               {arCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('operations', { tab: 'address-review' })}
+                  onClick={() => navigateTo('dashboard')}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-amber-200 hover:bg-amber-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -657,10 +657,10 @@ const AdminApp: React.FC = () => {
         })()}
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
+          {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedPickupsCount={badgeCounts.missedPickups || 0} addressReviewsCount={badgeCounts.addressReviews || 0} onActionResolved={refreshBadgeCounts} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedPickupsCount={badgeCounts.missedPickups || 0} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>

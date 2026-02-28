@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, StatCard } from '../ui/index.ts';
 import { Card } from '../../../components/Card.tsx';
 import {
@@ -7,12 +7,14 @@ import {
   ChartPieIcon,
   ClockIcon,
   ArrowRightIcon,
-  MapPinIcon,
-  ExclamationTriangleIcon,
   CalendarDaysIcon,
+  ExclamationTriangleIcon,
+  MapPinIcon,
 } from '../../../components/Icons.tsx';
 import ActivityFeed from '../operations/ActivityFeed.tsx';
+import AddressReviewPanel from '../operations/AddressReviewPanel.tsx';
 import type { NavFilter } from '../../../shared/types/index.ts';
+import type { MissedPickupReport } from '../../../shared/types/index.ts';
 
 interface AdminStats {
   totalUsers: number;
@@ -46,7 +48,35 @@ interface ServiceData {
   count: string;
 }
 
-const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: string; filter?: string; sort?: string; search?: string }) => void; navFilter?: NavFilter | null; onFilterConsumed?: () => void }> = ({ onNavigate, navFilter, onFilterConsumed }) => {
+type ActionSection = 'pickups' | 'addresses';
+
+const relativeAge = (dateStr: string) => {
+  const hours = Math.floor((Date.now() - new Date(dateStr).getTime()) / 3600000);
+  if (hours < 1) return 'just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const ageColor = (dateStr: string) => {
+  const hours = (Date.now() - new Date(dateStr).getTime()) / 3600000;
+  if (hours >= 72) return 'text-red-500';
+  if (hours >= 24) return 'text-orange-500';
+  return 'text-gray-400';
+};
+
+const ChevronIcon: React.FC<{ className?: string; open?: boolean }> = ({ className, open }) => (
+  <svg className={`${className} transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+  </svg>
+);
+
+const DashboardView: React.FC<{
+  onNavigate: (view: string, filter?: { tab?: string; filter?: string; sort?: string; search?: string }) => void;
+  navFilter?: NavFilter | null;
+  onFilterConsumed?: () => void;
+  onActionResolved?: () => void;
+}> = ({ onNavigate, navFilter, onFilterConsumed, onActionResolved }) => {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -58,6 +88,11 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Action Items state
+  const [expandedAction, setExpandedAction] = useState<ActionSection | null>(null);
+  const [pendingPickups, setPendingPickups] = useState<MissedPickupReport[]>([]);
+  const [pickupsLoading, setPickupsLoading] = useState(false);
+
   useEffect(() => {
     fetch('/api/admin/stats', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
@@ -65,6 +100,34 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
       .catch(console.error)
       .finally(() => setStatsLoading(false));
   }, []);
+
+  // Fetch pending missed pickups for the action items mini-list
+  const fetchPendingPickups = useCallback(async () => {
+    setPickupsLoading(true);
+    try {
+      const res = await fetch('/api/admin/missed-pickups?status=pending&limit=10', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setPendingPickups(data.reports || []);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setPickupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPendingPickups();
+  }, [fetchPendingPickups]);
+
+  // Auto-expand the first action section that has items
+  useEffect(() => {
+    if (stats && expandedAction === null) {
+      if (stats.pendingMissedPickups > 0) setExpandedAction('pickups');
+      else if (stats.pendingReviews > 0) setExpandedAction('addresses');
+    }
+  }, [stats, expandedAction]);
 
   useEffect(() => {
     if (navFilter?.tab) {
@@ -142,9 +205,23 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
     fetchSignupTrends(days);
   };
 
+  const handleActionResolved = useCallback(() => {
+    onActionResolved?.();
+    fetchPendingPickups();
+    // Re-fetch stats to update counts
+    fetch('/api/admin/stats', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setStats(data); })
+      .catch(() => {});
+  }, [onActionResolved, fetchPendingPickups]);
+
   useEffect(() => {
     fetchSignupTrends(signupDays);
   }, []);
+
+  const toggleAction = (section: ActionSection) => {
+    setExpandedAction(prev => prev === section ? null : section);
+  };
 
   const SignupTrendsChart = () => {
     if (loading) return <LoadingSpinner />;
@@ -357,6 +434,9 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
 
   if (statsLoading) return <LoadingSpinner />;
 
+  const actionTotal = (stats?.pendingMissedPickups || 0) + (stats?.pendingReviews || 0);
+  const hasActions = actionTotal > 0;
+
   return (
     <div className="space-y-8">
       {stats ? (
@@ -370,8 +450,6 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('accounting', { tab: 'income' })} />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Missed Pickups" value={stats.pendingMissedPickups} icon={<ExclamationTriangleIcon className="w-8 h-8" />} accent={stats.pendingMissedPickups > 0 ? 'text-red-500' : undefined} onClick={() => onNavigate('operations', { tab: 'issues' })} />
-            <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('operations', { tab: 'address-review' })} />
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
@@ -380,6 +458,99 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
         </div>
       ) : (
         <p className="text-gray-400">Failed to load stats</p>
+      )}
+
+      {/* Action Items */}
+      {hasActions && (
+        <Card className="overflow-hidden">
+          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
+            <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide">Action Items</h3>
+            <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full text-xs font-black text-white bg-red-500">
+              {actionTotal}
+            </span>
+          </div>
+
+          <div className="divide-y divide-gray-100">
+            {/* Missed Pickups accordion */}
+            {(stats?.pendingMissedPickups || 0) > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => toggleAction('pickups')}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <ExclamationTriangleIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
+                  <span className="text-sm font-bold text-gray-900 flex-1 text-left">Missed Pickups</span>
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black bg-red-100 text-red-700">
+                    {stats!.pendingMissedPickups}
+                  </span>
+                  <ChevronIcon className="w-4 h-4 text-gray-400" open={expandedAction === 'pickups'} />
+                </button>
+                {expandedAction === 'pickups' && (
+                  <div className="px-5 pb-4">
+                    {pickupsLoading ? (
+                      <LoadingSpinner />
+                    ) : pendingPickups.length === 0 ? (
+                      <p className="text-sm text-gray-400 py-2">No pending missed pickups</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {pendingPickups.map(report => (
+                          <button
+                            key={report.id}
+                            type="button"
+                            onClick={() => onNavigate('operations', { tab: 'issues' })}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-50 transition-colors text-left group"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate group-hover:text-red-700">{report.customerName}</p>
+                              <p className="text-xs text-gray-500 truncate">{report.address}</p>
+                            </div>
+                            <span className={`text-xs font-bold whitespace-nowrap ${ageColor(report.createdAt)}`}>
+                              {relativeAge(report.createdAt)}
+                            </span>
+                            <svg className="w-4 h-4 text-gray-300 group-hover:text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                            </svg>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('operations', { tab: 'issues' })}
+                          className="w-full text-center text-xs font-bold text-red-600 hover:text-red-800 py-2 transition-colors"
+                        >
+                          View all in Operations &rarr;
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Address Review accordion */}
+            {(stats?.pendingReviews || 0) > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => toggleAction('addresses')}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <MapPinIcon className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                  <span className="text-sm font-bold text-gray-900 flex-1 text-left">Address Review</span>
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700">
+                    {stats!.pendingReviews}
+                  </span>
+                  <ChevronIcon className="w-4 h-4 text-gray-400" open={expandedAction === 'addresses'} />
+                </button>
+                {expandedAction === 'addresses' && (
+                  <div className="px-5 pb-4">
+                    <AddressReviewPanel onActionResolved={handleActionResolved} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
       )}
 
       <div className="space-y-6">
