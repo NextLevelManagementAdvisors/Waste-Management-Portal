@@ -18,7 +18,11 @@ interface OptimoRouteCardProps {
   flashError: (msg: string) => void;
 }
 
-const SYNC_KEYS = ['OPTIMO_SYNC_ENABLED', 'OPTIMO_SYNC_HOUR', 'OPTIMO_SYNC_WINDOW_DAYS'];
+const CUSTOM_UI_KEYS = [
+  'OPTIMO_SYNC_ENABLED', 'OPTIMO_SYNC_HOUR', 'OPTIMO_SYNC_WINDOW_DAYS',
+  'PICKUP_OPTIMIZATION_WINDOW_DAYS', 'PICKUP_OPTIMIZATION_METRIC',
+  'PICKUP_AUTO_ASSIGN', 'PICKUP_AUTO_APPROVE',
+];
 
 const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
   settings,
@@ -39,6 +43,13 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
   const [syncWindow, setSyncWindow] = useState('28');
   const [savingSync, setSavingSync] = useState(false);
 
+  // Optimization settings
+  const [optWindowDays, setOptWindowDays] = useState('7');
+  const [optMetric, setOptMetric] = useState<'distance' | 'time' | 'both'>('distance');
+  const [autoAssign, setAutoAssign] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [savingOpt, setSavingOpt] = useState(false);
+
   useEffect(() => {
     const enabledSetting = allSettings.find(s => s.key === 'OPTIMO_SYNC_ENABLED');
     if (enabledSetting?.value === 'true' || enabledSetting?.value === 'false') {
@@ -48,6 +59,25 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     if (hourSetting?.value) setSyncHour(hourSetting.value);
     const windowSetting = allSettings.find(s => s.key === 'OPTIMO_SYNC_WINDOW_DAYS');
     if (windowSetting?.value) setSyncWindow(windowSetting.value);
+
+    // Optimization settings
+    const optWindow = allSettings.find(s => s.key === 'PICKUP_OPTIMIZATION_WINDOW_DAYS');
+    if (optWindow?.value) setOptWindowDays(optWindow.value);
+
+    const metric = allSettings.find(s => s.key === 'PICKUP_OPTIMIZATION_METRIC');
+    if (metric?.value && ['distance', 'time', 'both'].includes(metric.value)) {
+      setOptMetric(metric.value as 'distance' | 'time' | 'both');
+    }
+
+    const autoAssignSetting = allSettings.find(s => s.key === 'PICKUP_AUTO_ASSIGN');
+    if (autoAssignSetting?.value === 'true' || autoAssignSetting?.value === 'false') {
+      setAutoAssign(autoAssignSetting.value === 'true');
+    }
+
+    const autoApproveSetting = allSettings.find(s => s.key === 'PICKUP_AUTO_APPROVE');
+    if (autoApproveSetting?.value === 'true' || autoApproveSetting?.value === 'false') {
+      setAutoApprove(autoApproveSetting.value === 'true');
+    }
   }, [allSettings]);
 
   const handleSyncToggle = async () => {
@@ -84,8 +114,52 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     setSavingSync(false);
   };
 
-  // Standard settings (API key) — exclude sync settings that have custom UI
-  const standardSettings = settings.filter(s => !SYNC_KEYS.includes(s.key));
+  // --- Optimization handlers ---
+
+  const handleOptWindowSave = async () => {
+    const w = parseInt(optWindowDays, 10);
+    if (isNaN(w) || w < 1 || w > 90) {
+      flashError('Optimization window must be 1\u201390 days');
+      return;
+    }
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_OPTIMIZATION_WINDOW_DAYS', String(w));
+    if (ok) flashSuccess('Optimization window updated');
+    setSavingOpt(false);
+  };
+
+  const handleOptMetricSave = async (value: 'distance' | 'time' | 'both') => {
+    const prev = optMetric;
+    setOptMetric(value);
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_OPTIMIZATION_METRIC', value);
+    if (ok) flashSuccess('Optimization metric updated');
+    else setOptMetric(prev);
+    setSavingOpt(false);
+  };
+
+  const handleAutoAssignToggle = async () => {
+    const newValue = !autoAssign;
+    setAutoAssign(newValue);
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_AUTO_ASSIGN', String(newValue));
+    if (ok) flashSuccess(`Auto-assign pickup day ${newValue ? 'enabled' : 'disabled'}`);
+    else setAutoAssign(!newValue);
+    setSavingOpt(false);
+  };
+
+  const handleAutoApproveToggle = async () => {
+    const newValue = !autoApprove;
+    setAutoApprove(newValue);
+    setSavingOpt(true);
+    const ok = await saveSetting('PICKUP_AUTO_APPROVE', String(newValue));
+    if (ok) flashSuccess(`Auto-approve ${newValue ? 'enabled' : 'disabled'}`);
+    else setAutoApprove(!newValue);
+    setSavingOpt(false);
+  };
+
+  // Standard settings (API key) — exclude settings that have custom UI
+  const standardSettings = settings.filter(s => !CUSTOM_UI_KEYS.includes(s.key));
 
   return (
     <div className="space-y-3">
@@ -140,6 +214,98 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
             <Button size="sm" variant="secondary" onClick={handleSyncWindowSave} disabled={savingSync}>
               Save
             </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Pickup Day Optimization ── */}
+      <div className="flex items-center gap-2 pt-2 pb-1">
+        <div className="h-px flex-1 bg-gray-200" />
+        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Pickup Day Optimization</span>
+        <div className="h-px flex-1 bg-gray-200" />
+      </div>
+
+      {/* Auto-Assign Toggle */}
+      <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <div>
+          <p className="text-sm font-bold text-gray-800">Auto-Assign Pickup Day</p>
+          <p className="text-xs text-gray-500">Automatically determine the optimal pickup day when a customer signs up</p>
+        </div>
+        <button
+          type="button"
+          title={autoAssign ? 'Disable auto-assign' : 'Enable auto-assign'}
+          onClick={handleAutoAssignToggle}
+          disabled={savingOpt}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${autoAssign ? 'bg-teal-600' : 'bg-gray-200'}`}
+        >
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoAssign ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
+      {/* Auto-Approve Toggle */}
+      <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <div>
+          <p className="text-sm font-bold text-gray-800">Auto-Approve Addresses in Zone</p>
+          <p className="text-xs text-gray-500">Automatically approve new addresses that fall within a recognized service zone</p>
+        </div>
+        <button
+          type="button"
+          title={autoApprove ? 'Disable auto-approve' : 'Enable auto-approve'}
+          onClick={handleAutoApproveToggle}
+          disabled={savingOpt || !autoAssign}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${autoApprove && autoAssign ? 'bg-teal-600' : 'bg-gray-200'}`}
+        >
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoApprove && autoAssign ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
+      {/* Optimization Window + Metric */}
+      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+        {/* Window Days */}
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">Route History Window</label>
+          <p className="text-xs text-gray-400 mb-1.5">How many days of past route data to analyze when calculating optimal pickup days</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={90}
+              value={optWindowDays}
+              onChange={e => setOptWindowDays(e.target.value)}
+              className="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            <span className="text-xs text-gray-400">days</span>
+            <Button size="sm" variant="secondary" onClick={handleOptWindowSave} disabled={savingOpt}>
+              Save
+            </Button>
+          </div>
+        </div>
+
+        {/* Optimization Metric */}
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">Optimization Metric</label>
+          <p className="text-xs text-gray-400 mb-1.5">Which factor to prioritize when choosing the best pickup day</p>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { value: 'distance' as const, label: 'Distance', desc: 'Minimize extra miles' },
+              { value: 'time' as const, label: 'Time', desc: 'Minimize travel time' },
+              { value: 'both' as const, label: 'Both', desc: 'Balance distance & time' },
+            ]).map(option => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleOptMetricSave(option.value)}
+                disabled={savingOpt}
+                className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-50 ${
+                  optMetric === option.value
+                    ? 'bg-teal-50 border-teal-300 text-teal-700'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <span className="block">{option.label}</span>
+                <span className="block text-[10px] font-normal opacity-70">{option.desc}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
