@@ -28,6 +28,9 @@ vi.mock('../storage', () => ({
     markResetTokenUsed: vi.fn(),
     getPropertyById: vi.fn(),
     createProperty: vi.fn(),
+    findPropertyByAddress: vi.fn(),
+    deleteProperty: vi.fn(),
+    getPendingSelections: vi.fn(),
     updateProperty: vi.fn(),
     createMissedPickupReport: vi.fn(),
     getMissedPickupReports: vi.fn(),
@@ -77,6 +80,15 @@ vi.mock('../notificationService', () => ({
 
 vi.mock('../optimoRouteClient', () => ({
   createOrder: vi.fn(),
+}));
+
+vi.mock('../slackNotifier', () => ({
+  notifyNewAddressReview: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../routeSuggestionService', () => ({
+  geocodeAddress: vi.fn().mockResolvedValue(null),
+  findNearestZone: vi.fn().mockResolvedValue(null),
 }));
 
 // ---------------------------------------------------------------------------

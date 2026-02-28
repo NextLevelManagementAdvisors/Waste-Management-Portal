@@ -1,5 +1,6 @@
 import { storage, DbPendingSelection } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
+import * as optimoRoute from './optimoRouteClient';
 
 interface ActivateOptions {
   /** Identifies the caller for audit logging: 'auto_approval' | 'admin_approval' | 'bulk_approval' | 'deferred_activation' */
@@ -29,7 +30,7 @@ export async function activatePendingSelections(
   propertyId: string,
   userId: string,
   options: ActivateOptions = {},
-): Promise<{ activated: number; failed: number }> {
+): Promise<{ activated: number; failed: number; rentalDeliveries: number }> {
   const { source = 'unknown', preloadedSelections } = options;
 
   // Validate user BEFORE claiming (deleting) rows — prevents data loss
@@ -50,17 +51,18 @@ export async function activatePendingSelections(
         console.error('activatePendingSelections: failed to restore preloaded selections:', restoreErr);
       }
     }
-    return { activated: 0, failed: preloadedSelections?.length ?? 0 };
+    return { activated: 0, failed: preloadedSelections?.length ?? 0, rentalDeliveries: 0 };
   }
 
   // Atomic claim: DELETE...RETURNING ensures only one concurrent caller gets the rows
   const selections = preloadedSelections ?? await storage.claimPendingSelections(propertyId);
   if (selections.length === 0) {
-    return { activated: 0, failed: 0 };
+    return { activated: 0, failed: 0, rentalDeliveries: 0 };
   }
 
   let activated = 0;
   let failed = 0;
+  const rentalDeliveries: string[] = []; // Track rental equipment for delivery scheduling
 
   try {
     const products = await stripe.products.list({ limit: 100, active: true, expand: ['data.default_price'] });
@@ -70,16 +72,20 @@ export async function activatePendingSelections(
       try {
         const product = productMap.get(sel.service_id);
         if (product?.default_price?.id) {
+          const equipmentType = sel.use_sticker ? 'own_can' : 'rental';
           await stripe.subscriptions.create({
             customer: user.stripe_customer_id,
             items: [{ price: product.default_price.id, quantity: sel.quantity }],
             metadata: {
               propertyId,
-              equipmentType: sel.use_sticker ? 'own_can' : 'rental',
+              equipmentType,
             },
             payment_behavior: 'allow_incomplete',
           });
           activated++;
+          if (equipmentType === 'rental') {
+            rentalDeliveries.push(product.name || sel.service_id);
+          }
         } else {
           console.error(`activatePendingSelections: no default price for product ${sel.service_id}`);
           failed++;
@@ -94,6 +100,31 @@ export async function activatePendingSelections(
     failed = selections.length;
   }
 
+  // Schedule equipment delivery orders for rental subscriptions
+  if (rentalDeliveries.length > 0 && process.env.OPTIMOROUTE_API_KEY) {
+    try {
+      const property = await storage.getPropertyById(propertyId);
+      if (property) {
+        const deliveryDate = new Date();
+        deliveryDate.setDate(deliveryDate.getDate() + 3); // Target 3 days out
+        const dateStr = deliveryDate.toISOString().split('T')[0];
+
+        await optimoRoute.createOrder({
+          orderNo: `DEL-${propertyId.slice(0, 8)}-${Date.now()}`,
+          type: 'D',
+          date: dateStr,
+          address: property.address,
+          locationName: `${user.first_name} ${user.last_name}`,
+          duration: 10,
+          notes: `Equipment delivery: ${rentalDeliveries.join(', ')}`,
+        });
+        console.log(`[EquipmentDelivery] Scheduled delivery for property ${propertyId} on ${dateStr}`);
+      }
+    } catch (err) {
+      console.error('[EquipmentDelivery] Failed to schedule delivery order (non-blocking):', err);
+    }
+  }
+
   // Audit trail
   try {
     await storage.createAuditLog(userId, 'subscriptions_activated', 'property', propertyId, {
@@ -102,10 +133,11 @@ export async function activatePendingSelections(
       activated,
       failed,
       totalSelections: selections.length,
+      rentalDeliveries: rentalDeliveries.length,
     });
   } catch (err) {
     console.error('activatePendingSelections: audit log failed:', err);
   }
 
-  return { activated, failed };
+  return { activated, failed, rentalDeliveries: rentalDeliveries.length };
 }

@@ -35,7 +35,7 @@ function getTabFromUrl(): string {
 }
 
 const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
-    const { properties, selectedProperty, postNavAction, setCurrentView } = useProperty();
+    const { properties, selectedProperty, postNavAction, setCurrentView, refreshUser } = useProperty();
     const [activeTab, setActiveTabRaw] = useState(getTabFromUrl);
 
     const setActiveTab = useCallback((tab: string) => {
@@ -170,7 +170,11 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     if (!selectedProperty) {
         return (
             <div className="animate-in fade-in duration-500">
-                <PropertyManagement onAddProperty={() => setShowSetupWizard(true)} />
+                <PropertyManagement
+                    onAddProperty={() => setShowSetupWizard(true)}
+                    onResumeSetup={() => setShowSetupWizard(true)}
+                    onPropertyRemoved={() => refreshUser()}
+                />
             </div>
         );
     }
@@ -213,8 +217,24 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
         }
     }
 
+    const pastDueSubs = allSubscriptions.filter(s => s.status === 'past_due');
+
     return (
         <div className="animate-in fade-in duration-500">
+            {pastDueSubs.length > 0 && (
+                <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-4 flex items-start gap-3">
+                    <span className="text-red-500 text-lg mt-0.5">&#9888;</span>
+                    <div>
+                        <p className="font-bold text-red-800 text-sm">Payment Issue</p>
+                        <p className="text-red-700 text-sm mt-0.5">
+                            {pastDueSubs.length === 1
+                                ? 'One of your subscriptions has a payment issue.'
+                                : `${pastDueSubs.length} subscriptions have payment issues.`}
+                            {' '}Please update your payment method to avoid service interruption.
+                        </p>
+                    </div>
+                </div>
+            )}
             <div className="bg-white rounded-[1.5rem] shadow-lg">
                 <TabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
                 <div>

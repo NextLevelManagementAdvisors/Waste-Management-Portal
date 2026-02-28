@@ -6,6 +6,7 @@ interface PendingProperty {
   id: string;
   address: string;
   serviceType: string;
+  serviceStatus: string;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -123,7 +124,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     }
   };
 
-  const bulkDecision = async (decision: 'approved' | 'denied') => {
+  const bulkDecision = async (decision: 'approved' | 'denied' | 'waitlist') => {
     if (selected.size === 0) return;
     setBulkProcessing(true);
     try {
@@ -171,7 +172,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     }
   };
 
-  const submitDecision = async (propertyId: string, decision: 'approved' | 'denied', notes?: string) => {
+  const submitDecision = async (propertyId: string, decision: 'approved' | 'denied' | 'waitlist', notes?: string) => {
     setSavingId(propertyId);
     try {
       const res = await fetch(`/api/admin/address-reviews/${propertyId}/decision`, {
@@ -236,6 +237,13 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
               {bulkProcessing ? 'Processing...' : 'Approve All'}
             </button>
             <button
+              onClick={() => bulkDecision('waitlist')}
+              disabled={bulkProcessing}
+              className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              Waitlist All
+            </button>
+            <button
               onClick={() => bulkDecision('denied')}
               disabled={bulkProcessing}
               className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
@@ -259,6 +267,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                 />
               </th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Address</th>
+              <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Status</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Customer</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Type</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 text-left">Submitted</th>
@@ -289,6 +298,13 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                     <td className="px-4 py-3">
                       <p className="font-bold text-gray-900 max-w-[250px] truncate">{prop.address}</p>
                       {prop.notes && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[250px]">{prop.notes}</p>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {prop.serviceStatus === 'waitlist' ? (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Waitlisted</span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-bold text-gray-900">{prop.customerName}</p>
@@ -349,6 +365,13 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                           {isSaving && savingId === prop.id ? 'Approving...' : 'Approve'}
                         </button>
                         <button
+                          onClick={() => submitDecision(prop.id, 'waitlist')}
+                          disabled={savingId !== null}
+                          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          Waitlist
+                        </button>
+                        <button
                           onClick={() => { setDenyingId(isDenying ? null : prop.id); setDenyNotes(''); }}
                           disabled={savingId !== null}
                           className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
@@ -360,7 +383,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                   </tr>
                   {isDenying && (
                     <tr className="bg-red-50">
-                      <td colSpan={8} className="px-4 py-3">
+                      <td colSpan={9} className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <input
                             type="text"

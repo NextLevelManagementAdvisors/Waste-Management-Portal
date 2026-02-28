@@ -179,6 +179,9 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     const [availableServices, setAvailableServices] = useState<Service[]>([]);
     const [selectedServices, setSelectedServices] = useState<ServiceSelection[]>([]);
 
+    // Service area check
+    const [serviceAreaWarning, setServiceAreaWarning] = useState<string | null>(null);
+
     // Payment state
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loadingMethods, setLoadingMethods] = useState(false);
@@ -446,6 +449,26 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         const inputClass = "w-full bg-gray-100 border border-gray-200 shadow-inner rounded-lg px-4 py-3 font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
         const nextLabel = isOneTime ? 'Choose Services' : 'Property Details';
 
+        const handleAddressNext = async () => {
+            setServiceAreaWarning(null);
+            const fullAddress = [formData.street, formData.city, formData.state, formData.zip].filter(Boolean).join(', ');
+            try {
+                const resp = await fetch('/api/check-service-area', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ address: fullAddress }),
+                });
+                const data = await resp.json();
+                if (!data.serviceable) {
+                    setServiceAreaWarning('This address may be outside our current service area. You can still submit for review, but approval is not guaranteed.');
+                }
+            } catch {
+                // Don't block on network errors
+            }
+            handleNext();
+        };
+
         return (
             <div className="space-y-6 animate-in fade-in duration-300">
                 <div>
@@ -472,7 +495,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                     <Button
                         type="button"
                         className="flex-grow rounded-lg py-3 px-6 shadow-lg shadow-primary/30 text-center"
-                        onClick={handleNext}
+                        onClick={handleAddressNext}
                         disabled={!canProceed}>
                         <div className="leading-tight">
                             <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
@@ -761,6 +784,12 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             </div>
 
             {step > 0 && <StepIndicator currentStep={step} totalSteps={totalSteps} />}
+
+            {serviceAreaWarning && step > 1 && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 max-w-3xl mx-auto">
+                    <span className="font-bold">Note:</span> {serviceAreaWarning}
+                </div>
+            )}
 
             {showSummary ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

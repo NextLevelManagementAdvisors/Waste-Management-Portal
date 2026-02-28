@@ -18,6 +18,7 @@ import type { DbPendingSelection } from '../storage';
 vi.mock('../storage', () => ({
   storage: {
     getUserById: vi.fn(),
+    getPropertyById: vi.fn(),
     claimPendingSelections: vi.fn(),
     savePendingSelections: vi.fn(),
     createAuditLog: vi.fn(),
@@ -28,6 +29,10 @@ vi.mock('../stripeClient', () => ({
   getUncachableStripeClient: vi.fn(),
 }));
 
+vi.mock('../optimoRouteClient', () => ({
+  createOrder: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -35,6 +40,8 @@ const userWithStripe = {
   id: 'user-1',
   stripe_customer_id: 'cus_test123',
   email: 'test@example.com',
+  first_name: 'Test',
+  last_name: 'User',
 };
 
 const userWithoutStripe = {
@@ -81,7 +88,7 @@ describe('activatePendingSelections', () => {
   it('claims selections, creates Stripe subscriptions, and logs audit trail', async () => {
     const result = await activatePendingSelections('prop-1', 'user-1', { source: 'auto_approval' });
 
-    expect(result).toEqual({ activated: 2, failed: 0 });
+    expect(result).toEqual({ activated: 2, failed: 0, rentalDeliveries: 1 });
 
     // Should claim atomically
     expect(storage.claimPendingSelections).toHaveBeenCalledWith('prop-1');
@@ -111,7 +118,7 @@ describe('activatePendingSelections', () => {
 
     const result = await activatePendingSelections('prop-1', 'user-1');
 
-    expect(result).toEqual({ activated: 0, failed: 0 });
+    expect(result).toEqual({ activated: 0, failed: 0, rentalDeliveries: 0 });
     expect(storage.claimPendingSelections).not.toHaveBeenCalled();
     expect(mockStripe.subscriptions.create).not.toHaveBeenCalled();
   });
@@ -124,7 +131,7 @@ describe('activatePendingSelections', () => {
       preloadedSelections: dbSelections,
     });
 
-    expect(result).toEqual({ activated: 0, failed: 2 });
+    expect(result).toEqual({ activated: 0, failed: 2, rentalDeliveries: 0 });
     expect(storage.claimPendingSelections).not.toHaveBeenCalled();
 
     // Should restore the preloaded selections back to DB
@@ -139,7 +146,7 @@ describe('activatePendingSelections', () => {
 
     const result = await activatePendingSelections('prop-1', 'user-1');
 
-    expect(result).toEqual({ activated: 0, failed: 0 });
+    expect(result).toEqual({ activated: 0, failed: 0, rentalDeliveries: 0 });
     expect(mockStripe.subscriptions.create).not.toHaveBeenCalled();
     expect(storage.createAuditLog).not.toHaveBeenCalled();
   });
@@ -154,7 +161,7 @@ describe('activatePendingSelections', () => {
 
     const result = await activatePendingSelections('prop-1', 'user-1', { source: 'admin_approval' });
 
-    expect(result).toEqual({ activated: 1, failed: 1 });
+    expect(result).toEqual({ activated: 1, failed: 1, rentalDeliveries: 1 });
     expect(mockStripe.subscriptions.create).toHaveBeenCalledTimes(1);
 
     // Audit should reflect partial success
@@ -170,7 +177,7 @@ describe('activatePendingSelections', () => {
       preloadedSelections: dbSelections,
     });
 
-    expect(result).toEqual({ activated: 2, failed: 0 });
+    expect(result).toEqual({ activated: 2, failed: 0, rentalDeliveries: 1 });
     expect(storage.claimPendingSelections).not.toHaveBeenCalled();
     expect(mockStripe.subscriptions.create).toHaveBeenCalledTimes(2);
   });
@@ -180,7 +187,7 @@ describe('activatePendingSelections', () => {
 
     const result = await activatePendingSelections('prop-1', 'user-1');
 
-    expect(result).toEqual({ activated: 0, failed: 2 });
+    expect(result).toEqual({ activated: 0, failed: 2, rentalDeliveries: 0 });
 
     // Audit trail should still fire
     expect(storage.createAuditLog).toHaveBeenCalledWith(

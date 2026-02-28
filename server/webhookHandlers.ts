@@ -29,36 +29,66 @@ export class WebhookHandlers {
     }
   }
 
-  /** Dispatch customer-facing notifications based on Stripe event type */
-  private static async handleNotifications(event: any): Promise<void> {
-    const invoice = event?.data?.object;
-    if (!invoice?.customer) return;
-
-    // Look up internal user by Stripe customer ID
+  /** Look up internal user by Stripe customer ID */
+  private static async findUserByCustomer(customerId: string): Promise<string | null> {
     const userResult = await pool.query(
       'SELECT id FROM users WHERE stripe_customer_id = $1',
-      [invoice.customer]
+      [customerId]
     );
-    const userId = userResult.rows[0]?.id;
+    return userResult.rows[0]?.id ?? null;
+  }
+
+  /** Dispatch customer-facing notifications based on Stripe event type */
+  private static async handleNotifications(event: any): Promise<void> {
+    const obj = event?.data?.object;
+    if (!obj?.customer) return;
+
+    const userId = await WebhookHandlers.findUserByCustomer(obj.customer);
     if (!userId) return;
 
     switch (event.type) {
       case 'invoice.payment_succeeded': {
-        if (invoice.amount_paid > 0) {
-          const amount = invoice.amount_paid / 100;
-          sendPaymentConfirmation(userId, amount, invoice.number || invoice.id).catch(err => {
+        if (obj.amount_paid > 0) {
+          const amount = obj.amount_paid / 100;
+          sendPaymentConfirmation(userId, amount, obj.number || obj.id).catch(err => {
             console.error('Failed to send payment confirmation:', err);
           });
         }
         break;
       }
       case 'invoice.payment_failed': {
-        const amount = (invoice.amount_due || 0) / 100;
-        const dueDate = invoice.due_date
-          ? new Date(invoice.due_date * 1000).toLocaleDateString()
+        const amount = (obj.amount_due || 0) / 100;
+        const dueDate = obj.due_date
+          ? new Date(obj.due_date * 1000).toLocaleDateString()
           : 'Immediately';
-        sendBillingAlert(userId, invoice.number || invoice.id, amount, dueDate).catch(err => {
+        sendBillingAlert(userId, obj.number || obj.id, amount, dueDate).catch(err => {
           console.error('Failed to send billing alert:', err);
+        });
+        break;
+      }
+      case 'customer.subscription.updated': {
+        // When a subscription goes past_due after failed retries
+        if (obj.status === 'past_due') {
+          sendBillingAlert(
+            userId,
+            obj.id,
+            (obj.items?.data?.[0]?.price?.unit_amount || 0) / 100,
+            'Payment overdue — service at risk',
+          ).catch(err => {
+            console.error('Failed to send past_due alert:', err);
+          });
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        // Subscription canceled (by dunning or manually)
+        sendBillingAlert(
+          userId,
+          obj.id,
+          0,
+          'Subscription canceled due to payment failure. Please update your payment method to restore service.',
+        ).catch(err => {
+          console.error('Failed to send subscription canceled alert:', err);
         });
         break;
       }

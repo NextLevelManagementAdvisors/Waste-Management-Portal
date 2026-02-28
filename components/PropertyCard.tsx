@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Property } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { getNextPickupInfo, PickupInfo } from '../services/optimoRouteService.ts';
-import { getPendingSelections, getServices } from '../services/apiService.ts';
+import { getPendingSelections, getServices, deleteOrphanedProperty } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { ArrowRightIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, CalendarDaysIcon, ClockIcon } from './Icons.tsx';
@@ -16,15 +16,17 @@ const statusConfig = {
     canceled: { icon: <XCircleIcon className="w-4 h-4" />, text: 'Canceled', color: 'text-red-500', bg: 'bg-red-50' },
 };
 
-const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) => {
+const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (propertyId: string) => void; onPropertyRemoved?: () => void }> = ({ property, onResumeSetup, onPropertyRemoved }) => {
     const { setSelectedPropertyId } = useProperty();
     const [pickupInfo, setPickupInfo] = useState<PickupInfo | null>(null);
     const [loadingPickup, setLoadingPickup] = useState(true);
     const [pendingServiceNames, setPendingServiceNames] = useState<string[]>([]);
+    const [selectionsLoaded, setSelectionsLoaded] = useState(false);
 
     const isPending = property.serviceStatus === 'pending_review';
     const isDenied = property.serviceStatus === 'denied';
-    const isReviewBlocked = isPending || isDenied;
+    const isWaitlist = property.serviceStatus === 'waitlist';
+    const isReviewBlocked = isPending || isDenied || isWaitlist;
 
     useEffect(() => {
         if (isReviewBlocked) {
@@ -38,9 +40,9 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
         });
     }, [property.address, isReviewBlocked]);
 
-    // Load pending service selections for pending_review properties
+    // Load pending service selections for pending_review and waitlist properties
     useEffect(() => {
-        if (!isPending) return;
+        if (!isPending && !isWaitlist) return;
         Promise.all([getPendingSelections(property.id), getServices()]).then(([selections, services]) => {
             const names = selections
                 .map(sel => {
@@ -49,8 +51,9 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
                 })
                 .filter(Boolean) as string[];
             setPendingServiceNames(names);
-        }).catch(() => {});
-    }, [isPending, property.id]);
+            setSelectionsLoaded(true);
+        }).catch(() => { setSelectionsLoaded(true); });
+    }, [isPending, isWaitlist, property.id]);
 
     const config = statusConfig[property.status];
 
@@ -64,6 +67,11 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
                     <div className="px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full flex items-center gap-2 shrink-0">
                         <ClockIcon className="w-4 h-4" />
                         <span className="text-[10px] font-black uppercase tracking-widest">Under Review</span>
+                    </div>
+                ) : isWaitlist ? (
+                    <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full flex items-center gap-2 shrink-0">
+                        <ClockIcon className="w-4 h-4" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Waiting List</span>
                     </div>
                 ) : isDenied ? (
                     <div className="px-3 py-1 bg-red-50 text-red-500 rounded-full flex items-center gap-2 shrink-0">
@@ -80,30 +88,66 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus }> = ({ property }) 
 
             {isReviewBlocked ? (
                 <>
-                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-4">
-                        <p className="text-sm font-bold text-gray-500">
-                            {isPending
-                                ? "We're checking if we can service this address. You'll be notified when it's confirmed."
-                                : "Unfortunately, this address is outside our current service area."}
-                        </p>
-                    </div>
-                    {isPending && pendingServiceNames.length > 0 && (
-                        <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100 mb-6">
-                            <p className="text-[10px] font-black text-yellow-600 uppercase tracking-widest mb-1">Pending Services</p>
+                    {isPending && selectionsLoaded && pendingServiceNames.length === 0 ? (
+                        // Orphaned property: created but wizard was abandoned before selecting services
+                        <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 mb-4">
+                            <p className="text-sm font-bold text-amber-800 mb-1">Incomplete Setup</p>
+                            <p className="text-sm text-amber-700">You started adding this address but didn't finish selecting services. Would you like to continue?</p>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                            <p className="text-sm font-bold text-gray-500">
+                                {isPending
+                                    ? "We're reviewing your address and will notify you within 24 hours. You'll receive an email once confirmed."
+                                    : isWaitlist
+                                    ? "This address is not yet in our service area. We'll notify you when service becomes available. Your service selections have been saved."
+                                    : "Unfortunately, this address is outside our current service area."}
+                            </p>
+                        </div>
+                    )}
+                    {(isPending || isWaitlist) && pendingServiceNames.length > 0 && (
+                        <div className={`p-3 ${isWaitlist ? 'bg-blue-50 border-blue-100' : 'bg-yellow-50 border-yellow-100'} rounded-lg border mb-6`}>
+                            <p className={`text-[10px] font-black ${isWaitlist ? 'text-blue-600' : 'text-yellow-600'} uppercase tracking-widest mb-1`}>
+                                {isWaitlist ? 'Saved Services' : 'Pending Services'}
+                            </p>
                             <p className="text-xs text-gray-600 font-medium">{pendingServiceNames.join(', ')}</p>
                             <p className="text-[10px] text-gray-400 mt-1">Billing starts after approval</p>
                         </div>
                     )}
-                    {!isPending && <div className="mb-6" />}
-                    <div className="flex items-center justify-end border-t border-base-100 pt-4 mt-auto">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest opacity-50 cursor-not-allowed"
-                            disabled
-                        >
-                            {isPending ? 'Pending Review' : 'Not Available'}
-                        </Button>
+                    {!isPending && !isWaitlist && <div className="mb-6" />}
+                    <div className="flex items-center justify-end border-t border-base-100 pt-4 mt-auto gap-2">
+                        {isPending && selectionsLoaded && pendingServiceNames.length === 0 ? (
+                            <>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
+                                    onClick={async () => {
+                                        await deleteOrphanedProperty(property.id);
+                                        onPropertyRemoved?.();
+                                    }}
+                                >
+                                    Remove
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    size="sm"
+                                    className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
+                                    onClick={() => onResumeSetup?.(property.id)}
+                                >
+                                    Continue Setup
+                                </Button>
+                            </>
+                        ) : (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest opacity-50 cursor-not-allowed"
+                                disabled
+                            >
+                                {isPending ? 'Pending Review' : isWaitlist ? 'On Waiting List' : 'Not Available'}
+                            </Button>
+                        )}
                     </div>
                 </>
             ) : (

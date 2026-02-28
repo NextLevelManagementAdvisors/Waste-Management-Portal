@@ -14,6 +14,8 @@ import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationS
 import { findOptimalPickupDay } from './pickupDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { runFeasibilityAndApprove } from './feasibilityCheck';
+import { geocodeAddress, findNearestZone } from './routeSuggestionService';
+import { notifyNewAddressReview } from './slackNotifier';
 import { specialPickupUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -368,7 +370,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Address is required' });
       }
 
-      // Prevent duplicate properties at the same address
+      // Prevent duplicate properties at the same address (same user)
       const existingProperties = await storage.getPropertiesForUser(userId);
       const normalizedAddress = address.trim().toLowerCase();
       const duplicate = existingProperties.find(
@@ -376,6 +378,14 @@ export function registerAuthRoutes(app: Express) {
       );
       if (duplicate) {
         return res.status(200).json({ data: formatPropertyForClient(duplicate) });
+      }
+
+      // Check for cross-user duplicate (another user already has active service at this address)
+      const crossUserDuplicate = await storage.findPropertyByAddress(address, userId);
+      if (crossUserDuplicate && crossUserDuplicate.service_status === 'approved') {
+        return res.status(409).json({
+          error: 'This address already has active service. If you recently moved here, please contact support to transfer the account.',
+        });
       }
 
       const property = await storage.createProperty({
@@ -418,8 +428,8 @@ export function registerAuthRoutes(app: Express) {
                   && !!process.env.OPTIMOROUTE_API_KEY;
 
                 if (useFeasibility) {
-                  // Run full OptimoRoute feasibility check in background
-                  runFeasibilityAndApprove(property.id, userId, property.address).catch(err => {
+                  // Run full OptimoRoute feasibility check in background, targeting the optimal day
+                  runFeasibilityAndApprove(property.id, userId, property.address, result.pickup_day).catch(err => {
                     console.error('Background feasibility check failed (non-blocking):', err);
                   });
                 } else {
@@ -435,10 +445,45 @@ export function registerAuthRoutes(app: Express) {
         }
       }
 
+      // Notify admins via Slack if property is still pending review
+      if (property.service_status === 'pending_review') {
+        const user = await storage.getUserById(userId);
+        notifyNewAddressReview(property.address, `${user?.first_name} ${user?.last_name}`).catch(() => {});
+      }
+
       res.status(201).json({ data: formatPropertyForClient(property) });
     } catch (error: any) {
       console.error('Create property error:', error);
       res.status(500).json({ error: 'Failed to create property' });
+    }
+  });
+
+  // Pre-creation service area check — lets user know before completing wizard
+  app.post('/api/check-service-area', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { address } = req.body;
+      if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+      }
+
+      const coords = await geocodeAddress(address);
+      if (!coords) {
+        return res.json({ serviceable: true }); // Can't geocode — don't block, let admin review
+      }
+
+      const zone = await findNearestZone(coords.lat, coords.lng);
+      if (!zone) {
+        // No zones configured at all — skip the check
+        return res.json({ serviceable: true });
+      }
+
+      // Consider serviceable if within 5 miles of any zone
+      const serviceable = zone.distance_miles <= 5;
+      return res.json({ serviceable, zoneName: zone.zone_name });
+    } catch (error: any) {
+      console.error('Service area check error:', error);
+      // Don't block on errors — default to serviceable
+      return res.json({ serviceable: true });
     }
   });
 
@@ -471,6 +516,30 @@ export function registerAuthRoutes(app: Express) {
     } catch (error: any) {
       console.error('Update property error:', error);
       res.status(500).json({ error: 'Failed to update property' });
+    }
+  });
+
+  // Delete orphaned property (pending_review with no selections only)
+  app.delete('/api/properties/:propertyId', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.user_id !== userId) {
+        return res.status(404).json({ error: 'Property not found' });
+      }
+      if (property.service_status !== 'pending_review') {
+        return res.status(400).json({ error: 'Only pending properties can be removed' });
+      }
+      const selections = await storage.getPendingSelections(propertyId);
+      if (selections.length > 0) {
+        return res.status(400).json({ error: 'Property has pending service selections. Complete setup or contact support.' });
+      }
+      await storage.deleteProperty(propertyId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete property error:', error);
+      res.status(500).json({ error: 'Failed to delete property' });
     }
   });
 

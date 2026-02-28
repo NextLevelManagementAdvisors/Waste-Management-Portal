@@ -38,9 +38,11 @@ const FilterButton: React.FC<{
 
 interface PropertyManagementProps {
     onAddProperty?: () => void;
+    onResumeSetup?: (propertyId: string) => void;
+    onPropertyRemoved?: () => void;
 }
 
-const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }) => {
+const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, onResumeSetup, onPropertyRemoved }) => {
     const { properties, startNewServiceFlow, setSelectedPropertyId } = useProperty();
     const handleAddProperty = onAddProperty || startNewServiceFlow;
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
@@ -141,7 +143,7 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty }
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-in fade-in duration-500">
                 {filteredProperties.map(prop => (
-                    <PropertyCard key={prop.id} property={prop} />
+                    <PropertyCard key={prop.id} property={prop} onResumeSetup={onResumeSetup} onPropertyRemoved={onPropertyRemoved} />
                 ))}
 
                 {(activeFilter === 'all') && (

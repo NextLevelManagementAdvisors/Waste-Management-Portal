@@ -266,7 +266,7 @@ const App: React.FC = () => {
       if (pendingTransferToken) {
         return;
       }
-      setCurrentView('home');
+      setCurrentView('myservice');
       setPendingDeepLinkQuery('');
     } catch (error)
     {

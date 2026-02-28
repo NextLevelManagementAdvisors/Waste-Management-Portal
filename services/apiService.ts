@@ -285,6 +285,15 @@ export const savePendingSelections = async (propertyId: string, selections: { se
     if (!res.ok) throw new Error(json.error || 'Failed to save service selections');
 };
 
+export const deleteOrphanedProperty = async (propertyId: string): Promise<void> => {
+    const res = await fetch(`/api/properties/${propertyId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+    });
+    const json = await safeJson(res, 'Failed to delete property');
+    if (!res.ok) throw new Error(json.error || 'Failed to delete property');
+};
+
 export const getPendingSelections = async (propertyId: string): Promise<{ serviceId: string; quantity: number; useSticker: boolean }[]> => {
     const res = await fetch(`/api/properties/${propertyId}/pending-selections`, {
         credentials: 'include',

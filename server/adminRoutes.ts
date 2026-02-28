@@ -16,7 +16,7 @@ import { suggestRoute } from './routeSuggestionService';
 import { findOptimalPickupDay } from './pickupDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
-import { approvalMessage, denialMessage } from './addressReviewMessages';
+import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
 
 declare module 'express-session' {
   interface SessionData {
@@ -2268,8 +2268,8 @@ export function registerAdminRoutes(app: Express) {
       if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
         return res.status(400).json({ error: 'propertyIds must be a non-empty array' });
       }
-      if (!decision || !['approved', 'denied'].includes(decision)) {
-        return res.status(400).json({ error: 'decision must be approved or denied' });
+      if (!decision || !['approved', 'denied', 'waitlist'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be approved, denied, or waitlist' });
       }
 
       const results: { id: string; success: boolean; error?: string }[] = [];
@@ -2284,7 +2284,8 @@ export function registerAdminRoutes(app: Express) {
             results.push({ id: propertyId, success: false, error: 'Not found' });
             continue;
           }
-          if (property.service_status === 'approved' || property.service_status === 'denied') {
+          const terminalStatuses = ['approved', 'denied'];
+          if (terminalStatuses.includes(property.service_status)) {
             await client.query('ROLLBACK');
             results.push({ id: propertyId, success: false, error: `Already ${property.service_status}` });
             continue;
@@ -2294,9 +2295,14 @@ export function registerAdminRoutes(app: Express) {
             `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
             [decision, notes || null, propertyId]
           );
-          const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
-          const pendingSelections: DbPendingSelection[] = selResult.rows;
-          await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+
+          // For waitlist: preserve pending selections; for approved/denied: claim and delete
+          let pendingSelections: DbPendingSelection[] = [];
+          if (decision !== 'waitlist') {
+            const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+            pendingSelections = selResult.rows;
+            await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          }
           await client.query('COMMIT');
 
           await audit(req, `address_review_${decision}`, 'property', propertyId, { notes, bulk: true });
@@ -2312,8 +2318,11 @@ export function registerAdminRoutes(app: Express) {
           }
 
           // Notify customer of decision
+          const hasRental = decision === 'approved' && pendingSelections.some(s => !s.use_sticker);
           const msg = decision === 'approved'
-            ? approvalMessage(property.address)
+            ? approvalMessage(property.address, property.pickup_day, hasRental)
+            : decision === 'waitlist'
+            ? waitlistMessage(property.address)
             : denialMessage(property.address, notes);
           sendServiceUpdate(property.user_id, msg.subject, msg.body).catch(() => {});
 
@@ -2366,8 +2375,8 @@ export function registerAdminRoutes(app: Express) {
     try {
       const propertyId = req.params.propertyId as string;
       const { decision, notes } = req.body;
-      if (!decision || !['approved', 'denied'].includes(decision)) {
-        return res.status(400).json({ error: 'decision must be approved or denied' });
+      if (!decision || !['approved', 'denied', 'waitlist'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be approved, denied, or waitlist' });
       }
 
       // Pre-compute optimal pickup day before acquiring lock (geocoding is slow)
@@ -2397,8 +2406,9 @@ export function registerAdminRoutes(app: Express) {
         notifyUserId = property.user_id;
         notifyAddress = property.address;
 
-        // Prevent re-processing if already decided
-        if (property.service_status === 'approved' || property.service_status === 'denied') {
+        // Prevent re-processing if already decided (allow waitlist → approved transition)
+        const terminalStatuses = ['approved', 'denied'];
+        if (terminalStatuses.includes(property.service_status)) {
           await client.query('ROLLBACK');
           return res.status(409).json({ error: `Property already ${property.service_status}` });
         }
@@ -2416,10 +2426,14 @@ export function registerAdminRoutes(app: Express) {
           );
         }
 
-        // Fetch and delete pending selections atomically within the transaction
-        const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
-        const pendingSelections: DbPendingSelection[] = selResult.rows;
-        await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+        // For waitlist: preserve pending selections (customer stays on waiting list)
+        // For approved/denied: claim and delete pending selections
+        let pendingSelections: DbPendingSelection[] = [];
+        if (decision !== 'waitlist') {
+          const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          pendingSelections = selResult.rows;
+          await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+        }
         await client.query('COMMIT');
 
         await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
@@ -2442,8 +2456,11 @@ export function registerAdminRoutes(app: Express) {
 
       // Notify customer of decision (fire-and-forget)
       if (notifyUserId) {
+        const hasRental = decision === 'approved' && pendingSelections.some(s => !s.use_sticker);
         const msg = decision === 'approved'
-          ? approvalMessage(notifyAddress!)
+          ? approvalMessage(notifyAddress!, optimizationResult?.pickup_day, hasRental)
+          : decision === 'waitlist'
+          ? waitlistMessage(notifyAddress!)
           : denialMessage(notifyAddress!, notes);
         sendServiceUpdate(notifyUserId, msg.subject, msg.body).catch(err => {
           console.error('Failed to send address review notification:', err);
@@ -2501,6 +2518,8 @@ export function registerAdminRoutes(app: Express) {
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },
+    // Slack
+    SLACK_WEBHOOK_URL:          { category: 'slack', isSecret: true,  label: 'Webhook URL',                  displayType: 'secret' },
   };
 
   app.get('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {

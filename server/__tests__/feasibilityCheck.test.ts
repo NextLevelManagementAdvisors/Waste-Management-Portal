@@ -17,6 +17,7 @@ vi.mock('../storage', () => ({
   storage: {
     createAuditLog: vi.fn(),
     approveIfPending: vi.fn(),
+    updateProperty: vi.fn(),
   },
 }));
 
@@ -36,6 +37,13 @@ vi.mock('../notificationService', () => ({
   sendServiceUpdate: vi.fn(),
 }));
 
+vi.mock('../addressReviewMessages', () => ({
+  approvalMessage: vi.fn((address: string, _pickupDay?: string, _hasRental?: boolean) => ({
+    subject: 'Address Approved',
+    body: `Great news! Your address at ${address} has been approved.`,
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -43,9 +51,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(storage.createAuditLog).mockResolvedValue(undefined as any);
   vi.mocked(storage.approveIfPending).mockResolvedValue(true);
+  vi.mocked(storage.updateProperty).mockResolvedValue(undefined as any);
   vi.mocked(optimo.createOrder).mockResolvedValue(undefined as any);
   vi.mocked(optimo.deleteOrder).mockResolvedValue(undefined as any);
-  vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 1, failed: 0 });
+  vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 1, failed: 0, rentalDeliveries: 0 });
   vi.mocked(sendServiceUpdate).mockResolvedValue(undefined as any);
 });
 
@@ -56,11 +65,15 @@ describe('checkRouteFeasibility', () => {
   it('returns feasible when order gets scheduled', async () => {
     vi.mocked(optimo.startPlanning).mockResolvedValue({ planningId: 'plan-1' } as any);
     vi.mocked(optimo.getPlanningStatus).mockResolvedValue({ status: 'F' } as any);
-    vi.mocked(optimo.getSchedulingInfo).mockResolvedValue({ orderScheduled: true } as any);
+    vi.mocked(optimo.getSchedulingInfo).mockResolvedValue({
+      orderScheduled: true,
+      scheduledAt: '2026-03-03',
+      driverName: 'John',
+    } as any);
 
     const result = await checkRouteFeasibility('123 Main St', 'prop-1');
 
-    expect(result).toEqual({ feasible: true, reason: 'scheduled' });
+    expect(result).toEqual(expect.objectContaining({ feasible: true, reason: 'scheduled' }));
     expect(optimo.createOrder).toHaveBeenCalledWith(expect.objectContaining({
       address: '123 Main St',
       locationName: 'Feasibility Check',
@@ -129,7 +142,11 @@ describe('runFeasibilityAndApprove', () => {
   function mockFeasibleResult() {
     vi.mocked(optimo.startPlanning).mockResolvedValue({ planningId: 'plan-1' } as any);
     vi.mocked(optimo.getPlanningStatus).mockResolvedValue({ status: 'F' } as any);
-    vi.mocked(optimo.getSchedulingInfo).mockResolvedValue({ orderScheduled: true } as any);
+    vi.mocked(optimo.getSchedulingInfo).mockResolvedValue({
+      orderScheduled: true,
+      scheduledAt: '2026-03-03',
+      driverName: 'John',
+    } as any);
   }
 
   function mockNotFeasibleResult() {
@@ -141,7 +158,7 @@ describe('runFeasibilityAndApprove', () => {
   it('approves, activates, and notifies when feasible and still pending', async () => {
     mockFeasibleResult();
     vi.mocked(storage.approveIfPending).mockResolvedValue(true);
-    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 1, failed: 0 });
+    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 1, failed: 0, rentalDeliveries: 0 });
 
     await runFeasibilityAndApprove('prop-1', 'user-1', '123 Main St');
 
@@ -174,7 +191,7 @@ describe('runFeasibilityAndApprove', () => {
   it('withholds notification when all activations fail', async () => {
     mockFeasibleResult();
     vi.mocked(storage.approveIfPending).mockResolvedValue(true);
-    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 0, failed: 2 });
+    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 0, failed: 2, rentalDeliveries: 0 });
 
     await runFeasibilityAndApprove('prop-1', 'user-1', '123 Main St');
 
@@ -185,7 +202,7 @@ describe('runFeasibilityAndApprove', () => {
   it('still notifies when there are no selections to activate', async () => {
     mockFeasibleResult();
     vi.mocked(storage.approveIfPending).mockResolvedValue(true);
-    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 0, failed: 0 });
+    vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 0, failed: 0, rentalDeliveries: 0 });
 
     await runFeasibilityAndApprove('prop-1', 'user-1', '123 Main St');
 

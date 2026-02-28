@@ -132,6 +132,20 @@ export class Storage {
     return result.rows;
   }
 
+  async findPropertyByAddress(address: string, excludeUserId?: string): Promise<DbProperty | null> {
+    const normalized = address.trim().toLowerCase();
+    const result = excludeUserId
+      ? await this.query(
+          `SELECT * FROM properties WHERE LOWER(TRIM(address)) = $1 AND user_id != $2 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
+          [normalized, excludeUserId]
+        )
+      : await this.query(
+          `SELECT * FROM properties WHERE LOWER(TRIM(address)) = $1 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
+          [normalized]
+        );
+    return result.rows[0] || null;
+  }
+
   async createProperty(data: { userId: string; address: string; serviceType: string; inHoa: boolean; communityName?: string; hasGateCode: boolean; gateCode?: string; notes?: string; notificationPreferences?: any }): Promise<DbProperty> {
     const result = await this.query(
       `INSERT INTO properties (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences, service_status, service_status_updated_at)
@@ -150,6 +164,11 @@ export class Storage {
   async getPropertyById(propertyId: string): Promise<DbProperty | null> {
     const result = await this.query('SELECT * FROM properties WHERE id = $1', [propertyId]);
     return result.rows[0] || null;
+  }
+
+  async deleteProperty(propertyId: string): Promise<void> {
+    await this.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+    await this.query('DELETE FROM properties WHERE id = $1', [propertyId]);
   }
 
   async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any; zone_id: string | null; latitude: number | null; longitude: number | null }>): Promise<DbProperty> {
@@ -733,14 +752,14 @@ export class Storage {
     const result = await this.query(
       `SELECT p.*, u.first_name, u.last_name, u.email, u.phone
        FROM properties p JOIN users u ON p.user_id = u.id
-       WHERE p.service_status = 'pending_review'
+       WHERE p.service_status IN ('pending_review', 'waitlist')
        ORDER BY p.created_at ASC`
     );
     return result.rows;
   }
 
   async getPendingReviewCount(): Promise<number> {
-    const result = await this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`);
+    const result = await this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status IN ('pending_review', 'waitlist')`);
     return parseInt(result.rows[0].count);
   }
 
@@ -753,11 +772,11 @@ export class Storage {
     return result.rows[0];
   }
 
-  /** Approve only if still pending_review. Returns true if the update happened (no one else decided first). */
+  /** Approve only if still pending_review or waitlist. Returns true if the update happened (no one else decided first). */
   async approveIfPending(propertyId: string): Promise<boolean> {
     const result = await this.query(
       `UPDATE properties SET service_status = 'approved', service_status_updated_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND service_status = 'pending_review' RETURNING id`,
+       WHERE id = $1 AND service_status IN ('pending_review', 'waitlist') RETURNING id`,
       [propertyId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -1946,15 +1965,6 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async findPropertyByAddress(address: string) {
-    const result = await this.query(
-      `SELECT id, address, user_id, zone_id FROM properties
-       WHERE LOWER(TRIM(address)) = LOWER(TRIM($1)) AND service_status = 'approved'
-       LIMIT 1`,
-      [address]
-    );
-    return result.rows[0] || null;
-  }
 
   // ── Planner Queries ──
 

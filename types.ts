@@ -27,7 +27,7 @@ export interface Property {
   id: string;
   address: string;
   serviceType: ServiceType;
-  serviceStatus?: 'pending_review' | 'approved' | 'denied';
+  serviceStatus?: 'pending_review' | 'approved' | 'denied' | 'waitlist';
   inHOA: boolean;
   communityName?: string;
   hasGateCode: boolean;
@@ -99,7 +99,7 @@ export interface Subscription {
   serviceId: string;
   serviceName: string;
   startDate: string;
-  status: 'active' | 'paused' | 'canceled';
+  status: 'active' | 'paused' | 'canceled' | 'past_due';
   nextBillingDate: string;
   price: number;
   totalPrice: number;
