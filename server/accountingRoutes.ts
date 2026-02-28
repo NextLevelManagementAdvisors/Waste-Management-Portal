@@ -145,16 +145,33 @@ export function registerAccountingRoutes(app: Express) {
       const search = (req.query.search as string) || undefined;
       const stripe = await getUncachableStripeClient();
 
-      // Fetch subscriptions from Stripe API with expanded price+product info
+      // Fetch subscriptions from Stripe API (expand customer only — expanding
+      // data.items.data.price.product exceeds Stripe's 4-level depth limit)
       const stripeStatus = status === 'all' ? undefined : status as any;
       const allSubs: any[] = [];
       for await (const sub of stripe.subscriptions.list({
         status: stripeStatus,
         limit: 100,
-        expand: ['data.items.data.price.product', 'data.customer'],
+        expand: ['data.customer'],
       })) {
         allSubs.push(sub);
       }
+
+      // Batch-fetch product names for all referenced products
+      const productIds = new Set<string>();
+      for (const sub of allSubs) {
+        for (const si of sub.items?.data || []) {
+          const prodId = typeof si.price?.product === 'string' ? si.price.product : si.price?.product?.id;
+          if (prodId) productIds.add(prodId);
+        }
+      }
+      const productMap = new Map<string, string>();
+      await Promise.all([...productIds].map(async (id) => {
+        try {
+          const product = await stripe.products.retrieve(id);
+          productMap.set(id, product.name);
+        } catch { /* ignore missing products */ }
+      }));
 
       // Build a user lookup map for customer names from our DB
       const customerIds = [...new Set(allSubs.map(s => typeof s.customer === 'string' ? s.customer : s.customer?.id).filter(Boolean))];
@@ -185,9 +202,9 @@ export function registerAccountingRoutes(app: Express) {
 
         const subItems = (sub.items?.data || []).map((si: any) => {
           const price = si.price;
-          const product = typeof price?.product === 'object' ? price.product : null;
+          const prodId = typeof price?.product === 'string' ? price.product : price?.product?.id;
           return {
-            productName: product?.name || price?.nickname || 'Subscription',
+            productName: (prodId && productMap.get(prodId)) || price?.nickname || 'Subscription',
             amount: (price?.unit_amount || 0) / 100,
             interval: price?.recurring?.interval || 'month',
             quantity: si.quantity || 1,
