@@ -538,3 +538,9 @@ CREATE INDEX IF NOT EXISTS idx_properties_zone ON properties(zone_id);
 
 -- Track how users signed up (local registration vs Google OAuth)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local';
+
+-- OptimoRoute import support
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_route_key VARCHAR(100);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_routes_optimo_route_key ON routes(optimo_route_key) WHERE optimo_route_key IS NOT NULL;
+ALTER TABLE route_stops ALTER COLUMN property_id DROP NOT NULL;
+ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS address TEXT;

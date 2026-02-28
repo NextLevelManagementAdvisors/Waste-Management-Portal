@@ -4,7 +4,6 @@ import type { Route, RouteStop, ServiceZone } from '../../../shared/types/index.
 import EditRouteModal from './EditRouteModal.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import OptimoStatusBanner from './OptimoStatusBanner.tsx';
-import LiveEventsPanel from './LiveEventsPanel.tsx';
 import CompletionDetailModal from './CompletionDetailModal.tsx';
 import RouteOptimizerModal from './RouteOptimizerModal.tsx';
 import BidSection from './BidSection.tsx';
@@ -137,6 +136,8 @@ const PlanningCalendar: React.FC = () => {
   const [showOptimizer, setShowOptimizer] = useState(false);
   const [expandedBidRouteId, setExpandedBidRouteId] = useState<string | null>(null);
   const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
+  const [importingFromOptimo, setImportingFromOptimo] = useState(false);
+  const [importResult, setImportResult] = useState<{ routesImported: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
 
   const handleLiveStatusUpdate = useCallback((_driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => {
     setLiveStopStatuses(stopStatuses);
@@ -174,6 +175,55 @@ const PlanningCalendar: React.FC = () => {
     }
   };
 
+  const loadCalendarDays = useCallback(async (from: string, to: string) => {
+    const days = getMonthDays(currentYear, currentMonth);
+
+    const [calRes, zonesRes] = await Promise.all([
+      fetch(`/api/admin/planning/calendar?from=${from}&to=${to}`, { credentials: 'include' }),
+      fetch('/api/admin/zones', { credentials: 'include' }),
+    ]);
+
+    if (zonesRes.ok) {
+      const zData = await zonesRes.json();
+      setZones(zData.zones ?? []);
+    }
+
+    if (calRes.ok) {
+      const data = await calRes.json();
+
+      const specialsByDate = new Map<string, number>();
+      for (const s of data.specials ?? []) {
+        specialsByDate.set(s.pickup_date, s.special_count);
+      }
+
+      const countsByDay = new Map<string, Array<{ zone_name: string | null; zone_color: string | null; count: number }>>();
+      for (const pc of data.propertyCounts ?? []) {
+        if (!countsByDay.has(pc.pickup_day)) countsByDay.set(pc.pickup_day, []);
+        countsByDay.get(pc.pickup_day)!.push({ zone_name: pc.zone_name, zone_color: pc.zone_color, count: pc.property_count });
+      }
+
+      const routesByDate = new Map<string, Record<string, number>>();
+      for (const j of data.routes ?? []) {
+        const key = j.scheduled_date.split('T')[0];
+        if (!routesByDate.has(key)) routesByDate.set(key, {});
+        const m = routesByDate.get(key)!;
+        m[j.status] = (m[j.status] || 0) + j.route_count;
+      }
+
+      for (const day of days) {
+        const dt = new Date(day.date + 'T12:00:00');
+        const dayName = DAY_NAME_MAP[dt.getDay()];
+        const zb = countsByDay.get(dayName) ?? [];
+        day.pickupCount = zb.reduce((sum, z) => sum + z.count, 0);
+        day.zoneBreakdown = zb;
+        day.specialCount = specialsByDate.get(day.date) ?? 0;
+        day.routesByStatus = routesByDate.get(day.date) ?? {};
+      }
+    }
+
+    setCalendarDays(days);
+  }, [currentYear, currentMonth]);
+
   const fetchCalendarData = useCallback(async () => {
     setLoading(true);
     try {
@@ -181,56 +231,29 @@ const PlanningCalendar: React.FC = () => {
       const from = days[0].date;
       const to = days[days.length - 1].date;
 
-      const [calRes, zonesRes] = await Promise.all([
-        fetch(`/api/admin/planning/calendar?from=${from}&to=${to}`, { credentials: 'include' }),
-        fetch('/api/admin/zones', { credentials: 'include' }),
-      ]);
+      // Load local data first so calendar renders fast
+      await loadCalendarDays(from, to);
 
-      if (zonesRes.ok) {
-        const zData = await zonesRes.json();
-        setZones(zData.zones ?? []);
-      }
-
-      if (calRes.ok) {
-        const data = await calRes.json();
-
-        const specialsByDate = new Map<string, number>();
-        for (const s of data.specials ?? []) {
-          specialsByDate.set(s.pickup_date, s.special_count);
-        }
-
-        const countsByDay = new Map<string, Array<{ zone_name: string | null; zone_color: string | null; count: number }>>();
-        for (const pc of data.propertyCounts ?? []) {
-          if (!countsByDay.has(pc.pickup_day)) countsByDay.set(pc.pickup_day, []);
-          countsByDay.get(pc.pickup_day)!.push({ zone_name: pc.zone_name, zone_color: pc.zone_color, count: pc.property_count });
-        }
-
-        const routesByDate = new Map<string, Record<string, number>>();
-        for (const j of data.routes ?? []) {
-          const key = j.scheduled_date.split('T')[0];
-          if (!routesByDate.has(key)) routesByDate.set(key, {});
-          const m = routesByDate.get(key)!;
-          m[j.status] = (m[j.status] || 0) + j.route_count;
-        }
-
-        for (const day of days) {
-          const dt = new Date(day.date + 'T12:00:00');
-          const dayName = DAY_NAME_MAP[dt.getDay()];
-          const zb = countsByDay.get(dayName) ?? [];
-          day.pickupCount = zb.reduce((sum, z) => sum + z.count, 0);
-          day.zoneBreakdown = zb;
-          day.specialCount = specialsByDate.get(day.date) ?? 0;
-          day.routesByStatus = routesByDate.get(day.date) ?? {};
-        }
-      }
-
-      setCalendarDays(days);
+      // Then sync from OptimoRoute in background and refresh
+      fetch('/api/admin/optimoroute/import-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ from, to }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(result => {
+          if (result && result.totalRoutesImported > 0) {
+            loadCalendarDays(from, to);
+          }
+        })
+        .catch(() => {});
     } catch (e) {
       console.error('Failed to fetch calendar:', e);
     } finally {
       setLoading(false);
     }
-  }, [currentYear, currentMonth]);
+  }, [currentYear, currentMonth, loadCalendarDays]);
 
   useEffect(() => { fetchCalendarData(); }, [fetchCalendarData]);
 
@@ -252,8 +275,17 @@ const PlanningCalendar: React.FC = () => {
     }
   }, []);
 
-  const selectDate = (date: string) => {
+  const selectDate = async (date: string) => {
     setSelectedDate(date);
+    // Import from OptimoRoute for this date, then show detail
+    try {
+      await fetch('/api/admin/optimoroute/import-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date }),
+      });
+    } catch {}
     fetchDayDetail(date);
   };
 
@@ -364,6 +396,32 @@ const PlanningCalendar: React.FC = () => {
     }
   };
 
+  const handleImportFromOptimo = async () => {
+    if (!selectedDate) return;
+    setImportingFromOptimo(true);
+    setImportResult(null);
+    try {
+      const res = await fetch('/api/admin/optimoroute/import-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date: selectedDate }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setImportResult(result);
+        await refreshDay();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Import failed: ${err.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error('Failed to import from OptimoRoute:', e);
+    } finally {
+      setImportingFromOptimo(false);
+    }
+  };
+
   const prevMonth = () => {
     if (currentMonth === 0) { setCurrentYear(y => y - 1); setCurrentMonth(11); }
     else setCurrentMonth(m => m - 1);
@@ -384,7 +442,7 @@ const PlanningCalendar: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* OptimoRoute Connection Status */}
-      <OptimoStatusBanner />
+      <OptimoStatusBanner onStatusUpdate={handleLiveStatusUpdate} />
 
       {/* Calendar Header */}
       <div className="flex items-center justify-between">
@@ -539,7 +597,31 @@ const PlanningCalendar: React.FC = () => {
                         Optimize
                       </button>
                     )}
+
+                    <button type="button" onClick={handleImportFromOptimo} disabled={importingFromOptimo}
+                      className="px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white text-xs font-bold rounded-lg transition-colors">
+                      {importingFromOptimo ? 'Importing...' : 'Import from Optimo'}
+                    </button>
                   </div>
+
+                  {/* Import result banner */}
+                  {importResult && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-amber-800">
+                          Imported {importResult.routesImported} route{importResult.routesImported !== 1 ? 's' : ''}, {importResult.stopsImported} stop{importResult.stopsImported !== 1 ? 's' : ''}
+                          {importResult.routesSkipped > 0 && ` (${importResult.routesSkipped} already existed)`}
+                        </span>
+                        <button type="button" onClick={() => setImportResult(null)} className="text-amber-600 hover:text-amber-800 font-bold">&times;</button>
+                      </div>
+                      {importResult.stopsUnmatched > 0 && (
+                        <div className="text-amber-700 mt-1">{importResult.stopsMatched} matched to local properties, {importResult.stopsUnmatched} address-only</div>
+                      )}
+                      {importResult.errors.length > 0 && (
+                        <div className="text-red-600 mt-1">{importResult.errors.join(', ')}</div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Route Cards — OptimoRoute style */}
                   {dayRoutes.length > 0 && (
@@ -585,6 +667,9 @@ const PlanningCalendar: React.FC = () => {
                                     </span>
                                     {route.optimo_synced && (
                                       <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Synced</span>
+                                    )}
+                                    {route.source === 'optimo_import' && (
+                                      <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Imported</span>
                                     )}
                                     {(route.bid_count ?? 0) > 0 && (
                                       <button type="button" onClick={(e) => { e.stopPropagation(); setExpandedBidRouteId(expandedBidRouteId === route.id ? null : route.id); }}
@@ -788,9 +873,6 @@ const PlanningCalendar: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Live Events */}
-      <LiveEventsPanel onStatusUpdate={handleLiveStatusUpdate} />
 
       {/* Edit Route Modal */}
       {editingRoute && (

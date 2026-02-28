@@ -107,18 +107,29 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedPickups, unreadMessages] = await Promise.all([
-        storage.query(`SELECT COUNT(*) as count FROM properties WHERE address_status = 'pending_review'`),
+      const [pendingReviews, pendingMissedPickups, unreadMessages, oldestMissedPickup, oldestReview] = await Promise.all([
+        storage.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
+        storage.query(`SELECT MIN(created_at) as oldest FROM missed_pickup_reports WHERE status = 'pending'`),
+        storage.query(`SELECT MIN(created_at) as oldest FROM properties WHERE service_status = 'pending_review'`),
       ]);
+      const missedPickups = parseInt(pendingMissedPickups.rows[0]?.count || '0');
+      const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
+      const oldestMpDate = oldestMissedPickup.rows[0]?.oldest;
+      const oldestArDate = oldestReview.rows[0]?.oldest;
+      const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
       res.json({
-        operations: parseInt(pendingReviews.rows[0]?.count || '0') + parseInt(pendingMissedPickups.rows[0]?.count || '0'),
+        operations: missedPickups + addressReviews,
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
+        missedPickups,
+        addressReviews,
+        oldestMissedPickupHours: hoursAgo(oldestMpDate),
+        oldestAddressReviewHours: hoursAgo(oldestArDate),
       });
     } catch (error) {
       console.error('Badge counts error:', error);
-      res.json({ operations: 0, communications: 0 });
+      res.json({ operations: 0, communications: 0, missedPickups: 0, addressReviews: 0 });
     }
   });
 

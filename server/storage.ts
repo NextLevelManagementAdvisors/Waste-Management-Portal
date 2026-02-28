@@ -556,8 +556,9 @@ export class Storage {
     totalReferrals: number;
     pendingReferrals: number;
     pendingReviews: number;
+    pendingMissedPickups: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews] = await Promise.all([
+    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews, pendingMissedPickups] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
       this.query('SELECT COUNT(*) as count FROM properties'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
@@ -565,6 +566,7 @@ export class Storage {
       this.query('SELECT COUNT(*) as count FROM referrals'),
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
       this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
+      this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
@@ -574,6 +576,7 @@ export class Storage {
       totalReferrals: parseInt(referrals.rows[0].count),
       pendingReferrals: parseInt(pendingRefs.rows[0].count),
       pendingReviews: parseInt(pendingReviews.rows[0].count),
+      pendingMissedPickups: parseInt(pendingMissedPickups.rows[0].count),
     };
   }
 
@@ -1371,7 +1374,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string; optimo_route_key: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1687,17 +1690,17 @@ export class Storage {
 
   // ── Route Stops ──
 
-  async addRouteStops(routeId: string, stops: Array<{ property_id: string; order_type?: string; special_pickup_id?: string }>) {
+  async addRouteStops(routeId: string, stops: Array<{ property_id?: string | null; order_type?: string; special_pickup_id?: string; address?: string; location_name?: string; optimo_order_no?: string; stop_number?: number; scheduled_at?: string }>) {
     if (stops.length === 0) return [];
     const values: any[] = [];
     const placeholders: string[] = [];
     let idx = 1;
     for (const s of stops) {
-      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
-      values.push(routeId, s.property_id, s.order_type ?? 'recurring', s.special_pickup_id ?? null);
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(routeId, s.property_id ?? null, s.order_type ?? 'recurring', s.special_pickup_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null);
     }
     const result = await this.query(
-      `INSERT INTO route_stops (route_id, property_id, order_type, special_pickup_id)
+      `INSERT INTO route_stops (route_id, property_id, order_type, special_pickup_id, address, location_name, optimo_order_no, stop_number)
        VALUES ${placeholders.join(', ')}
        ON CONFLICT DO NOTHING
        RETURNING *`,
@@ -1708,10 +1711,11 @@ export class Storage {
 
   async getRouteStops(routeId: string) {
     const result = await this.query(
-      `SELECT rs.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
+      `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
+              CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
        FROM route_stops rs
-       JOIN properties p ON rs.property_id = p.id
-       JOIN users u ON p.user_id = u.id
+       LEFT JOIN properties p ON rs.property_id = p.id
+       LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.route_id = $1
        ORDER BY rs.stop_number NULLS LAST, rs.created_at`,
       [routeId]
@@ -1753,10 +1757,11 @@ export class Storage {
     if (orderNos.length === 0) return [];
     const placeholders = orderNos.map((_, i) => `$${i + 1}`).join(', ');
     const result = await this.query(
-      `SELECT rs.*, p.address, p.service_type, u.first_name || ' ' || u.last_name AS customer_name
+      `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
+              CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
        FROM route_stops rs
-       JOIN properties p ON rs.property_id = p.id
-       JOIN users u ON p.user_id = u.id
+       LEFT JOIN properties p ON rs.property_id = p.id
+       LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.optimo_order_no IN (${placeholders})`,
       orderNos
     );
@@ -1879,6 +1884,29 @@ export class Storage {
     );
     const row = result.rows[0];
     return { synced: row?.optimo_synced ?? false, synced_at: row?.optimo_synced_at ?? null };
+  }
+
+  async getRouteByOptimoKey(key: string) {
+    const result = await this.query('SELECT * FROM routes WHERE optimo_route_key = $1', [key]);
+    return result.rows[0] || null;
+  }
+
+  async getDriverByOptimoSerial(serial: string) {
+    const result = await this.query(
+      'SELECT * FROM driver_profiles WHERE optimoroute_driver_id = $1',
+      [serial]
+    );
+    return result.rows[0] || null;
+  }
+
+  async findPropertyByAddress(address: string) {
+    const result = await this.query(
+      `SELECT id, address, user_id, zone_id FROM properties
+       WHERE LOWER(TRIM(address)) = LOWER(TRIM($1)) AND service_status = 'approved'
+       LIMIT 1`,
+      [address]
+    );
+    return result.rows[0] || null;
   }
 
   // ── Planner Queries ──

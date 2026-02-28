@@ -143,6 +143,8 @@ const RoutesList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
@@ -157,6 +159,8 @@ const RoutesList: React.FC = () => {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (typeFilter !== 'all') params.set('route_type', typeFilter);
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
       const res = await fetch(`/api/admin/routes?${params}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
@@ -167,7 +171,7 @@ const RoutesList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter]);
+  }, [statusFilter, typeFilter, dateFrom, dateTo]);
 
   useEffect(() => { loadRoutes(); }, [loadRoutes]);
 
@@ -241,6 +245,24 @@ const RoutesList: React.FC = () => {
       <div className="flex items-center justify-between gap-4">
         <FilterBar>
           <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+            />
+          </div>
+          <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
             <select
               value={statusFilter}
@@ -270,6 +292,14 @@ const RoutesList: React.FC = () => {
               <option value="special_pickup">Special</option>
             </select>
           </div>
+          {(dateFrom || dateTo) && (
+            <div className="flex items-end">
+              <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
+                className="px-3 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors">
+                Clear Dates
+              </button>
+            </div>
+          )}
         </FilterBar>
 
         <div className="flex items-center gap-2">

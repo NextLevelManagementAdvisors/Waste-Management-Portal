@@ -25,6 +25,21 @@ const formatTime = (dateStr: string) => {
   }
 };
 
+const relativeAge = (dateStr: string) => {
+  const hours = Math.floor((Date.now() - new Date(dateStr).getTime()) / 3600000);
+  if (hours < 1) return 'just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const ageColor = (dateStr: string) => {
+  const hours = (Date.now() - new Date(dateStr).getTime()) / 3600000;
+  if (hours >= 72) return 'text-red-500';
+  if (hours >= 24) return 'text-orange-500';
+  return 'text-gray-400';
+};
+
 interface ResolveModalProps {
   isOpen: boolean;
   report: MissedPickupReport | null;
@@ -237,7 +252,7 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
   );
 };
 
-const MissedPickupsList: React.FC = () => {
+const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActionResolved }) => {
   const [reports, setReports] = useState<MissedPickupReport[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -284,6 +299,7 @@ const MissedPickupsList: React.FC = () => {
 
   const handleSaved = async () => {
     await loadReports();
+    onActionResolved?.();
   };
 
   if (loading) return <LoadingSpinner />;
@@ -343,6 +359,7 @@ const MissedPickupsList: React.FC = () => {
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{formatDate(report.pickupDate)}</div>
                       <div className="text-xs text-gray-500">{formatTime(report.pickupDate)}</div>
+                      <div className={`text-[10px] font-bold ${ageColor(report.createdAt)}`}>Reported {relativeAge(report.createdAt)}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700 max-w-xs truncate">{report.notes || '-'}</div>

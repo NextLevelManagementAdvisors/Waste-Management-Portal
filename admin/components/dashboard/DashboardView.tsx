@@ -8,6 +8,7 @@ import {
   ClockIcon,
   ArrowRightIcon,
   MapPinIcon,
+  ExclamationTriangleIcon,
 } from '../../../components/Icons.tsx';
 import ActivityFeed from '../operations/ActivityFeed.tsx';
 import type { NavFilter } from '../../../shared/types/index.ts';
@@ -20,6 +21,7 @@ interface AdminStats {
   totalReferrals: number;
   pendingReferrals: number;
   pendingReviews: number;
+  pendingMissedPickups: number;
   revenue: number;
   activeSubscriptions: number;
   openInvoices: number;
@@ -366,6 +368,7 @@ const DashboardView: React.FC<{ onNavigate: (view: string, filter?: { tab?: stri
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('accounting', { tab: 'income' })} />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Missed Pickups" value={stats.pendingMissedPickups} icon={<ExclamationTriangleIcon className="w-8 h-8" />} accent={stats.pendingMissedPickups > 0 ? 'text-red-500' : undefined} onClick={() => onNavigate('operations', { tab: 'issues' })} />
             <StatCard label="Pending Reviews" value={stats.pendingReviews} icon={<MapPinIcon className="w-8 h-8" />} accent={stats.pendingReviews > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('operations', { tab: 'address-review' })} />
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { View } from '../types.ts';
 import { useProperty } from '../PropertyContext.tsx';
 import { VIEW_TO_PATH } from '../constants.ts';
@@ -65,25 +65,6 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
       ? navItems
       : navItems.filter(item => !['myservice', 'billing'].includes(item.id));
     const visibleNavItems = baseItems;
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsDropdownOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
-
-    const handleNavigation = (view: View) => {
-        onLinkClick(view);
-        setIsDropdownOpen(false);
-    };
 
     return (
         <div className="flex flex-col h-full bg-white lg:border-r lg:border-base-200">
@@ -106,64 +87,34 @@ const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) =>
            </nav>
          </div>
 
-        <div ref={dropdownRef} className="relative hidden lg:block p-5 border-t border-base-100">
-            {isDropdownOpen && (
-                <div className="absolute bottom-full left-5 right-5 mb-2 w-auto origin-bottom bg-white rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none z-30">
-                    <div className="py-1">
-                        <div className="px-4 py-3 border-b border-base-200 bg-gray-50 rounded-t-xl">
-                            <p className="text-sm font-bold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                            <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-                        </div>
-                        <a href="/settings" onClick={(e) => { e.preventDefault(); handleNavigation('profile-settings'); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-                            <UserIcon className="w-5 h-5 mr-3 text-gray-400" /> Profile Settings
-                        </a>
-                        <div className="border-t border-base-200 my-1"></div>
-                        <button onClick={onLogout} className="w-full text-left flex items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">
-                             <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-red-400" /> Logout
-                        </button>
-                    </div>
-                </div>
-            )}
-            <button 
-                onClick={() => setIsDropdownOpen(prev => !prev)}
-                className="flex w-full items-center gap-4 p-3 rounded-2xl hover:bg-gray-100 transition-colors"
-                aria-label="Open user menu"
+        <div className="p-5 border-t border-base-100">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-xs font-black text-white flex-shrink-0">
+              {user?.firstName?.[0]}{user?.lastName?.[0]}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
+              <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <a
+              href="/settings"
+              onClick={(e) => { e.preventDefault(); onLinkClick('profile-settings'); }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-primary hover:bg-gray-100 transition-colors"
             >
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <UserIcon className="w-5 h-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-black text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Member</p>
-                </div>
+              <UserIcon className="w-4 h-4" />
+              Profile Settings
+            </a>
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <ArrowRightOnRectangleIcon className="w-4 h-4" />
+              Sign Out
             </button>
+          </div>
         </div>
-
-          <div className="p-5 border-t border-base-100 bg-gray-50/50 lg:hidden">
-           <div
-             className="flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-gray-100 transition-colors"
-             onClick={() => onLinkClick('profile-settings')}
-             role="button"
-             tabIndex={0}
-             onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') onLinkClick('profile-settings'); }}
-             aria-label="Open profile settings"
-           >
-               <div className="w-10 h-10 rounded-2xl bg-white shadow-sm border border-base-200 flex items-center justify-center">
-                   <UserIcon className="w-5 h-5 text-gray-500" />
-               </div>
-               <div className="flex-1 min-w-0">
-                   <p className="text-sm font-black text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
-                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">Member</p>
-               </div>
-           </div>
-           <button
-             onClick={onLogout}
-             className="flex items-center w-full mt-2 px-4 py-3 rounded-2xl text-sm text-red-600 hover:bg-red-50 transition-colors font-bold"
-           >
-               <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3 text-red-400" />
-               Sign Out
-           </button>
-         </div>
        </div>
     );
 };

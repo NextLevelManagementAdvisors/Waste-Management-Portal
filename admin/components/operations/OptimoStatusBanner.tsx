@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 interface ConnectionStatus {
   success: boolean;
@@ -10,10 +10,31 @@ interface ConnectionStatus {
   locations?: { address: string; name?: string }[];
 }
 
-const OptimoStatusBanner: React.FC = () => {
+interface DriverEvent {
+  event: string;
+  localTime: string;
+  driverName?: string;
+  driverSerial?: string;
+  orderNo?: string;
+  orderId?: string;
+}
+
+interface OptimoStatusBannerProps {
+  onStatusUpdate?: (driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => void;
+}
+
+const OptimoStatusBanner: React.FC<OptimoStatusBannerProps> = ({ onStatusUpdate }) => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+
+  // Live events state
+  const [events, setEvents] = useState<DriverEvent[]>([]);
+  const [showEvents, setShowEvents] = useState(false);
+  const afterTagRef = useRef<string>('');
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const driverStatusesRef = useRef<Record<string, string>>({});
+  const stopStatusesRef = useRef<Record<string, string>>({});
 
   const testConnection = useCallback(async () => {
     setTestingConnection(true);
@@ -30,13 +51,66 @@ const OptimoStatusBanner: React.FC = () => {
 
   useEffect(() => { testConnection(); }, [testConnection]);
 
+  // Live event polling
+  useEffect(() => {
+    const pollEvents = async () => {
+      try {
+        const url = `/api/admin/optimoroute/events${afterTagRef.current ? `?afterTag=${afterTagRef.current}` : ''}`;
+        const res = await fetch(url, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.tag) afterTagRef.current = data.tag;
+          if (data.events?.length > 0) {
+            setEvents(prev => [...prev, ...data.events].slice(-200));
+
+            let driverChanged = false;
+            let stopChanged = false;
+
+            for (const evt of data.events) {
+              const driverKey = evt.driverName || evt.driverSerial;
+              if (driverKey) {
+                let newStatus: string | null = null;
+                if (evt.event === 'start_route' || evt.event === 'on_duty') {
+                  newStatus = 'in_progress';
+                } else if (evt.event === 'end_route' || evt.event === 'off_duty') {
+                  newStatus = 'completed';
+                } else if (['start_service', 'success', 'failed', 'rejected'].includes(evt.event)) {
+                  if (driverStatusesRef.current[driverKey] !== 'completed') newStatus = 'in_progress';
+                }
+                if (newStatus && driverStatusesRef.current[driverKey] !== newStatus) {
+                  driverStatusesRef.current = { ...driverStatusesRef.current, [driverKey]: newStatus };
+                  driverChanged = true;
+                }
+              }
+              const stopKey = evt.orderId || evt.orderNo;
+              if (stopKey && stopStatusesRef.current[stopKey] !== evt.event) {
+                stopStatusesRef.current = { ...stopStatusesRef.current, [stopKey]: evt.event };
+                stopChanged = true;
+              }
+            }
+
+            if ((driverChanged || stopChanged) && onStatusUpdate) {
+              onStatusUpdate(driverStatusesRef.current, stopStatusesRef.current);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Event polling failed:', e);
+      }
+    };
+
+    pollEvents();
+    pollingRef.current = setInterval(pollEvents, 15000);
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, [onStatusUpdate]);
+
   if (!connectionStatus) return null;
 
   return (
     <div className={`rounded-lg border p-3 ${connectionStatus.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${connectionStatus.success ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className={`w-2.5 h-2.5 rounded-full ${connectionStatus.success ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
           <span className={`text-sm font-bold ${connectionStatus.success ? 'text-green-700' : 'text-red-700'}`}>
             {connectionStatus.success ? 'OptimoRoute Connected' : 'OptimoRoute Disconnected'}
           </span>
@@ -50,6 +124,13 @@ const OptimoStatusBanner: React.FC = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {events.length > 0 && (
+            <button onClick={() => setShowEvents(!showEvents)}
+              className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              {showEvents ? 'Hide Live' : `Live (${events.length})`}
+            </button>
+          )}
           {connectionStatus.success && (connectionStatus.drivers?.length || 0) > 0 && (
             <button onClick={() => setShowDetails(!showDetails)}
               className="text-xs font-bold text-green-700 hover:text-green-900 transition-colors">
@@ -63,6 +144,25 @@ const OptimoStatusBanner: React.FC = () => {
         </div>
       </div>
 
+      {/* Live Events */}
+      {showEvents && events.length > 0 && (
+        <div className="mt-3 bg-white rounded-lg border border-blue-100 p-2">
+          <p className="text-[10px] font-black uppercase text-blue-500 mb-1">Live Events</p>
+          <div className="space-y-0.5 max-h-48 overflow-y-auto">
+            {events.slice(-20).reverse().map((evt, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-gray-600 py-0.5">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${evt.event === 'success' ? 'bg-green-500' : evt.event === 'failed' ? 'bg-red-500' : 'bg-blue-500'}`} />
+                <span className="text-gray-400">{new Date(evt.localTime).toLocaleTimeString()}</span>
+                <span className="font-bold">{evt.driverName || 'Unknown'}</span>
+                <span>{evt.event.replace(/_/g, ' ')}</span>
+                {evt.orderNo && <span className="text-gray-400 font-mono">{evt.orderNo}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Connection Details */}
       {showDetails && connectionStatus.success && (
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
           {(connectionStatus.drivers?.length || 0) > 0 && (

@@ -78,6 +78,7 @@ export interface Route {
   // OptimoRoute sync tracking
   optimo_synced?: boolean;
   optimo_synced_at?: string;
+  optimo_route_key?: string;
 }
 
 export interface RouteBid {
@@ -94,7 +95,7 @@ export interface RouteBid {
 export interface RouteStop {
   id: string;
   route_id: string;
-  property_id: string;
+  property_id: string | null;
   order_type: 'recurring' | 'special' | 'missed_redo';
   special_pickup_id?: string;
   optimo_order_no?: string;

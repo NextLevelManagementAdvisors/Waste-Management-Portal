@@ -29,6 +29,21 @@ interface RouteSuggestion {
   distance_miles: number;
 }
 
+const relativeAge = (dateStr: string) => {
+  const hours = Math.floor((Date.now() - new Date(dateStr).getTime()) / 3600000);
+  if (hours < 1) return 'just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const ageColor = (dateStr: string) => {
+  const hours = (Date.now() - new Date(dateStr).getTime()) / 3600000;
+  if (hours >= 72) return 'text-red-500';
+  if (hours >= 24) return 'text-orange-500';
+  return 'text-gray-400';
+};
+
 const reasonLabels: Record<string, { text: string; color: string; bg: string }> = {
   scheduled: { text: 'Feasible', color: 'text-green-700', bg: 'bg-green-100' },
   not_schedulable: { text: 'Infeasible', color: 'text-red-700', bg: 'bg-red-100' },
@@ -37,7 +52,7 @@ const reasonLabels: Record<string, { text: string; color: string; bg: string }> 
   unknown: { text: 'Unknown', color: 'text-gray-700', bg: 'bg-gray-100' },
 };
 
-const AddressReviewPanel: React.FC = () => {
+const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onActionResolved }) => {
   const [properties, setProperties] = useState<PendingProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingId, setCheckingId] = useState<string | null>(null);
@@ -129,6 +144,7 @@ const AddressReviewPanel: React.FC = () => {
           succeededIds.forEach((id: string) => delete next[id]);
           return next;
         });
+        onActionResolved?.();
       }
     } catch (e) {
       console.error('Bulk decision failed:', e);
@@ -178,6 +194,7 @@ const AddressReviewPanel: React.FC = () => {
         });
         setDenyingId(null);
         setDenyNotes('');
+        onActionResolved?.();
       }
     } catch (e) {
       console.error('Decision failed:', e);
@@ -282,8 +299,9 @@ const AddressReviewPanel: React.FC = () => {
                         {prop.serviceType}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {new Date(prop.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    <td className="px-4 py-3">
+                      <div className="text-gray-600">{new Date(prop.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                      <div className={`text-[10px] font-bold ${ageColor(prop.submittedAt)}`}>{relativeAge(prop.submittedAt)}</div>
                     </td>
                     <td className="px-4 py-3">
                       {isChecking ? (

@@ -5,6 +5,7 @@ import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
 import * as optimoSync from './optimoSyncService';
 import { detectAndStorePickupDays } from './pickupDayDetector';
+import { importRoutesFromOptimo, importRoutesForRange } from './optimoImportService';
 
 export function registerAdminOptimoRoutes(app: Express) {
   // ── Test Connection ──
@@ -423,6 +424,24 @@ export function registerAdminOptimoRoutes(app: Express) {
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error updating pickup schedule:', error);
       res.status(500).json({ error: 'Failed to update pickup schedule' });
+    }
+  });
+
+  // ── Import routes FROM OptimoRoute ──
+
+  app.post('/api/admin/optimoroute/import-routes', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { date, from, to } = req.body;
+      if (from && to) {
+        const result = await importRoutesForRange(from, to);
+        return res.json(result);
+      }
+      if (!date) return res.status(400).json({ error: 'date (or from+to) is required' });
+      const result = await importRoutesFromOptimo(date);
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Import failed:', error);
+      res.status(500).json({ error: 'Failed to import routes from OptimoRoute' });
     }
   });
 }

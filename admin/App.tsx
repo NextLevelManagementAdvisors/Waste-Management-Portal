@@ -43,16 +43,19 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
-  issues: '/admin/operations/issues',
-  'address-review': '/admin/operations/address-review',
+  routes: '/admin/operations/routes',
+  actions: '/admin/operations/actions',
+  issues: '/admin/operations/actions',
+  'address-review': '/admin/operations/actions',
 };
 
 const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
-  '/admin/operations/issues': 'issues',
-  '/admin/operations/address-review': 'address-review',
-  // Backward compat: old tab paths → unified operations tab
-  '/admin/operations/routes': 'operations',
+  '/admin/operations/routes': 'routes',
+  '/admin/operations/actions': 'actions',
+  // Backward compat: old tab paths
+  '/admin/operations/issues': 'actions',
+  '/admin/operations/address-review': 'actions',
   '/admin/operations/live': 'operations',
   '/admin/operations/route-board': 'operations',
 };
@@ -213,16 +216,33 @@ const AdminApp: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any>(null);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
+  const [actionBarDismissed, setActionBarDismissed] = useState(false);
+  const [dismissedCounts, setDismissedCounts] = useState<{ mp: number; ar: number } | null>(null);
+
+  // Auto-re-show action bar when new items arrive after dismiss
+  useEffect(() => {
+    if (actionBarDismissed && dismissedCounts) {
+      const currentMp = badgeCounts.missedPickups || 0;
+      const currentAr = badgeCounts.addressReviews || 0;
+      if (currentMp > dismissedCounts.mp || currentAr > dismissedCounts.ar) {
+        setActionBarDismissed(false);
+        setDismissedCounts(null);
+      }
+    }
+  }, [badgeCounts.missedPickups, badgeCounts.addressReviews, actionBarDismissed, dismissedCounts]);
 
   const navigateTo = useCallback((view: AdminView, filter?: NavFilter) => {
     setNavFilter(filter || null);
     setCurrentViewRaw(view);
     setSelectedPersonIdRaw(null);
-    if (view === 'operations') setOpsTabRaw('operations');
+    if (view === 'operations') {
+      const opsTab = filter?.tab as OpsTabType | undefined;
+      setOpsTabRaw(opsTab || 'operations');
+    }
     if (view === 'settings') setSettingsTabRaw('integrations');
     if (view === 'communications') setCommsTabRaw('conversations');
     if (view === 'accounting') setAcctTabRaw(filter?.tab as AccountingTabType || 'overview');
-    const url = buildAdminUrl(view, { search: filter?.search, acctTab: filter?.tab as AccountingTabType });
+    const url = buildAdminUrl(view, { search: filter?.search, opsTab: filter?.tab as OpsTabType, acctTab: filter?.tab as AccountingTabType });
     window.history.pushState({ view }, '', url);
   }, []);
 
@@ -362,18 +382,19 @@ const AdminApp: React.FC = () => {
   }, []);
 
   // Fetch sidebar badge counts
+  const refreshBadgeCounts = useCallback(() => {
+    fetch('/api/admin/badge-counts', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : {})
+      .then(data => setBadgeCounts(data))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-    const fetchBadges = () => {
-      fetch('/api/admin/badge-counts', { credentials: 'include' })
-        .then(r => r.ok ? r.json() : {})
-        .then(data => setBadgeCounts(data))
-        .catch(() => {});
-    };
-    fetchBadges();
-    const interval = setInterval(fetchBadges, 60_000);
+    refreshBadgeCounts();
+    const interval = setInterval(refreshBadgeCounts, 60_000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, refreshBadgeCounts]);
 
   const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -430,7 +451,7 @@ const AdminApp: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:inset-auto flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
             <img src="/favicon.svg" alt="" className="w-8 h-8" />
@@ -441,7 +462,7 @@ const AdminApp: React.FC = () => {
           </div>
         </div>
 
-        <nav className="p-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           {navItems.map(item => {
             const count = item.badgeKey ? (badgeCounts[item.badgeKey] || 0) : 0;
             return (
@@ -470,7 +491,7 @@ const AdminApp: React.FC = () => {
           })}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
+        <div className="mt-auto p-4 border-t border-gray-800">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black flex-shrink-0">
               {user.firstName[0]}{user.lastName[0]}
@@ -556,11 +577,75 @@ const AdminApp: React.FC = () => {
           </div>
         </header>
 
+        {/* Global Action Bar */}
+        {(() => {
+          const mpCount = badgeCounts.missedPickups || 0;
+          const arCount = badgeCounts.addressReviews || 0;
+          if (mpCount === 0 && arCount === 0) return null;
+          if (actionBarDismissed) return null;
+          const worstHours = Math.max(badgeCounts.oldestMissedPickupHours || 0, badgeCounts.oldestAddressReviewHours || 0);
+          const barBg = worstHours >= 72 ? 'bg-red-50 border-red-200' : worstHours >= 24 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200';
+          const ageLabel = (hours: number | undefined) => {
+            if (!hours || hours < 24) return null;
+            const days = Math.floor(hours / 24);
+            return `${days}d`;
+          };
+          return (
+            <div className={`${barBg} border-b px-4 sm:px-6 lg:px-8 py-1.5 flex items-center gap-3 flex-wrap`}>
+              {mpCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigateTo('operations', { tab: 'issues' })}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-red-200 hover:bg-red-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  <span className="text-xs font-bold text-red-700">
+                    {mpCount} Missed Pickup{mpCount !== 1 ? 's' : ''}
+                  </span>
+                  {ageLabel(badgeCounts.oldestMissedPickupHours) && (
+                    <span className="text-[10px] font-bold text-red-400">{ageLabel(badgeCounts.oldestMissedPickupHours)} old</span>
+                  )}
+                </button>
+              )}
+              {arCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigateTo('operations', { tab: 'address-review' })}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-amber-200 hover:bg-amber-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                  </svg>
+                  <span className="text-xs font-bold text-amber-700">
+                    {arCount} Address{arCount !== 1 ? 'es' : ''} Need Review
+                  </span>
+                  {ageLabel(badgeCounts.oldestAddressReviewHours) && (
+                    <span className="text-[10px] font-bold text-amber-400">{ageLabel(badgeCounts.oldestAddressReviewHours)} old</span>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setActionBarDismissed(true); setDismissedCounts({ mp: mpCount, ar: arCount }); }}
+                className="ml-auto p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                title="Dismiss until new items arrive"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          );
+        })()}
+
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} />}
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedPickupsCount={badgeCounts.missedPickups || 0} addressReviewsCount={badgeCounts.addressReviews || 0} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>
