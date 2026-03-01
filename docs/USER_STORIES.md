@@ -2,6 +2,8 @@
 
 Complete inventory of user stories across all three portals (Customer, Admin, Team/Driver), derived from a full codebase audit. Each story follows the format: **As a [role], I want to [action], so that [benefit].**
 
+**Status key:** Done = fully implemented | Partial = partially implemented | — = not yet started
+
 ---
 
 ## 1. CUSTOMER PORTAL
@@ -34,17 +36,17 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ### 1.3 Service Setup & Onboarding
 
-| # | User Story |
-|---|-----------|
-| C-17 | As a customer, I want to enter my address and have it validated against the service area, so that I know upfront if service is available. |
-| C-18 | As a customer, I want to use address autocomplete (Google Maps), so that I can enter my address quickly and accurately. |
-| C-19 | As a customer, I want to specify my property type (personal, commercial, short-term, rental, other), so that the system can recommend appropriate services. |
-| C-20 | As a customer, I want to provide property details (HOA status, community name, gate code, service notes), so that drivers can access my property and follow any special instructions. |
-| C-21 | As a customer, I want to browse and select from available services with pricing by frequency (weekly, bi-weekly, monthly, one-time), so that I can choose the plan that fits my needs. |
-| C-22 | As a customer, I want to get AI-based service recommendations from uploaded photos of my waste, so that I select the right service size. |
-| C-23 | As a customer, I want to add a payment method (card or bank account) via Stripe during signup, so that billing is set up before my first pickup. |
-| C-24 | As a customer, I want my property to enter a "pending review" state after submission, so that an admin can verify serviceability before I'm charged. |
-| C-25 | As a customer, I want to be notified when my address is approved, denied, or waitlisted, so that I know the status of my service request. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-17 | Done | As a customer, I want to enter my address and have it validated against the service area, so that I know upfront if service is available. |
+| C-18 | Done | As a customer, I want to use address autocomplete (Google Maps), so that I can enter my address quickly and accurately. |
+| C-19 | Done | As a customer, I want to specify my property type (personal, commercial, short-term, rental, other), so that the system can recommend appropriate services. |
+| C-20 | Done | As a customer, I want to provide property details (HOA status, community name, gate code, service notes), so that drivers can access my property and follow any special instructions. |
+| C-21 | Done | As a customer, I want to browse and select from available services with pricing by frequency (weekly, bi-weekly, monthly, one-time), so that I can choose the plan that fits my needs. |
+| C-22 | Done | As a customer, I want to get AI-based service recommendations from uploaded photos of my waste, so that I select the right service size. |
+| C-23 | Done | As a customer, I want to add a payment method (card or bank account) via Stripe during signup, so that billing is set up before my first pickup. |
+| C-24 | Done | As a customer, I want my property to enter a "pending review" state after submission, so that an admin can verify serviceability before I'm charged. |
+| C-25 | Done | As a customer, I want to be notified when my address is approved, denied, or waitlisted, so that I know the status of my service request. |
 
 ### 1.4 Service Management
 
