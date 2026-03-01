@@ -16,8 +16,6 @@ interface AvailableLocation {
   latitude: number;
   longitude: number;
   customer_name: string;
-  zone_name: string | null;
-  zone_color: string | null;
   claimed_by_driver_id: string | null;
   claimed_by_driver_name: string | null;
   claim_status: string | null;
@@ -34,8 +32,6 @@ interface ClaimedLocation {
   pickup_day: string | null;
   pickup_frequency: string | null;
   customer_name: string;
-  zone_name: string | null;
-  zone_color: string | null;
 }
 
 const FitBounds: React.FC<{ points: [number, number][] }> = ({ points }) => {
@@ -200,7 +196,7 @@ const AvailableLocations: React.FC = () => {
                           {loc.service_type} &bull; {loc.pickup_day || 'No day'} &bull; {loc.pickup_frequency || 'weekly'}
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">
-                          Zone: {loc.matching_zone_name} &bull; {loc.distance_miles.toFixed(1)} mi
+                          {loc.matching_zone_name} &bull; {loc.distance_miles.toFixed(1)} mi away
                         </div>
                         {loc.claimed_by_driver_id && !loc.is_mine && (
                           <div className="text-xs text-orange-600 font-medium mt-1">
@@ -312,14 +308,10 @@ const AvailableLocations: React.FC = () => {
               <div key={loc.id} className="flex items-center justify-between px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: loc.zone_color || '#3B82F6' }}
-                    />
                     <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
                   </div>
-                  <div className="text-xs text-gray-400 ml-4 mt-0.5">
-                    {loc.customer_name} &bull; {loc.zone_name || 'No zone'} &bull; {loc.pickup_day || 'No day'} &bull; {loc.pickup_frequency || 'weekly'}
+                  <div className="text-xs text-gray-400 ml-2 mt-0.5">
+                    {loc.customer_name} &bull; {loc.pickup_day || 'No day'} &bull; {loc.pickup_frequency || 'weekly'}
                   </div>
                 </div>
                 <Button

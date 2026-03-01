@@ -63,9 +63,6 @@ export interface Route {
   bid_count?: number;
   // Route-centric fields
   route_type?: RouteType;
-  zone_id?: string;
-  zone_name?: string;
-  zone_color?: string;
   source?: string;
   special_pickup_id?: string;
   optimo_planning_id?: string;

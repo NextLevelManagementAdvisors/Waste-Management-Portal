@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
-import type { Route, RouteStop, ServiceZone } from '../../../shared/types/index.ts';
+import type { Route, RouteStop } from '../../../shared/types/index.ts';
 import EditRouteModal from './EditRouteModal.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import OptimoStatusBanner from './OptimoStatusBanner.tsx';
@@ -14,9 +14,6 @@ interface PlanningProperty {
   service_type: string;
   customer_name: string;
   customer_email: string;
-  zone_id: string | null;
-  zone_name: string | null;
-  zone_color: string | null;
   pickup_day: string;
   pickup_frequency: string;
 }
@@ -27,8 +24,6 @@ interface SpecialPickup {
   customer_name: string;
   service_name: string;
   service_price: number;
-  zone_id: string | null;
-  zone_name: string | null;
   property_id: string;
 }
 
@@ -39,7 +34,6 @@ interface CalendarDay {
   pickupCount: number;
   specialCount: number;
   routesByStatus: Record<string, number>;
-  zoneBreakdown: Array<{ zone_name: string | null; zone_color: string | null; count: number }>;
 }
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -84,19 +78,19 @@ function getMonthDays(year: number, month: number): CalendarDay[] {
 
   for (let i = 0; i < firstDay.getDay(); i++) {
     const d = new Date(year, month, -firstDay.getDay() + i + 1);
-    days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {}, zoneBreakdown: [] });
+    days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
   }
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const dt = new Date(year, month, d);
-    days.push({ date: formatDateISO(dt), isCurrentMonth: true, isToday: formatDateISO(dt) === today, pickupCount: 0, specialCount: 0, routesByStatus: {}, zoneBreakdown: [] });
+    days.push({ date: formatDateISO(dt), isCurrentMonth: true, isToday: formatDateISO(dt) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
   }
 
   const remaining = 7 - (days.length % 7);
   if (remaining < 7) {
     for (let i = 1; i <= remaining; i++) {
       const d = new Date(year, month + 1, i);
-      days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {}, zoneBreakdown: [] });
+      days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
     }
   }
 
@@ -110,7 +104,6 @@ const PlanningCalendar: React.FC = () => {
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [zones, setZones] = useState<ServiceZone[]>([]);
 
   // Day detail state
   const [dayProperties, setDayProperties] = useState<PlanningProperty[]>([]);
@@ -178,15 +171,7 @@ const PlanningCalendar: React.FC = () => {
   const loadCalendarDays = useCallback(async (from: string, to: string) => {
     const days = getMonthDays(currentYear, currentMonth);
 
-    const [calRes, zonesRes] = await Promise.all([
-      fetch(`/api/admin/planning/calendar?from=${from}&to=${to}`, { credentials: 'include' }),
-      fetch('/api/admin/zones', { credentials: 'include' }),
-    ]);
-
-    if (zonesRes.ok) {
-      const zData = await zonesRes.json();
-      setZones(zData.zones ?? []);
-    }
+    const calRes = await fetch(`/api/admin/planning/calendar?from=${from}&to=${to}`, { credentials: 'include' });
 
     if (calRes.ok) {
       const data = await calRes.json();
@@ -196,10 +181,9 @@ const PlanningCalendar: React.FC = () => {
         specialsByDate.set(s.pickup_date, s.special_count);
       }
 
-      const countsByDay = new Map<string, Array<{ zone_name: string | null; zone_color: string | null; count: number }>>();
+      const countsByDay = new Map<string, number>();
       for (const pc of data.propertyCounts ?? []) {
-        if (!countsByDay.has(pc.pickup_day)) countsByDay.set(pc.pickup_day, []);
-        countsByDay.get(pc.pickup_day)!.push({ zone_name: pc.zone_name, zone_color: pc.zone_color, count: pc.property_count });
+        countsByDay.set(pc.pickup_day, (countsByDay.get(pc.pickup_day) || 0) + Number(pc.property_count));
       }
 
       const routesByDate = new Map<string, Record<string, number>>();
@@ -213,9 +197,7 @@ const PlanningCalendar: React.FC = () => {
       for (const day of days) {
         const dt = new Date(day.date + 'T12:00:00');
         const dayName = DAY_NAME_MAP[dt.getDay()];
-        const zb = countsByDay.get(dayName) ?? [];
-        day.pickupCount = zb.reduce((sum, z) => sum + z.count, 0);
-        day.zoneBreakdown = zb;
+        day.pickupCount = countsByDay.get(dayName) ?? 0;
         day.specialCount = specialsByDate.get(day.date) ?? 0;
         day.routesByStatus = routesByDate.get(day.date) ?? {};
       }
@@ -461,17 +443,6 @@ const PlanningCalendar: React.FC = () => {
           <button onClick={goToday} className="px-3 py-1.5 text-sm font-bold text-teal-700 hover:bg-teal-50 rounded-lg">Today</button>
         </div>
 
-        {zones.length > 0 && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-gray-400 font-bold">Zones:</span>
-            {zones.filter(z => z.active).map(z => (
-              <span key={z.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: z.color }} />
-                {z.name}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="flex gap-6">
@@ -507,12 +478,9 @@ const PlanningCalendar: React.FC = () => {
 
                     {day.isCurrentMonth && (
                       <div className="space-y-0.5">
-                        {day.zoneBreakdown.map((zb, i) => (
-                          <div key={i} className="flex items-center gap-1 text-[10px]">
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: zb.zone_color || '#9CA3AF' }} />
-                            <span className="text-gray-500 truncate">{zb.count}</span>
-                          </div>
-                        ))}
+                        {day.pickupCount > 0 && (
+                          <div className="text-[10px] text-gray-500 font-medium">{day.pickupCount} pickups</div>
+                        )}
 
                         {day.specialCount > 0 && (
                           <div className="text-[10px] text-purple-600 font-semibold">{day.specialCount} special</div>
@@ -664,9 +632,6 @@ const PlanningCalendar: React.FC = () => {
                                 onClick={() => toggleExpandRoute(route.id)}
                                 className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors text-left"
                               >
-                                {/* Zone color indicator */}
-                                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: route.zone_color || '#9CA3AF' }} />
-
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-0.5">
                                     <span className="font-black text-gray-900 text-sm truncate">{route.title}</span>
@@ -839,9 +804,6 @@ const PlanningCalendar: React.FC = () => {
                       <div className="max-h-[200px] overflow-y-auto space-y-1">
                         {dayProperties.map(prop => (
                           <div key={prop.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs">
-                            {prop.zone_color && (
-                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: prop.zone_color }} />
-                            )}
                             <div className="min-w-0 flex-1">
                               <div className="text-gray-900 font-medium truncate">{prop.address}</div>
                               <div className="text-gray-400 truncate">{prop.customer_name}</div>

@@ -23,8 +23,8 @@ interface FeasibilityResult {
 }
 
 interface RouteSuggestion {
-  zone_id: string;
   zone_name: string;
+  driver_name?: string;
   pickup_day: string;
   confidence: number;
   distance_miles: number;

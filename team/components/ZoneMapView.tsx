@@ -13,26 +13,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-interface ServiceZone {
-  id: string;
-  name: string;
-  description?: string;
-  color: string;
-  active: boolean;
-  center_lat?: number;
-  center_lng?: number;
-  radius_miles?: number;
-}
-
-interface DriverZoneSelection {
-  id: string;
-  driver_id: string;
-  zone_id: string;
-  status: 'active' | 'paused';
-  zone_name: string;
-  zone_color: string;
-}
-
 interface CustomZone {
   id: string;
   driver_id: string;
@@ -69,12 +49,7 @@ const MILES_TO_METERS = 1609.34;
 const ZONE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
 
 const ZoneMapView: React.FC = () => {
-  // Admin zones + selections
-  const [allZones, setAllZones] = useState<ServiceZone[]>([]);
-  const [myZones, setMyZones] = useState<DriverZoneSelection[]>([]);
-  // Driver custom zones
   const [customZones, setCustomZones] = useState<CustomZone[]>([]);
-  // UI state
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // "Add zone" mode
@@ -84,20 +59,11 @@ const ZoneMapView: React.FC = () => {
   const [newZoneRadius, setNewZoneRadius] = useState(5);
   const [newZoneColor, setNewZoneColor] = useState('#3B82F6');
 
-  const selectedIds = useMemo(() => new Set(myZones.map(z => z.zone_id)), [myZones]);
-  const pausedIds = useMemo(() => new Set(myZones.filter(z => z.status === 'paused').map(z => z.zone_id)), [myZones]);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [zonesRes, myRes, customRes] = await Promise.all([
-        fetch('/api/team/zones', { credentials: 'include' }),
-        fetch('/api/team/my-zones', { credentials: 'include' }),
-        fetch('/api/team/my-custom-zones', { credentials: 'include' }),
-      ]);
-      if (zonesRes.ok) { const d = await zonesRes.json(); setAllZones(d.data || []); }
-      if (myRes.ok) { const d = await myRes.json(); setMyZones(d.data || []); }
-      if (customRes.ok) { const d = await customRes.json(); setCustomZones(d.data || []); }
+      const res = await fetch('/api/team/my-custom-zones', { credentials: 'include' });
+      if (res.ok) { const d = await res.json(); setCustomZones(d.data || []); }
     } catch {
       // ignore
     } finally {
@@ -106,36 +72,6 @@ const ZoneMapView: React.FC = () => {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // Toggle admin zone selection
-  const toggleZone = useCallback(async (zoneId: string) => {
-    setSaving(true);
-    const newIds = selectedIds.has(zoneId)
-      ? [...selectedIds].filter(id => id !== zoneId)
-      : [...selectedIds, zoneId];
-    try {
-      const res = await fetch('/api/team/my-zones', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zoneIds: newIds }),
-      });
-      if (res.ok) { const d = await res.json(); setMyZones(d.data || []); }
-    } catch {} finally { setSaving(false); }
-  }, [selectedIds]);
-
-  const togglePause = useCallback(async (zoneId: string, currentlyPaused: boolean) => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/team/my-zones/${zoneId}/${currentlyPaused ? 'resume' : 'pause'}`, {
-        method: 'PUT', credentials: 'include',
-      });
-      if (res.ok) {
-        setMyZones(prev => prev.map(z =>
-          z.zone_id === zoneId ? { ...z, status: currentlyPaused ? 'active' : 'paused' } : z
-        ));
-      }
-    } catch {} finally { setSaving(false); }
-  }, []);
 
   // Create custom zone
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -160,7 +96,6 @@ const ZoneMapView: React.FC = () => {
       if (res.ok) {
         const d = await res.json();
         setCustomZones(prev => [d.data, ...prev]);
-        // Reset
         setAddMode(false);
         setNewZoneCenter(null);
         setNewZoneName('');
@@ -205,16 +140,10 @@ const ZoneMapView: React.FC = () => {
   // Collect all points for auto-fit
   const allPoints = useMemo(() => {
     const pts: [number, number][] = [];
-    allZones.filter(z => z.center_lat && z.center_lng).forEach(z => pts.push([z.center_lat!, z.center_lng!]));
     customZones.forEach(z => pts.push([Number(z.center_lat), Number(z.center_lng)]));
     if (newZoneCenter) pts.push(newZoneCenter);
     return pts;
-  }, [allZones, customZones, newZoneCenter]);
-
-  const mappableAdminZones = useMemo(
-    () => allZones.filter(z => z.center_lat && z.center_lng && z.radius_miles),
-    [allZones]
-  );
+  }, [customZones, newZoneCenter]);
 
   const defaultCenter: [number, number] = [38.85, -78.2];
 
@@ -235,7 +164,7 @@ const ZoneMapView: React.FC = () => {
           <p className="text-sm text-gray-500">
             {addMode
               ? 'Tap the map to place your zone center, then set the radius and name.'
-              : 'Tap existing zones to select them, or add your own coverage area.'}
+              : 'Define your coverage areas to receive route offers nearby.'}
           </p>
         </div>
         {!addMode ? (
@@ -322,45 +251,6 @@ const ZoneMapView: React.FC = () => {
           {allPoints.length > 0 && <FitBounds points={allPoints} />}
           <MapClickHandler onMapClick={handleMapClick} active={addMode} />
 
-          {/* Admin-defined zones */}
-          {mappableAdminZones.map(zone => {
-            const isSelected = selectedIds.has(zone.id);
-            const isPaused = pausedIds.has(zone.id);
-            const color = isSelected ? zone.color : '#9CA3AF';
-            const opacity = isSelected ? (isPaused ? 0.25 : 0.5) : 0.15;
-
-            return (
-              <Circle
-                key={`admin-${zone.id}`}
-                center={[zone.center_lat!, zone.center_lng!]}
-                radius={(zone.radius_miles || 5) * MILES_TO_METERS}
-                pathOptions={{
-                  color, fillColor: color, fillOpacity: opacity,
-                  weight: isSelected ? 3 : 1,
-                  dashArray: isPaused ? '8 4' : undefined,
-                }}
-                eventHandlers={{ click: () => { if (!saving && !addMode) toggleZone(zone.id); } }}
-              >
-                <Popup>
-                  <div className="text-center min-w-[140px]">
-                    <div className="font-bold text-sm">{zone.name}</div>
-                    <div className="text-[10px] text-gray-400 uppercase mt-0.5">Company Zone</div>
-                    {zone.description && <div className="text-xs text-gray-500 mt-0.5">{zone.description}</div>}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleZone(zone.id); }}
-                      disabled={saving}
-                      className={`mt-2 px-3 py-1 rounded text-xs font-bold ${
-                        isSelected ? 'bg-red-100 text-red-700' : 'bg-teal-100 text-teal-700'
-                      }`}
-                    >
-                      {isSelected ? 'Remove' : 'Add to Coverage'}
-                    </button>
-                  </div>
-                </Popup>
-              </Circle>
-            );
-          })}
-
           {/* Driver custom zones */}
           {customZones.map(zone => {
             const isPaused = zone.status === 'paused';
@@ -380,7 +270,6 @@ const ZoneMapView: React.FC = () => {
                 <Popup>
                   <div className="text-center min-w-[140px]">
                     <div className="font-bold text-sm">{zone.name}</div>
-                    <div className="text-[10px] text-gray-400 uppercase mt-0.5">My Zone</div>
                     <div className="text-xs mt-1">{Number(zone.radius_miles)} mi radius</div>
                     <div className="flex gap-1 justify-center mt-2">
                       <button
@@ -423,19 +312,17 @@ const ZoneMapView: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="px-4 py-3 border-b border-gray-100">
           <h3 className="text-sm font-bold text-gray-700">
-            My Coverage ({myZones.length + customZones.length} zones)
+            My Coverage ({customZones.length} zone{customZones.length !== 1 ? 's' : ''})
           </h3>
         </div>
 
-        {/* Custom zones */}
-        {customZones.length > 0 && (
+        {customZones.length > 0 ? (
           <div className="divide-y divide-gray-100">
             {customZones.map(zone => (
               <div key={zone.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
                   <span className="text-sm font-medium text-gray-800">{zone.name}</span>
-                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">My Zone</span>
                   {zone.status === 'paused' && (
                     <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Paused</span>
                   )}
@@ -452,35 +339,7 @@ const ZoneMapView: React.FC = () => {
               </div>
             ))}
           </div>
-        )}
-
-        {/* Admin zone selections */}
-        {myZones.length > 0 && (
-          <div className="divide-y divide-gray-100">
-            {myZones.map(sel => (
-              <div key={sel.id} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sel.zone_color || '#10B981' }} />
-                  <span className="text-sm font-medium text-gray-800">{sel.zone_name}</span>
-                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Company</span>
-                  {sel.status === 'paused' && (
-                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Paused</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => togglePause(sel.zone_id, sel.status === 'paused')} disabled={saving} className="text-xs font-bold text-gray-500 hover:text-gray-700">
-                    {sel.status === 'paused' ? 'Resume' : 'Pause'}
-                  </button>
-                  <button onClick={() => toggleZone(sel.zone_id)} disabled={saving} className="text-xs font-bold text-red-500 hover:text-red-700">
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {myZones.length === 0 && customZones.length === 0 && (
+        ) : (
           <div className="px-4 py-6 text-center text-sm text-gray-400">
             No coverage zones yet. Tap "Add Zone" and click the map to create your first zone.
           </div>

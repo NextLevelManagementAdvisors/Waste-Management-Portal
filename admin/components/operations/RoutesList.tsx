@@ -332,7 +332,6 @@ const RoutesList: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pay</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Driver</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Zone</th>
                 <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-widest text-gray-400">Actions</th>
               </tr>
             </thead>
@@ -385,9 +384,6 @@ const RoutesList: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-700">{route.driver_name ?? '—'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-500">{route.zone_name ?? '—'}</div>
                       </td>
                       <td className="px-4 py-3 text-right space-x-1">
                         {route.status === 'draft' && (

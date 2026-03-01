@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import WeeklyPlannerDayColumn from './WeeklyPlannerDayColumn.tsx';
-import type { Route, ServiceZone, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
+import type { Route, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
 
 interface WeekData {
   routes: Route[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
-  zones: ServiceZone[];
 }
 
 function getMondayOfWeek(d: Date): Date {
@@ -215,19 +214,6 @@ const WeeklyPlanner: React.FC = () => {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Zone legend */}
-      {data && data.zones.length > 0 && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-gray-400 font-bold">Zones:</span>
-          {data.zones.filter(z => z.active).map(z => (
-            <span key={z.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: z.color }} />
-              {z.name}
-            </span>
-          ))}
         </div>
       )}
 

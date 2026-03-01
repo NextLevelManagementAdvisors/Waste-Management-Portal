@@ -13,16 +13,7 @@ interface LocationClaim {
   driver_rating: number | null;
   address: string;
   customer_name: string;
-  zone_id: string | null;
-  zone_name: string | null;
-  zone_color: string | null;
   pickup_day: string | null;
-}
-
-interface ServiceZone {
-  id: string;
-  name: string;
-  color: string;
 }
 
 interface Driver {
@@ -36,8 +27,6 @@ const ClaimsPanel: React.FC = () => {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('active');
-  const [zoneFilter, setZoneFilter] = useState('all');
-  const [zones, setZones] = useState<ServiceZone[]>([]);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [assignModal, setAssignModal] = useState<{ propertyId: string; address: string } | null>(null);
   const [assignDriverId, setAssignDriverId] = useState('');
@@ -49,7 +38,6 @@ const ClaimsPanel: React.FC = () => {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      if (zoneFilter !== 'all') params.set('zone_id', zoneFilter);
       params.set('page', String(page));
       params.set('limit', String(limit));
 
@@ -64,18 +52,11 @@ const ClaimsPanel: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, zoneFilter, page]);
+  }, [statusFilter, page]);
 
   const loadMeta = useCallback(async () => {
     try {
-      const [zonesRes, driversRes] = await Promise.all([
-        fetch('/api/admin/service-zones', { credentials: 'include' }),
-        fetch('/api/admin/drivers', { credentials: 'include' }),
-      ]);
-      if (zonesRes.ok) {
-        const d = await zonesRes.json();
-        setZones(d.zones || d.data || []);
-      }
+      const driversRes = await fetch('/api/admin/drivers', { credentials: 'include' });
       if (driversRes.ok) {
         const d = await driversRes.json();
         setDrivers(d.drivers || d.data || []);
@@ -151,16 +132,6 @@ const ClaimsPanel: React.FC = () => {
           <option value="">All Statuses</option>
         </select>
 
-        <select
-          value={zoneFilter}
-          onChange={e => { setZoneFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-        >
-          <option value="all">All Zones</option>
-          {zones.map(z => (
-            <option key={z.id} value={z.id}>{z.name}</option>
-          ))}
-        </select>
       </div>
 
       {loading ? (
@@ -177,7 +148,6 @@ const ClaimsPanel: React.FC = () => {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Customer</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Driver</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Rating</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Zone</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Claimed</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
@@ -191,16 +161,6 @@ const ClaimsPanel: React.FC = () => {
                     <td className="px-4 py-3 text-gray-800 font-medium">{claim.driver_name}</td>
                     <td className="px-4 py-3 text-gray-600">
                       {claim.driver_rating != null ? Number(claim.driver_rating).toFixed(1) : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {claim.zone_name ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: claim.zone_color || '#10B981' }} />
-                          {claim.zone_name}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Unassigned</span>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full ${

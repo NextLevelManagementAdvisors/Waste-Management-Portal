@@ -87,10 +87,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
         {routes.map(route => (
           <div key={route.id} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100 hover:border-gray-200 transition-colors">
             <div className="flex items-center gap-1.5 mb-1">
-              {route.zone_color && (
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: route.zone_color }} />
-              )}
-              <span className="text-xs font-bold text-gray-900 truncate flex-1">{route.zone_name || route.title}</span>
+              <span className="text-xs font-bold text-gray-900 truncate flex-1">{route.title}</span>
             </div>
             <div className="flex items-center gap-1 flex-wrap">
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${STATUS_COLORS[route.status] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -135,9 +132,6 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
                 {missingClients.map(client => (
                   <div key={client.id} className="bg-white rounded px-2 py-1.5 border border-amber-100">
                     <div className="flex items-center gap-1 mb-0.5">
-                      {client.zone_color && (
-                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: client.zone_color }} />
-                      )}
                       <span className="text-[10px] font-medium text-gray-900 truncate">{client.customer_name}</span>
                       {client.pickup_frequency && (
                         <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1 rounded">
@@ -155,10 +149,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
                             disabled={addingTo?.propertyId === client.id}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors disabled:opacity-50"
                           >
-                            {route.zone_color && (
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: route.zone_color }} />
-                            )}
-                            + {route.zone_name || 'Route'}
+                            + {route.title || 'Route'}
                           </button>
                         ))}
                       </div>

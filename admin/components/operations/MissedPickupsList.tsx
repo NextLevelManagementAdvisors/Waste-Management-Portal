@@ -229,11 +229,8 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
               <div key={route.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
                 <div>
                   <div className="text-sm font-semibold text-gray-900">{route.title}</div>
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    {route.zone_color && (
-                      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: route.zone_color }} />
-                    )}
-                    {route.zone_name || 'No zone'} &middot; {route.stop_count ?? 0} stops &middot; {route.status}
+                  <div className="text-xs text-gray-500">
+                    {route.stop_count ?? 0} stops &middot; {route.status}
                   </div>
                 </div>
                 <Button size="sm" disabled={adding} onClick={() => handleAdd(route.id)}>

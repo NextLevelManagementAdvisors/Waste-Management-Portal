@@ -54,30 +54,6 @@ interface Route {
   status: string;
   assigned_driver_id?: string;
   bids?: Bid[];
-  zone_id?: string;
-  zone_name?: string;
-  zone_color?: string;
-}
-
-interface DriverZoneSelection {
-  id: string;
-  driver_id: string;
-  zone_id: string;
-  status: 'active' | 'paused';
-  zone_name: string;
-  zone_color: string;
-  zone_description?: string;
-}
-
-interface ServiceZone {
-  id: string;
-  name: string;
-  description?: string;
-  color: string;
-  active: boolean;
-  center_lat?: number;
-  center_lng?: number;
-  radius_miles?: number;
 }
 
 interface Bid {
@@ -1133,12 +1109,6 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                 <h3 className="font-bold text-gray-900">{route.title}</h3>
                 <StatusBadge status={route.status} />
               </div>
-              {route.zone_name && (
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: route.zone_color || '#9CA3AF' }} />
-                  <span className="text-xs text-gray-500 font-medium">{route.zone_name}</span>
-                </div>
-              )}
               <div className="space-y-1 text-sm text-gray-500 mb-4">
                 {route.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(route.scheduled_date)}</p>}
                 {(route.start_time || route.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.start_time}–{route.end_time}</p>}
@@ -1725,60 +1695,11 @@ const Profile: React.FC = () => {
   const [bankError, setBankError] = useState('');
   const [bankMsg, setBankMsg] = useState('');
 
-  // Zone selection state
-  const [allZones, setAllZones] = useState<ServiceZone[]>([]);
-  const [myZones, setMyZones] = useState<DriverZoneSelection[]>([]);
-  const [zonesLoading, setZonesLoading] = useState(true);
-  const [zoneSaving, setZoneSaving] = useState(false);
-
   const loadBankInfo = async () => {
     try {
       const res = await fetch('/api/team/profile/bank-account', { credentials: 'include' });
       if (res.ok) setBankInfo(await res.json());
     } catch {}
-  };
-
-  const loadZones = async () => {
-    try {
-      const [allRes, myRes] = await Promise.all([
-        fetch('/api/team/zones', { credentials: 'include' }),
-        fetch('/api/team/my-zones', { credentials: 'include' }),
-      ]);
-      if (allRes.ok) { const j = await allRes.json(); setAllZones(j.data || []); }
-      if (myRes.ok) { const j = await myRes.json(); setMyZones(j.data || []); }
-    } catch {}
-    setZonesLoading(false);
-  };
-
-  const toggleZone = async (zoneId: string) => {
-    const isSelected = myZones.some(z => z.zone_id === zoneId);
-    const newZoneIds = isSelected
-      ? myZones.filter(z => z.zone_id !== zoneId).map(z => z.zone_id)
-      : [...myZones.map(z => z.zone_id), zoneId];
-    setZoneSaving(true);
-    try {
-      const res = await fetch('/api/team/my-zones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ zoneIds: newZoneIds }),
-      });
-      if (res.ok) { const j = await res.json(); setMyZones(j.data || []); }
-    } catch {}
-    setZoneSaving(false);
-  };
-
-  const togglePause = async (zoneId: string, currentStatus: string) => {
-    const endpoint = currentStatus === 'active' ? 'pause' : 'resume';
-    setZoneSaving(true);
-    try {
-      const res = await fetch(`/api/team/my-zones/${zoneId}/${endpoint}`, {
-        method: 'PUT',
-        credentials: 'include',
-      });
-      if (res.ok) await loadZones();
-    } catch {}
-    setZoneSaving(false);
   };
 
   useEffect(() => {
@@ -1803,7 +1724,7 @@ const Profile: React.FC = () => {
           }
         }
       } catch {}
-      await Promise.all([loadBankInfo(), loadZones()]);
+      await loadBankInfo();
       // Load message email preference
       try {
         const pref = await fetch('/api/team/profile/message-notifications', { credentials: 'include' });
@@ -2143,70 +2064,6 @@ const Profile: React.FC = () => {
                   </button>
                 </div>
               </form>
-            )}
-          </Card>
-
-          {/* Service Zones */}
-          <Card className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Service Zones</h3>
-            <p className="text-sm text-gray-500 mb-4">Select zones where you want to receive route offers.</p>
-            {zonesLoading ? (
-              <div className="flex justify-center py-4">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-teal-600" />
-              </div>
-            ) : allZones.length === 0 ? (
-              <p className="text-sm text-gray-400">No zones available yet.</p>
-            ) : (
-              <div className="space-y-1">
-                {allZones.map(zone => {
-                  const selection = myZones.find(z => z.zone_id === zone.id);
-                  const isSelected = !!selection;
-                  const isPaused = selection?.status === 'paused';
-                  return (
-                    <div key={zone.id} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
-                      <button
-                        type="button"
-                        onClick={() => toggleZone(zone.id)}
-                        disabled={zoneSaving}
-                        className="flex items-center gap-2.5 text-sm disabled:opacity-50"
-                      >
-                        <span
-                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                            isSelected ? 'border-teal-600 bg-teal-600' : 'border-gray-300'
-                          }`}
-                        >
-                          {isSelected && (
-                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                            </svg>
-                          )}
-                        </span>
-                        <span
-                          className="w-3 h-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: zone.color || '#9CA3AF' }}
-                        />
-                        <span className={`font-bold ${isSelected ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {zone.name}
-                        </span>
-                      </button>
-                      {isSelected && (
-                        <button
-                          type="button"
-                          onClick={() => togglePause(zone.id, selection!.status)}
-                          disabled={zoneSaving}
-                          className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${
-                            isPaused
-                              ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                              : 'bg-green-100 text-green-700 hover:bg-green-200'
-                          }`}
-                        >
-                          {isPaused ? 'Paused' : 'Active'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             )}
           </Card>
 
