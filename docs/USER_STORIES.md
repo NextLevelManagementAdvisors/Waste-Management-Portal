@@ -102,7 +102,7 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | # | User Story |
 |---|-----------|
 | C-57 | As a customer, I want to edit my profile (name, email, phone), so that my contact information stays current. |
-| C-58 | As a customer, I want to change my password (requires current password), so that I can maintain account security. |
+| C-58 | As a customer, I want to change my password (current password required for email users; not required for Google OAuth users), so that I can maintain account security. |
 | C-59 | As a customer, I want to manage notification preferences with per-channel toggles (email, SMS) for each notification type, so that I only receive the communications I want. |
 
 ### 1.9 Referrals & Rewards
@@ -150,6 +150,18 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 |---|-----------|
 | C-74 | As a customer, I want to see my next pickup ETA via OptimoRoute integration, so that I know approximately when my driver will arrive. |
 | C-75 | As a customer, I want to see whether my pickup is in-progress, so that I know the driver is on the way. |
+
+### 1.15 Notifications & Payment Lifecycle
+
+| # | User Story |
+|---|-----------|
+| C-76 | As a customer, I want to receive an email confirmation when my payment is processed, so that I have proof of payment. |
+| C-77 | As a customer, I want to be alerted when a subscription payment fails, so that I can update my payment method before service is interrupted. |
+| C-78 | As a Google OAuth customer, I want to set a password without needing to enter a "current password" (since I don't have one), so that I can also log in with email/password. |
+| C-79 | As a customer, I want the service signup wizard to save my progress so I can resume if I navigate away or reload, so that I don't lose my selections. |
+| C-80 | As a waitlisted customer, I want to be notified when a spot opens in my service area, so that I can activate service promptly. |
+| C-81 | As a customer, I want failed payments to be automatically retried before my service is suspended, so that a temporary card issue doesn't interrupt my pickups. |
+| C-82 | As a customer, I want to schedule equipment delivery when starting service, so that I have the right bins before my first pickup. |
 
 ---
 
@@ -294,6 +306,14 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-83 | As an admin, I want a global search across customers, properties, and drivers, so that I can find any record quickly. |
 | A-84 | As an admin, I want to export customer data to CSV, so that I can analyze data offline or share with stakeholders. |
 
+### 2.12 Invitations & Alerts
+
+| # | User Story |
+|---|-----------|
+| A-85 | As an admin, I want to resend an expired or failed admin invitation, so that the invitee can still join. |
+| A-86 | As an admin, I want to receive Slack alerts for critical system events (failed payments, missed pickups, errors), so that I can respond quickly without checking the portal. |
+| A-87 | As an admin, I want the system to prevent duplicate property addresses for the same customer, so that accidental duplicate signups are blocked. |
+
 ---
 
 ## 3. TEAM/DRIVER PORTAL
@@ -374,6 +394,12 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | T-35 | As a driver, I want to view my W9 data and bank account info (masked), so that I can verify what's on file. |
 | T-36 | As a driver, I want to see my current rating and total jobs completed, so that I can track my performance. |
 
+### 3.9 Earnings
+
+| # | User Story |
+|---|-----------|
+| T-37 | As a driver, I want a dedicated earnings dashboard showing total earnings, pending payments, and payment history, so that I can track my income. |
+
 ---
 
 ## 4. CROSS-CUTTING / SYSTEM STORIES
@@ -389,3 +415,6 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | S-7 | As the system, I want to gate driver access to routes/schedule behind completed onboarding, so that only verified drivers can work. |
 | S-8 | As the system, I want to use WebSocket connections for real-time message delivery, so that conversations feel instant. |
 | S-9 | As the system, I want session persistence via PostgreSQL with explicit `session.save()`, so that sessions survive across async operations. |
+| S-10 | As the system, I want to send a payment confirmation email after each successful invoice payment, so that customers have a receipt. |
+| S-11 | As the system, I want to send an alert email when a subscription payment fails, so that customers can fix their payment method. |
+| S-12 | As the system, I want to verify email addresses on registration via a confirmation link, so that only valid emails are in the system. |
