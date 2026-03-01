@@ -477,7 +477,7 @@ export async function executeDriverSync(
 // ── Per-Route Optimization ──
 
 export interface OptimizeRouteResult {
-  planningId: string;
+  planningId: string | undefined;
   ordersCreated: number;
 }
 
@@ -500,20 +500,26 @@ export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResul
   const stops = await storage.getRouteStops(routeId);
   if (stops.length === 0) throw new Error('Route has no stops');
 
+  const scheduledDate = String(route.scheduled_date).split('T')[0];
+
   // 4. Create OptimoRoute orders for each stop
   const orderNos: string[] = [];
   const routePrefix = routeId.substring(0, 8);
 
   for (let i = 0; i < stops.length; i++) {
     const stop = stops[i];
+    if (!stop.address) {
+      console.warn(`[optimizeRoute] Stop ${stop.id} has no address, skipping`);
+      continue;
+    }
     const orderNo = `RTE-${routePrefix}-${String(i + 1).padStart(3, '0')}`;
 
     try {
       await optimo.createOrder({
         orderNo,
-        date: route.scheduled_date,
+        date: scheduledDate,
         type: 'P',
-        address: stop.address || '',
+        address: stop.address,
         duration: 15,
       });
 
@@ -528,7 +534,7 @@ export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResul
 
   // 5. Start route planning scoped to this route's orders and driver
   const planning = await optimo.startPlanning({
-    date: route.scheduled_date,
+    date: scheduledDate,
     balancing: 'OFF',
     balanceBy: 'WT',
     useOrders: orderNos,
@@ -566,7 +572,7 @@ export async function checkRouteOptimizationStatus(routeId: string): Promise<{ s
         for (const optimoStop of optimoRoute.stops) {
           const stop = stopsByOrder.get(optimoStop.orderNo);
           if (stop) {
-            await storage.updateRouteStop(stop.id, { sequence_number: optimoStop.stopNumber });
+            await storage.updateRouteStop(stop.id, { stop_number: optimoStop.stopNumber });
           }
         }
       }
@@ -576,7 +582,7 @@ export async function checkRouteOptimizationStatus(routeId: string): Promise<{ s
   }
 
   return {
-    status: result.status,
+    status: result.status || 'unknown',
     progress: result.percentageComplete,
   };
 }

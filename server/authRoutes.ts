@@ -406,7 +406,6 @@ export function registerAuthRoutes(app: Express) {
           const result = await findOptimalPickupDay(property.id);
           if (result) {
             const updates: Record<string, any> = {
-              zone_id: result.zone_id,
               pickup_day: result.pickup_day,
               pickup_day_source: 'route_optimized',
               pickup_day_detected_at: new Date().toISOString(),

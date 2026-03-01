@@ -580,16 +580,65 @@ export class Storage {
     return result.rows;
   }
 
-  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string; zone_name?: string; zone_color?: string })[]> {
+  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string })[]> {
     const result = await this.query(
-      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name,
-              sz.name as zone_name, sz.color as zone_color
+      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
        FROM properties p
        LEFT JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        ORDER BY p.created_at DESC`
     );
     return result.rows;
+  }
+
+  async getPropertiesPaginated(opts: {
+    search?: string;
+    status?: string;
+    pickupDay?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ rows: (DbProperty & { user_email?: string; user_name?: string })[]; total: number }> {
+    const page = opts.page || 1;
+    const limit = opts.limit || 50;
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (opts.search) {
+      conditions.push(`(p.address ILIKE $${idx} OR u.first_name || ' ' || u.last_name ILIKE $${idx} OR u.email ILIKE $${idx})`);
+      params.push(`%${opts.search}%`);
+      idx++;
+    }
+    if (opts.status) {
+      conditions.push(`p.service_status = $${idx}`);
+      params.push(opts.status);
+      idx++;
+    }
+    if (opts.pickupDay) {
+      conditions.push(`p.pickup_day = $${idx}`);
+      params.push(opts.pickupDay);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countResult = await this.query(
+      `SELECT COUNT(*) as count FROM properties p LEFT JOIN users u ON p.user_id = u.id ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    const dataResult = await this.query(
+      `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
+       FROM properties p
+       LEFT JOIN users u ON p.user_id = u.id
+       ${where}
+       ORDER BY p.address ASC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset]
+    );
+
+    return { rows: dataResult.rows, total };
   }
 
   async getAdminStats(): Promise<{
@@ -1363,25 +1412,23 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getAllRoutes(filters?: { route_type?: string; zone_id?: string; status?: string; date_from?: string; date_to?: string }) {
+  async getAllRoutes(filters?: { route_type?: string; status?: string; date_from?: string; date_to?: string }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
     if (filters?.route_type) { conditions.push(`r.route_type = $${idx++}`); params.push(filters.route_type); }
-    if (filters?.zone_id) { conditions.push(`r.zone_id = $${idx++}`); params.push(filters.zone_id); }
     if (filters?.status) { conditions.push(`r.status = $${idx++}`); params.push(filters.status); }
     if (filters?.date_from) { conditions.push(`r.scheduled_date >= $${idx++}`); params.push(filters.date_from); }
     if (filters?.date_to) { conditions.push(`r.scheduled_date <= $${idx++}`); params.push(filters.date_to); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
       `SELECT r.*, r.optimo_synced, r.optimo_synced_at,
-              d.name AS driver_name, sz.name AS zone_name, sz.color AS zone_color,
+              d.name AS driver_name,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
               COALESCE(sc.stop_count, 0)::int AS stop_count,
               COALESCE(dc.done_count, 0)::int AS completed_stop_count
        FROM routes r
        LEFT JOIN driver_profiles d ON r.assigned_driver_id = d.id
-       LEFT JOIN service_zones sz ON r.zone_id = sz.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS bid_count FROM route_bids GROUP BY route_id) bc ON bc.route_id = r.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_stops WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
@@ -1393,19 +1440,22 @@ export class Storage {
   }
 
   async getOpenRoutes(filters?: { startDate?: string; endDate?: string }) {
-    const conditions: string[] = [`status IN ('open', 'bidding')`];
+    const conditions: string[] = [`r.status IN ('open', 'bidding')`];
     const params: any[] = [];
     let idx = 1;
     if (filters?.startDate) {
-      conditions.push(`scheduled_date >= $${idx++}`);
+      conditions.push(`r.scheduled_date >= $${idx++}`);
       params.push(filters.startDate);
     }
     if (filters?.endDate) {
-      conditions.push(`scheduled_date <= $${idx++}`);
+      conditions.push(`r.scheduled_date <= $${idx++}`);
       params.push(filters.endDate);
     }
     const result = await this.query(
-      `SELECT * FROM routes WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date ASC, start_time ASC`,
+      `SELECT r.*
+       FROM routes r
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY r.scheduled_date ASC, r.start_time ASC`,
       params
     );
     return result.rows;
@@ -1722,46 +1772,334 @@ export class Storage {
     return result.rows.length > 0;
   }
 
-  // ── Service Zones ──
 
-  async createZone(data: { name: string; description?: string; center_lat?: number; center_lng?: number; radius_miles?: number; color?: string }) {
+  // ── Driver Custom Zones ──
+
+  async getDriverCustomZones(driverId: string) {
     const result = await this.query(
-      `INSERT INTO service_zones (name, description, center_lat, center_lng, radius_miles, color)
+      `SELECT * FROM driver_custom_zones WHERE driver_id = $1 ORDER BY created_at DESC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async createDriverCustomZone(driverId: string, data: { name: string; center_lat: number; center_lng: number; radius_miles: number; color?: string }) {
+    const result = await this.query(
+      `INSERT INTO driver_custom_zones (driver_id, name, center_lat, center_lng, radius_miles, color)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [data.name, data.description ?? null, data.center_lat ?? null, data.center_lng ?? null, data.radius_miles ?? null, data.color ?? '#10B981']
+      [driverId, data.name, data.center_lat, data.center_lng, data.radius_miles, data.color || '#3B82F6']
     );
     return result.rows[0];
   }
 
-  async getAllZones(activeOnly = false) {
-    const where = activeOnly ? 'WHERE active = TRUE' : '';
-    const result = await this.query(`SELECT * FROM service_zones ${where} ORDER BY name`);
-    return result.rows;
-  }
-
-  async getZoneById(id: string) {
-    const result = await this.query('SELECT * FROM service_zones WHERE id = $1', [id]);
-    return result.rows[0] || null;
-  }
-
-  async updateZone(id: string, data: Partial<{ name: string; description: string; center_lat: number; center_lng: number; radius_miles: number; color: string; active: boolean }>) {
-    const fields: string[] = [];
-    const values: any[] = [];
+  async updateDriverCustomZone(id: string, driverId: string, data: Partial<{ name: string; center_lat: number; center_lng: number; radius_miles: number; color: string; status: string }>) {
+    const sets: string[] = [];
+    const params: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+      if (val !== undefined) { sets.push(`${key} = $${idx}`); params.push(val); idx++; }
     }
-    if (fields.length === 0) return null;
-    values.push(id);
+    if (sets.length === 0) return null;
+    sets.push(`updated_at = NOW()`);
+    params.push(id, driverId);
     const result = await this.query(
-      `UPDATE service_zones SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
-      values
+      `UPDATE driver_custom_zones SET ${sets.join(', ')} WHERE id = $${idx} AND driver_id = $${idx + 1} RETURNING *`,
+      params
     );
     return result.rows[0] || null;
   }
 
-  async deleteZone(id: string) {
-    await this.query('UPDATE service_zones SET active = FALSE WHERE id = $1', [id]);
+  async deleteDriverCustomZone(id: string, driverId: string) {
+    const result = await this.query(
+      `DELETE FROM driver_custom_zones WHERE id = $1 AND driver_id = $2 RETURNING id`,
+      [id, driverId]
+    );
+    return result.rowCount! > 0;
+  }
+
+  async getAllDriverCustomZones() {
+    const result = await this.query(
+      `SELECT dcz.*, dp.name AS driver_name, u.email AS driver_email
+       FROM driver_custom_zones dcz
+       JOIN driver_profiles dp ON dcz.driver_id = dp.id
+       LEFT JOIN users u ON dp.user_id = u.id
+       ORDER BY dp.name, dcz.name`
+    );
+    return result.rows;
+  }
+
+  // ── Location Claims ──
+
+  async getAvailableLocationsForDriver(driverId: string) {
+    const result = await this.query(
+      `WITH driver_zones AS (
+         SELECT sz.id AS zone_source_id, sz.name AS zone_source_name,
+                sz.center_lat, sz.center_lng, sz.radius_miles
+         FROM driver_zone_selections dzs
+         JOIN service_zones sz ON dzs.zone_id = sz.id
+         WHERE dzs.driver_id = $1 AND dzs.status = 'active'
+           AND sz.center_lat IS NOT NULL AND sz.center_lng IS NOT NULL
+           AND sz.radius_miles IS NOT NULL AND sz.active = true
+         UNION ALL
+         SELECT dcz.id AS zone_source_id, dcz.name AS zone_source_name,
+                dcz.center_lat, dcz.center_lng, dcz.radius_miles
+         FROM driver_custom_zones dcz
+         WHERE dcz.driver_id = $1 AND dcz.status = 'active'
+       ),
+       matched_properties AS (
+         SELECT DISTINCT ON (p.id)
+           p.id, p.address, p.service_type, p.pickup_day, p.pickup_frequency,
+           p.latitude, p.longitude, p.zone_id,
+           u.first_name || ' ' || u.last_name AS customer_name,
+           sz.name AS zone_name, sz.color AS zone_color,
+           dz.zone_source_name AS matching_zone_name,
+           (3958.8 * 2 * ASIN(SQRT(
+             POWER(SIN(RADIANS(CAST(p.latitude AS float) - CAST(dz.center_lat AS float)) / 2), 2) +
+             COS(RADIANS(CAST(dz.center_lat AS float))) * COS(RADIANS(CAST(p.latitude AS float))) *
+             POWER(SIN(RADIANS(CAST(p.longitude AS float) - CAST(dz.center_lng AS float)) / 2), 2)
+           ))) AS distance_miles
+         FROM properties p
+         JOIN users u ON p.user_id = u.id
+         LEFT JOIN service_zones sz ON p.zone_id = sz.id
+         CROSS JOIN driver_zones dz
+         WHERE p.service_status = 'approved'
+           AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+           AND (3958.8 * 2 * ASIN(SQRT(
+             POWER(SIN(RADIANS(CAST(p.latitude AS float) - CAST(dz.center_lat AS float)) / 2), 2) +
+             COS(RADIANS(CAST(dz.center_lat AS float))) * COS(RADIANS(CAST(p.latitude AS float))) *
+             POWER(SIN(RADIANS(CAST(p.longitude AS float) - CAST(dz.center_lng AS float)) / 2), 2)
+           ))) <= CAST(dz.radius_miles AS float)
+         ORDER BY p.id, distance_miles ASC
+       )
+       SELECT mp.*,
+         lc.driver_id AS claimed_by_driver_id,
+         dp.name AS claimed_by_driver_name,
+         lc.status AS claim_status
+       FROM matched_properties mp
+       LEFT JOIN location_claims lc ON lc.property_id = mp.id AND lc.status = 'active'
+       LEFT JOIN driver_profiles dp ON lc.driver_id = dp.id
+       ORDER BY mp.distance_miles ASC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async createLocationClaim(propertyId: string, driverId: string, notes?: string) {
+    const result = await this.query(
+      `INSERT INTO location_claims (property_id, driver_id, notes)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [propertyId, driverId, notes || null]
+    );
+    return result.rows[0];
+  }
+
+  async getActiveClaimForProperty(propertyId: string) {
+    const result = await this.query(
+      `SELECT lc.*, dp.name AS driver_name, dp.rating AS driver_rating
+       FROM location_claims lc
+       JOIN driver_profiles dp ON lc.driver_id = dp.id
+       WHERE lc.property_id = $1 AND lc.status = 'active'`,
+      [propertyId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getDriverClaims(driverId: string) {
+    const result = await this.query(
+      `SELECT lc.*, p.address, p.service_type, p.pickup_day, p.pickup_frequency,
+              p.latitude, p.longitude, p.zone_id,
+              u.first_name || ' ' || u.last_name AS customer_name,
+              sz.name AS zone_name, sz.color AS zone_color
+       FROM location_claims lc
+       JOIN properties p ON lc.property_id = p.id
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE lc.driver_id = $1 AND lc.status = 'active'
+       ORDER BY p.address`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async releaseLocationClaim(propertyId: string, driverId: string) {
+    const result = await this.query(
+      `UPDATE location_claims
+       SET status = 'released', revoked_at = NOW(), updated_at = NOW()
+       WHERE property_id = $1 AND driver_id = $2 AND status = 'active'
+       RETURNING *`,
+      [propertyId, driverId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async revokeLocationClaim(claimId: string, adminUserId: string, notes?: string) {
+    const result = await this.query(
+      `UPDATE location_claims
+       SET status = 'revoked', revoked_at = NOW(), revoked_by = $2,
+           notes = COALESCE($3, notes), updated_at = NOW()
+       WHERE id = $1 AND status = 'active'
+       RETURNING *`,
+      [claimId, adminUserId, notes || null]
+    );
+    return result.rows[0] || null;
+  }
+
+  async revokeLocationClaimByProperty(propertyId: string, notes?: string) {
+    const result = await this.query(
+      `UPDATE location_claims
+       SET status = 'revoked', revoked_at = NOW(),
+           notes = COALESCE($2, notes), updated_at = NOW()
+       WHERE property_id = $1 AND status = 'active'
+       RETURNING *`,
+      [propertyId, notes || null]
+    );
+    return result.rows[0] || null;
+  }
+
+  async adminAssignLocationClaim(propertyId: string, driverId: string, adminUserId: string) {
+    await this.query(
+      `UPDATE location_claims
+       SET status = 'revoked', revoked_at = NOW(), revoked_by = $2,
+           notes = 'Admin reassigned', updated_at = NOW()
+       WHERE property_id = $1 AND status = 'active'`,
+      [propertyId, adminUserId]
+    );
+    return this.createLocationClaim(propertyId, driverId, 'Admin assigned');
+  }
+
+  async getAllLocationClaims(filters?: {
+    status?: string; zone_id?: string; driver_id?: string;
+    page?: number; limit?: number;
+  }): Promise<{ rows: any[]; total: number }> {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (filters?.status) {
+      conditions.push(`lc.status = $${idx++}`);
+      params.push(filters.status);
+    }
+    if (filters?.zone_id) {
+      conditions.push(`p.zone_id = $${idx++}`);
+      params.push(filters.zone_id);
+    }
+    if (filters?.driver_id) {
+      conditions.push(`lc.driver_id = $${idx++}`);
+      params.push(filters.driver_id);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = filters?.limit || 50;
+    const page = filters?.page || 1;
+    const offset = (page - 1) * limit;
+
+    const countResult = await this.query(
+      `SELECT COUNT(*)::int AS total
+       FROM location_claims lc
+       JOIN properties p ON lc.property_id = p.id
+       ${where}`,
+      params
+    );
+
+    const dataParams = [...params, limit, offset];
+    const result = await this.query(
+      `SELECT lc.*, p.address, p.service_type, p.zone_id, p.pickup_day,
+              u.first_name || ' ' || u.last_name AS customer_name,
+              dp.name AS driver_name, dp.rating AS driver_rating,
+              sz.name AS zone_name, sz.color AS zone_color
+       FROM location_claims lc
+       JOIN properties p ON lc.property_id = p.id
+       JOIN users u ON p.user_id = u.id
+       JOIN driver_profiles dp ON lc.driver_id = dp.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       ${where}
+       ORDER BY lc.claimed_at DESC
+       LIMIT $${idx++} OFFSET $${idx++}`,
+      dataParams
+    );
+
+    return { rows: result.rows, total: countResult.rows[0].total };
+  }
+
+  async getActiveClaimsForDate(date: string): Promise<any[]> {
+    const dayOfWeek = new Date(date + 'T12:00:00')
+      .toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const result = await this.query(
+      `SELECT lc.driver_id, dp.name AS driver_name,
+              p.id AS property_id, p.address, p.zone_id,
+              sz.name AS zone_name
+       FROM location_claims lc
+       JOIN properties p ON lc.property_id = p.id
+       JOIN driver_profiles dp ON lc.driver_id = dp.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       WHERE lc.status = 'active'
+         AND p.service_status = 'approved'
+         AND LOWER(p.pickup_day) = $1
+       ORDER BY lc.driver_id, p.address`,
+      [dayOfWeek]
+    );
+    return result.rows;
+  }
+
+  async getRoutesInDriverCoverage(driverId: string, filters?: { startDate?: string; endDate?: string }): Promise<any[]> {
+    const zonesResult = await this.query(
+      `SELECT center_lat, center_lng, radius_miles FROM driver_custom_zones WHERE driver_id = $1 AND status = 'active'`,
+      [driverId]
+    );
+    const zones = zonesResult.rows;
+    if (zones.length === 0) return [];
+
+    const conditions: string[] = [`r.status IN ('open', 'bidding')`];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (filters?.startDate) {
+      conditions.push(`r.scheduled_date >= $${idx}`); params.push(filters.startDate); idx++;
+    }
+    if (filters?.endDate) {
+      conditions.push(`r.scheduled_date <= $${idx}`); params.push(filters.endDate); idx++;
+    }
+
+    const zoneClauses: string[] = [];
+    for (const zone of zones) {
+      const lat = Number(zone.center_lat);
+      const lng = Number(zone.center_lng);
+      const radiusMiles = Number(zone.radius_miles);
+      const latDeg = radiusMiles / 69.0;
+      const lngDeg = radiusMiles / (69.0 * Math.cos(lat * Math.PI / 180));
+
+      zoneClauses.push(`(
+        CAST(p.latitude AS float) BETWEEN $${idx} AND $${idx + 1}
+        AND CAST(p.longitude AS float) BETWEEN $${idx + 2} AND $${idx + 3}
+        AND (
+          3958.8 * 2 * ASIN(SQRT(
+            POWER(SIN(RADIANS(CAST(p.latitude AS float) - $${idx + 4}) / 2), 2) +
+            COS(RADIANS($${idx + 4})) * COS(RADIANS(CAST(p.latitude AS float))) *
+            POWER(SIN(RADIANS(CAST(p.longitude AS float) - $${idx + 5}) / 2), 2)
+          )) <= $${idx + 6}
+        )
+      )`);
+      params.push(lat - latDeg, lat + latDeg, lng - lngDeg, lng + lngDeg, lat, lng, radiusMiles);
+      idx += 7;
+    }
+
+    conditions.push(`EXISTS (
+      SELECT 1 FROM route_stops rs
+      JOIN properties p ON rs.property_id = p.id
+      WHERE rs.route_id = r.id
+        AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+        AND (${zoneClauses.join(' OR ')})
+    )`);
+
+    const sql = `
+      SELECT DISTINCT r.*
+      FROM routes r
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY r.scheduled_date ASC, r.start_time ASC
+    `;
+
+    const result = await this.query(sql, params);
+    return result.rows;
   }
 
   // ── Route Stops ──
@@ -1850,14 +2188,12 @@ export class Storage {
   async getPropertiesDueOnDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const result = await this.query(
-      `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name, u.email AS customer_email,
-              sz.name AS zone_name, sz.color AS zone_color
+      `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name, u.email AS customer_email
        FROM properties p
        JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE p.service_status = 'approved'
          AND p.pickup_day = $1
-       ORDER BY sz.name NULLS LAST, p.address`,
+       ORDER BY p.address`,
       [dayOfWeek]
     );
     return result.rows;
@@ -1866,12 +2202,11 @@ export class Storage {
   async getPlanningCalendarData(fromDate: string, toDate: string) {
     // Get existing routes grouped by date
     const routesResult = await this.query(
-      `SELECT r.scheduled_date, r.status, r.route_type, r.zone_id, sz.name AS zone_name, sz.color AS zone_color,
+      `SELECT r.scheduled_date, r.status, r.route_type,
               COUNT(*)::int AS route_count
        FROM routes r
-       LEFT JOIN service_zones sz ON r.zone_id = sz.id
        WHERE r.scheduled_date >= $1 AND r.scheduled_date <= $2
-       GROUP BY r.scheduled_date, r.status, r.route_type, r.zone_id, sz.name, sz.color
+       GROUP BY r.scheduled_date, r.status, r.route_type
        ORDER BY r.scheduled_date`,
       [fromDate, toDate]
     );
@@ -1886,14 +2221,12 @@ export class Storage {
       [fromDate, toDate]
     );
 
-    // Get property counts by pickup day and zone
+    // Get property counts by pickup day
     const propertyCountsResult = await this.query(
-      `SELECT p.pickup_day, p.zone_id, sz.name AS zone_name, sz.color AS zone_color,
-              COUNT(*)::int AS property_count
+      `SELECT p.pickup_day, COUNT(*)::int AS property_count
        FROM properties p
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE p.service_status = 'approved' AND p.pickup_day IS NOT NULL
-       GROUP BY p.pickup_day, p.zone_id, sz.name, sz.color`
+       GROUP BY p.pickup_day`
     );
 
     return {
@@ -1903,30 +2236,12 @@ export class Storage {
     };
   }
 
-  async getPropertiesByZone(zoneId: string) {
-    const result = await this.query(
-      `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name
-       FROM properties p
-       JOIN users u ON p.user_id = u.id
-       WHERE p.zone_id = $1 AND p.service_status = 'approved'
-       ORDER BY p.address`,
-      [zoneId]
-    );
-    return result.rows;
-  }
-
-  async assignPropertyZone(propertyId: string, zoneId: string | null) {
-    await this.query('UPDATE properties SET zone_id = $1 WHERE id = $2', [zoneId, propertyId]);
-  }
-
   async getSpecialPickupsForDate(date: string) {
     const result = await this.query(
-      `SELECT spr.*, p.address, p.zone_id, u.first_name || ' ' || u.last_name AS customer_name,
-              sz.name AS zone_name
+      `SELECT spr.*, p.address, u.first_name || ' ' || u.last_name AS customer_name
        FROM special_pickup_requests spr
        JOIN properties p ON spr.property_id = p.id
        JOIN users u ON spr.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE spr.pickup_date = $1 AND spr.status IN ('pending', 'scheduled')
        ORDER BY spr.service_price DESC`,
       [date]
@@ -1982,12 +2297,10 @@ export class Storage {
   async getMissingClientsForDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const result = await this.query(
-      `SELECT p.id, p.address, p.service_type, p.zone_id, p.pickup_frequency,
-              u.first_name || ' ' || u.last_name AS customer_name,
-              sz.name AS zone_name, sz.color AS zone_color
+      `SELECT p.id, p.address, p.service_type, p.pickup_frequency,
+              u.first_name || ' ' || u.last_name AS customer_name
        FROM properties p
        JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE p.service_status = 'approved'
          AND p.pickup_day = $1
          AND NOT EXISTS (
@@ -1997,7 +2310,7 @@ export class Storage {
              AND r.scheduled_date = $2
              AND r.status != 'cancelled'
          )
-       ORDER BY sz.name NULLS LAST, p.address`,
+       ORDER BY p.address`,
       [dayOfWeek, date]
     );
     return result.rows;
@@ -2008,13 +2321,11 @@ export class Storage {
       `SELECT rs.id AS stop_id, rs.route_id, rs.property_id,
               p.address, p.service_status,
               u.first_name || ' ' || u.last_name AS customer_name,
-              r.scheduled_date, r.title AS route_title,
-              sz.name AS zone_name, sz.color AS zone_color
+              r.scheduled_date, r.title AS route_title
        FROM route_stops rs
        JOIN routes r ON rs.route_id = r.id
        JOIN properties p ON rs.property_id = p.id
        JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON r.zone_id = sz.id
        WHERE r.scheduled_date >= $1 AND r.scheduled_date <= $2
          AND r.status != 'cancelled'
          AND p.service_status != 'approved'

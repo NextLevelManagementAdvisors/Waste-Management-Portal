@@ -44,6 +44,9 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
   routes: '/admin/operations/routes',
+  locations: '/admin/operations/locations',
+  zones: '/admin/operations/zones',
+  claims: '/admin/operations/claims',
   issues: '/admin/operations/issues',
   actions: '/admin/operations/issues',
   'address-review': '/admin/operations/issues',
@@ -52,6 +55,9 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
 const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
   '/admin/operations/routes': 'routes',
+  '/admin/operations/locations': 'locations',
+  '/admin/operations/zones': 'zones',
+  '/admin/operations/claims': 'claims',
   '/admin/operations/issues': 'issues',
   // Backward compat: old tab paths
   '/admin/operations/actions': 'issues',

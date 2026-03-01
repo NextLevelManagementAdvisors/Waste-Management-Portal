@@ -112,31 +112,27 @@ export interface RouteStop {
   customer_name?: string;
 }
 
-export interface ServiceZone {
+export interface DriverCustomZoneAdmin {
   id: string;
+  driver_id: string;
+  driver_name: string;
+  driver_email?: string;
   name: string;
-  description?: string;
-  center_lat?: number;
-  center_lng?: number;
-  radius_miles?: number;
+  center_lat: number;
+  center_lng: number;
+  radius_miles: number;
   color: string;
-  active: boolean;
+  status: 'active' | 'paused';
   created_at: string;
 }
 
 export interface PlanningDayData {
   date: string;
-  pickupsByZone: Array<{
-    zone_id: string | null;
-    zone_name: string | null;
-    zone_color: string | null;
-    property_count: number;
-  }>;
+  propertyCount: number;
   specialPickupCount: number;
   routes: Array<{
     status: string;
     route_type: string;
-    zone_name: string | null;
     route_count: number;
   }>;
 }
@@ -165,9 +161,6 @@ export interface MissingClient {
   id: string;
   address: string;
   service_type: string;
-  zone_id: string | null;
-  zone_name: string | null;
-  zone_color: string | null;
   pickup_frequency: string | null;
   customer_name: string;
 }
@@ -181,13 +174,68 @@ export interface CancelledPickup {
   customer_name: string;
   scheduled_date: string;
   route_title: string;
-  zone_name: string | null;
-  zone_color: string | null;
 }
 
 export interface WeekPlannerData {
   routes: Route[];
   cancelled: CancelledPickup[];
   missingByDay: Record<string, MissingClient[]>;
-  zones: ServiceZone[];
+}
+
+// ── Location Directory ──
+
+export interface LocationDirectoryItem {
+  id: string;
+  address: string;
+  ownerName: string;
+  ownerEmail: string;
+  serviceType: string;
+  serviceStatus: string;
+  pickupDay: string | null;
+  pickupFrequency: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  createdAt: string;
+}
+
+export interface LocationDirectoryResponse {
+  locations: LocationDirectoryItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// ── Location Claims (Dual Dispatch) ──
+
+export type LocationClaimStatus = 'active' | 'revoked' | 'released';
+
+export interface LocationClaim {
+  id: string;
+  property_id: string;
+  driver_id: string;
+  status: LocationClaimStatus;
+  claimed_at: string;
+  revoked_at: string | null;
+  notes: string | null;
+  driver_name?: string;
+  driver_rating?: number;
+  address?: string;
+  customer_name?: string;
+}
+
+export interface AvailableLocation {
+  id: string;
+  address: string;
+  service_type: string;
+  pickup_day: string | null;
+  pickup_frequency: string | null;
+  latitude: number;
+  longitude: number;
+  customer_name: string;
+  claimed_by_driver_id: string | null;
+  claimed_by_driver_name: string | null;
+  claim_status: LocationClaimStatus | null;
+  is_mine: boolean;
+  distance_miles: number;
+  matching_zone_name: string;
 }

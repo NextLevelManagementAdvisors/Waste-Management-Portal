@@ -5,6 +5,8 @@ import TeamAuthLayout from './components/TeamAuthLayout';
 import TeamLogin from './components/TeamLogin';
 import TeamRegister from './components/TeamRegister';
 import SpecialPickups from './components/SpecialPickups';
+const ZoneMapView = React.lazy(() => import('./components/ZoneMapView'));
+const AvailableLocations = React.lazy(() => import('./components/AvailableLocations'));
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -13,6 +15,8 @@ import {
   ClockIcon,
   XMarkIcon,
   ArchiveBoxIcon,
+  MapPinIcon,
+  HomeModernIcon,
 } from '../components/Icons.tsx';
 
 interface Driver {
@@ -50,6 +54,30 @@ interface Route {
   status: string;
   assigned_driver_id?: string;
   bids?: Bid[];
+  zone_id?: string;
+  zone_name?: string;
+  zone_color?: string;
+}
+
+interface DriverZoneSelection {
+  id: string;
+  driver_id: string;
+  zone_id: string;
+  status: 'active' | 'paused';
+  zone_name: string;
+  zone_color: string;
+  zone_description?: string;
+}
+
+interface ServiceZone {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  active: boolean;
+  center_lat?: number;
+  center_lng?: number;
+  radius_miles?: number;
 }
 
 interface Bid {
@@ -62,13 +90,15 @@ interface Bid {
   created_at?: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'locations' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
   routes: '/team/routes',
   schedule: '/team/schedule',
   pickups: '/team/pickups',
+  zones: '/team/zones',
+  locations: '/team/locations',
   messages: '/team/messages',
   profile: '/team/profile',
 };
@@ -762,6 +792,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   const [myRoutes, setMyRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
+  const [hasZoneSelections, setHasZoneSelections] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
@@ -769,7 +800,11 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
         fetch('/api/team/routes', { credentials: 'include' }),
         fetch('/api/team/my-routes', { credentials: 'include' }),
       ]);
-      if (routesRes.ok) { const j = await routesRes.json(); setAvailableRoutes(j.data || []); }
+      if (routesRes.ok) {
+        const j = await routesRes.json();
+        setAvailableRoutes(j.data || []);
+        setHasZoneSelections(j.hasZoneSelections !== false);
+      }
       if (myRoutesRes.ok) { const j = await myRoutesRes.json(); setMyRoutes(j.data || []); }
     } catch {}
     setLoading(false);
@@ -880,6 +915,26 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
         </Card>
       )}
 
+      {!hasZoneSelections && (
+        <Card className="p-4 mb-6 border-yellow-200 bg-yellow-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-yellow-800">Select your service zones</p>
+              <p className="text-xs text-yellow-600">
+                Go to your{' '}
+                <button type="button" onClick={() => onNavigate('profile')} className="underline font-bold">Profile</button>
+                {' '}to select which zones you want to work in.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -893,7 +948,9 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
           )}
         </div>
         {availableRoutes.length === 0 ? (
-          <p className="text-gray-500 text-sm">No available routes at the moment. Check back later.</p>
+          <p className="text-gray-500 text-sm">
+            {!hasZoneSelections ? 'Select service zones in your profile to see available routes.' : 'No available routes at the moment. Check back later.'}
+          </p>
         ) : (
           <>
             <div className="space-y-2">
@@ -920,7 +977,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   );
 };
 
-const RouteBoard: React.FC = () => {
+const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRoute, setSelectedRoute] = useState<(Route & { bids?: Bid[] }) | null>(null);
@@ -931,11 +988,16 @@ const RouteBoard: React.FC = () => {
   const [bidError, setBidError] = useState('');
   const [myBid, setMyBid] = useState<Bid | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'pay'>('date');
+  const [hasZoneSelections, setHasZoneSelections] = useState(true);
 
   const fetchRoutes = async () => {
     try {
       const res = await fetch('/api/team/routes', { credentials: 'include' });
-      if (res.ok) { const j = await res.json(); setRoutes(j.data || []); }
+      if (res.ok) {
+        const j = await res.json();
+        setRoutes(j.data || []);
+        setHasZoneSelections(j.hasZoneSelections !== false);
+      }
     } catch {}
     setLoading(false);
   };
@@ -1046,8 +1108,22 @@ const RouteBoard: React.FC = () => {
       {filteredRoutes.length === 0 ? (
         <Card className="p-8 text-center">
           <BriefcaseIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-bold">No available routes</p>
-          <p className="text-gray-400 text-sm mt-1">Check back later for new route postings.</p>
+          {!hasZoneSelections ? (
+            <>
+              <p className="text-gray-500 font-bold">No zones selected</p>
+              <p className="text-gray-400 text-sm mt-1">Select your service zones in your Profile to see available routes.</p>
+              {onNavigate && (
+                <button type="button" onClick={() => onNavigate('profile')} className="mt-3 text-sm font-bold text-teal-600 hover:underline">
+                  Go to Profile →
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-gray-500 font-bold">No available routes</p>
+              <p className="text-gray-400 text-sm mt-1">Check back later for new route postings in your zones.</p>
+            </>
+          )}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1057,6 +1133,12 @@ const RouteBoard: React.FC = () => {
                 <h3 className="font-bold text-gray-900">{route.title}</h3>
                 <StatusBadge status={route.status} />
               </div>
+              {route.zone_name && (
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: route.zone_color || '#9CA3AF' }} />
+                  <span className="text-xs text-gray-500 font-medium">{route.zone_name}</span>
+                </div>
+              )}
               <div className="space-y-1 text-sm text-gray-500 mb-4">
                 {route.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(route.scheduled_date)}</p>}
                 {(route.start_time || route.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.start_time}–{route.end_time}</p>}
@@ -1643,11 +1725,60 @@ const Profile: React.FC = () => {
   const [bankError, setBankError] = useState('');
   const [bankMsg, setBankMsg] = useState('');
 
+  // Zone selection state
+  const [allZones, setAllZones] = useState<ServiceZone[]>([]);
+  const [myZones, setMyZones] = useState<DriverZoneSelection[]>([]);
+  const [zonesLoading, setZonesLoading] = useState(true);
+  const [zoneSaving, setZoneSaving] = useState(false);
+
   const loadBankInfo = async () => {
     try {
       const res = await fetch('/api/team/profile/bank-account', { credentials: 'include' });
       if (res.ok) setBankInfo(await res.json());
     } catch {}
+  };
+
+  const loadZones = async () => {
+    try {
+      const [allRes, myRes] = await Promise.all([
+        fetch('/api/team/zones', { credentials: 'include' }),
+        fetch('/api/team/my-zones', { credentials: 'include' }),
+      ]);
+      if (allRes.ok) { const j = await allRes.json(); setAllZones(j.data || []); }
+      if (myRes.ok) { const j = await myRes.json(); setMyZones(j.data || []); }
+    } catch {}
+    setZonesLoading(false);
+  };
+
+  const toggleZone = async (zoneId: string) => {
+    const isSelected = myZones.some(z => z.zone_id === zoneId);
+    const newZoneIds = isSelected
+      ? myZones.filter(z => z.zone_id !== zoneId).map(z => z.zone_id)
+      : [...myZones.map(z => z.zone_id), zoneId];
+    setZoneSaving(true);
+    try {
+      const res = await fetch('/api/team/my-zones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ zoneIds: newZoneIds }),
+      });
+      if (res.ok) { const j = await res.json(); setMyZones(j.data || []); }
+    } catch {}
+    setZoneSaving(false);
+  };
+
+  const togglePause = async (zoneId: string, currentStatus: string) => {
+    const endpoint = currentStatus === 'active' ? 'pause' : 'resume';
+    setZoneSaving(true);
+    try {
+      const res = await fetch(`/api/team/my-zones/${zoneId}/${endpoint}`, {
+        method: 'PUT',
+        credentials: 'include',
+      });
+      if (res.ok) await loadZones();
+    } catch {}
+    setZoneSaving(false);
   };
 
   useEffect(() => {
@@ -1672,7 +1803,7 @@ const Profile: React.FC = () => {
           }
         }
       } catch {}
-      await loadBankInfo();
+      await Promise.all([loadBankInfo(), loadZones()]);
       // Load message email preference
       try {
         const pref = await fetch('/api/team/profile/message-notifications', { credentials: 'include' });
@@ -2012,6 +2143,70 @@ const Profile: React.FC = () => {
                   </button>
                 </div>
               </form>
+            )}
+          </Card>
+
+          {/* Service Zones */}
+          <Card className="p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Service Zones</h3>
+            <p className="text-sm text-gray-500 mb-4">Select zones where you want to receive route offers.</p>
+            {zonesLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-teal-600" />
+              </div>
+            ) : allZones.length === 0 ? (
+              <p className="text-sm text-gray-400">No zones available yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {allZones.map(zone => {
+                  const selection = myZones.find(z => z.zone_id === zone.id);
+                  const isSelected = !!selection;
+                  const isPaused = selection?.status === 'paused';
+                  return (
+                    <div key={zone.id} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleZone(zone.id)}
+                        disabled={zoneSaving}
+                        className="flex items-center gap-2.5 text-sm disabled:opacity-50"
+                      >
+                        <span
+                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                            isSelected ? 'border-teal-600 bg-teal-600' : 'border-gray-300'
+                          }`}
+                        >
+                          {isSelected && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: zone.color || '#9CA3AF' }}
+                        />
+                        <span className={`font-bold ${isSelected ? 'text-gray-900' : 'text-gray-400'}`}>
+                          {zone.name}
+                        </span>
+                      </button>
+                      {isSelected && (
+                        <button
+                          type="button"
+                          onClick={() => togglePause(zone.id, selection!.status)}
+                          disabled={zoneSaving}
+                          className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${
+                            isPaused
+                              ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          }`}
+                        >
+                          {isPaused ? 'Paused' : 'Active'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </Card>
 
@@ -2635,6 +2830,8 @@ const TeamApp: React.FC = () => {
     { view: 'routes', label: 'Available Routes', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
     { view: 'pickups', label: 'Special Pickups', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
+    { view: 'zones', label: 'My Zones', icon: <MapPinIcon className="w-5 h-5" /> },
+    { view: 'locations', label: 'Locations', icon: <HomeModernIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
   ];
@@ -2727,9 +2924,19 @@ const TeamApp: React.FC = () => {
 
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
-          {currentView === 'routes' && <RouteBoard />}
+          {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'schedule' && <Schedule />}
           {currentView === 'pickups' && <SpecialPickups />}
+          {currentView === 'zones' && (
+            <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
+              <ZoneMapView />
+            </React.Suspense>
+          )}
+          {currentView === 'locations' && (
+            <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
+              <AvailableLocations />
+            </React.Suspense>
+          )}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}
         </div>

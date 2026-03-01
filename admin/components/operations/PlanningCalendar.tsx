@@ -365,9 +365,13 @@ const PlanningCalendar: React.FC = () => {
         const result = await res.json();
         alert(`Synced ${result.ordersSynced} orders to OptimoRoute.${result.errors.length > 0 ? ` Errors: ${result.errors.length}` : ''}`);
         await refreshDay();
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(`Failed to sync route: ${err?.error || res.statusText}`);
       }
     } catch (e) {
       console.error('Failed to sync route:', e);
+      alert('Failed to sync route to OptimoRoute. Check console for details.');
     } finally {
       setSyncing(null);
     }
@@ -386,11 +390,15 @@ const PlanningCalendar: React.FC = () => {
       });
       if (res.ok) {
         const result = await res.json();
-        alert(`Synced ${result.routesSynced} routes (${result.ordersSynced} orders) to OptimoRoute.`);
+        alert(`Synced ${result.routesSynced} routes (${result.ordersSynced} orders) to OptimoRoute.${result.errors.length > 0 ? ` Errors: ${result.errors.length}` : ''}`);
         await refreshDay();
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(`Failed to sync day: ${err?.error || res.statusText}`);
       }
     } catch (e) {
       console.error('Failed to sync day:', e);
+      alert('Failed to sync day to OptimoRoute. Check console for details.');
     } finally {
       setSyncingDay(false);
     }

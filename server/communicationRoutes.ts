@@ -442,8 +442,8 @@ export function registerCommunicationRoutes(app: Express) {
     try {
       const userId = (req.session as any).userId;
       // After migration, driver conversation participants use users.id with type 'driver'
-      const conversations = await storage.getConversations(userId, 'driver');
-      res.json(conversations);
+      const result = await storage.getConversations(userId, 'driver');
+      res.json(result.conversations);
     } catch (e) {
       res.status(500).json({ error: 'Failed to fetch conversations' });
     }

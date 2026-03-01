@@ -8,8 +8,8 @@ const AVG_SPEED_MPH = 25;
 
 export interface OptimizationResult {
   pickup_day: string;
-  zone_id: string;
-  zone_name: string;
+  zone_name?: string;
+  driver_name?: string;
   insertion_cost_miles: number;
   best_route_id?: string;
   confidence: number;
@@ -96,14 +96,10 @@ export async function findOptimalPickupDay(propertyId: string): Promise<Optimiza
     await storage.updateProperty(propertyId, { latitude: lat, longitude: lng });
   }
 
-  // 2. Find nearest zone
+  // 2. Find nearest driver zone (for context only)
   const zone = await findNearestZone(lat, lng);
-  if (!zone) return null;
 
-  // Persist zone assignment
-  await storage.updateProperty(propertyId, { zone_id: zone.zone_id });
-
-  // 3. Get routes in this zone from the analysis window
+  // 3. Get routes from the analysis window
   const windowDays = parseInt(process.env.PICKUP_OPTIMIZATION_WINDOW_DAYS || '7') || 7;
   const metric = (process.env.PICKUP_OPTIMIZATION_METRIC || 'distance') as 'distance' | 'time' | 'both';
   const today = new Date();
@@ -111,7 +107,6 @@ export async function findOptimalPickupDay(propertyId: string): Promise<Optimiza
   windowStart.setDate(windowStart.getDate() - windowDays);
 
   const routes = await storage.getAllRoutes({
-    zone_id: zone.zone_id,
     date_from: windowStart.toISOString().split('T')[0],
     date_to: today.toISOString().split('T')[0],
   });
@@ -191,8 +186,8 @@ export async function findOptimalPickupDay(propertyId: string): Promise<Optimiza
 
   return {
     pickup_day: bestDay,
-    zone_id: zone.zone_id,
-    zone_name: zone.zone_name,
+    zone_name: zone?.zone_name,
+    driver_name: zone?.driver_name,
     insertion_cost_miles: bestAvg,
     best_route_id: bestRouteId,
     confidence,

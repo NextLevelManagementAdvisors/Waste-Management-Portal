@@ -28,6 +28,8 @@ vi.mock('../storage', () => ({
     getW9ByDriverId: vi.fn(),
     createW9: vi.fn(),
     getOpenRoutes: vi.fn(),
+    getActiveDriverZoneIds: vi.fn(),
+    getDriverZoneSelections: vi.fn(),
     getDriverRoutes: vi.fn(),
     getRouteById: vi.fn(),
     getRouteBids: vi.fn(),
@@ -199,6 +201,8 @@ beforeEach(() => {
   vi.mocked(storage.getW9ByDriverId).mockResolvedValue(null as any);
   vi.mocked(storage.createW9).mockResolvedValue({ ...mockW9 } as any);
   vi.mocked(storage.getOpenRoutes).mockResolvedValue([] as any);
+  vi.mocked((storage as any).getActiveDriverZoneIds).mockResolvedValue([]);
+  vi.mocked((storage as any).getDriverZoneSelections).mockResolvedValue([]);
   vi.mocked(storage.getDriverRoutes).mockResolvedValue([] as any);
   vi.mocked(storage.getRouteById).mockResolvedValue({ ...mockRoute } as any);
   vi.mocked(storage.getRouteBids).mockResolvedValue([] as any);
@@ -695,10 +699,12 @@ describe('GET /api/team/routes', () => {
   });
 
   it('returns 200 with routes list', async () => {
+    vi.mocked((storage as any).getActiveDriverZoneIds).mockResolvedValueOnce(['zone-1']);
     vi.mocked(storage.getOpenRoutes).mockResolvedValueOnce([mockRoute] as any);
     const res = await supertest(createDriverAuthApp()).get('/api/team/routes');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
+    expect(res.body.hasZoneSelections).toBe(true);
   });
 });
 

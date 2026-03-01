@@ -54,8 +54,8 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
             await payOutstandingBalance(selectedMethodId, propertyId);
             showToast('success', `Payment of $${totalBalance.toFixed(2)} processed successfully.`);
             onSuccess();
-        } catch (error) {
-            showToast('error', 'Payment failed. Please try again.');
+        } catch (error: any) {
+            showToast('error', error?.message || 'Payment failed. Please try again.');
         } finally {
             setIsPaying(false);
         }

@@ -263,22 +263,35 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get('/api/admin/properties', requireAdmin, async (_req: Request, res: Response) => {
+  app.get('/api/admin/properties', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const properties = await storage.getAllProperties();
-      res.json(properties.map(p => ({
-        id: p.id,
-        address: p.address,
-        serviceType: p.service_type,
-        serviceStatus: p.service_status,
-        ownerName: p.user_name,
-        ownerEmail: p.user_email,
-        transferStatus: p.transfer_status,
-        zoneId: p.zone_id,
-        zoneName: p.zone_name,
-        zoneColor: p.zone_color,
-        createdAt: p.created_at,
-      })));
+      const { search, zone, status, pickupDay, page, limit } = req.query;
+      const { rows: properties, total } = await storage.getPropertiesPaginated({
+        search: search as string | undefined,
+        zone: zone as string | undefined,
+        status: status as string | undefined,
+        pickupDay: pickupDay as string | undefined,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 50,
+      });
+      res.json({
+        locations: properties.map(p => ({
+          id: p.id,
+          address: p.address,
+          serviceType: p.service_type,
+          serviceStatus: p.service_status,
+          ownerName: p.user_name,
+          ownerEmail: p.user_email,
+          pickupDay: p.pickup_day,
+          pickupFrequency: p.pickup_frequency,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          createdAt: p.created_at,
+        })),
+        total,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 50,
+      });
     } catch (error) {
       console.error('Admin properties error:', error);
       res.status(500).json({ error: 'Failed to fetch properties' });
@@ -663,10 +676,9 @@ export function registerAdminRoutes(app: Express) {
   // Routes
   app.get('/api/admin/routes', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { route_type, zone_id, status, date_from, date_to } = req.query;
+      const { route_type, status, date_from, date_to } = req.query;
       const routes = await storage.getAllRoutes({
         route_type: route_type as string | undefined,
-        zone_id: zone_id as string | undefined,
         status: status as string | undefined,
         date_from: date_from as string | undefined,
         date_to: date_to as string | undefined,
@@ -719,7 +731,7 @@ export function registerAdminRoutes(app: Express) {
       if (!existing) {
         return res.status(404).json({ error: 'Route not found' });
       }
-      const { title, description, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, zone_id, accepted_bid_id, actual_pay, payment_status } = req.body;
+      const { title, description, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, accepted_bid_id, actual_pay, payment_status } = req.body;
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
@@ -746,7 +758,7 @@ export function registerAdminRoutes(app: Express) {
       const updated = await storage.updateRoute(routeId, {
         title, description, scheduled_date, start_time, end_time,
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
-        route_type, zone_id, accepted_bid_id, actual_pay, payment_status,
+        route_type, accepted_bid_id, actual_pay, payment_status,
       });
       await audit(req, 'update_route', 'route', routeId, req.body);
 
@@ -864,78 +876,63 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Service Zones
-  app.get('/api/admin/zones', requireAdmin, async (_req: Request, res: Response) => {
+  // Driver Zones (read-only aggregate of all driver-created zones)
+  app.get('/api/admin/driver-zones', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const zones = await storage.getAllZones();
+      const zones = await storage.getAllDriverCustomZones();
       res.json({ zones });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch zones' });
+      console.error('Failed to fetch driver zones:', error);
+      res.status(500).json({ error: 'Failed to fetch driver zones' });
     }
   });
 
-  app.post('/api/admin/zones', requireAdmin, async (req: Request, res: Response) => {
+  // ── Location Claims ──
+
+  app.get('/api/admin/location-claims', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { name, description, center_lat, center_lng, radius_miles, color } = req.body;
-      if (!name) return res.status(400).json({ error: 'name is required' });
-      const zone = await storage.createZone({ name, description, center_lat, center_lng, radius_miles, color });
-      await audit(req, 'create_zone', 'service_zone', zone.id, { name });
-      res.status(201).json({ zone });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to create zone' });
-    }
-  });
-
-  app.put('/api/admin/zones/:id', requireAdmin, async (req: Request, res: Response) => {
-    try {
-      const zoneId = req.params.id as string;
-      const zone = await storage.updateZone(zoneId, req.body);
-      if (!zone) return res.status(404).json({ error: 'Zone not found' });
-      await audit(req, 'update_zone', 'service_zone', zoneId, req.body);
-      res.json({ zone });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to update zone' });
-    }
-  });
-
-  app.delete('/api/admin/zones/:id', requireAdmin, async (req: Request, res: Response) => {
-    try {
-      const zoneId = req.params.id as string;
-      await storage.deleteZone(zoneId);
-      await audit(req, 'delete_zone', 'service_zone', zoneId, {});
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to delete zone' });
-    }
-  });
-
-  // Bulk-assign (or unassign) a service zone to multiple properties at once
-  app.put('/api/admin/properties/bulk-zone', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
-    try {
-      const { propertyIds, zoneId } = req.body;
-      if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
-        return res.status(400).json({ error: 'propertyIds must be a non-empty array' });
-      }
-      // zoneId can be null to unassign
-      if (zoneId) {
-        const zone = await storage.getZoneById(zoneId);
-        if (!zone) return res.status(404).json({ error: 'Zone not found' });
-      }
-
-      const result = await pool.query(
-        `UPDATE properties SET zone_id = $1, updated_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id`,
-        [zoneId || null, propertyIds]
-      );
-
-      await audit(req, 'bulk_zone_assign', 'property', null as any, {
-        zoneId: zoneId || 'unassigned',
-        propertyCount: result.rowCount,
+      const { status, zone_id, driver_id, page, limit } = req.query;
+      const { rows, total } = await storage.getAllLocationClaims({
+        status: status as string | undefined,
+        zone_id: zone_id as string | undefined,
+        driver_id: driver_id as string | undefined,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 50,
       });
-
-      res.json({ updated: result.rowCount });
+      res.json({ claims: rows, total, page: page ? parseInt(page as string, 10) : 1 });
     } catch (error) {
-      console.error('Bulk zone assign error:', error);
-      res.status(500).json({ error: 'Failed to assign zones' });
+      console.error('Get location claims error:', error);
+      res.status(500).json({ error: 'Failed to fetch location claims' });
+    }
+  });
+
+  app.put('/api/admin/location-claims/:id/revoke', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const claimId = req.params.id;
+      const adminUserId = getAdminId(req);
+      const claim = await storage.revokeLocationClaim(claimId, adminUserId, req.body.notes);
+      if (!claim) return res.status(404).json({ error: 'Active claim not found' });
+      await audit(req, 'revoke_location_claim', 'location_claim', claimId, { notes: req.body.notes });
+      res.json({ claim });
+    } catch (error) {
+      console.error('Revoke claim error:', error);
+      res.status(500).json({ error: 'Failed to revoke claim' });
+    }
+  });
+
+  app.put('/api/admin/properties/:propertyId/assign-driver', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const { driverId } = req.body;
+      if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+
+      const adminUserId = getAdminId(req);
+      const claim = await storage.adminAssignLocationClaim(propertyId, driverId, adminUserId);
+      await audit(req, 'admin_assign_location', 'location_claim', claim.id, { propertyId, driverId });
+      res.json({ claim });
+    } catch (error) {
+      console.error('Assign driver error:', error);
+      res.status(500).json({ error: 'Failed to assign driver' });
     }
   });
 
@@ -974,59 +971,72 @@ export function registerAdminRoutes(app: Express) {
       if (!date) return res.status(400).json({ error: 'date is required' });
 
       const properties = await storage.getPropertiesDueOnDate(date);
-      const zones = await storage.getAllZones(true);
       const created: any[] = [];
 
-      // Group properties by zone_id
-      const byZone = new Map<string, typeof properties>();
-      for (const prop of properties) {
-        const key = prop.zone_id || 'unassigned';
-        if (!byZone.has(key)) byZone.set(key, []);
-        byZone.get(key)!.push(prop);
+      // Phase A: Create routes for driver-claimed locations
+      const claimedRows = await storage.getActiveClaimsForDate(date);
+      const claimedPropertyIds = new Set(claimedRows.map((c: any) => c.property_id));
+
+      const byDriver = new Map<string, typeof claimedRows>();
+      for (const row of claimedRows) {
+        if (!byDriver.has(row.driver_id)) byDriver.set(row.driver_id, []);
+        byDriver.get(row.driver_id)!.push(row);
       }
 
-      for (const [zoneId, zoneProps] of byZone) {
-        const zone = zones.find((z: any) => z.id === zoneId);
-        const zoneName = zone?.name || 'Unassigned Area';
+      for (const [dId, driverProps] of byDriver) {
+        const driverName = driverProps[0].driver_name;
         const route = await storage.createRoute({
-          title: `${zoneName} - ${date}`,
+          title: `${driverName} Claimed - ${date}`,
           scheduled_date: date,
-          estimated_stops: zoneProps.length,
-          zone_id: zoneId === 'unassigned' ? undefined : zoneId,
+          estimated_stops: driverProps.length,
+          route_type: 'daily_route',
+          source: 'driver_claimed',
+          assigned_driver_id: dId,
+          status: 'assigned',
+        });
+        await storage.addRouteStops(
+          route.id,
+          driverProps.map((p: any) => ({ property_id: p.property_id, order_type: 'recurring' }))
+        );
+        created.push(route);
+      }
+
+      // Phase B: Create route for unclaimed properties
+      const unclaimedProperties = properties.filter((p: any) => !claimedPropertyIds.has(p.id));
+      if (unclaimedProperties.length > 0) {
+        const dayName = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+        const route = await storage.createRoute({
+          title: `${dayName} Route - ${date}`,
+          scheduled_date: date,
+          estimated_stops: unclaimedProperties.length,
           route_type: 'daily_route',
           source: 'auto_planned',
           status: 'draft',
         });
         await storage.addRouteStops(
           route.id,
-          zoneProps.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
+          unclaimedProperties.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
         );
         created.push(route);
       }
 
       // Auto-bundle small special pickups
       const specials = await storage.getSpecialPickupsForDate(date);
-      const bulkThreshold = 200; // TODO: make configurable via system_settings
+      const bulkThreshold = 200;
       for (const sp of specials) {
-        if (Number(sp.service_price) < bulkThreshold) {
-          // Find a matching daily_route draft route for this zone
-          const matchingRoute = created.find((r: any) =>
-            r.zone_id === sp.zone_id && r.route_type === 'daily_route'
-          );
-          if (matchingRoute) {
-            await storage.addRouteStops(matchingRoute.id, [{
-              property_id: sp.property_id,
-              order_type: 'special',
-              special_pickup_id: sp.id,
-            }]);
-          }
+        if (Number(sp.service_price) < bulkThreshold && created.length > 0) {
+          // Add to the daily route
+          await storage.addRouteStops(created[0].id, [{
+            property_id: sp.property_id,
+            order_type: 'special',
+            special_pickup_id: sp.id,
+          }]);
         } else {
           // Create standalone bulk_pickup route
           const bulkRoute = await storage.createRoute({
             title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
             scheduled_date: date,
             estimated_stops: 1,
-            zone_id: sp.zone_id || undefined,
             route_type: 'bulk_pickup',
             source: 'special_pickup',
             special_pickup_id: sp.id,
@@ -1063,7 +1073,6 @@ export function registerAdminRoutes(app: Express) {
         new Date(new Date(startDate + 'T12:00:00').getTime() + (days - 1) * 86400000).toISOString().split('T')[0]
       ));
 
-      const zones = await storage.getAllZones(true);
       let routesCreated = 0;
       let daysPlanned = 0;
       let skippedDays = 0;
@@ -1082,46 +1091,64 @@ export function registerAdminRoutes(app: Express) {
         const properties = await storage.getPropertiesDueOnDate(dateStr);
         if (properties.length === 0) { skippedDays++; continue; }
 
-        // Group properties by zone
-        const byZone = new Map<string, typeof properties>();
-        for (const prop of properties) {
-          const key = prop.zone_id || 'unassigned';
-          if (!byZone.has(key)) byZone.set(key, []);
-          byZone.get(key)!.push(prop);
+        // Phase A: Create routes for driver-claimed locations
+        const claimedRows = await storage.getActiveClaimsForDate(dateStr);
+        const claimedPropertyIds = new Set(claimedRows.map((c: any) => c.property_id));
+
+        const byDriver = new Map<string, typeof claimedRows>();
+        for (const row of claimedRows) {
+          if (!byDriver.has(row.driver_id)) byDriver.set(row.driver_id, []);
+          byDriver.get(row.driver_id)!.push(row);
         }
 
-        for (const [zoneId, zoneProps] of byZone) {
-          const zone = zones.find((z: any) => z.id === zoneId);
-          const zoneName = zone?.name || 'Unassigned Area';
+        for (const [dId, driverProps] of byDriver) {
+          const driverName = driverProps[0].driver_name;
+          const route = await storage.createRoute({
+            title: `${driverName} Claimed - ${dateStr}`,
+            scheduled_date: dateStr,
+            estimated_stops: driverProps.length,
+            route_type: 'daily_route',
+            source: 'driver_claimed',
+            assigned_driver_id: dId,
+            status: 'assigned',
+          });
+          await storage.addRouteStops(
+            route.id,
+            driverProps.map((p: any) => ({ property_id: p.property_id, order_type: 'recurring' }))
+          );
+          routesCreated++;
+        }
 
-          // Split into multiple routes if exceeding capacity
-          const chunks: typeof zoneProps[] = [];
-          if (zoneProps.length > maxStops) {
-            for (let c = 0; c < zoneProps.length; c += maxStops) {
-              chunks.push(zoneProps.slice(c, c + maxStops));
-            }
-          } else {
-            chunks.push(zoneProps);
-          }
+        // Phase B: Create routes for unclaimed properties
+        const unclaimedProperties = properties.filter((p: any) => !claimedPropertyIds.has(p.id));
+        const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
 
-          for (let ci = 0; ci < chunks.length; ci++) {
-            const chunk = chunks[ci];
-            const suffix = chunks.length > 1 ? ` (${String.fromCharCode(65 + ci)})` : '';
-            const route = await storage.createRoute({
-              title: `${zoneName}${suffix} - ${dateStr}`,
-              scheduled_date: dateStr,
-              estimated_stops: chunk.length,
-              zone_id: zoneId === 'unassigned' ? undefined : zoneId,
-              route_type: 'daily_route',
-              source: 'auto_planned',
-              status: 'draft',
-            });
-            await storage.addRouteStops(
-              route.id,
-              chunk.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
-            );
-            routesCreated++;
+        // Split into multiple routes if exceeding capacity
+        const chunks: typeof unclaimedProperties[] = [];
+        if (unclaimedProperties.length > maxStops) {
+          for (let c = 0; c < unclaimedProperties.length; c += maxStops) {
+            chunks.push(unclaimedProperties.slice(c, c + maxStops));
           }
+        } else if (unclaimedProperties.length > 0) {
+          chunks.push(unclaimedProperties);
+        }
+
+        for (let ci = 0; ci < chunks.length; ci++) {
+          const chunk = chunks[ci];
+          const suffix = chunks.length > 1 ? ` (${String.fromCharCode(65 + ci)})` : '';
+          const route = await storage.createRoute({
+            title: `${dayName} Route${suffix} - ${dateStr}`,
+            scheduled_date: dateStr,
+            estimated_stops: chunk.length,
+            route_type: 'daily_route',
+            source: 'auto_planned',
+            status: 'draft',
+          });
+          await storage.addRouteStops(
+            route.id,
+            chunk.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
+          );
+          routesCreated++;
         }
 
         // Auto-bundle small special pickups
@@ -1133,7 +1160,6 @@ export function registerAdminRoutes(app: Express) {
               title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
               scheduled_date: dateStr,
               estimated_stops: 1,
-              zone_id: sp.zone_id || undefined,
               route_type: 'bulk_pickup',
               source: 'special_pickup',
               special_pickup_id: sp.id,
@@ -1165,39 +1191,47 @@ export function registerAdminRoutes(app: Express) {
   app.post('/api/admin/routes/:id/sync-to-optimo', requireAdmin, async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id;
-      const stops = await storage.getRouteStops(routeId);
-      const route = (await storage.getAllRoutes()).find((r: any) => r.id === routeId);
+      const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
+      const stops = await storage.getRouteStops(routeId);
 
       let ordersSynced = 0;
       let ordersSkipped = 0;
       const errors: string[] = [];
+      const scheduledDate = String(route.scheduled_date).split('T')[0];
 
       for (const stop of stops) {
-        const orderNo = `ROUTE-${routeId.substring(0, 8)}-${stop.property_id.substring(0, 8)}`;
+        if (!stop.address) {
+          errors.push(`Stop ${stop.id}: missing address, skipped`);
+          continue;
+        }
+        const stopKey = stop.property_id ? stop.property_id.substring(0, 8) : stop.id.substring(0, 8);
+        const orderNo = `ROUTE-${routeId.substring(0, 8)}-${stopKey}`;
         try {
-          await optimo.createOrder({
+          const result = await optimo.createOrder({
             orderNo,
             type: 'P',
-            date: route.scheduled_date.split('T')[0],
+            date: scheduledDate,
             duration: 8,
-            address: stop.address || '',
+            address: stop.address,
             locationName: stop.customer_name || '',
             notes: `Route: ${route.title}`,
           });
-          // Save order number on the stop for future pull-back
-          await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
-          ordersSynced++;
-        } catch (err: any) {
-          if (err.message?.includes('already exists')) {
+          if (result && result.success === false) {
             ordersSkipped++;
           } else {
-            errors.push(`${stop.address}: ${err.message}`);
+            ordersSynced++;
           }
+          // Save order number on the stop for future pull-back (order exists either way)
+          await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
+        } catch (err: any) {
+          errors.push(`${stop.address}: ${err.message}`);
         }
       }
 
-      await storage.markRouteSynced(routeId);
+      if (errors.length === 0) {
+        await storage.markRouteSynced(routeId);
+      }
       await audit(req, 'sync_route_to_optimo', 'route', routeId, { ordersSynced, ordersSkipped, errors: errors.length });
       res.json({ ordersSynced, ordersSkipped, errors });
     } catch (error) {
@@ -1221,32 +1255,43 @@ export function registerAdminRoutes(app: Express) {
       for (const route of publishedRoutes) {
         const stops = await storage.getRouteStops(route.id);
         let routeSynced = 0;
+        let routeErrors = 0;
+        const scheduledDate = String(route.scheduled_date).split('T')[0];
 
         for (const stop of stops) {
-          const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stop.property_id.substring(0, 8)}`;
+          if (!stop.address) {
+            allErrors.push(`Route ${route.id} stop ${stop.id}: missing address, skipped`);
+            routeErrors++;
+            continue;
+          }
+          const stopKey = stop.property_id ? stop.property_id.substring(0, 8) : stop.id.substring(0, 8);
+          const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
           try {
-            await optimo.createOrder({
+            const result = await optimo.createOrder({
               orderNo,
               type: 'P',
-              date: route.scheduled_date.split('T')[0],
+              date: scheduledDate,
               duration: 8,
-              address: stop.address || '',
+              address: stop.address,
               locationName: stop.customer_name || '',
               notes: `Route: ${route.title}`,
             });
-            await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
-            routeSynced++;
-          } catch (err: any) {
-            if (err.message?.includes('already exists')) {
+            if (result && result.success === false) {
               totalSkipped++;
             } else {
-              allErrors.push(`${stop.address}: ${err.message}`);
+              routeSynced++;
             }
+            await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
+          } catch (err: any) {
+            allErrors.push(`${stop.address}: ${err.message}`);
+            routeErrors++;
           }
         }
 
         totalSynced += routeSynced;
-        await storage.markRouteSynced(route.id);
+        if (routeErrors === 0) {
+          await storage.markRouteSynced(route.id);
+        }
       }
 
       await audit(req, 'sync_day_to_optimo', 'route', null as any, { date, totalSynced, totalSkipped });
@@ -1372,10 +1417,9 @@ export function registerAdminRoutes(app: Express) {
       satDate.setDate(satDate.getDate() + 5);
       const saturday = satDate.toISOString().split('T')[0];
 
-      const [routes, cancelled, zones] = await Promise.all([
+      const [routes, cancelled] = await Promise.all([
         storage.getAllRoutes({ date_from: monday, date_to: saturday }),
         storage.getCancelledPickupsForWeek(monday, saturday),
-        storage.getAllZones(true),
       ]);
 
       // Get missing clients for each day (Mon-Sat)
@@ -1387,7 +1431,7 @@ export function registerAdminRoutes(app: Express) {
         missingByDay[dateStr] = await storage.getMissingClientsForDate(dateStr);
       }
 
-      res.json({ routes, cancelled, missingByDay, zones });
+      res.json({ routes, cancelled, missingByDay });
     } catch (error) {
       console.error('Failed to fetch week planning data:', error);
       res.status(500).json({ error: 'Failed to fetch week planning data' });
@@ -2426,11 +2470,11 @@ export function registerAdminRoutes(app: Express) {
           [decision, notes || null, propertyId]
         );
 
-        // Auto-assign zone + pickup day from route insertion optimization
+        // Auto-assign pickup day from route insertion optimization
         if (optimizationResult) {
           await client.query(
-            `UPDATE properties SET zone_id = $1, pickup_day = $2, pickup_day_source = 'route_optimized', pickup_day_detected_at = NOW() WHERE id = $3`,
-            [optimizationResult.zone_id, optimizationResult.pickup_day, propertyId]
+            `UPDATE properties SET pickup_day = $1, pickup_day_source = 'route_optimized', pickup_day_detected_at = NOW() WHERE id = $2`,
+            [optimizationResult.pickup_day, propertyId]
           );
         }
 

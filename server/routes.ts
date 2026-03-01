@@ -73,7 +73,8 @@ export function registerRoutes(app: Express) {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
     } catch (error: any) {
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -104,7 +105,8 @@ export function registerRoutes(app: Express) {
       res.json({ data });
     } catch (error: any) {
       console.error('Error listing products:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -126,7 +128,8 @@ export function registerRoutes(app: Express) {
         metadata: p.metadata,
       })) });
     } catch (error: any) {
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -152,7 +155,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: customer });
     } catch (error: any) {
       console.error('Error creating customer:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -164,7 +168,8 @@ export function registerRoutes(app: Express) {
       if (!customer) return res.status(404).json({ error: 'Customer not found' });
       res.json({ data: customer });
     } catch (error: any) {
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -183,7 +188,8 @@ export function registerRoutes(app: Express) {
         return res.json({ data: [] });
       }
       console.error('Error listing payment methods:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -338,7 +344,8 @@ export function registerRoutes(app: Express) {
         return res.json({ data: [] });
       }
       console.error('Error listing subscriptions:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -368,7 +375,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error updating subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -391,7 +399,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error canceling subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -416,7 +425,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error pausing subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -430,7 +440,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error resuming subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -449,7 +460,8 @@ export function registerRoutes(app: Express) {
         return res.json({ data: [] });
       }
       console.error('Error listing invoices:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -464,7 +476,9 @@ export function registerRoutes(app: Express) {
       res.json({ data: invoice });
     } catch (error: any) {
       console.error('Error paying invoice:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const status = error?.statusCode || 500;
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(status).json({ error: message });
     }
   });
 
@@ -485,7 +499,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: { url: session.url, id: session.id } });
     } catch (error: any) {
       console.error('Error creating checkout session:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -518,7 +533,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: finalizedInvoice });
     } catch (error: any) {
       console.error('Error creating invoice:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 
@@ -534,7 +550,8 @@ export function registerRoutes(app: Express) {
       res.json({ data: { url: session.url } });
     } catch (error: any) {
       console.error('Error creating portal session:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const message = error?.type?.startsWith('Stripe') ? error.message : 'Internal server error';
+      res.status(error?.statusCode || 500).json({ error: message });
     }
   });
 

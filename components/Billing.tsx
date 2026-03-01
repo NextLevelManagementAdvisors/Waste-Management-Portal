@@ -33,9 +33,9 @@ const PayInvoiceModal: React.FC<{
         try {
             await payInvoice(invoice.id, selectedMethodId);
             onSuccess();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Payment failed:", error);
-            alert("Payment failed. Please try again.");
+            alert(error?.message || "Payment failed. Please try again.");
         } finally {
             setIsPaying(false);
         }

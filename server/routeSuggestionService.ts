@@ -1,8 +1,8 @@
 import { storage } from './storage.ts';
 
 export interface RouteSuggestion {
-  zone_id: string;
   zone_name: string;
+  driver_name?: string;
   pickup_day: string;
   confidence: number;
   distance_miles: number;
@@ -35,17 +35,18 @@ export function haversineDistanceMiles(lat1: number, lng1: number, lat2: number,
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export async function findNearestZone(lat: number, lng: number): Promise<{ zone_id: string; zone_name: string; distance_miles: number } | null> {
-  const zones = await storage.getAllZones(true);
-  let best: { zone_id: string; zone_name: string; distance_miles: number } | null = null;
+export async function findNearestZone(lat: number, lng: number): Promise<{ zone_id: string; zone_name: string; driver_name?: string; distance_miles: number } | null> {
+  const zones = await storage.getAllDriverCustomZones();
+  let best: { zone_id: string; zone_name: string; driver_name?: string; distance_miles: number } | null = null;
 
   for (const zone of zones) {
     if (zone.center_lat == null || zone.center_lng == null) continue;
+    if (zone.status !== 'active') continue;
     const dist = haversineDistanceMiles(lat, lng, Number(zone.center_lat), Number(zone.center_lng));
     const radius = zone.radius_miles ? Number(zone.radius_miles) : Infinity;
     if (dist > radius) continue;
     if (!best || dist < best.distance_miles) {
-      best = { zone_id: zone.id, zone_name: zone.name, distance_miles: dist };
+      best = { zone_id: zone.id, zone_name: zone.name, driver_name: zone.driver_name, distance_miles: dist };
     }
   }
 
@@ -71,12 +72,9 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
     await storage.updateProperty(propertyId, { latitude: lat, longitude: lng });
   }
 
-  // Find nearest zone
+  // Find nearest driver zone
   const zone = await findNearestZone(lat, lng);
   if (!zone) return null;
-
-  // Persist zone assignment
-  await storage.updateProperty(propertyId, { zone_id: zone.zone_id });
 
   // Look at 7 days of route history to find the most common day
   const today = new Date();
@@ -87,7 +85,6 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   const dateFrom = sevenDaysAgo.toISOString().split('T')[0];
 
   const routes = await storage.getAllRoutes({
-    zone_id: zone.zone_id,
     date_from: dateFrom,
     date_to: dateTo,
   });
@@ -99,8 +96,8 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   if (activeRoutes.length === 0) {
     // No history — still return zone info with low confidence
     return {
-      zone_id: zone.zone_id,
       zone_name: zone.zone_name,
+      driver_name: zone.driver_name,
       pickup_day: 'unknown',
       confidence: 0.2,
       distance_miles: zone.distance_miles,
@@ -128,8 +125,8 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   const confidence = Math.min(bestCount / activeRoutes.length, 1);
 
   return {
-    zone_id: zone.zone_id,
     zone_name: zone.zone_name,
+    driver_name: zone.driver_name,
     pickup_day: bestDay,
     confidence,
     distance_miles: zone.distance_miles,

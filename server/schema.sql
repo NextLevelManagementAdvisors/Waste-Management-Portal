@@ -558,3 +558,77 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read) WHERE read = FALSE;
+
+-- Driver zone selections (many-to-many: drivers ↔ service_zones)
+CREATE TABLE IF NOT EXISTS driver_zone_selections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  zone_id UUID NOT NULL REFERENCES service_zones(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(driver_id, zone_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dzs_driver ON driver_zone_selections(driver_id);
+CREATE INDEX IF NOT EXISTS idx_dzs_zone ON driver_zone_selections(zone_id);
+CREATE INDEX IF NOT EXISTS idx_dzs_status ON driver_zone_selections(status);
+
+-- Zone change audit log
+CREATE TABLE IF NOT EXISTS zone_change_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  zone_id UUID NOT NULL REFERENCES service_zones(id) ON DELETE CASCADE,
+  action VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_zcl_driver ON zone_change_log(driver_id);
+CREATE INDEX IF NOT EXISTS idx_zcl_zone ON zone_change_log(zone_id);
+CREATE INDEX IF NOT EXISTS idx_zcl_created ON zone_change_log(created_at DESC);
+
+-- Admin zones (parent grouping of service/driver zones)
+CREATE TABLE IF NOT EXISTS admin_zones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL UNIQUE,
+  description TEXT,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Link service_zones to admin_zones
+ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS admin_zone_id UUID REFERENCES admin_zones(id);
+CREATE INDEX IF NOT EXISTS idx_service_zones_admin_zone ON service_zones(admin_zone_id);
+
+-- Driver-created custom zones (bottom-up zone creation)
+CREATE TABLE IF NOT EXISTS driver_custom_zones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  center_lat NUMERIC(10,7) NOT NULL,
+  center_lng NUMERIC(10,7) NOT NULL,
+  radius_miles NUMERIC(6,2) NOT NULL DEFAULT 5,
+  color VARCHAR(7) DEFAULT '#3B82F6',
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_dcz_driver ON driver_custom_zones(driver_id);
+CREATE INDEX IF NOT EXISTS idx_dcz_status ON driver_custom_zones(status);
+
+-- ── Location Claims (Dual Dispatch) ──
+CREATE TABLE IF NOT EXISTS location_claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  claimed_at TIMESTAMP DEFAULT NOW(),
+  revoked_at TIMESTAMP,
+  revoked_by UUID,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_active_property ON location_claims(property_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_lc_driver ON location_claims(driver_id);
+CREATE INDEX IF NOT EXISTS idx_lc_status ON location_claims(status);
+CREATE INDEX IF NOT EXISTS idx_lc_driver_status ON location_claims(driver_id, status);

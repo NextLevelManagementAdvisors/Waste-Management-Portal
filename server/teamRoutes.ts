@@ -775,21 +775,177 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // ── Driver Custom Zones ──
+
+  app.get('/api/team/my-custom-zones', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const zones = await storage.getDriverCustomZones(driverId);
+      res.json({ data: zones });
+    } catch (error) {
+      console.error('Get custom zones error:', error);
+      res.status(500).json({ error: 'Failed to get custom zones' });
+    }
+  });
+
+  app.post('/api/team/my-custom-zones', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { name, center_lat, center_lng, radius_miles, color } = req.body;
+      if (!name || center_lat == null || center_lng == null) {
+        return res.status(400).json({ error: 'name, center_lat, and center_lng are required' });
+      }
+      const zone = await storage.createDriverCustomZone(driverId, {
+        name,
+        center_lat: Number(center_lat),
+        center_lng: Number(center_lng),
+        radius_miles: Number(radius_miles) || 5,
+        color,
+      });
+      res.json({ data: zone });
+    } catch (error) {
+      console.error('Create custom zone error:', error);
+      res.status(500).json({ error: 'Failed to create custom zone' });
+    }
+  });
+
+  app.put('/api/team/my-custom-zones/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { id } = req.params;
+      const zone = await storage.updateDriverCustomZone(id, driverId, req.body);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+      res.json({ data: zone });
+    } catch (error) {
+      console.error('Update custom zone error:', error);
+      res.status(500).json({ error: 'Failed to update custom zone' });
+    }
+  });
+
+  app.delete('/api/team/my-custom-zones/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const deleted = await storage.deleteDriverCustomZone(req.params.id, driverId);
+      if (!deleted) return res.status(404).json({ error: 'Zone not found' });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Delete custom zone error:', error);
+      res.status(500).json({ error: 'Failed to delete custom zone' });
+    }
+  });
+
+  // ── Location Claims ──
+
+  app.get('/api/team/available-locations', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const rows = await storage.getAvailableLocationsForDriver(driverId);
+      const locations = rows.map((r: any) => ({
+        ...r,
+        is_mine: r.claimed_by_driver_id === driverId,
+        latitude: parseFloat(r.latitude),
+        longitude: parseFloat(r.longitude),
+        distance_miles: parseFloat(r.distance_miles),
+      }));
+      res.json({ data: locations });
+    } catch (error) {
+      console.error('Get available locations error:', error);
+      res.status(500).json({ error: 'Failed to get available locations' });
+    }
+  });
+
+  app.post('/api/team/locations/:propertyId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const driverId = res.locals.driverProfile.id;
+      const driverRating = parseFloat(res.locals.driverProfile.rating) || 0;
+
+      // Check if property exists and is approved
+      const property = await storage.getPropertyById(propertyId);
+      if (!property || property.service_status !== 'approved') {
+        return res.status(404).json({ error: 'Property not found or not approved' });
+      }
+
+      // Check existing active claim
+      const existingClaim = await storage.getActiveClaimForProperty(propertyId);
+
+      if (existingClaim) {
+        if (existingClaim.driver_id === driverId) {
+          return res.status(400).json({ error: 'You already have an active claim on this location' });
+        }
+        // Conflict resolution: higher rating wins
+        const existingRating = parseFloat(existingClaim.driver_rating) || 0;
+        if (driverRating <= existingRating) {
+          return res.status(409).json({
+            error: 'Location is claimed by a higher or equally rated driver',
+            claimed_by: existingClaim.driver_name,
+          });
+        }
+        // Current driver has higher rating: revoke existing claim
+        await storage.revokeLocationClaimByProperty(propertyId, 'Displaced by higher-rated driver');
+      }
+
+      const claim = await storage.createLocationClaim(propertyId, driverId, req.body.notes);
+      res.status(201).json({ data: claim });
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Location was just claimed by another driver' });
+      }
+      console.error('Claim location error:', error);
+      res.status(500).json({ error: 'Failed to claim location' });
+    }
+  });
+
+  app.delete('/api/team/locations/:propertyId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const driverId = res.locals.driverProfile.id;
+      const released = await storage.releaseLocationClaim(propertyId, driverId);
+      if (!released) {
+        return res.status(404).json({ error: 'No active claim found for this location' });
+      }
+      res.json({ data: released });
+    } catch (error) {
+      console.error('Release claim error:', error);
+      res.status(500).json({ error: 'Failed to release claim' });
+    }
+  });
+
+  app.get('/api/team/my-locations', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const claims = await storage.getDriverClaims(driverId);
+      res.json({ data: claims });
+    } catch (error) {
+      console.error('Get my locations error:', error);
+      res.status(500).json({ error: 'Failed to get claimed locations' });
+    }
+  });
+
+  // ── Routes (filtered by driver coverage zones) ──
+
   app.get('/api/team/routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
+      const driverId = res.locals.driverProfile.id;
       const filters: { startDate?: string; endDate?: string } = {};
       if (req.query.startDate) filters.startDate = req.query.startDate as string;
       if (req.query.endDate) filters.endDate = req.query.endDate as string;
 
-      const routes = await storage.getOpenRoutes(filters);
-      // Enrich with stop counts
-      const enriched = await Promise.all(routes.map(async (route: any) => {
-        try {
-          const stops = await storage.getRouteStops(route.id);
-          return { ...route, stop_count: stops.length };
-        } catch { return { ...route, stop_count: 0 }; }
-      }));
-      res.json({ data: enriched });
+      const customZones = await storage.getDriverCustomZones(driverId);
+      const hasZoneSelections = customZones.some((z: any) => z.status === 'active');
+
+      let enriched: any[] = [];
+      if (hasZoneSelections) {
+        const routes = await storage.getRoutesInDriverCoverage(driverId, filters);
+        enriched = await Promise.all(routes.map(async (route: any) => {
+          try {
+            const stops = await storage.getRouteStops(route.id);
+            return { ...route, stop_count: stops.length };
+          } catch { return { ...route, stop_count: 0 }; }
+        }));
+      }
+
+      res.json({ data: enriched, hasZoneSelections });
     } catch (error: any) {
       console.error('Get routes error:', error);
       res.status(500).json({ error: 'Failed to get routes' });
