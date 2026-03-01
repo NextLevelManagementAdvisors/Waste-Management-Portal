@@ -3,9 +3,9 @@ import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
 import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
-import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices } from '../services/apiService.ts';
+import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices, uploadSpecialPickupPhotos, getServiceRecommendation } from '../services/apiService.ts';
 import * as stripeService from '../services/stripeService.ts';
-import { CreditCardIcon, BanknotesIcon } from './Icons.tsx';
+import { CreditCardIcon, BanknotesIcon, ExclamationTriangleIcon, SparklesIcon } from './Icons.tsx';
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
 import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
@@ -181,6 +181,22 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     // Service area check
     const [serviceAreaWarning, setServiceAreaWarning] = useState<string | null>(null);
+    const [serviceAreaBlocked, setServiceAreaBlocked] = useState(false);
+    const [checkingServiceArea, setCheckingServiceArea] = useState(false);
+
+    // AI recommendation state
+    const [recommendationPhotos, setRecommendationPhotos] = useState<File[]>([]);
+    const [recommendationPreviews, setRecommendationPreviews] = useState<string[]>([]);
+    const [uploadedRecommendationUrls, setUploadedRecommendationUrls] = useState<string[]>([]);
+    const [aiRecommendation, setAiRecommendation] = useState<{
+        recommendedSize: string;
+        reasoning: string;
+        suggestRecycling: boolean;
+        recyclingReason: string;
+    } | null>(null);
+    const [isGettingRecommendation, setIsGettingRecommendation] = useState(false);
+    const [recommendationError, setRecommendationError] = useState<string | null>(null);
+    const [showPhotoHelper, setShowPhotoHelper] = useState(true);
 
     // Payment state
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -402,6 +418,66 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         }
     };
 
+    // ── AI Recommendation Handlers ──────────────────────────────────
+    const handleRecommendationPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []).slice(0, 5 - recommendationPhotos.length);
+        const newFiles = [...recommendationPhotos, ...files].slice(0, 5);
+        setRecommendationPhotos(newFiles);
+        setRecommendationPreviews(newFiles.map(f => URL.createObjectURL(f)));
+        setAiRecommendation(null);
+    };
+
+    const removeRecommendationPhoto = (index: number) => {
+        const newFiles = recommendationPhotos.filter((_, i) => i !== index);
+        setRecommendationPhotos(newFiles);
+        setRecommendationPreviews(newFiles.map(f => URL.createObjectURL(f)));
+        setAiRecommendation(null);
+    };
+
+    const handleGetRecommendation = async () => {
+        if (recommendationPhotos.length === 0) return;
+        setIsGettingRecommendation(true);
+        setRecommendationError(null);
+        try {
+            let urls = uploadedRecommendationUrls;
+            if (uploadedRecommendationUrls.length === 0) {
+                urls = await uploadSpecialPickupPhotos(recommendationPhotos);
+                setUploadedRecommendationUrls(urls);
+            }
+            const result = await getServiceRecommendation(urls);
+            setAiRecommendation(result);
+
+            // Auto-select the recommended service
+            const sizeMap: Record<string, string> = { '32G': '32g', '64G': '64g', '96G': '96g' };
+            const sizeKey = sizeMap[result.recommendedSize] || '64g';
+            const matchingService = availableServices.find(
+                s => s.category === 'base_service' && s.name.toLowerCase().includes(sizeKey)
+            );
+            if (matchingService) {
+                const baseServiceIds = availableServices.filter(s => s.category === 'base_service' && !s.name.toLowerCase().includes('recycling')).map(s => s.id);
+                setSelectedServices(prev => {
+                    const nonBase = prev.filter(s => !baseServiceIds.includes(s.serviceId));
+                    return [...nonBase, { serviceId: matchingService.id, quantity: 1, useSticker: false }];
+                });
+            }
+            if (result.suggestRecycling) {
+                const recyclingService = availableServices.find(
+                    s => s.name.toLowerCase().includes('recycling')
+                );
+                if (recyclingService) {
+                    setSelectedServices(prev => {
+                        if (prev.some(s => s.serviceId === recyclingService.id)) return prev;
+                        return [...prev, { serviceId: recyclingService.id, quantity: 1, useSticker: false }];
+                    });
+                }
+            }
+        } catch (error: any) {
+            setRecommendationError(error.message || 'Failed to get recommendation');
+        } finally {
+            setIsGettingRecommendation(false);
+        }
+    };
+
     // ── Step 0: Flow Type Selector ───────────────────────────────────
     const renderFlowSelector = () => (
         <div className="space-y-6 animate-in fade-in duration-300">
@@ -451,6 +527,8 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
         const handleAddressNext = async () => {
             setServiceAreaWarning(null);
+            setServiceAreaBlocked(false);
+            setCheckingServiceArea(true);
             const fullAddress = [formData.street, formData.city, formData.state, formData.zip].filter(Boolean).join(', ');
             try {
                 const resp = await fetch('/api/check-service-area', {
@@ -461,11 +539,28 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 });
                 const data = await resp.json();
                 if (!data.serviceable) {
-                    setServiceAreaWarning('This address may be outside our current service area. You can still submit for review, but approval is not guaranteed.');
+                    setServiceAreaBlocked(true);
+                    setServiceAreaWarning(
+                        'Sorry, this address is not within our current service area. ' +
+                        'We are expanding and would love to notify you when we reach your area.'
+                    );
+                    setCheckingServiceArea(false);
+                    return;
                 }
             } catch {
                 // Don't block on network errors
             }
+            setCheckingServiceArea(false);
+            handleNext();
+        };
+
+        const handleJoinWaitlist = () => {
+            setServiceAreaBlocked(false);
+            setServiceAreaWarning(
+                'Your address is outside our current service area. ' +
+                'Complete the setup to join our waitlist \u2014 we\'ll notify you when service becomes available.'
+            );
+            setCheckingServiceArea(false);
             handleNext();
         };
 
@@ -484,6 +579,34 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         required
                     />
                 </div>
+                {serviceAreaBlocked && (
+                    <div className="mt-6 rounded-xl bg-amber-50 border-2 border-amber-200 p-6 space-y-4 animate-in fade-in duration-300">
+                        <div className="flex items-start gap-3">
+                            <ExclamationTriangleIcon className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <h3 className="font-bold text-amber-900 text-lg">Outside Service Area</h3>
+                                <p className="text-sm text-amber-700 mt-1">{serviceAreaWarning}</p>
+                            </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => { setServiceAreaBlocked(false); setServiceAreaWarning(null); }}
+                                className="rounded-xl"
+                            >
+                                Edit Address
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={handleJoinWaitlist}
+                                className="rounded-xl shadow-lg shadow-primary/20"
+                            >
+                                Join Waitlist
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 <div className="mt-8 pt-6 border-t border-base-200 flex justify-between items-stretch gap-3">
                     <Button
                         type="button"
@@ -496,11 +619,15 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                         type="button"
                         className="flex-grow rounded-lg py-3 px-6 shadow-lg shadow-primary/30 text-center"
                         onClick={handleAddressNext}
-                        disabled={!canProceed}>
-                        <div className="leading-tight">
-                            <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
-                            <span className="font-bold text-sm tracking-wider block uppercase">{nextLabel}</span>
-                        </div>
+                        disabled={!canProceed || checkingServiceArea || serviceAreaBlocked}>
+                        {checkingServiceArea ? (
+                            <span className="font-bold text-sm">Checking availability...</span>
+                        ) : (
+                            <div className="leading-tight">
+                                <span className="text-[10px] font-bold opacity-80 block uppercase">Next:</span>
+                                <span className="font-bold text-sm tracking-wider block uppercase">{nextLabel}</span>
+                            </div>
+                        )}
                     </Button>
                 </div>
             </div>
@@ -646,6 +773,78 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
         return (
             <div className="space-y-8 animate-in fade-in duration-300">
+                {/* AI Service Recommendation */}
+                {showPhotoHelper && (
+                    <Card className="border-2 border-dashed border-primary/30 bg-primary/5">
+                        <div className="flex items-start justify-between mb-3">
+                            <div>
+                                <h3 className="text-sm font-bold text-gray-700">
+                                    Not sure which size? Let AI help!
+                                </h3>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Upload photos of your typical weekly waste and we'll recommend the right service.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowPhotoHelper(false)}
+                                className="text-gray-400 hover:text-gray-600 text-xs font-bold"
+                            >
+                                Skip
+                            </button>
+                        </div>
+                        <div className="flex gap-2 flex-wrap mt-3">
+                            {recommendationPreviews.map((src, i) => (
+                                <div key={i} className="w-16 h-16 rounded-lg overflow-hidden relative group">
+                                    <img src={src} className="w-full h-full object-cover" alt="" />
+                                    <button
+                                        type="button"
+                                        onClick={() => removeRecommendationPhoto(i)}
+                                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <span className="text-white text-xs">x</span>
+                                    </button>
+                                </div>
+                            ))}
+                            {recommendationPhotos.length < 5 && (
+                                <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-primary transition-colors">
+                                    <input type="file" accept="image/*" multiple onChange={handleRecommendationPhotoChange} className="hidden" />
+                                    <span className="text-gray-400 text-2xl leading-none">+</span>
+                                </label>
+                            )}
+                        </div>
+                        {recommendationPhotos.length > 0 && !aiRecommendation && (
+                            <Button
+                                type="button"
+                                onClick={handleGetRecommendation}
+                                disabled={isGettingRecommendation}
+                                className="mt-3 rounded-xl text-xs font-bold"
+                            >
+                                {isGettingRecommendation ? 'Analyzing...' : 'Get AI Recommendation'}
+                            </Button>
+                        )}
+                        {recommendationError && (
+                            <p className="text-xs text-red-500 mt-2">{recommendationError}</p>
+                        )}
+                        {aiRecommendation && (
+                            <div className="mt-3 p-3 bg-white rounded-lg border border-primary/20">
+                                <div className="flex items-center gap-2">
+                                    <SparklesIcon className="w-4 h-4 text-primary" />
+                                    <span className="text-xs font-black text-primary uppercase tracking-widest">AI Recommendation</span>
+                                </div>
+                                <p className="text-sm font-bold text-gray-900 mt-1">
+                                    {aiRecommendation.recommendedSize} Can
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">{aiRecommendation.reasoning}</p>
+                                {aiRecommendation.suggestRecycling && aiRecommendation.recyclingReason && (
+                                    <p className="text-xs text-green-600 mt-1 font-medium">
+                                        + Recycling recommended: {aiRecommendation.recyclingReason}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </Card>
+                )}
                 <ServiceSelector
                     services={availableServices}
                     getQuantity={(serviceId) => selectedServices.find(s => s.serviceId === serviceId)?.quantity || 0}

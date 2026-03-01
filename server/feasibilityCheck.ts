@@ -190,6 +190,11 @@ export async function runFeasibilityAndApprove(
       sendServiceUpdate(userId, msg.subject, msg.body).catch(err => {
         console.error('Auto-approval notification failed:', err);
       });
+
+      // Create in-portal notification for auto-approval
+      storage.createNotification(userId, 'address_approved', msg.subject, msg.body, { propertyId }).catch(err => {
+        console.error('Failed to create auto-approval in-portal notification:', err);
+      });
     } else {
       console.error(`Auto-activation failed for all ${activation.failed} selections on property ${propertyId} — notification withheld`);
     }

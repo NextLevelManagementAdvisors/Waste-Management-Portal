@@ -66,6 +66,17 @@ export interface DbProperty {
   updated_at: string;
 }
 
+export interface DbNotification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  metadata: any;
+  read: boolean;
+  created_at: string;
+}
+
 /** Raw DB row from pending_service_selections (snake_case columns). */
 export interface DbPendingSelection {
   id: string;
@@ -2052,6 +2063,45 @@ export class Storage {
       created.push(newRoute);
     }
     return created;
+  }
+
+  // ── Notifications ──────────────────────────────────────────────
+  async createNotification(userId: string, type: string, title: string, body: string, metadata?: Record<string, any>): Promise<DbNotification> {
+    const result = await this.query(
+      `INSERT INTO notifications (user_id, type, title, body, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [userId, type, title, body, metadata ? JSON.stringify(metadata) : '{}']
+    );
+    return result.rows[0];
+  }
+
+  async getNotificationsForUser(userId: string, limit = 20): Promise<DbNotification[]> {
+    const result = await this.query(
+      `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, limit]
+    );
+    return result.rows;
+  }
+
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    const result = await this.query(
+      `SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND read = FALSE`,
+      [userId]
+    );
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  async markNotificationRead(notificationId: string, userId: string): Promise<void> {
+    await this.query(
+      `UPDATE notifications SET read = TRUE WHERE id = $1 AND user_id = $2`,
+      [notificationId, userId]
+    );
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await this.query(
+      `UPDATE notifications SET read = TRUE WHERE user_id = $1 AND read = FALSE`,
+      [userId]
+    );
   }
 }
 

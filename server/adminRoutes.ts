@@ -2326,6 +2326,14 @@ export function registerAdminRoutes(app: Express) {
             : denialMessage(property.address, notes);
           sendServiceUpdate(property.user_id, msg.subject, msg.body).catch(() => {});
 
+          // Create in-portal notification
+          const notifType = decision === 'approved' ? 'address_approved'
+            : decision === 'waitlist' ? 'address_waitlisted'
+            : 'address_denied';
+          storage.createNotification(property.user_id, notifType, msg.subject, msg.body, { propertyId }).catch(err => {
+            console.error('Failed to create in-portal notification:', err);
+          });
+
           results.push({ id: propertyId, success: true });
         } catch (txErr) {
           await client.query('ROLLBACK');
@@ -2464,6 +2472,14 @@ export function registerAdminRoutes(app: Express) {
           : denialMessage(notifyAddress!, notes);
         sendServiceUpdate(notifyUserId, msg.subject, msg.body).catch(err => {
           console.error('Failed to send address review notification:', err);
+        });
+
+        // Create in-portal notification
+        const notifType = decision === 'approved' ? 'address_approved'
+          : decision === 'waitlist' ? 'address_waitlisted'
+          : 'address_denied';
+        storage.createNotification(notifyUserId, notifType, msg.subject, msg.body, { propertyId }).catch(err => {
+          console.error('Failed to create in-portal notification:', err);
         });
       }
 

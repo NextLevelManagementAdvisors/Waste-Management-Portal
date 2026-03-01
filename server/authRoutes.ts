@@ -1180,6 +1180,74 @@ Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "re
     }
   });
 
+  // AI service recommendation from waste photos (for recurring service signup)
+  app.post('/api/service-recommendation', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { photoUrls, householdDescription } = req.body;
+      if (!photoUrls || photoUrls.length === 0) {
+        return res.status(400).json({ error: 'At least one photo is required' });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: 'AI recommendations are not configured' });
+      }
+
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+
+      const parts: any[] = [];
+      for (const url of photoUrls.slice(0, 5)) {
+        try {
+          const filePath = path.resolve(__dirname, '..', url.replace(/^\//, ''));
+          const imageData = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+          parts.push({ inlineData: { data: imageData.toString('base64'), mimeType: mimeMap[ext] || 'image/jpeg' } });
+        } catch {
+          // Skip unreadable photos
+        }
+      }
+
+      parts.push({ text: `You are a waste management service advisor for a rural waste collection company. Based on the photos showing a customer's typical weekly waste output, recommend the most appropriate trash can size.
+
+Available service tiers:
+- Small Trash Can (32G): Best for single residents or minimal waste producers. $20/month.
+- Medium Trash Can (64G): Most popular. Good for average families of 2-4 people. $25/month.
+- Large Trash Can (96G): Best for large households or high waste volume. $30/month.
+
+Optional add-on:
+- Recycling Service: If you see recyclable materials that could be separated. $12/month.
+
+${householdDescription ? `Customer description: ${householdDescription}` : '(No additional description provided)'}
+
+Analyze the waste volume, types of materials, and estimate weekly output. Recommend ONE primary can size.
+
+Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "96G", "reasoning": "<1-2 sentence explanation>", "suggestRecycling": true | false, "recyclingReason": "<optional 1 sentence if suggesting recycling>"}` });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [{ role: 'user', parts }],
+      });
+
+      const text = response.text?.trim() || '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ error: 'AI returned an unparseable response' });
+      }
+      const parsed = JSON.parse(jsonMatch[0]);
+      res.json({
+        recommendedSize: parsed.recommendedSize,
+        reasoning: parsed.reasoning || '',
+        suggestRecycling: !!parsed.suggestRecycling,
+        recyclingReason: parsed.recyclingReason || '',
+      });
+    } catch (error: any) {
+      console.error('AI service recommendation failed:', error.message);
+      res.status(500).json({ error: 'AI recommendation failed. Please try again.' });
+    }
+  });
+
   app.get('/api/special-pickup-services', async (_req: Request, res: Response) => {
     try {
       const services = await storage.getSpecialPickupServices();
@@ -1667,6 +1735,55 @@ Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "re
       res.json({ data: updated });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to update notification preferences' });
+    }
+  });
+
+  // ── In-portal Notifications ───────────────────────────────────
+  app.get('/api/notifications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const notifications = await storage.getNotificationsForUser(userId);
+      const unreadCount = await storage.getUnreadNotificationCount(userId);
+      res.json({
+        data: notifications.map(n => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          body: n.body,
+          metadata: n.metadata,
+          read: n.read,
+          createdAt: n.created_at,
+        })),
+        unreadCount,
+      });
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+  });
+
+  app.get('/api/notifications/unread-count', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const count = await storage.getUnreadNotificationCount(userId);
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get notification count' });
+    }
+  });
+
+  app.post('/api/notifications/mark-read', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { notificationId } = req.body;
+      if (notificationId) {
+        await storage.markNotificationRead(notificationId, userId);
+      } else {
+        await storage.markAllNotificationsRead(userId);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to mark notifications as read' });
     }
   });
 }

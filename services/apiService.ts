@@ -744,3 +744,55 @@ export const dismissTipPrompt = async (propertyId: string, pickupDate: string) =
     } catch {}
     return { success: true };
 };
+
+// ── In-portal Notifications ───────────────────────────────────
+
+export interface InPortalNotification {
+    id: string;
+    type: string;
+    title: string;
+    body: string;
+    metadata: Record<string, any>;
+    read: boolean;
+    createdAt: string;
+}
+
+export const getNotifications = async (): Promise<{ data: InPortalNotification[]; unreadCount: number }> => {
+    const res = await fetch('/api/notifications', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to fetch notifications');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch notifications');
+    return json;
+};
+
+export const getUnreadNotificationCount = async (): Promise<number> => {
+    const res = await fetch('/api/notifications/unread-count', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to get count');
+    if (!res.ok) return 0;
+    return json.count;
+};
+
+export const markNotificationsRead = async (notificationId?: string): Promise<void> => {
+    await fetch('/api/notifications/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ notificationId }),
+    });
+};
+
+// ── AI Service Recommendation ─────────────────────────────────
+
+export const getServiceRecommendation = async (
+    photoUrls: string[],
+    householdDescription?: string
+): Promise<{ recommendedSize: string; reasoning: string; suggestRecycling: boolean; recyclingReason: string }> => {
+    const res = await fetch('/api/service-recommendation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ photoUrls, householdDescription }),
+    });
+    const json = await safeJson(res, 'Failed to get AI recommendation');
+    if (!res.ok) throw new Error(json.error || 'Failed to get AI recommendation');
+    return json;
+};
