@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS on_demand_requests (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE missed_collection_reports ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]'::jsonb;
 
 -- Collection intents
 CREATE TABLE IF NOT EXISTS collection_intents (
@@ -141,6 +142,7 @@ CREATE TABLE IF NOT EXISTS collection_intents (
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE (location_id, collection_date)
 );
+ALTER TABLE collection_intents ADD COLUMN IF NOT EXISTS optimo_order_no TEXT;
 
 -- Driver feedback / tips
 CREATE TABLE IF NOT EXISTS driver_feedback (
@@ -622,6 +624,10 @@ CREATE TABLE IF NOT EXISTS driver_custom_zones (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+-- Ensure columns exist on pre-existing tables (CREATE TABLE IF NOT EXISTS won't add new columns)
+ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS zone_type VARCHAR(20) NOT NULL DEFAULT 'circle';
+ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS polygon_coords JSONB;
+ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS zip_codes TEXT[];
 CREATE INDEX IF NOT EXISTS idx_dcz_driver ON driver_custom_zones(driver_id);
 CREATE INDEX IF NOT EXISTS idx_dcz_status ON driver_custom_zones(status);
 CREATE INDEX IF NOT EXISTS idx_dcz_type ON driver_custom_zones(zone_type);
