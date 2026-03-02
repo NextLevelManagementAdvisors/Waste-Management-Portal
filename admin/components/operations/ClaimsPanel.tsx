@@ -3,17 +3,17 @@ import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 
 interface LocationClaim {
   id: string;
-  property_id: string;
+  locationId: string;
   driver_id: string;
   status: string;
-  claimed_at: string;
+  claimedAt: string;
   revoked_at: string | null;
   notes: string | null;
-  driver_name: string;
+  driverName: string;
   driver_rating: number | null;
   address: string;
-  customer_name: string;
-  pickup_day: string | null;
+  customerName: string;
+  collectionDay: string | null;
 }
 
 interface Driver {
@@ -28,7 +28,7 @@ const ClaimsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('active');
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [assignModal, setAssignModal] = useState<{ propertyId: string; address: string } | null>(null);
+  const [assignModal, setAssignModal] = useState<{ locationId: string; address: string } | null>(null);
   const [assignDriverId, setAssignDriverId] = useState('');
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const limit = 50;
@@ -91,7 +91,7 @@ const ClaimsPanel: React.FC = () => {
   const assignDriver = useCallback(async () => {
     if (!assignModal || !assignDriverId) return;
     try {
-      const res = await fetch(`/api/admin/properties/${assignModal.propertyId}/assign-driver`, {
+      const res = await fetch(`/api/admin/locations/${assignModal.locationId}/assign-driver`, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ driverId: assignDriverId }),
@@ -157,8 +157,8 @@ const ClaimsPanel: React.FC = () => {
                 {claims.map(claim => (
                   <tr key={claim.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-800 max-w-[200px] truncate">{claim.address}</td>
-                    <td className="px-4 py-3 text-gray-600">{claim.customer_name}</td>
-                    <td className="px-4 py-3 text-gray-800 font-medium">{claim.driver_name}</td>
+                    <td className="px-4 py-3 text-gray-600">{claim.customerName}</td>
+                    <td className="px-4 py-3 text-gray-800 font-medium">{claim.driverName}</td>
                     <td className="px-4 py-3 text-gray-600">
                       {claim.driver_rating != null ? Number(claim.driver_rating).toFixed(1) : '-'}
                     </td>
@@ -174,7 +174,7 @@ const ClaimsPanel: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
-                      {new Date(claim.claimed_at).toLocaleDateString()}
+                      {new Date(claim.claimedAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-1 justify-end">
@@ -188,7 +188,7 @@ const ClaimsPanel: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => setAssignModal({ propertyId: claim.property_id, address: claim.address })}
+                          onClick={() => setAssignModal({ locationId: claim.locationId, address: claim.address })}
                           className="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded"
                         >
                           Assign

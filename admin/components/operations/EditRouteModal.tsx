@@ -21,13 +21,13 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [form, setForm] = useState({
     title: route.title,
-    scheduled_date: route.scheduled_date?.split('T')[0] ?? '',
+    scheduledDate: route.scheduledDate?.split('T')[0] ?? '',
     start_time: route.start_time ?? '',
     end_time: route.end_time ?? '',
     estimated_hours: route.estimated_hours != null ? String(route.estimated_hours) : '',
-    base_pay: route.base_pay != null ? String(route.base_pay) : '',
+    basePay: route.basePay != null ? String(route.basePay) : '',
     notes: route.notes ?? '',
-    assigned_driver_id: route.assigned_driver_id ?? '',
+    assignedDriverId: route.assignedDriverId ?? '',
     status: route.status,
   });
   const [error, setError] = useState('');
@@ -36,9 +36,9 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   // Stop management state
   const [stops, setStops] = useState<RouteStop[]>([]);
   const [stopsLoading, setStopsLoading] = useState(true);
-  const [properties, setProperties] = useState<AdminProperty[]>([]);
-  const [propertySearch, setPropertySearch] = useState('');
-  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+  const [locations, setLocations] = useState<AdminProperty[]>([]);
+  const [locationSearch, setLocationSearch] = useState('');
+  const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
   const [addingStops, setAddingStops] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
@@ -55,9 +55,9 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
     fetchStops();
 
     if (!isReadOnly) {
-      fetch('/api/admin/properties', { credentials: 'include' })
+      fetch('/api/admin/locations', { credentials: 'include' })
         .then(r => r.ok ? r.json() : [])
-        .then((data: AdminProperty[]) => setProperties(data.filter(p => p.serviceStatus === 'approved')))
+        .then((data: AdminProperty[]) => setLocations(data.filter(p => p.serviceStatus === 'approved')))
         .catch(() => {});
     }
   }, []);
@@ -89,18 +89,18 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   };
 
   const handleAddStops = async () => {
-    if (selectedPropertyIds.size === 0) return;
+    if (selectedLocationIds.size === 0) return;
     setAddingStops(true);
     try {
       const res = await fetch(`/api/admin/routes/${route.id}/stops`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyIds: [...selectedPropertyIds] }),
+        body: JSON.stringify({ locationIds: [...selectedLocationIds] }),
       });
       if (res.ok) {
-        setSelectedPropertyIds(new Set());
-        setPropertySearch('');
+        setSelectedLocationIds(new Set());
+        setLocationSearch('');
         setShowPicker(false);
         await fetchStops();
       }
@@ -111,8 +111,8 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
     }
   };
 
-  const toggleProperty = (id: string) => {
-    setSelectedPropertyIds(prev => {
+  const toggleLocation = (id: string) => {
+    setSelectedLocationIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
@@ -120,11 +120,11 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   };
 
   // Filter out properties already on the route
-  const existingPropertyIds = useMemo(() => new Set(stops.map(s => s.property_id).filter(Boolean)), [stops]);
+  const existingLocationIds = useMemo(() => new Set(stops.map(s => s.locationId).filter(Boolean)), [stops]);
 
-  const filteredProperties = useMemo(() => {
-    const available = properties.filter(p => !existingPropertyIds.has(p.id));
-    const q = propertySearch.toLowerCase().trim();
+  const filteredLocations = useMemo(() => {
+    const available = locations.filter(p => !existingLocationIds.has(p.id));
+    const q = locationSearch.toLowerCase().trim();
     const list = q
       ? available.filter(p =>
           p.address?.toLowerCase().includes(q) ||
@@ -133,11 +133,11 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
         )
       : available;
     return [...list].sort((a, b) => {
-      const aSelected = selectedPropertyIds.has(a.id) ? 0 : 1;
-      const bSelected = selectedPropertyIds.has(b.id) ? 0 : 1;
+      const aSelected = selectedLocationIds.has(a.id) ? 0 : 1;
+      const bSelected = selectedLocationIds.has(b.id) ? 0 : 1;
       return aSelected - bSelected;
     });
-  }, [properties, propertySearch, selectedPropertyIds, existingPropertyIds]);
+  }, [locations, locationSearch, selectedLocationIds, existingLocationIds]);
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(prev => ({ ...prev, [field]: e.target.value }));
@@ -145,7 +145,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!form.title.trim() || !form.scheduled_date) {
+    if (!form.title.trim() || !form.scheduledDate) {
       setError('Title and scheduled date are required.');
       return;
     }
@@ -153,7 +153,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
     try {
       const body: Record<string, any> = {
         title: form.title.trim(),
-        scheduled_date: form.scheduled_date,
+        scheduledDate: form.scheduledDate,
         status: form.status,
       };
       if (form.start_time) body.start_time = form.start_time;
@@ -162,12 +162,12 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
       else body.end_time = null;
       if (form.estimated_hours) body.estimated_hours = Number(form.estimated_hours);
       else body.estimated_hours = null;
-      if (form.base_pay) body.base_pay = Number(form.base_pay);
-      else body.base_pay = null;
+      if (form.basePay) body.basePay = Number(form.basePay);
+      else body.basePay = null;
       if (form.notes.trim()) body.notes = form.notes.trim();
       else body.notes = null;
-      if (form.assigned_driver_id) body.assigned_driver_id = form.assigned_driver_id;
-      else body.assigned_driver_id = null;
+      if (form.assignedDriverId) body.assignedDriverId = form.assignedDriverId;
+      else body.assignedDriverId = null;
 
       const res = await fetch(`/api/admin/routes/${route.id}`, {
         method: 'PUT',
@@ -207,7 +207,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
           {/* Scheduled Date */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Scheduled Date <span className="text-red-500">*</span></label>
-            <input type="date" value={form.scheduled_date} onChange={set('scheduled_date')}
+            <input type="date" value={form.scheduledDate} onChange={set('scheduledDate')}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
           </div>
 
@@ -234,7 +234,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">Base Pay ($)</label>
-              <input type="number" min="0" step="0.01" value={form.base_pay} onChange={set('base_pay')} placeholder="0.00"
+              <input type="number" min="0" step="0.01" value={form.basePay} onChange={set('basePay')} placeholder="0.00"
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
             </div>
           </div>
@@ -255,11 +255,11 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
                   <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
                     <div className="min-w-0 flex-1">
                       <div className="text-gray-900 truncate">{s.address}</div>
-                      <div className="text-xs text-gray-400 truncate">{s.customer_name}</div>
+                      <div className="text-xs text-gray-400 truncate">{s.customerName}</div>
                     </div>
                     <span className={`text-[10px] font-bold flex-shrink-0 ${
-                      s.order_type === 'special' ? 'text-purple-600' : s.order_type === 'missed_redo' ? 'text-red-600' : 'text-gray-400'
-                    }`}>{s.order_type}</span>
+                      s.orderType === 'special' ? 'text-purple-600' : s.orderType === 'missed_redo' ? 'text-red-600' : 'text-gray-400'
+                    }`}>{s.orderType}</span>
                     {!isReadOnly && (
                       <button type="button" onClick={() => handleRemoveStop(s.id)}
                         className="text-red-400 hover:text-red-600 font-bold flex-shrink-0" title="Remove stop">
@@ -281,19 +281,19 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
                   </button>
                 ) : (
                   <div className="border border-teal-200 rounded-lg p-2 bg-teal-50/30">
-                    <input type="text" value={propertySearch} onChange={e => setPropertySearch(e.target.value)}
+                    <input type="text" value={locationSearch} onChange={e => setLocationSearch(e.target.value)}
                       placeholder="Search by address, customer, or zone..."
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-white" />
                     <div className="mt-1 border border-gray-200 rounded-lg max-h-[150px] overflow-y-auto bg-white">
-                      {filteredProperties.length === 0 ? (
+                      {filteredLocations.length === 0 ? (
                         <div className="px-3 py-3 text-center text-xs text-gray-400">
-                          {properties.length === 0 ? 'Loading...' : 'No matching properties'}
+                          {locations.length === 0 ? 'Loading...' : 'No matching locations'}
                         </div>
                       ) : (
-                        filteredProperties.map(p => {
-                          const selected = selectedPropertyIds.has(p.id);
+                        filteredLocations.map(p => {
+                          const selected = selectedLocationIds.has(p.id);
                           return (
-                            <button key={p.id} type="button" onClick={() => toggleProperty(p.id)}
+                            <button key={p.id} type="button" onClick={() => toggleLocation(p.id)}
                               className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-b-0 ${
                                 selected ? 'bg-teal-50' : ''
                               }`}>
@@ -317,11 +317,11 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
                       )}
                     </div>
                     <div className="flex items-center justify-between mt-2">
-                      <button type="button" onClick={() => { setShowPicker(false); setSelectedPropertyIds(new Set()); setPropertySearch(''); }}
+                      <button type="button" onClick={() => { setShowPicker(false); setSelectedLocationIds(new Set()); setLocationSearch(''); }}
                         className="text-xs font-bold text-gray-500 hover:text-gray-700">Cancel</button>
-                      <button type="button" onClick={handleAddStops} disabled={selectedPropertyIds.size === 0 || addingStops}
+                      <button type="button" onClick={handleAddStops} disabled={selectedLocationIds.size === 0 || addingStops}
                         className="px-3 py-1 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 rounded-lg transition-colors">
-                        {addingStops ? 'Adding...' : `Add ${selectedPropertyIds.size} Stop${selectedPropertyIds.size !== 1 ? 's' : ''}`}
+                        {addingStops ? 'Adding...' : `Add ${selectedLocationIds.size} Stop${selectedLocationIds.size !== 1 ? 's' : ''}`}
                       </button>
                     </div>
                   </div>
@@ -346,7 +346,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
           {/* Assign Driver */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Assign Driver <span className="text-gray-400 font-normal">(optional)</span></label>
-            <select value={form.assigned_driver_id} onChange={set('assigned_driver_id')}
+            <select value={form.assignedDriverId} onChange={set('assignedDriverId')}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
               <option value="">Unassigned</option>
               {drivers.map(d => (

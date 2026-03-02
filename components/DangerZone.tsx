@@ -1,26 +1,26 @@
 
 import React, { useState } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { ExclamationTriangleIcon } from './Icons.tsx';
 
 const DangerZone: React.FC = () => {
-    const { selectedProperty, cancelPropertyServices, refreshUser } = useProperty();
+    const { selectedLocation, cancelLocationServices, refreshUser } = useLocation();
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [cancelConfirmation, setCancelConfirmation] = useState('');
     const [isCanceling, setIsCanceling] = useState(false);
     
-    if (!selectedProperty) return null;
+    if (!selectedLocation) return null;
 
-    const isTransferPending = selectedProperty.transferStatus === 'pending';
+    const isTransferPending = selectedLocation.transferStatus === 'pending';
 
     const handleConfirmCancellation = async () => {
-        if (!selectedProperty || cancelConfirmation.toUpperCase() !== 'CANCEL') return;
+        if (!selectedLocation || cancelConfirmation.toUpperCase() !== 'CANCEL') return;
         setIsCanceling(true);
         try {
-            await cancelPropertyServices(selectedProperty.id);
+            await cancelLocationServices(selectedLocation.id);
             await refreshUser();
             setIsCancelModalOpen(false);
         } catch(error) {
@@ -65,7 +65,7 @@ const DangerZone: React.FC = () => {
                         <ExclamationTriangleIcon className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
                         <div>
                             <h4 className="font-bold text-red-800">This action is irreversible.</h4>
-                            <p className="text-sm text-red-700 mt-1">All services for <span className="font-semibold">{selectedProperty?.address}</span> will be terminated at the end of the current billing cycle.</p>
+                            <p className="text-sm text-red-700 mt-1">All services for <span className="font-semibold">{selectedLocation?.address}</span> will be terminated at the end of the current billing cycle.</p>
                         </div>
                     </div>
                     <div>

@@ -36,7 +36,7 @@ vi.mock('../storage', () => ({
     updateConversationStatus: vi.fn(),
     query: vi.fn(),
     createDriverProfile: vi.fn(),
-    getPropertiesForUser: vi.fn(),
+    getLocationsForUser: vi.fn(),
   },
   pool: {},
 }));
@@ -200,7 +200,7 @@ beforeEach(() => {
   vi.mocked(storage.getConversationParticipants).mockResolvedValue(mockParticipants as any);
   vi.mocked(storage.getConversationsForCustomer).mockResolvedValue([] as any);
   vi.mocked(storage.getConversationsForDriver).mockResolvedValue([mockConversation] as any);
-  vi.mocked(storage.getConversations).mockResolvedValue([mockConversation] as any);
+  vi.mocked(storage.getConversations).mockResolvedValue({ conversations: [mockConversation], total: 1 } as any);
   vi.mocked(storage.getMessages).mockResolvedValue([mockMessage] as any);
   vi.mocked(storage.createMessage).mockResolvedValue(mockMessage as any);
   vi.mocked(storage.createConversation).mockResolvedValue(mockConversation as any);

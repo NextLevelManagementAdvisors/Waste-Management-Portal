@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '../../../components/Button.tsx';
 import { Card } from '../../../components/Card.tsx';
 import { LoadingSpinner, Pagination, StatusBadge, EmptyState, FilterBar } from '../ui/index.ts';
-import type { PickupScheduleRequest } from '../../../shared/types/index.ts';
+import type { OnDemandRequest } from '../../../shared/types/index.ts';
 
-interface PickupScheduleResponse {
-  requests: PickupScheduleRequest[];
+interface OnDemandResponse {
+  requests: OnDemandRequest[];
   total: number;
 }
 
@@ -23,10 +23,10 @@ const formatDate = (dateStr: string) => {
   }
 };
 
-// ── Detail/Edit Modal ──
+// -- Detail/Edit Modal --
 interface DetailModalProps {
   isOpen: boolean;
-  request: PickupScheduleRequest | null;
+  request: OnDemandRequest | null;
   drivers: DriverOption[];
   onClose: () => void;
   onSaved: () => void;
@@ -74,7 +74,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ isOpen, request, drivers, onC
         return;
       }
 
-      const res = await fetch(`/api/admin/pickup-schedule/${request.id}`, {
+      const res = await fetch(`/api/admin/on-demand/${request.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -128,7 +128,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ isOpen, request, drivers, onC
             <div className="flex flex-wrap gap-2">
               {photos.map((url: string, i: number) => (
                 <button type="button" key={i} onClick={() => setLightboxPhoto(url)} className="w-24 h-24 rounded-lg overflow-hidden border-2 border-gray-200 hover:border-teal-500 transition-colors" title="View full size">
-                  <img src={url} alt={`Pickup item ${i + 1}`} className="w-full h-full object-cover" />
+                  <img src={url} alt={`On-demand item ${i + 1}`} className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
@@ -203,15 +203,15 @@ const DetailModal: React.FC<DetailModalProps> = ({ isOpen, request, drivers, onC
   );
 };
 
-// ── Main Component ──
-const PickupSchedule: React.FC = () => {
-  const [requests, setRequests] = useState<PickupScheduleRequest[]>([]);
+// -- Main Component --
+const OnDemandSchedule: React.FC = () => {
+  const [requests, setRequests] = useState<OnDemandRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [selectedRequest, setSelectedRequest] = useState<PickupScheduleRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<OnDemandRequest | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
 
@@ -222,14 +222,14 @@ const PickupSchedule: React.FC = () => {
       query.set('status', statusFilter);
       query.set('limit', String(limit));
       query.set('offset', String(offset));
-      const res = await fetch(`/api/admin/pickup-schedule?${query}`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/on-demand?${query}`, { credentials: 'include' });
       if (res.ok) {
-        const data: PickupScheduleResponse = await res.json();
+        const data: OnDemandResponse = await res.json();
         setRequests(data.requests);
         setTotal(data.total);
       }
     } catch (e) {
-      console.error('Failed to load pickup schedule:', e);
+      console.error('Failed to load on-demand requests:', e);
     } finally {
       setLoading(false);
     }
@@ -267,7 +267,7 @@ const PickupSchedule: React.FC = () => {
       </FilterBar>
 
       {requests.length === 0 ? (
-        <EmptyState title="No Pickup Requests" message="There are no pickup requests matching your filters." />
+        <EmptyState title="No On-Demand Requests" message="There are no on-demand requests matching your filters." />
       ) : (
         <>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -345,4 +345,4 @@ const PickupSchedule: React.FC = () => {
   );
 };
 
-export default PickupSchedule;
+export default OnDemandSchedule;

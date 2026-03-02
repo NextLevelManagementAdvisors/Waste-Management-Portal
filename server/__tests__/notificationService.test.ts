@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { sendPickupReminder, sendMessageNotificationEmail } from '../notificationService';
+import { sendCollectionReminder, sendMessageNotificationEmail } from '../notificationService';
 import { storage } from '../storage';
 import { sendEmail } from '../gmailClient';
 import { sendSms } from '../twilioClient';
@@ -10,7 +10,7 @@ import { sendSms } from '../twilioClient';
 vi.mock('../storage', () => ({
   storage: {
     getUserById: vi.fn(),
-    getPropertiesForUser: vi.fn(),
+    getLocationsForUser: vi.fn(),
     getDriverById: vi.fn(),
     getDriverProfileByUserId: vi.fn(),
   },
@@ -54,7 +54,7 @@ const mockProperty = (overrides: Record<string, unknown> = {}) => ({
   created_at: '2024-01-01',
   updated_at: '2024-01-01',
   notification_preferences: {
-    pickupReminders: { email: true, sms: false },
+    collectionReminders: { email: true, sms: false },
   },
   ...overrides,
 });
@@ -64,13 +64,13 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// sendPickupReminder
+// sendCollectionReminder
 // ---------------------------------------------------------------------------
-describe('sendPickupReminder', () => {
+describe('sendCollectionReminder', () => {
   it('returns early without sending if user is not found', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(null);
 
-    await sendPickupReminder('unknown-id', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('unknown-id', '123 Main St', '2025-02-10');
 
     expect(sendEmail).not.toHaveBeenCalled();
     expect(sendSms).not.toHaveBeenCalled();
@@ -78,11 +78,11 @@ describe('sendPickupReminder', () => {
 
   it('sends email when email notifications are enabled (default on)', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(mockUser as any);
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([
-      mockProperty({ notification_preferences: { pickupReminders: { email: true, sms: false } } }) as any,
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([
+      mockProperty({ notification_preferences: { collectionReminders: { email: true, sms: false } } }) as any,
     ]);
 
-    await sendPickupReminder('user-1', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('user-1', '123 Main St', '2025-02-10');
 
     expect(sendEmail).toHaveBeenCalledOnce();
     expect(vi.mocked(sendEmail).mock.calls[0][0]).toBe('jane@example.com');
@@ -91,23 +91,23 @@ describe('sendPickupReminder', () => {
 
   it('skips email when email notifications are explicitly disabled', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(mockUser as any);
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([
-      mockProperty({ notification_preferences: { pickupReminders: { email: false, sms: false } } }) as any,
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([
+      mockProperty({ notification_preferences: { collectionReminders: { email: false, sms: false } } }) as any,
     ]);
 
-    await sendPickupReminder('user-1', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('user-1', '123 Main St', '2025-02-10');
 
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it('sends SMS when SMS notifications are enabled', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(mockUser as any);
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([
-      mockProperty({ notification_preferences: { pickupReminders: { email: false, sms: true } } }) as any,
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([
+      mockProperty({ notification_preferences: { collectionReminders: { email: false, sms: true } } }) as any,
     ]);
     vi.mocked(sendSms).mockResolvedValue(undefined);
 
-    await sendPickupReminder('user-1', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('user-1', '123 Main St', '2025-02-10');
 
     expect(sendSms).toHaveBeenCalledOnce();
     expect(vi.mocked(sendSms).mock.calls[0][0]).toBe('+15551234567');
@@ -115,12 +115,12 @@ describe('sendPickupReminder', () => {
 
   it('sends both email and SMS when both are enabled', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(mockUser as any);
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([
-      mockProperty({ notification_preferences: { pickupReminders: { email: true, sms: true } } }) as any,
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([
+      mockProperty({ notification_preferences: { collectionReminders: { email: true, sms: true } } }) as any,
     ]);
     vi.mocked(sendSms).mockResolvedValue(undefined);
 
-    await sendPickupReminder('user-1', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('user-1', '123 Main St', '2025-02-10');
 
     expect(sendEmail).toHaveBeenCalledOnce();
     expect(sendSms).toHaveBeenCalledOnce();
@@ -129,11 +129,11 @@ describe('sendPickupReminder', () => {
   it('sends email even when property has no preferences (defaults to on)', async () => {
     vi.mocked(storage.getUserById).mockResolvedValue(mockUser as any);
     // No matching property address found — prefs will be undefined
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([
       mockProperty({ address: 'Different St', notification_preferences: null }) as any,
     ]);
 
-    await sendPickupReminder('user-1', '123 Main St', '2025-02-10');
+    await sendCollectionReminder('user-1', '123 Main St', '2025-02-10');
 
     // emailEnabled defaults to true when prefs are absent
     expect(sendEmail).toHaveBeenCalledOnce();

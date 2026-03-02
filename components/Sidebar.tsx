@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from '../types.ts';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { VIEW_TO_PATH } from '../constants.ts';
 import {
   HomeIcon, SparklesIcon, TruckIcon, BanknotesIcon,
@@ -58,10 +58,10 @@ const NavLink: React.FC<{
 );
 
 const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) => void, onLogout: () => void }> = ({ currentView, onLinkClick, onLogout }) => {
-    const { user, properties } = useProperty();
-    const hasProperties = properties.length > 0;
+    const { user, locations } = useLocation();
+    const hasLocations = locations.length > 0;
 
-    const baseItems = hasProperties
+    const baseItems = hasLocations
       ? navItems
       : navItems.filter(item => !['myservice', 'billing'].includes(item.id));
     const visibleNavItems = baseItems;

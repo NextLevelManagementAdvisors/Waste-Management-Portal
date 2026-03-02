@@ -44,8 +44,8 @@ function nextOccurrenceOf(dayName: string): string {
  * @param optimalDay Optional day of week (e.g., "tuesday") to test — if provided,
  *                   the probe targets that specific day instead of an arbitrary weekday.
  */
-export async function checkRouteFeasibility(address: string, propertyId: string, optimalDay?: string): Promise<FeasibilityResult> {
-  const tempOrderNo = `FEASIBILITY-${propertyId.substring(0, 8).toUpperCase()}-${Date.now()}`;
+export async function checkRouteFeasibility(address: string, locationId: string, optimalDay?: string): Promise<FeasibilityResult> {
+  const tempOrderNo = `FEASIBILITY-${locationId.substring(0, 8).toUpperCase()}-${Date.now()}`;
 
   const dateStr = optimalDay ? nextOccurrenceOf(optimalDay) : (() => {
     const tomorrow = new Date();
@@ -132,19 +132,19 @@ export async function checkRouteFeasibility(address: string, propertyId: string,
  *
  * @param optimalDay Optional day of week from route optimization (e.g., "tuesday").
  *                   If provided, the feasibility check tests that specific day and
- *                   the confirmed day is stored as the property's pickup_day.
+ *                   the confirmed day is stored as the location's collection_day.
  */
 export async function runFeasibilityAndApprove(
-  propertyId: string,
+  locationId: string,
   userId: string,
   address: string,
   optimalDay?: string,
 ): Promise<void> {
-  const result = await checkRouteFeasibility(address, propertyId, optimalDay);
+  const result = await checkRouteFeasibility(address, locationId, optimalDay);
 
   // Audit the check result
   try {
-    await storage.createAuditLog(userId, 'auto_feasibility_check', 'property', propertyId, {
+    await storage.createAuditLog(userId, 'auto_feasibility_check', 'location', locationId, {
       ...result,
       automated: true,
     });
@@ -153,34 +153,34 @@ export async function runFeasibilityAndApprove(
   }
 
   if (!result.feasible) {
-    console.log(`Auto-feasibility failed for property ${propertyId}: ${result.reason}`);
+    console.log(`Auto-feasibility failed for location ${locationId}: ${result.reason}`);
     return;
   }
 
   // Conditionally approve — only if still pending_review (admin may have already decided)
-  const approved = await storage.approveIfPending(propertyId);
+  const approved = await storage.approveIfPending(locationId);
   if (!approved) {
-    console.log(`Property ${propertyId} already decided, skipping auto-approval`);
+    console.log(`Location ${locationId} already decided, skipping auto-approval`);
     return;
   }
 
-  // Store feasibility-confirmed pickup day (overrides haversine estimate)
+  // Store feasibility-confirmed collection day (overrides haversine estimate)
   const confirmedDay = result.scheduledDay || optimalDay;
   if (confirmedDay) {
     try {
-      await storage.updateProperty(propertyId, {
-        pickup_day: confirmedDay,
-        pickup_day_source: 'feasibility_confirmed',
-        pickup_day_detected_at: new Date().toISOString(),
+      await storage.updateLocation(locationId, {
+        collection_day: confirmedDay,
+        collection_day_source: 'feasibility_confirmed',
+        collection_day_detected_at: new Date().toISOString(),
       });
     } catch (e) {
-      console.error('Failed to store feasibility-confirmed pickup day:', e);
+      console.error('Failed to store feasibility-confirmed collection day:', e);
     }
   }
 
   // Activate pending selections, then notify based on outcome
   try {
-    const activation = await activatePendingSelections(propertyId, userId, {
+    const activation = await activatePendingSelections(locationId, userId, {
       source: 'auto_approval',
     });
 
@@ -192,11 +192,11 @@ export async function runFeasibilityAndApprove(
       });
 
       // Create in-portal notification for auto-approval
-      storage.createNotification(userId, 'address_approved', msg.subject, msg.body, { propertyId }).catch(err => {
+      storage.createNotification(userId, 'address_approved', msg.subject, msg.body, { locationId }).catch(err => {
         console.error('Failed to create auto-approval in-portal notification:', err);
       });
     } else {
-      console.error(`Auto-activation failed for all ${activation.failed} selections on property ${propertyId} — notification withheld`);
+      console.error(`Auto-activation failed for all ${activation.failed} selections on location ${locationId} — notification withheld`);
     }
   } catch (err) {
     console.error('Auto-activation after feasibility failed:', err);

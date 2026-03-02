@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import type { NavFilter } from '../../../shared/types/index.ts';
 import LocationsList from './LocationsList.tsx';
-import MissedPickupsList from './MissedPickupsList.tsx';
+import MissedCollectionsList from './MissedCollectionsList.tsx';
 import PlanningCalendar from './PlanningCalendar.tsx';
 import RoutesList from './RoutesList.tsx';
 import ZonesPanel from './ZonesPanel.tsx';
@@ -15,7 +15,7 @@ interface OperationsViewProps {
   onFilterConsumed?: () => void;
   activeTab?: OpsTabType;
   onTabChange?: (tab: OpsTabType) => void;
-  missedPickupsCount?: number;
+  missedCollectionsCount?: number;
   onActionResolved?: () => void;
 }
 
@@ -28,7 +28,7 @@ const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'issues', label: 'Issues' },
 ];
 
-const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterConsumed, activeTab = 'operations', onTabChange, missedPickupsCount = 0, onActionResolved }) => {
+const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterConsumed, activeTab = 'operations', onTabChange, missedCollectionsCount = 0, onActionResolved }) => {
 
   useEffect(() => {
     if (navFilter?.tab) {
@@ -48,7 +48,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       <div className="flex items-center gap-1 border-b border-gray-200">
         {TAB_ITEMS.map(tab => {
           const isActive = tab.key === 'issues' ? isIssues : currentTab === tab.key;
-          const badge = tab.key === 'issues' && missedPickupsCount > 0 ? missedPickupsCount : null;
+          const badge = tab.key === 'issues' && missedCollectionsCount > 0 ? missedCollectionsCount : null;
           return (
             <button
               key={tab.key}
@@ -77,7 +77,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {currentTab === 'locations' && <LocationsList />}
       {currentTab === 'zones' && <ZonesPanel />}
       {currentTab === 'claims' && <ClaimsPanel />}
-      {isIssues && <MissedPickupsList onActionResolved={onActionResolved} />}
+      {isIssues && <MissedCollectionsList onActionResolved={onActionResolved} />}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getDashboardState, PropertyState, setCollectionIntent } from '../services/apiService.ts';
-import { useProperty } from '../PropertyContext.tsx';
+import { getDashboardState, LocationState, setCollectionIntent } from '../services/apiService.ts';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { TruckIcon, ClockIcon, BellIcon, CheckCircleIcon, XCircleIcon } from './Icons.tsx';
@@ -57,19 +57,19 @@ const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => {
 };
 
 const ServiceStatusOverview: React.FC = () => {
-    const { selectedPropertyId } = useProperty();
-    const [state, setState] = useState<PropertyState | null>(null);
+    const { selectedLocationId } = useLocation();
+    const [state, setState] = useState<LocationState | null>(null);
     const [loading, setLoading] = useState(true);
     const [intent, setIntent] = useState<'out' | 'skip' | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const fetchData = () => {
-        if (!selectedPropertyId || selectedPropertyId === 'all') {
+        if (!selectedLocationId || selectedLocationId === 'all') {
             setLoading(false);
             return;
         }
         setLoading(true);
-        getDashboardState(selectedPropertyId).then(res => {
+        getDashboardState(selectedLocationId).then(res => {
             const currentState = res.states[0] || null;
             setState(currentState);
             setIntent(currentState?.collectionIntent || null);
@@ -79,13 +79,13 @@ const ServiceStatusOverview: React.FC = () => {
 
     useEffect(() => {
         fetchData();
-    }, [selectedPropertyId]);
+    }, [selectedLocationId]);
 
     const handleSetIntent = async (newIntent: 'out' | 'skip') => {
-        if (!selectedPropertyId || !state?.nextPickup) return;
+        if (!selectedLocationId || !state?.nextCollection) return;
         setIsSubmitting(true);
         try {
-            await setCollectionIntent(selectedPropertyId, newIntent, state.nextPickup.date);
+            await setCollectionIntent(selectedLocationId, newIntent, state.nextCollection.date);
             setIntent(newIntent);
         } catch (e) {
             console.error("Failed to set intent", e);
@@ -105,9 +105,9 @@ const ServiceStatusOverview: React.FC = () => {
 
     return (
         <div className="space-y-8">
-            {state.nextPickup?.status === 'in-progress' && <LiveTracker eta={state.nextPickup.eta || 'Calculating...'} />}
+            {state.nextCollection?.status === 'in-progress' && <LiveTracker eta={state.nextCollection.eta || 'Calculating...'} />}
             
-            {state.nextPickup?.status === 'upcoming' && (
+            {state.nextCollection?.status === 'upcoming' && (
                 <>
                     <Card className="bg-gray-900 text-white border-none flex flex-col md:flex-row items-center justify-between gap-8 p-10 shadow-2xl">
                          <div className="flex items-center gap-6">
@@ -116,7 +116,7 @@ const ServiceStatusOverview: React.FC = () => {
                             </div>
                             <div>
                                 <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-2">Next Scheduled Visit</p>
-                                <h2 className="text-4xl font-black tracking-tight">{state.nextPickup?.label || 'TBD'}</h2>
+                                <h2 className="text-4xl font-black tracking-tight">{state.nextCollection?.label || 'TBD'}</h2>
                                 <p className="text-gray-400 font-medium mt-2">Residential Waste & Recycling Route</p>
                             </div>
                         </div>
@@ -144,13 +144,13 @@ const ServiceStatusOverview: React.FC = () => {
                 </>
             )}
 
-            {state.lastPickup && (
+            {state.lastCollection && (
                  <Card className="border-none ring-1 ring-base-200">
                     <div className="text-center">
                         <div className="w-16 h-16 bg-primary/5 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <CheckCircleIcon className="w-8 h-8" />
                         </div>
-                        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Last Collection: {state.lastPickup.label}</h2>
+                        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Last Collection: {state.lastCollection.label}</h2>
                         <p className="text-gray-500 mt-1">Want to leave feedback? You can now do so from the <span className="font-bold">History</span> tab.</p>
                     </div>
                 </Card>

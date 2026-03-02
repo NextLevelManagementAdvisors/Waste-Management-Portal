@@ -81,7 +81,7 @@ export class UserRepository extends BaseRepository {
     if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
     if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
     if (options.serviceType) {
-      conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_type = $${idx})`);
+      conditions.push(`EXISTS (SELECT 1 FROM locations l WHERE l.user_id = u.id AND l.service_type = $${idx})`);
       params.push(options.serviceType);
       idx++;
     }
@@ -93,7 +93,7 @@ export class UserRepository extends BaseRepository {
     const offset = options.offset || 0;
     params.push(limit, offset);
     const result = await this.query(
-      `SELECT u.*, (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count
+      `SELECT u.*, (SELECT COUNT(*) FROM locations l WHERE l.user_id = u.id) as location_count
        FROM users u ${where} ORDER BY ${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx}`,
       params
     );
@@ -131,7 +131,7 @@ export class UserRepository extends BaseRepository {
     if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
     if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
     if (options.serviceType) {
-      conditions.push(`EXISTS (SELECT 1 FROM properties p2 WHERE p2.user_id = u.id AND p2.service_type = $${idx})`);
+      conditions.push(`EXISTS (SELECT 1 FROM locations l2 WHERE l2.user_id = u.id AND l2.service_type = $${idx})`);
       params.push(options.serviceType);
       idx++;
     }
@@ -140,8 +140,8 @@ export class UserRepository extends BaseRepository {
       `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id,
        EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role = 'admin') as is_admin,
        u.created_at,
-       (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
-       (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
+       (SELECT COUNT(*) FROM locations l WHERE l.user_id = u.id) as location_count,
+       (SELECT string_agg(l.address, '; ') FROM locations l WHERE l.user_id = u.id) as addresses
        FROM users u ${where} ORDER BY u.created_at DESC`,
       params
     );
@@ -150,20 +150,20 @@ export class UserRepository extends BaseRepository {
 
   async globalSearch(query: string) {
     const searchParam = `%${query}%`;
-    const [users, properties] = await Promise.all([
+    const [users, locations] = await Promise.all([
       this.query(
         `SELECT id, first_name, last_name, email, 'user' as type FROM users
          WHERE LOWER(email) LIKE LOWER($1) OR LOWER(first_name || ' ' || last_name) LIKE LOWER($1) LIMIT 10`,
         [searchParam]
       ),
       this.query(
-        `SELECT p.id, p.address, p.service_type, u.first_name || ' ' || u.last_name as owner_name, 'property' as type
-         FROM properties p JOIN users u ON p.user_id = u.id
-         WHERE LOWER(p.address) LIKE LOWER($1) LIMIT 10`,
+        `SELECT l.id, l.address, l.service_type, u.first_name || ' ' || u.last_name as owner_name, 'location' as type
+         FROM locations l JOIN users u ON l.user_id = u.id
+         WHERE LOWER(l.address) LIKE LOWER($1) LIMIT 10`,
         [searchParam]
       ),
     ]);
-    return { users: users.rows, properties: properties.rows };
+    return { users: users.rows, locations: locations.rows };
   }
 
   async getSignupTrends(days: number = 90) {

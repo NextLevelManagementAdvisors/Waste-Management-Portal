@@ -10,28 +10,28 @@ delete (L.Icon.Default.prototype as any)._getIconUrl;
 interface AvailableLocation {
   id: string;
   address: string;
-  service_type: string;
-  pickup_day: string | null;
-  pickup_frequency: string | null;
+  serviceType: string;
+  collectionDay: string | null;
+  collectionFrequency: string | null;
   latitude: number;
   longitude: number;
-  customer_name: string;
-  claimed_by_driver_id: string | null;
-  claimed_by_driver_name: string | null;
-  claim_status: string | null;
-  is_mine: boolean;
-  distance_miles: number;
-  matching_zone_name: string;
+  customerName: string;
+  claimedByDriverId: string | null;
+  claimedByDriverName: string | null;
+  claimStatus: string | null;
+  isMine: boolean;
+  distanceMiles: number;
+  matchingZoneName: string;
 }
 
 interface ClaimedLocation {
   id: string;
-  property_id: string;
+  locationId: string;
   address: string;
-  service_type: string;
-  pickup_day: string | null;
-  pickup_frequency: string | null;
-  customer_name: string;
+  serviceType: string;
+  collectionDay: string | null;
+  collectionFrequency: string | null;
+  customerName: string;
 }
 
 const FitBounds: React.FC<{ points: [number, number][] }> = ({ points }) => {
@@ -69,10 +69,10 @@ const AvailableLocations: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const claimLocation = useCallback(async (propertyId: string) => {
-    setActionId(propertyId);
+  const claimLocation = useCallback(async (locationId: string) => {
+    setActionId(locationId);
     try {
-      const res = await fetch(`/api/team/locations/${propertyId}/claim`, {
+      const res = await fetch(`/api/team/locations/${locationId}/claim`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -90,10 +90,10 @@ const AvailableLocations: React.FC = () => {
     }
   }, [loadData]);
 
-  const releaseLocation = useCallback(async (propertyId: string) => {
-    setActionId(propertyId);
+  const releaseLocation = useCallback(async (locationId: string) => {
+    setActionId(locationId);
     try {
-      const res = await fetch(`/api/team/locations/${propertyId}/claim`, {
+      const res = await fetch(`/api/team/locations/${locationId}/claim`, {
         method: 'DELETE', credentials: 'include',
       });
       if (res.ok) {
@@ -125,8 +125,8 @@ const AvailableLocations: React.FC = () => {
   }
 
   const getMarkerColor = (loc: AvailableLocation) => {
-    if (loc.is_mine) return '#3B82F6'; // blue - mine
-    if (loc.claimed_by_driver_id) return '#F97316'; // orange - other driver
+    if (loc.isMine) return '#3B82F6'; // blue - mine
+    if (loc.claimedByDriverId) return '#F97316'; // orange - other driver
     return '#10B981'; // green - unclaimed
   };
 
@@ -191,20 +191,20 @@ const AvailableLocations: React.FC = () => {
                     <Popup>
                       <div className="min-w-[180px]">
                         <div className="font-bold text-sm">{loc.address}</div>
-                        <div className="text-xs text-gray-500 mt-1">{loc.customer_name}</div>
+                        <div className="text-xs text-gray-500 mt-1">{loc.customerName}</div>
                         <div className="text-xs text-gray-400 mt-0.5">
-                          {loc.service_type} &bull; {loc.pickup_day || 'No day'} &bull; {loc.pickup_frequency || 'weekly'}
+                          {loc.serviceType} &bull; {loc.collectionDay || 'No day'} &bull; {loc.collectionFrequency || 'weekly'}
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">
-                          {loc.matching_zone_name} &bull; {loc.distance_miles.toFixed(1)} mi away
+                          {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi away
                         </div>
-                        {loc.claimed_by_driver_id && !loc.is_mine && (
+                        {loc.claimedByDriverId && !loc.isMine && (
                           <div className="text-xs text-orange-600 font-medium mt-1">
-                            Claimed by {loc.claimed_by_driver_name}
+                            Claimed by {loc.claimedByDriverName}
                           </div>
                         )}
                         <div className="mt-2">
-                          {loc.is_mine ? (
+                          {loc.isMine ? (
                             <button
                               onClick={() => releaseLocation(loc.id)}
                               disabled={actionId === loc.id}
@@ -212,7 +212,7 @@ const AvailableLocations: React.FC = () => {
                             >
                               {actionId === loc.id ? '...' : 'Release'}
                             </button>
-                          ) : !loc.claimed_by_driver_id ? (
+                          ) : !loc.claimedByDriverId ? (
                             <button
                               onClick={() => claimLocation(loc.id)}
                               disabled={actionId === loc.id}
@@ -261,16 +261,16 @@ const AvailableLocations: React.FC = () => {
                       <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
                     </div>
                     <div className="text-xs text-gray-400 ml-4 mt-0.5">
-                      {loc.customer_name} &bull; {loc.matching_zone_name} &bull; {loc.distance_miles.toFixed(1)} mi
+                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi
                     </div>
-                    {loc.claimed_by_driver_id && !loc.is_mine && (
+                    {loc.claimedByDriverId && !loc.isMine && (
                       <div className="text-xs text-orange-500 ml-4 mt-0.5">
-                        Claimed by {loc.claimed_by_driver_name}
+                        Claimed by {loc.claimedByDriverName}
                       </div>
                     )}
                   </div>
                   <div className="flex-shrink-0 ml-2">
-                    {loc.is_mine ? (
+                    {loc.isMine ? (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -279,7 +279,7 @@ const AvailableLocations: React.FC = () => {
                       >
                         Release
                       </Button>
-                    ) : !loc.claimed_by_driver_id ? (
+                    ) : !loc.claimedByDriverId ? (
                       <Button
                         variant="primary"
                         size="sm"
@@ -311,14 +311,14 @@ const AvailableLocations: React.FC = () => {
                     <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
                   </div>
                   <div className="text-xs text-gray-400 ml-2 mt-0.5">
-                    {loc.customer_name} &bull; {loc.pickup_day || 'No day'} &bull; {loc.pickup_frequency || 'weekly'}
+                    {loc.customerName} &bull; {loc.collectionDay || 'No day'} &bull; {loc.collectionFrequency || 'weekly'}
                   </div>
                 </div>
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => releaseLocation(loc.property_id)}
-                  disabled={actionId === loc.property_id}
+                  onClick={() => releaseLocation(loc.locationId)}
+                  disabled={actionId === loc.locationId}
                 >
                   Release
                 </Button>

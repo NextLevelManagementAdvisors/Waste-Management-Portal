@@ -26,13 +26,13 @@ const LocationsList: React.FC = () => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter !== 'all') params.set('status', statusFilter);
-    if (dayFilter !== 'all') params.set('pickupDay', dayFilter);
+    if (dayFilter !== 'all') params.set('collectionDay', dayFilter);
     const page = Math.floor(offset / limit) + 1;
     params.set('page', String(page));
     params.set('limit', String(limit));
 
     try {
-      const res = await fetch(`/api/admin/properties?${params}`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/locations?${params}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setLocations(data.locations || []);
@@ -86,7 +86,7 @@ const LocationsList: React.FC = () => {
           onChange={e => setDayFilter(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
         >
-          <option value="all">All Pickup Days</option>
+          <option value="all">All Collection Days</option>
           {DAYS.map(d => (
             <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
           ))}
@@ -102,7 +102,7 @@ const LocationsList: React.FC = () => {
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Name</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Address</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Pickup Day</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Collection Day</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Frequency</th>
                 <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Latitude</th>
                 <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Longitude</th>
@@ -127,8 +127,8 @@ const LocationsList: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{loc.ownerName || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{loc.address}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 capitalize">{loc.pickupDay || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 capitalize">{loc.pickupFrequency || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 capitalize">{loc.collectionDay || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 capitalize">{loc.collectionFrequency || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 text-right font-mono">{loc.latitude ? Number(loc.latitude).toFixed(7) : '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 text-right font-mono">{loc.longitude ? Number(loc.longitude).toFixed(7) : '—'}</td>
                   </tr>

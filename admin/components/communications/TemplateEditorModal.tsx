@@ -12,7 +12,7 @@ interface Template {
 }
 
 const AVAILABLE_VARIABLES = [
-  'customer_name', 'pickup_date', 'pickup_type', 'property_address',
+  'customerName', 'collectionDate', 'collectionType', 'locationAddress',
   'invoice_number', 'amount', 'due_date',
 ];
 
@@ -70,8 +70,8 @@ const TemplateEditorModal: React.FC<{
 
   // Preview with sample data
   const sampleData: Record<string, string> = {
-    customer_name: 'John Smith', pickup_date: 'March 5, 2026', pickup_type: 'Regular',
-    property_address: '123 Main St', invoice_number: 'INV-001', amount: '$45.00', due_date: 'March 15, 2026',
+    customerName: 'John Smith', collectionDate: 'March 5, 2026', collectionType: 'Regular',
+    locationAddress: '123 Main St', invoice_number: 'INV-001', amount: '$45.00', due_date: 'March 15, 2026',
   };
   const previewBody = body.replace(/\{\{(\w+)\}\}/g, (m, k) => sampleData[k] || m);
 

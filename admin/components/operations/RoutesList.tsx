@@ -16,14 +16,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ROUTE_TYPE_COLORS: Record<string, string> = {
   daily_route: 'bg-teal-100 text-teal-700',
-  bulk_pickup: 'bg-orange-100 text-orange-700',
-  special_pickup: 'bg-purple-100 text-purple-700',
+  bulk_collection: 'bg-orange-100 text-orange-700',
+  on_demand: 'bg-purple-100 text-purple-700',
 };
 
 const ROUTE_TYPE_LABELS: Record<string, string> = {
   daily_route: 'Route',
-  bulk_pickup: 'Bulk',
-  special_pickup: 'Special',
+  bulk_collection: 'Bulk',
+  on_demand: 'On-Demand',
 };
 
 const StatusChip: React.FC<{ status: string }> = ({ status }) => (
@@ -114,17 +114,17 @@ const StopsExpansion: React.FC<{ stops: RouteStop[] }> = ({ stops }) => (
       <tr key={p.id} className="bg-blue-50/20">
         <td className="px-4 py-1.5 pl-10" colSpan={3}>
           <div className="text-sm text-gray-700">{p.address}</div>
-          <div className="text-xs text-gray-400">{p.customer_name}</div>
+          <div className="text-xs text-gray-400">{p.customerName}</div>
         </td>
         <td className="px-4 py-1.5">
           <span className={`text-xs font-bold ${
-            p.order_type === 'special' ? 'text-purple-600' : p.order_type === 'missed_redo' ? 'text-red-600' : 'text-gray-500'
+            p.orderType === 'special' ? 'text-purple-600' : p.orderType === 'missed_redo' ? 'text-red-600' : 'text-gray-500'
           }`}>
-            {p.order_type}
+            {p.orderType}
           </span>
         </td>
         <td className="px-4 py-1.5" colSpan={2}>
-          {p.stop_number != null && <span className="text-xs text-gray-500">Stop #{p.stop_number}</span>}
+          {p.stopNumber != null && <span className="text-xs text-gray-500">Stop #{p.stopNumber}</span>}
         </td>
         <td className="px-4 py-1.5" colSpan={3}>
           <span className={`text-xs font-bold ${
@@ -236,7 +236,7 @@ const RoutesList: React.FC = () => {
 
   const filtered = routes.filter(r => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    if (typeFilter !== 'all' && r.route_type !== typeFilter) return false;
+    if (typeFilter !== 'all' && r.routeType !== typeFilter) return false;
     return true;
   });
 
@@ -288,8 +288,8 @@ const RoutesList: React.FC = () => {
             >
               <option value="all">All Types</option>
               <option value="daily_route">Route</option>
-              <option value="bulk_pickup">Bulk</option>
-              <option value="special_pickup">Special</option>
+              <option value="bulk_collection">Bulk</option>
+              <option value="on_demand">On-Demand</option>
             </select>
           </div>
           {(dateFrom || dateTo) && (
@@ -340,8 +340,8 @@ const RoutesList: React.FC = () => {
                 const isExpanded = expandedRouteId === route.id;
                 const bids = bidsMap[route.id];
                 const stops = stopsMap[route.id];
-                const bidCount = route.bid_count ?? 0;
-                const stopCount = route.stop_count ?? 0;
+                const bidCount = route.bidCount ?? 0;
+                const stopCount = route.stopCount ?? 0;
                 const canAcceptBids = route.status === 'open' || route.status === 'bidding';
 
                 return (
@@ -354,10 +354,10 @@ const RoutesList: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <RouteTypeChip type={route.route_type || 'daily_route'} />
+                        <RouteTypeChip type={route.routeType || 'daily_route'} />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-gray-700">{formatDate(route.scheduled_date)}</div>
+                        <div className="text-sm text-gray-700">{formatDate(route.scheduledDate)}</div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-700">
@@ -369,21 +369,21 @@ const RoutesList: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-semibold text-gray-900">
-                          {route.actual_pay != null
-                            ? `$${Number(route.actual_pay).toFixed(2)}`
-                            : route.base_pay != null
-                            ? `$${Number(route.base_pay).toFixed(2)}`
+                          {route.actualPay != null
+                            ? `$${Number(route.actualPay).toFixed(2)}`
+                            : route.basePay != null
+                            ? `$${Number(route.basePay).toFixed(2)}`
                             : '—'}
                         </div>
-                        {route.actual_pay != null && route.base_pay != null && Number(route.actual_pay) !== Number(route.base_pay) && (
-                          <div className="text-xs text-gray-400 line-through">${Number(route.base_pay).toFixed(2)}</div>
+                        {route.actualPay != null && route.basePay != null && Number(route.actualPay) !== Number(route.basePay) && (
+                          <div className="text-xs text-gray-400 line-through">${Number(route.basePay).toFixed(2)}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <StatusChip status={route.status} />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-gray-700">{route.driver_name ?? '—'}</div>
+                        <div className="text-sm text-gray-700">{route.driverName ?? '—'}</div>
                       </td>
                       <td className="px-4 py-3 text-right space-x-1">
                         {route.status === 'draft' && (
@@ -429,7 +429,7 @@ const RoutesList: React.FC = () => {
                             <td colSpan={2} className="px-4 py-2 text-right text-xs font-black uppercase tracking-widest text-gray-400">Action</td>
                           </tr>
                           {bids.map(bid => (
-                            <BidRow key={bid.id} bid={bid} basePay={route.base_pay != null ? Number(route.base_pay) : undefined}
+                            <BidRow key={bid.id} bid={bid} basePay={route.basePay != null ? Number(route.basePay) : undefined}
                               onAccept={() => acceptBid(route.id, bid)} canAccept={canAcceptBids} />
                           ))}
                         </>

@@ -27,7 +27,7 @@ interface ActivateOptions {
  *  - Admin bulk approval (adminRoutes bulk-decision endpoint)
  */
 export async function activatePendingSelections(
-  propertyId: string,
+  locationId: string,
   userId: string,
   options: ActivateOptions = {},
 ): Promise<{ activated: number; failed: number; rentalDeliveries: number }> {
@@ -41,12 +41,12 @@ export async function activatePendingSelections(
     // If caller pre-deleted selections, restore them so they aren't lost
     if (preloadedSelections && preloadedSelections.length > 0) {
       try {
-        await storage.savePendingSelections(propertyId, userId, preloadedSelections.map(sel => ({
+        await storage.savePendingSelections(locationId, userId, preloadedSelections.map(sel => ({
           serviceId: sel.service_id,
           quantity: sel.quantity,
           useSticker: sel.use_sticker,
         })));
-        console.log(`activatePendingSelections: restored ${preloadedSelections.length} preloaded selections for property ${propertyId}`);
+        console.log(`activatePendingSelections: restored ${preloadedSelections.length} preloaded selections for location ${locationId}`);
       } catch (restoreErr) {
         console.error('activatePendingSelections: failed to restore preloaded selections:', restoreErr);
       }
@@ -55,7 +55,7 @@ export async function activatePendingSelections(
   }
 
   // Atomic claim: DELETE...RETURNING ensures only one concurrent caller gets the rows
-  const selections = preloadedSelections ?? await storage.claimPendingSelections(propertyId);
+  const selections = preloadedSelections ?? await storage.claimPendingSelections(locationId);
   if (selections.length === 0) {
     return { activated: 0, failed: 0, rentalDeliveries: 0 };
   }
@@ -77,7 +77,7 @@ export async function activatePendingSelections(
             customer: user.stripe_customer_id,
             items: [{ price: product.default_price.id, quantity: sel.quantity }],
             metadata: {
-              propertyId,
+              locationId,
               equipmentType,
             },
             payment_behavior: 'allow_incomplete',
@@ -103,22 +103,22 @@ export async function activatePendingSelections(
   // Schedule equipment delivery orders for rental subscriptions
   if (rentalDeliveries.length > 0 && process.env.OPTIMOROUTE_API_KEY) {
     try {
-      const property = await storage.getPropertyById(propertyId);
-      if (property) {
+      const location = await storage.getLocationById(locationId);
+      if (location) {
         const deliveryDate = new Date();
         deliveryDate.setDate(deliveryDate.getDate() + 3); // Target 3 days out
         const dateStr = deliveryDate.toISOString().split('T')[0];
 
         await optimoRoute.createOrder({
-          orderNo: `DEL-${propertyId.slice(0, 8)}-${Date.now()}`,
+          orderNo: `DEL-${locationId.slice(0, 8)}-${Date.now()}`,
           type: 'D',
           date: dateStr,
-          address: property.address,
+          address: location.address,
           locationName: `${user.first_name} ${user.last_name}`,
           duration: 10,
           notes: `Equipment delivery: ${rentalDeliveries.join(', ')}`,
         });
-        console.log(`[EquipmentDelivery] Scheduled delivery for property ${propertyId} on ${dateStr}`);
+        console.log(`[EquipmentDelivery] Scheduled delivery for location ${locationId} on ${dateStr}`);
       }
     } catch (err) {
       console.error('[EquipmentDelivery] Failed to schedule delivery order (non-blocking):', err);
@@ -127,7 +127,7 @@ export async function activatePendingSelections(
 
   // Audit trail
   try {
-    await storage.createAuditLog(userId, 'subscriptions_activated', 'property', propertyId, {
+    await storage.createAuditLog(userId, 'subscriptions_activated', 'location', locationId, {
       source,
       automated: source === 'auto_approval',
       activated,

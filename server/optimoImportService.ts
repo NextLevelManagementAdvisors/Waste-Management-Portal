@@ -88,7 +88,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
 
       let propertyId: string | null = null;
       if (stopAddress) {
-        const matched = await storage.findPropertyByAddress(stopAddress);
+        const matched = await storage.findLocationByAddress(stopAddress);
         if (matched) {
           propertyId = matched.id;
           result.stopsMatched++;

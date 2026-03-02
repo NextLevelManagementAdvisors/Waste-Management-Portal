@@ -8,38 +8,38 @@ interface SyncStatus {
   nextRunAt: string;
   lastRun: {
     id: string;
-    run_type: string;
-    started_at: string;
-    finished_at: string | null;
+    runType: string;
+    startedAt: string;
+    finishedAt: string | null;
     status: string;
-    properties_processed: number;
-    orders_created: number;
-    orders_skipped: number;
-    orders_errored: number;
-    orders_deleted: number;
-    detection_updates: number;
-    error_message: string | null;
+    locationsProcessed: number;
+    ordersCreated: number;
+    ordersSkipped: number;
+    ordersErrored: number;
+    ordersDeleted: number;
+    detectionUpdates: number;
+    errorMessage: string | null;
   } | null;
 }
 
 interface SyncLogEntry {
   id: string;
-  run_type: string;
-  started_at: string;
-  finished_at: string | null;
+  runType: string;
+  startedAt: string;
+  finishedAt: string | null;
   status: string;
-  properties_processed: number;
-  orders_created: number;
-  orders_skipped: number;
-  orders_errored: number;
-  orders_deleted: number;
-  detection_updates: number;
-  error_message: string | null;
+  locationsProcessed: number;
+  ordersCreated: number;
+  ordersSkipped: number;
+  ordersErrored: number;
+  ordersDeleted: number;
+  detectionUpdates: number;
+  errorMessage: string | null;
 }
 
-interface PreviewProperty {
-  property: { id: string; address: string; customer: string };
-  pickupDay: string | null;
+interface PreviewLocation {
+  location: { id: string; address: string; customer: string };
+  collectionDay: string | null;
   frequency: string;
   dates: string[];
   existing?: string[];
@@ -50,7 +50,7 @@ interface PreviewResult {
   total: number;
   wouldCreate: number;
   wouldSkip: number;
-  preview: PreviewProperty[];
+  preview: PreviewLocation[];
 }
 
 const formatDate = (dateStr: string) => {
@@ -207,7 +207,7 @@ const CustomerSyncPanel: React.FC = () => {
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase">Last Run</p>
               <p className="text-sm font-bold text-gray-900">
-                {status.lastRun ? formatDate(status.lastRun.started_at) : 'Never'}
+                {status.lastRun ? formatDate(status.lastRun.startedAt) : 'Never'}
               </p>
             </div>
             <div>
@@ -232,23 +232,23 @@ const CustomerSyncPanel: React.FC = () => {
           {status.lastRun && (
             <div className="grid grid-cols-5 gap-2 mt-3 pt-3 border-t border-gray-100">
               <div className="text-center">
-                <p className="text-lg font-black text-gray-900">{status.lastRun.properties_processed}</p>
-                <p className="text-[9px] font-bold text-gray-400 uppercase">Properties</p>
+                <p className="text-lg font-black text-gray-900">{status.lastRun.locationsProcessed}</p>
+                <p className="text-[9px] font-bold text-gray-400 uppercase">Locations</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-green-600">{status.lastRun.orders_created}</p>
+                <p className="text-lg font-black text-green-600">{status.lastRun.ordersCreated}</p>
                 <p className="text-[9px] font-bold text-gray-400 uppercase">Created</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-gray-500">{status.lastRun.orders_skipped}</p>
+                <p className="text-lg font-black text-gray-500">{status.lastRun.ordersSkipped}</p>
                 <p className="text-[9px] font-bold text-gray-400 uppercase">Skipped</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-orange-600">{status.lastRun.orders_deleted}</p>
+                <p className="text-lg font-black text-orange-600">{status.lastRun.ordersDeleted}</p>
                 <p className="text-[9px] font-bold text-gray-400 uppercase">Cleaned Up</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-red-600">{status.lastRun.orders_errored}</p>
+                <p className="text-lg font-black text-red-600">{status.lastRun.ordersErrored}</p>
                 <p className="text-[9px] font-bold text-gray-400 uppercase">Errors</p>
               </div>
             </div>
@@ -265,7 +265,7 @@ const CustomerSyncPanel: React.FC = () => {
           {syncing ? 'Syncing...' : 'Run Sync Now'}
         </Button>
         <Button onClick={detectDays} disabled={detecting} variant="secondary">
-          {detecting ? 'Detecting...' : 'Detect Pickup Days'}
+          {detecting ? 'Detecting...' : 'Detect Collection Days'}
         </Button>
         <Button onClick={toggleHistory} variant="ghost" size="sm">
           {showHistory ? 'Hide History' : 'View History'}
@@ -342,7 +342,7 @@ const CustomerSyncPanel: React.FC = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs font-bold text-gray-400 uppercase">Total Properties</p>
+              <p className="text-xs font-bold text-gray-400 uppercase">Total Locations</p>
               <p className="text-xl font-black text-gray-900 mt-1">{preview.total}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -360,7 +360,7 @@ const CustomerSyncPanel: React.FC = () => {
           {/* Per-property breakdown */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase text-gray-400">Property Breakdown</h3>
+              <h3 className="text-xs font-black uppercase text-gray-400">Location Breakdown</h3>
               {preview.wouldCreate > 0 && (
                 <Button size="sm" onClick={executeSync} disabled={syncing}>
                   {syncing ? 'Creating...' : `Create ${preview.wouldCreate} Order(s)`}
@@ -380,10 +380,10 @@ const CustomerSyncPanel: React.FC = () => {
               </thead>
               <tbody>
                 {preview.preview.map((item, i) => (
-                  <tr key={item.property.id || i} className="border-t border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2 font-bold text-gray-900">{item.property.customer}</td>
-                    <td className="px-4 py-2 text-gray-700 max-w-[200px] truncate">{item.property.address}</td>
-                    <td className="px-4 py-2 text-gray-700 capitalize">{item.pickupDay || '-'}</td>
+                  <tr key={item.location.id || i} className="border-t border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2 font-bold text-gray-900">{item.location.customer}</td>
+                    <td className="px-4 py-2 text-gray-700 max-w-[200px] truncate">{item.location.address}</td>
+                    <td className="px-4 py-2 text-gray-700 capitalize">{item.collectionDay || '-'}</td>
                     <td className="px-4 py-2 text-gray-700 capitalize">{item.frequency || '-'}</td>
                     <td className="px-4 py-2">
                       {item.dates.length > 0 ? (
@@ -405,12 +405,12 @@ const CustomerSyncPanel: React.FC = () => {
                       <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                         item.status === 'will_create' ? 'bg-green-100 text-green-700' :
                         item.status === 'up_to_date' ? 'bg-gray-100 text-gray-500' :
-                        item.status === 'no_pickup_day' ? 'bg-yellow-100 text-yellow-700' :
+                        item.status === 'no_collection_day' ? 'bg-yellow-100 text-yellow-700' :
                         'bg-gray-100 text-gray-500'
                       }`}>
                         {item.status === 'will_create' ? 'Will Create' :
                          item.status === 'up_to_date' ? 'Up to Date' :
-                         item.status === 'no_pickup_day' ? 'No Day Set' :
+                         item.status === 'no_collection_day' ? 'No Day Set' :
                          item.status}
                       </span>
                     </td>

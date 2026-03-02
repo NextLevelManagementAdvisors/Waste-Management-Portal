@@ -4,19 +4,19 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import session from 'express-session';
-import { storage, type DbUser, type DbProperty } from './storage';
+import { storage, type DbUser, type DbLocation } from './storage';
 import { pool } from './db';
 import { requireAuth } from './middleware';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
-import { sendMissedPickupConfirmation, sendServiceUpdate } from './notificationService';
-import { findOptimalPickupDay } from './pickupDayOptimizer';
+import { sendMissedCollectionConfirmation, sendServiceUpdate } from './notificationService';
+import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { runFeasibilityAndApprove } from './feasibilityCheck';
 import { geocodeAddress, findNearestZone } from './routeSuggestionService';
 import { notifyNewAddressReview } from './slackNotifier';
-import { specialPickupUpload } from './uploadMiddleware';
+import { onDemandUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 
@@ -36,11 +36,11 @@ declare module 'express-session' {
     googleOAuthPopup?: boolean;
     impersonatingUserId?: string;
     originalAdminUserId?: string;
-    cachedOrphanedSubscriptions?: Array<{ subscriptionId: string; propertyId: string }>;
+    cachedOrphanedSubscriptions?: Array<{ subscriptionId: string; locationId: string }>;
   }
 }
 
-function formatUserForClient(user: DbUser, properties: DbProperty[]) {
+function formatUserForClient(user: DbUser, locations: DbLocation[]) {
   return {
     id: user.id,
     firstName: user.first_name,
@@ -52,24 +52,24 @@ function formatUserForClient(user: DbUser, properties: DbProperty[]) {
     stripeCustomerId: user.stripe_customer_id,
     isAdmin: false, // Derived from roles in auth/me response
     authProvider: user.auth_provider || 'local',
-    properties: properties.map(formatPropertyForClient),
+    locations: locations.map(formatLocationForClient),
   };
 }
 
-function formatPropertyForClient(p: DbProperty) {
+function formatLocationForClient(loc: DbLocation) {
   return {
-    id: p.id,
-    address: p.address,
-    serviceType: p.service_type,
-    serviceStatus: p.service_status || 'approved',
-    inHOA: p.in_hoa,
-    communityName: p.community_name || undefined,
-    hasGateCode: p.has_gate_code,
-    gateCode: p.gate_code || undefined,
-    notes: p.notes || undefined,
-    notificationPreferences: p.notification_preferences,
-    transferStatus: p.transfer_status || undefined,
-    pendingOwner: p.pending_owner || undefined,
+    id: loc.id,
+    address: loc.address,
+    serviceType: loc.service_type,
+    serviceStatus: loc.service_status || 'approved',
+    inHOA: loc.in_hoa,
+    communityName: loc.community_name || undefined,
+    hasGateCode: loc.has_gate_code,
+    gateCode: loc.gate_code || undefined,
+    notes: loc.notes || undefined,
+    notificationPreferences: loc.notification_preferences,
+    transferStatus: loc.transfer_status || undefined,
+    pendingOwner: loc.pending_owner || undefined,
   };
 }
 
@@ -78,8 +78,8 @@ export { requireAuth };
 
 async function checkOrphanedSubscriptions(
   stripeCustomerId: string,
-  propertyIds: Set<string>
-): Promise<Array<{ subscriptionId: string; propertyId: string }>> {
+  locationIds: Set<string>
+): Promise<Array<{ subscriptionId: string; locationId: string }>> {
   try {
     const stripe = await getUncachableStripeClient();
     const subs = await stripe.subscriptions.list({
@@ -89,13 +89,13 @@ async function checkOrphanedSubscriptions(
     });
     return subs.data
       .filter((sub: any) => {
-        const propId = sub.metadata?.propertyId;
-        return propId && !propertyIds.has(propId) &&
+        const locId = sub.metadata?.locationId || sub.metadata?.propertyId;
+        return locId && !locationIds.has(locId) &&
           sub.status !== 'canceled' && sub.status !== 'incomplete_expired' && sub.status !== 'incomplete';
       })
       .map((sub: any) => ({
         subscriptionId: sub.id,
-        propertyId: sub.metadata.propertyId,
+        locationId: sub.metadata.locationId || sub.metadata.propertyId,
       }));
   } catch (err) {
     console.error('Orphaned subscription check failed (non-blocking):', err);
@@ -268,7 +268,7 @@ export function registerAuthRoutes(app: Express) {
 
       user = await ensureStripeCustomer(user);
 
-      const properties = await storage.getPropertiesForUser(user.id);
+      const locations = await storage.getLocationsForUser(user.id);
 
       req.session.userId = user.id;
 
@@ -277,7 +277,7 @@ export function registerAuthRoutes(app: Express) {
           console.error('Session save error during login:', err);
           return res.status(500).json({ error: 'Login failed' });
         }
-        const clientData: any = formatUserForClient(user, properties);
+        const clientData: any = formatUserForClient(user, locations);
         const rolesResult = await pool.query(
           'SELECT role FROM user_roles WHERE user_id = $1',
           [user.id]
@@ -285,10 +285,10 @@ export function registerAuthRoutes(app: Express) {
         clientData.roles = rolesResult.rows.map((r: any) => r.role);
         clientData.isAdmin = clientData.roles.includes('admin');
 
-        // Reconciliation: check for Stripe subscriptions referencing missing properties
+        // Reconciliation: check for Stripe subscriptions referencing missing locations
         if (user.stripe_customer_id) {
-          const propertyIds = new Set(properties.map((p: DbProperty) => p.id));
-          const orphaned = await checkOrphanedSubscriptions(user.stripe_customer_id, propertyIds);
+          const locationIds = new Set(locations.map((loc: DbLocation) => loc.id));
+          const orphaned = await checkOrphanedSubscriptions(user.stripe_customer_id, locationIds);
           req.session.cachedOrphanedSubscriptions = orphaned;
           if (orphaned.length > 0) {
             clientData.orphanedSubscriptions = orphaned;
@@ -328,9 +328,9 @@ export function registerAuthRoutes(app: Express) {
 
       user = await ensureStripeCustomer(user);
 
-      const properties = await storage.getPropertiesForUser(user.id);
+      const locations = await storage.getLocationsForUser(user.id);
 
-      const clientData: any = formatUserForClient(user, properties);
+      const clientData: any = formatUserForClient(user, locations);
 
       // Include roles
       const rolesResult = await pool.query(
@@ -361,7 +361,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post('/api/properties', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/locations', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
       const { address, serviceType, inHOA, communityName, hasGateCode, gateCode, notes, notificationPreferences } = req.body;
@@ -370,25 +370,25 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ error: 'Address is required' });
       }
 
-      // Prevent duplicate properties at the same address (same user)
-      const existingProperties = await storage.getPropertiesForUser(userId);
+      // Prevent duplicate locations at the same address (same user)
+      const existingLocations = await storage.getLocationsForUser(userId);
       const normalizedAddress = address.trim().toLowerCase();
-      const duplicate = existingProperties.find(
-        (p: any) => p.address.trim().toLowerCase() === normalizedAddress
+      const duplicate = existingLocations.find(
+        (loc: any) => loc.address.trim().toLowerCase() === normalizedAddress
       );
       if (duplicate) {
-        return res.status(200).json({ data: formatPropertyForClient(duplicate) });
+        return res.status(200).json({ data: formatLocationForClient(duplicate) });
       }
 
       // Check for cross-user duplicate (another user already has active service at this address)
-      const crossUserDuplicate = await storage.findPropertyByAddress(address, userId);
+      const crossUserDuplicate = await storage.findLocationByAddress(address, userId);
       if (crossUserDuplicate && crossUserDuplicate.service_status === 'approved') {
         return res.status(409).json({
           error: 'This address already has active service. If you recently moved here, please contact support to transfer the account.',
         });
       }
 
-      const property = await storage.createProperty({
+      const location = await storage.createLocation({
         userId,
         address,
         serviceType: serviceType || 'personal',
@@ -400,18 +400,18 @@ export function registerAuthRoutes(app: Express) {
         notificationPreferences,
       });
 
-      // Auto-assign pickup day if enabled
+      // Auto-assign collection day if enabled
       if (process.env.PICKUP_AUTO_ASSIGN === 'true') {
         try {
-          const result = await findOptimalPickupDay(property.id);
+          const result = await findOptimalCollectionDay(location.id);
           if (result) {
             const updates: Record<string, any> = {
-              pickup_day: result.pickup_day,
-              pickup_day_source: 'route_optimized',
-              pickup_day_detected_at: new Date().toISOString(),
+              collection_day: result.collection_day,
+              collection_day_source: 'route_optimized',
+              collection_day_detected_at: new Date().toISOString(),
             };
-            await storage.updateProperty(property.id, updates);
-            Object.assign(property, updates);
+            await storage.updateLocation(location.id, updates);
+            Object.assign(location, updates);
 
             // Auto-approve if address is in a service zone, setting is on, and within thresholds
             if (process.env.PICKUP_AUTO_APPROVE === 'true') {
@@ -428,32 +428,32 @@ export function registerAuthRoutes(app: Express) {
 
                 if (useFeasibility) {
                   // Run full OptimoRoute feasibility check in background, targeting the optimal day
-                  runFeasibilityAndApprove(property.id, userId, property.address, result.pickup_day).catch(err => {
+                  runFeasibilityAndApprove(location.id, userId, location.address, result.collection_day).catch(err => {
                     console.error('Background feasibility check failed (non-blocking):', err);
                   });
                 } else {
                   // Immediate zone-based approval (no feasibility check)
-                  await storage.updateServiceStatus(property.id, 'approved');
-                  Object.assign(property, { service_status: 'approved' });
+                  await storage.updateServiceStatus(location.id, 'approved');
+                  Object.assign(location, { service_status: 'approved' });
                 }
               }
             }
           }
         } catch (e) {
-          console.error('Auto pickup day assignment failed (non-blocking):', e);
+          console.error('Auto collection day assignment failed (non-blocking):', e);
         }
       }
 
-      // Notify admins via Slack if property is still pending review
-      if (property.service_status === 'pending_review') {
+      // Notify admins via Slack if location is still pending review
+      if (location.service_status === 'pending_review') {
         const user = await storage.getUserById(userId);
-        notifyNewAddressReview(property.address, `${user?.first_name} ${user?.last_name}`).catch(() => {});
+        notifyNewAddressReview(location.address, `${user?.first_name} ${user?.last_name}`).catch(() => {});
       }
 
-      res.status(201).json({ data: formatPropertyForClient(property) });
+      res.status(201).json({ data: formatLocationForClient(location) });
     } catch (error: any) {
-      console.error('Create property error:', error);
-      res.status(500).json({ error: 'Failed to create property' });
+      console.error('Create location error:', error);
+      res.status(500).json({ error: 'Failed to create location' });
     }
   });
 
@@ -486,14 +486,14 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.put('/api/properties/:propertyId', requireAuth, async (req: Request, res: Response) => {
+  app.put('/api/locations/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
-      const existing = await storage.getPropertyById(propertyId);
+      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const existing = await storage.getLocationById(locationId);
 
       if (!existing || existing.user_id !== userId) {
-        return res.status(404).json({ error: 'Property not found' });
+        return res.status(404).json({ error: 'Location not found' });
       }
 
       const updateData: any = {};
@@ -510,61 +510,61 @@ export function registerAuthRoutes(app: Express) {
       if (transferStatus !== undefined) updateData.transfer_status = transferStatus;
       if (pendingOwner !== undefined) updateData.pending_owner = pendingOwner;
 
-      const updated = await storage.updateProperty(propertyId, updateData);
-      res.json({ data: formatPropertyForClient(updated) });
+      const updated = await storage.updateLocation(locationId, updateData);
+      res.json({ data: formatLocationForClient(updated) });
     } catch (error: any) {
-      console.error('Update property error:', error);
-      res.status(500).json({ error: 'Failed to update property' });
+      console.error('Update location error:', error);
+      res.status(500).json({ error: 'Failed to update location' });
     }
   });
 
-  // Delete orphaned property (pending_review with no selections only)
-  app.delete('/api/properties/:propertyId', requireAuth, async (req: Request, res: Response) => {
+  // Delete orphaned location (pending_review with no selections only)
+  app.delete('/api/locations/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(404).json({ error: 'Property not found' });
+      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(404).json({ error: 'Location not found' });
       }
-      if (property.service_status !== 'pending_review') {
-        return res.status(400).json({ error: 'Only pending properties can be removed' });
+      if (location.service_status !== 'pending_review') {
+        return res.status(400).json({ error: 'Only pending locations can be removed' });
       }
-      const selections = await storage.getPendingSelections(propertyId);
+      const selections = await storage.getPendingSelections(locationId);
       if (selections.length > 0) {
-        return res.status(400).json({ error: 'Property has pending service selections. Complete setup or contact support.' });
+        return res.status(400).json({ error: 'Location has pending service selections. Complete setup or contact support.' });
       }
-      await storage.deleteProperty(propertyId);
+      await storage.deleteLocation(locationId);
       res.json({ success: true });
     } catch (error: any) {
-      console.error('Delete property error:', error);
-      res.status(500).json({ error: 'Failed to delete property' });
+      console.error('Delete location error:', error);
+      res.status(500).json({ error: 'Failed to delete location' });
     }
   });
 
   // ── Pending Service Selections (deferred billing) ─────────────────
 
-  app.post('/api/properties/:propertyId/pending-selections', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/locations/:locationId/pending-selections', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(404).json({ error: 'Property not found' });
+      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(404).json({ error: 'Location not found' });
       }
       const { selections } = req.body;
       if (!Array.isArray(selections)) {
         return res.status(400).json({ error: 'selections must be an array' });
       }
-      await storage.savePendingSelections(propertyId, userId, selections.map((s: any) => ({
+      await storage.savePendingSelections(locationId, userId, selections.map((s: any) => ({
         serviceId: s.serviceId,
         quantity: s.quantity || 1,
         useSticker: !!s.useSticker,
       })));
 
-      // If the property was already auto-approved, activate selections into Stripe subscriptions now
-      if (property.service_status === 'approved') {
-        activatePendingSelections(propertyId, userId, {
+      // If the location was already auto-approved, activate selections into Stripe subscriptions now
+      if (location.service_status === 'approved') {
+        activatePendingSelections(locationId, userId, {
           source: 'deferred_activation',
         }).catch(err => {
           console.error('Deferred activation of pending selections failed (non-blocking):', err);
@@ -578,15 +578,15 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.get('/api/properties/:propertyId/pending-selections', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/locations/:locationId/pending-selections', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = Array.isArray(req.params.propertyId) ? req.params.propertyId[0] : req.params.propertyId;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(404).json({ error: 'Property not found' });
+      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(404).json({ error: 'Location not found' });
       }
-      const selections = await storage.getPendingSelections(propertyId);
+      const selections = await storage.getPendingSelections(locationId);
       res.json({ data: selections });
     } catch (error: any) {
       console.error('Get pending selections error:', error);
@@ -613,9 +613,9 @@ export function registerAuthRoutes(app: Express) {
       }
 
       const updatedUser = await storage.updateUser(userId, updateData);
-      const properties = await storage.getPropertiesForUser(userId);
+      const locations = await storage.getLocationsForUser(userId);
 
-      res.json({ data: formatUserForClient(updatedUser, properties) });
+      res.json({ data: formatUserForClient(updatedUser, locations) });
     } catch (error: any) {
       console.error('Update profile error:', error);
       res.status(500).json({ error: 'Failed to update profile' });
@@ -1095,9 +1095,9 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Photo upload for special pickups
-  app.post('/api/upload/special-pickup', requireAuth, (req: Request, res: Response, next: NextFunction) => {
-    specialPickupUpload.array('photos', 5)(req, res, (err: any) => {
+  // Photo upload for on-demand pickups
+  app.post('/api/upload/on-demand', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    onDemandUpload.array('photos', 5)(req, res, (err: any) => {
       if (err) {
         const message = err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' :
           err.code === 'LIMIT_FILE_COUNT' ? 'Too many files (max 5)' : err.message;
@@ -1107,13 +1107,13 @@ export function registerAuthRoutes(app: Express) {
       if (!files || files.length === 0) {
         return res.status(400).json({ error: 'No files uploaded' });
       }
-      const urls = files.map(f => `/uploads/special-pickups/${f.filename}`);
+      const urls = files.map(f => `/uploads/on-demand/${f.filename}`);
       res.json({ urls });
     });
   });
 
-  // AI cost estimation for special pickups
-  app.post('/api/special-pickup/estimate', requireAuth, async (req: Request, res: Response) => {
+  // AI cost estimation for on-demand pickups
+  app.post('/api/on-demand/estimate', requireAuth, async (req: Request, res: Response) => {
     try {
       const { description, photoUrls } = req.body;
       if (!description && (!photoUrls || photoUrls.length === 0)) {
@@ -1129,7 +1129,7 @@ export function registerAuthRoutes(app: Express) {
       const ai = new GoogleGenAI({ apiKey });
 
       // Load service catalog for pricing context
-      const services = await storage.getSpecialPickupServices();
+      const services = await storage.getOnDemandServices();
       const catalogContext = services.map(s => `${s.name}: $${parseFloat(s.price).toFixed(2)} - ${s.description || ''}`).join('\n');
 
       // Build content parts: text + optional images
@@ -1247,94 +1247,94 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
     }
   });
 
-  app.get('/api/special-pickup-services', async (_req: Request, res: Response) => {
+  app.get('/api/on-demand-services', async (_req: Request, res: Response) => {
     try {
-      const services = await storage.getSpecialPickupServices();
+      const services = await storage.getOnDemandServices();
       res.json({ data: services.map(s => ({ id: s.id, name: s.name, description: s.description, price: parseFloat(s.price), iconName: s.icon_name })) });
     } catch (error: any) {
-      res.status(500).json({ error: 'Failed to fetch special pickup services' });
+      res.status(500).json({ error: 'Failed to fetch on-demand services' });
     }
   });
 
   app.post('/api/tip-dismissal', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, pickupDate } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, collectionDate } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      await storage.createTipDismissal(userId, propertyId, pickupDate);
+      await storage.createTipDismissal(userId, locationId, collectionDate);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to dismiss tip prompt' });
     }
   });
 
-  app.get('/api/tip-dismissals/:propertyId', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/tip-dismissals/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.propertyId as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const locationId = req.params.locationId as string;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const dates = await storage.getTipDismissalsForProperty(propertyId);
+      const dates = await storage.getTipDismissalsForLocation(locationId);
       res.json({ data: dates });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch tip dismissals' });
     }
   });
 
-  app.post('/api/missed-pickup', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/missed-collection', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, date, notes } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, date, notes } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const report = await storage.createMissedPickupReport({ userId, propertyId, pickupDate: date, notes: notes || '' });
-      sendMissedPickupConfirmation(userId, property.address, date).catch(e => console.error('Missed pickup confirmation email failed:', e));
+      const report = await storage.createMissedCollectionReport({ userId, locationId, collectionDate: date, notes: notes || '' });
+      sendMissedCollectionConfirmation(userId, location.address, date).catch(e => console.error('Missed collection confirmation email failed:', e));
       res.json({ data: report, success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to submit report' });
     }
   });
 
-  app.get('/api/missed-pickups', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/missed-collections', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const reports = await storage.getMissedPickupReports(userId);
+      const reports = await storage.getMissedCollectionReports(userId);
       res.json({ data: reports });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch reports' });
     }
   });
 
-  app.post('/api/special-pickup', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/on-demand-request', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, serviceName, servicePrice, date, notes, photos, aiEstimate, aiReasoning } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, serviceName, servicePrice, date, notes, photos, aiEstimate, aiReasoning } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const request = await storage.createSpecialPickupRequest({
-        userId, propertyId, serviceName, servicePrice: aiEstimate || servicePrice, pickupDate: date,
+      const request = await storage.createOnDemandRequest({
+        userId, locationId, serviceName, servicePrice: aiEstimate || servicePrice, requestedDate: date,
         notes, photos, aiEstimate, aiReasoning,
       });
 
       try {
-        const orderNo = `SP-${request.id.substring(0, 8).toUpperCase()}`;
+        const orderNo = `OD-${request.id.substring(0, 8).toUpperCase()}`;
         await optimoRoute.createOrder({
           orderNo,
           type: 'D',
           date,
-          address: property.address,
-          locationName: `Special Pickup - ${serviceName}`,
+          address: location.address,
+          locationName: `On-Demand Pickup - ${serviceName}`,
           duration: 20,
-          notes: `Special pickup: ${serviceName}${notes ? ` | Customer notes: ${notes}` : ''}`,
+          notes: `On-demand pickup: ${serviceName}${notes ? ` | Customer notes: ${notes}` : ''}`,
         });
       } catch (optimoErr: any) {
         console.error('OptimoRoute order creation failed (non-blocking):', optimoErr.message);
@@ -1348,14 +1348,14 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
           const invoice = await stripe.invoices.create({
             customer: user.stripe_customer_id,
             auto_advance: true,
-            metadata: { propertyId, specialPickupId: request.id },
+            metadata: { locationId, onDemandRequestId: request.id },
           });
           await stripe.invoiceItems.create({
             customer: user.stripe_customer_id,
             invoice: invoice.id,
             amount: Math.round(finalPrice * 100),
             currency: 'usd',
-            description: `Special Pickup: ${serviceName}`,
+            description: `On-Demand Pickup: ${serviceName}`,
           });
           await stripe.invoices.finalizeInvoice(invoice.id);
         }
@@ -1363,32 +1363,32 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
         console.error('Stripe invoice creation failed (non-blocking):', stripeErr.message);
       }
 
-      sendServiceUpdate(userId, 'Special Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${property.address}.`).catch(e => console.error('Service update email failed:', e));
+      sendServiceUpdate(userId, 'On-Demand Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${location.address}.`).catch(e => console.error('Service update email failed:', e));
 
       res.json({ data: request });
     } catch (error: any) {
-      res.status(500).json({ error: 'Failed to create special pickup request' });
+      res.status(500).json({ error: 'Failed to create on-demand pickup request' });
     }
   });
 
-  app.get('/api/special-pickups', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/on-demand-requests', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const requests = await storage.getSpecialPickupRequests(userId);
+      const requests = await storage.getOnDemandRequests(userId);
       res.json({ data: requests });
     } catch (error: any) {
-      res.status(500).json({ error: 'Failed to fetch special pickup requests' });
+      res.status(500).json({ error: 'Failed to fetch on-demand pickup requests' });
     }
   });
 
-  // Customer cancel or reschedule a special pickup
-  app.put('/api/special-pickup/:id', requireAuth, async (req: Request, res: Response) => {
+  // Customer cancel or reschedule an on-demand pickup
+  app.put('/api/on-demand-request/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
       const { id } = req.params;
       const { status, cancellationReason, date } = req.body;
 
-      const existing = await storage.getSpecialPickupById(id);
+      const existing = await storage.getOnDemandRequestById(id);
       if (!existing || existing.user_id !== userId) {
         return res.status(403).json({ error: 'Request not found or access denied' });
       }
@@ -1404,51 +1404,51 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
 
         // Cancel OptimoRoute order (non-blocking)
         try {
-          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          const orderNo = `OD-${id.substring(0, 8).toUpperCase()}`;
           await optimoRoute.deleteOrder(orderNo);
         } catch (e: any) {
           console.error('OptimoRoute cancel failed (non-blocking):', e.message);
         }
 
-        sendServiceUpdate(userId, 'Pickup Cancelled', `Your ${existing.service_name} pickup at ${existing.address} has been cancelled.`).catch(e => console.error('Cancel notification failed:', e));
+        sendServiceUpdate(userId, 'On-Demand Pickup Cancelled', `Your ${existing.service_name} pickup at ${existing.address} has been cancelled.`).catch(e => console.error('Cancel notification failed:', e));
       } else if (date) {
-        updates.pickupDate = date;
+        updates.requestedDate = date;
 
         // Update OptimoRoute order date (non-blocking)
         try {
-          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          const orderNo = `OD-${id.substring(0, 8).toUpperCase()}`;
           await optimoRoute.updateOrder(orderNo, { date });
         } catch (e: any) {
           console.error('OptimoRoute reschedule failed (non-blocking):', e.message);
         }
 
-        sendServiceUpdate(userId, 'Pickup Rescheduled', `Your ${existing.service_name} pickup at ${existing.address} has been rescheduled to ${date}.`).catch(e => console.error('Reschedule notification failed:', e));
+        sendServiceUpdate(userId, 'On-Demand Pickup Rescheduled', `Your ${existing.service_name} pickup at ${existing.address} has been rescheduled to ${date}.`).catch(e => console.error('Reschedule notification failed:', e));
       } else {
         return res.status(400).json({ error: 'Provide status=cancelled or a new date' });
       }
 
-      const updated = await storage.updateSpecialPickupRequest(id, updates);
+      const updated = await storage.updateOnDemandRequest(id, updates);
       res.json({ data: updated });
     } catch (error: any) {
-      console.error('Special pickup update failed:', error.message);
-      res.status(500).json({ error: 'Failed to update pickup request' });
+      console.error('On-demand pickup update failed:', error.message);
+      res.status(500).json({ error: 'Failed to update on-demand pickup request' });
     }
   });
 
   app.post('/api/collection-intent', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, intent, date } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, intent, date } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
 
       // If skipping, remove the OptimoRoute order for this date
       let deletedOrderNo: string | undefined;
-      if (intent === 'skip' && property.address) {
+      if (intent === 'skip' && location.address) {
         try {
-          const orders = await optimoRoute.findOrdersForAddress(property.address, date, date);
+          const orders = await optimoRoute.findOrdersForAddress(location.address, date, date);
           for (const order of orders) {
             await optimoRoute.deleteOrder(order.orderNo, true);
             deletedOrderNo = deletedOrderNo || order.orderNo;
@@ -1459,7 +1459,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
         }
       }
 
-      const result = await storage.upsertCollectionIntent({ userId, propertyId, intent, pickupDate: date, optimoOrderNo: deletedOrderNo });
+      const result = await storage.upsertCollectionIntent({ userId, locationId, intent, collectionDate: date, optimoOrderNo: deletedOrderNo });
       res.json({ data: result });
     } catch (error: any) {
       console.error('[CollectionIntent] Failed to save:', error.message || error);
@@ -1470,50 +1470,50 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.delete('/api/collection-intent', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, date } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, date } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
 
       // Check if the intent was a skip — if so, re-create the OptimoRoute order
-      const existing = await storage.getCollectionIntent(propertyId, date);
-      if (existing?.intent === 'skip' && property.address) {
+      const existing = await storage.getCollectionIntent(locationId, date);
+      if (existing?.intent === 'skip' && location.address) {
         try {
           const user = await storage.getUserById(userId);
           const customerName = user ? `${user.first_name} ${user.last_name}` : '';
           await optimoRoute.createOrder({
-            orderNo: `SKIP-UNDO-${propertyId.substring(0, 8).toUpperCase()}-${Date.now()}`,
+            orderNo: `SKIP-UNDO-${locationId.substring(0, 8).toUpperCase()}-${Date.now()}`,
             type: 'P',
             date,
-            address: property.address,
+            address: location.address,
             locationName: customerName,
             duration: 10,
             notes: 'Re-created after customer cancelled skip',
           });
-          console.log(`[CollectionIntent] Re-created OptimoRoute order for ${property.address} on ${date}`);
+          console.log(`[CollectionIntent] Re-created OptimoRoute order for ${location.address} on ${date}`);
         } catch (err) {
           console.error('[CollectionIntent] Failed to re-create OptimoRoute order:', err);
         }
       }
 
-      await storage.deleteCollectionIntent(propertyId, date);
+      await storage.deleteCollectionIntent(locationId, date);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to remove collection intent' });
     }
   });
 
-  app.get('/api/collection-intent/:propertyId/:date', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/collection-intent/:locationId/:date', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.propertyId as string;
+      const locationId = req.params.locationId as string;
       const date = req.params.date as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const intent = await storage.getCollectionIntent(propertyId, date);
+      const intent = await storage.getCollectionIntent(locationId, date);
       res.json({ data: intent });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch collection intent' });
@@ -1523,43 +1523,43 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.post('/api/driver-feedback', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, pickupDate, rating, tipAmount, note } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, collectionDate, rating, tipAmount, note } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const feedback = await storage.upsertDriverFeedback({ userId, propertyId, pickupDate, rating, tipAmount, note });
+      const feedback = await storage.upsertDriverFeedback({ userId, locationId, collectionDate, rating, tipAmount, note });
       res.json({ data: feedback });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to save feedback' });
     }
   });
 
-  app.get('/api/driver-feedback/:propertyId/list', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/driver-feedback/:locationId/list', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.propertyId as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const locationId = req.params.locationId as string;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const feedbackList = await storage.getDriverFeedbackForProperty(propertyId);
+      const feedbackList = await storage.getDriverFeedbackForLocation(locationId);
       res.json({ data: feedbackList });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch feedback list' });
     }
   });
 
-  app.get('/api/driver-feedback/:propertyId/:pickupDate', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/driver-feedback/:locationId/:collectionDate', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.propertyId as string;
-      const pickupDate = req.params.pickupDate as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const locationId = req.params.locationId as string;
+      const collectionDate = req.params.collectionDate as string;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const feedback = await storage.getDriverFeedback(propertyId, pickupDate);
+      const feedback = await storage.getDriverFeedback(locationId, collectionDate);
       res.json({ data: feedback });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to fetch feedback' });
@@ -1600,14 +1600,14 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.post('/api/account-transfer', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId, firstName, lastName, email } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const { locationId, firstName, lastName, email } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await storage.initiateTransfer(propertyId, { firstName, lastName, email }, token, expiresAt);
+      await storage.initiateTransfer(locationId, { firstName, lastName, email }, token, expiresAt);
 
       const user = await storage.getUserById(userId);
       const senderName = user ? `${user.first_name} ${user.last_name}` : 'A customer';
@@ -1619,7 +1619,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
         await sendEmail(email, `${senderName} wants to transfer waste service to you`, `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Service Transfer Invitation</h2>
-            <p><strong>${senderName}</strong> is transferring their waste management service at <strong>${property.address}</strong> to you.</p>
+            <p><strong>${senderName}</strong> is transferring their waste management service at <strong>${location.address}</strong> to you.</p>
             <p>Click the link below to accept the transfer and set up your account:</p>
             <a href="${acceptUrl}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">Accept Transfer</a>
             <p style="margin-top: 20px; color: #666;">This invitation expires in 7 days.</p>
@@ -1639,12 +1639,12 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.post('/api/account-transfer/remind', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId || property.transfer_status !== 'pending') {
+      const { locationId } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId || location.transfer_status !== 'pending') {
         return res.status(400).json({ error: 'No pending transfer found' });
       }
-      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      const pendingOwner = typeof location.pending_owner === 'string' ? JSON.parse(location.pending_owner) : location.pending_owner;
       if (!pendingOwner?.email) return res.status(400).json({ error: 'No pending owner email' });
 
       const user = await storage.getUserById(userId);
@@ -1654,7 +1654,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
         await sendEmail(pendingOwner.email, `Reminder: ${senderName} wants to transfer waste service to you`, `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Friendly Reminder</h2>
-            <p><strong>${senderName}</strong> has invited you to take over the waste management service at <strong>${property.address}</strong>.</p>
+            <p><strong>${senderName}</strong> has invited you to take over the waste management service at <strong>${location.address}</strong>.</p>
             <p>Please log in or register to accept the transfer.</p>
           </div>
         `);
@@ -1671,12 +1671,12 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.post('/api/account-transfer/cancel', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { propertyId } = req.body;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId || property.transfer_status !== 'pending') {
-        return res.status(400).json({ error: 'No pending transfer found for this property' });
+      const { locationId } = req.body;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId || location.transfer_status !== 'pending') {
+        return res.status(400).json({ error: 'No pending transfer found for this location' });
       }
-      await storage.cancelTransfer(propertyId);
+      await storage.cancelTransfer(locationId);
       res.json({ data: { success: true, message: 'Transfer cancelled successfully' } });
     } catch (error: any) {
       console.error('Error cancelling transfer:', error);
@@ -1686,14 +1686,14 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
 
   app.get('/api/account-transfer/:token', async (req: Request, res: Response) => {
     try {
-      const property = await storage.getPropertyByTransferToken(req.params.token as string);
-      if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
-      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      const location = await storage.getLocationByTransferToken(req.params.token as string);
+      if (!location) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
+      const pendingOwner = typeof location.pending_owner === 'string' ? JSON.parse(location.pending_owner) : location.pending_owner;
       res.json({
         data: {
-          propertyId: property.id,
-          address: property.address,
-          serviceType: property.service_type,
+          locationId: location.id,
+          address: location.address,
+          serviceType: location.service_type,
           newOwner: pendingOwner,
         }
       });
@@ -1704,17 +1704,17 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
 
   app.post('/api/account-transfer/:token/accept', requireAuth, async (req: Request, res: Response) => {
     try {
-      const property = await storage.getPropertyByTransferToken(req.params.token as string);
-      if (!property) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
-      
-      const pendingOwner = typeof property.pending_owner === 'string' ? JSON.parse(property.pending_owner) : property.pending_owner;
+      const location = await storage.getLocationByTransferToken(req.params.token as string);
+      if (!location) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
+
+      const pendingOwner = typeof location.pending_owner === 'string' ? JSON.parse(location.pending_owner) : location.pending_owner;
       const user = await storage.getUserById(req.session.userId!);
       if (pendingOwner?.email && user && user.email.toLowerCase() !== pendingOwner.email.toLowerCase()) {
         return res.status(403).json({ error: `This transfer was sent to ${pendingOwner.email}. Please sign in with that email address to accept it.` });
       }
 
       const newUserId = req.session.userId!;
-      await storage.completeTransfer(property.id, newUserId);
+      await storage.completeTransfer(location.id, newUserId);
       res.json({ data: { success: true, message: 'Transfer completed successfully' } });
     } catch (error: any) {
       console.error('Error accepting transfer:', error);
@@ -1722,15 +1722,15 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
     }
   });
 
-  app.put('/api/properties/:id/notifications', requireAuth, async (req: Request, res: Response) => {
+  app.put('/api/locations/:id/notifications', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const propertyId = req.params.id as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.user_id !== userId) {
-        return res.status(403).json({ error: 'Property not found or access denied' });
+      const locationId = req.params.id as string;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const updated = await storage.updateProperty(propertyId, { notification_preferences: req.body });
+      const updated = await storage.updateLocation(locationId, { notification_preferences: req.body });
       res.json({ data: updated });
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to update notification preferences' });

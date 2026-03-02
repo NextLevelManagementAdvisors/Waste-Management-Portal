@@ -5,10 +5,10 @@ import { Button } from './Button.tsx';
 import { PaperAirplaneIcon, SparklesIcon } from './Icons.tsx';
 import { getSupportResponseStream } from '../services/geminiService.ts';
 import { getSubscriptions, getInvoices } from '../services/apiService.ts';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 
 const Support: React.FC = () => {
-    const { user, selectedProperty, properties } = useProperty();
+    const { user, selectedLocation, locations } = useLocation();
     const [messages, setMessages] = useState<SupportMessage[]>([
         { sender: 'gemini', text: "Welcome to your AI Concierge. I can help you with account billing, scheduling, or searching for holiday delays. How can I assist you?" }
     ]);
@@ -19,7 +19,7 @@ const Support: React.FC = () => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Resolve the effective property: use selected, or auto-pick the first if only one exists
-    const effectiveProperty = selectedProperty || (properties.length === 1 ? properties[0] : null);
+    const effectiveProperty = selectedLocation || (locations.length === 1 ? locations[0] : null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -44,8 +44,8 @@ const Support: React.FC = () => {
 
             const allSubs = await getSubscriptions();
             const allInvoices = await getInvoices();
-            const propertySubs = allSubs.filter(s => s.propertyId === effectiveProperty.id);
-            const propertyInvoices = allInvoices.filter(i => i.propertyId === effectiveProperty.id);
+            const propertySubs = allSubs.filter(s => s.locationId === effectiveProperty.id);
+            const propertyInvoices = allInvoices.filter(i => i.locationId === effectiveProperty.id);
 
             const stream = await getSupportResponseStream(userMsg, {
                 user: { ...user, address: effectiveProperty.address },

@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import { transferPropertyOwnership } from '../services/apiService.ts';
+import { transferLocationOwnership } from '../services/apiService.ts';
 import { ArrowPathRoundedSquareIcon, CheckCircleIcon, PaperAirplaneIcon, ClockIcon } from './Icons.tsx';
 import { ConfirmationModal } from './ConfirmationModal.tsx';
 
 export default function AccountTransfer() {
-    const { selectedProperty, refreshUser, sendTransferReminder } = useProperty();
+    const { selectedLocation, refreshUser, sendTransferReminder } = useLocation();
     
     const [transferData, setTransferData] = useState({ firstName: '', lastName: '', email: '' });
     const [transferConfirmation, setTransferConfirmation] = useState('');
@@ -30,10 +30,10 @@ export default function AccountTransfer() {
 
     const handleInitiateTransfer = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedProperty || transferConfirmation.toUpperCase() !== 'TRANSFER') return;
+        if (!selectedLocation || transferConfirmation.toUpperCase() !== 'TRANSFER') return;
         setIsTransferring(true);
         try {
-            await transferPropertyOwnership(selectedProperty.id, transferData);
+            await transferLocationOwnership(selectedLocation.id, transferData);
             await refreshUser();
             setTransferSuccess(true);
         } catch (error) {
@@ -44,13 +44,13 @@ export default function AccountTransfer() {
     };
 
     const handleCancelTransfer = async () => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         setIsCancelling(true);
         try {
             const res = await fetch('/api/account-transfer/cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ propertyId: selectedProperty.id }),
+                body: JSON.stringify({ locationId: selectedLocation.id }),
             });
             const json = await res.json();
             if (!res.ok) throw new Error(json.error);
@@ -65,9 +65,9 @@ export default function AccountTransfer() {
     };
 
     const handleSendReminder = async () => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         try {
-            await sendTransferReminder(selectedProperty.id);
+            await sendTransferReminder(selectedLocation.id);
             setReminderSent(true);
             setTimeout(() => setReminderSent(false), 3000);
         } catch(e) {
@@ -75,9 +75,9 @@ export default function AccountTransfer() {
         }
     };
 
-    if (!selectedProperty) return null;
+    if (!selectedLocation) return null;
 
-    const isTransferPending = selectedProperty.transferStatus === 'pending';
+    const isTransferPending = selectedLocation.transferStatus === 'pending';
     
     return (
         <Card className="border-none ring-1 ring-base-200 shadow-xl">
@@ -90,7 +90,7 @@ export default function AccountTransfer() {
                     <ClockIcon className="w-12 h-12 text-orange-500 mx-auto mb-4" />
                     <h3 className="text-xl font-bold text-neutral">Transfer in Progress</h3>
                     <p className="text-gray-600 mt-2">
-                        An invitation to take over the service at <span className="font-semibold">{selectedProperty.address}</span> has been sent to <span className="font-semibold">{selectedProperty.pendingOwner?.email}</span>.
+                        An invitation to take over the service at <span className="font-semibold">{selectedLocation.address}</span> has been sent to <span className="font-semibold">{selectedLocation.pendingOwner?.email}</span>.
                     </p>
                     <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
                         <Button onClick={handleSendReminder} disabled={reminderSent} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">
@@ -105,11 +105,11 @@ export default function AccountTransfer() {
                 <div className="text-center py-8">
                     <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-4" />
                     <h3 className="text-xl font-bold text-neutral">Transfer Initiated</h3>
-                    <p className="text-gray-600 mt-2">An invitation to take over the service at <span className="font-semibold">{selectedProperty.address}</span> has been sent to <span className="font-semibold">{transferData.email}</span>.</p>
+                    <p className="text-gray-600 mt-2">An invitation to take over the service at <span className="font-semibold">{selectedLocation.address}</span> has been sent to <span className="font-semibold">{transferData.email}</span>.</p>
                 </div>
             ) : (
                 <form onSubmit={handleInitiateTransfer} className="space-y-4">
-                    <p className="text-sm text-gray-600">Enter the new resident's information below to send them an invitation to take over the account for this property.</p>
+                    <p className="text-sm text-gray-600">Enter the new resident's information below to send them an invitation to take over the account for this location.</p>
                     <div className="flex gap-4">
                         <div className="flex-1">
                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">New Resident First Name</label>

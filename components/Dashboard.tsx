@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getDashboardState, PropertyState, AccountHealth, dismissTipPrompt } from '../services/apiService.ts';
+import { getDashboardState, LocationState, AccountHealth, dismissTipPrompt } from '../services/apiService.ts';
 import { View } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import PayBalanceModal from './PayBalanceModal.tsx';
 import { 
     BanknotesIcon, ArrowRightIcon, CheckCircleIcon, SparklesIcon,
@@ -26,8 +26,8 @@ const QuickActionButton: React.FC<{ label: string; icon: React.ReactNode; onClic
 );
 
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
-    const { user, selectedPropertyId, setPostNavAction } = useProperty();
-    const [data, setData] = useState<{ states: PropertyState[]; health: AccountHealth } | null>(null);
+    const { user, selectedLocationId, setPostNavAction } = useLocation();
+    const [data, setData] = useState<{ states: LocationState[]; health: AccountHealth } | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isTipPromptOpen, setIsTipPromptOpen] = useState(false);
@@ -36,11 +36,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     const refreshDashboard = useCallback(() => {
         setLoading(true);
         setError(null);
-        getDashboardState(selectedPropertyId || 'all').then(res => {
+        getDashboardState(selectedLocationId || 'all').then(res => {
             setData(res);
             setLoading(false);
-            const lastPickup = res.states[0]?.lastPickup;
-            if (lastPickup?.showTipPrompt) {
+            const lastCollection = res.states[0]?.lastCollection;
+            if (lastCollection?.showTipPrompt) {
                 setIsTipPromptOpen(true);
             }
         }).catch(err => {
@@ -48,28 +48,28 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             setError('Failed to load your dashboard. Please try again.');
             setLoading(false);
         });
-    }, [selectedPropertyId]);
+    }, [selectedLocationId]);
 
     useEffect(() => {
         refreshDashboard();
     }, [refreshDashboard]);
     
-    const lastPickupState = data?.states.find(s => s.lastPickup)?.lastPickup;
+    const lastCollectionState = data?.states.find(s => s.lastCollection)?.lastCollection;
 
     const handleLeaveTipClick = () => {
-        if (!lastPickupState) return;
+        if (!lastCollectionState) return;
         setPostNavAction({
             targetView: 'myservice',
             targetTab: 'history',
             action: 'openTipModal',
-            targetDate: lastPickupState.date
+            targetDate: lastCollectionState.date
         });
         setIsTipPromptOpen(false);
     };
 
     const handleDismissTipPrompt = () => {
-        if (!lastPickupState || !data?.states[0].property.id) return;
-        dismissTipPrompt(data.states[0].property.id, lastPickupState.date);
+        if (!lastCollectionState || !data?.states[0].location.id) return;
+        dismissTipPrompt(data.states[0].location.id, lastCollectionState.date);
         setIsTipPromptOpen(false);
     };
     
@@ -98,7 +98,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         );
     }
 
-    const upcomingPickups = data.states.filter(s => s.nextPickup);
+    const upcomingCollections = data.states.filter(s => s.nextCollection);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -132,17 +132,17 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 <div>
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 px-2">Upcoming Collections</h2>
                     <div className="space-y-4">
-                        {upcomingPickups.length > 0 ? upcomingPickups.map(state => (
-                            <Card key={state.property.id} className="p-4 !rounded-xl shadow-md border-base-200 cursor-pointer hover:shadow-lg hover:border-primary/30 transition-all" onClick={() => setCurrentView('myservice')}>
+                        {upcomingCollections.length > 0 ? upcomingCollections.map(state => (
+                            <Card key={state.location.id} className="p-4 !rounded-xl shadow-md border-base-200 cursor-pointer hover:shadow-lg hover:border-primary/30 transition-all" onClick={() => setCurrentView('myservice')}>
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <p className="font-bold text-gray-900 text-sm">{state.property.address}</p>
-                                        <p className={`text-xs font-black uppercase tracking-widest mt-1 ${state.nextPickup?.isToday ? 'text-primary' : 'text-gray-500'}`}>
-                                            {state.nextPickup?.label || 'Not Scheduled'}
+                                        <p className="font-bold text-gray-900 text-sm">{state.location.address}</p>
+                                        <p className={`text-xs font-black uppercase tracking-widest mt-1 ${state.nextCollection?.isToday ? 'text-primary' : 'text-gray-500'}`}>
+                                            {state.nextCollection?.label || 'Not Scheduled'}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        {state.nextPickup?.isToday && state.nextPickup.status === 'in-progress' && (
+                                        {state.nextCollection?.isToday && state.nextCollection.status === 'in-progress' && (
                                             <>
                                                 <div className="w-2 h-2 rounded-full bg-primary" />
                                                 <span className="text-[10px] font-black text-primary uppercase tracking-widest">In Progress</span>
@@ -154,8 +154,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                             </Card>
                         )) : (
                             <Card className="text-center py-12 !rounded-xl shadow-md border-base-200">
-                                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No scheduled pickups</p>
-                                <p className="text-xs text-gray-400 mt-1">There are no upcoming collections for the selected properties.</p>
+                                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">No scheduled collections</p>
+                                <p className="text-xs text-gray-400 mt-1">There are no upcoming collections for the selected locations.</p>
                             </Card>
                         )}
                     </div>
@@ -202,7 +202,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <CurrencyDollarIcon className="w-16 h-16 text-primary mx-auto mb-4" />
                     <h3 className="text-xl font-black text-neutral">Appreciate your driver?</h3>
                     <p className="text-gray-600 mt-2">
-                        Your collection was completed successfully. Would you like to leave a tip for your driver, <span className="font-bold">{lastPickupState?.driverName || 'the crew'}</span>?
+                        Your collection was completed successfully. Would you like to leave a tip for your driver, <span className="font-bold">{lastCollectionState?.driverName || 'the crew'}</span>?
                     </p>
                     <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
                         <Button onClick={handleDismissTipPrompt} variant="secondary" className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Not Now</Button>

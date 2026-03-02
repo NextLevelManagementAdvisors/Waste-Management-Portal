@@ -8,31 +8,31 @@ import CompletionDetailModal from './CompletionDetailModal.tsx';
 import RouteOptimizerModal from './RouteOptimizerModal.tsx';
 import BidSection from './BidSection.tsx';
 
-interface PlanningProperty {
+interface PlanningLocation {
   id: string;
   address: string;
-  service_type: string;
-  customer_name: string;
-  customer_email: string;
-  pickup_day: string;
-  pickup_frequency: string;
+  serviceType: string;
+  customerName: string;
+  customerEmail: string;
+  collectionDay: string;
+  collectionFrequency: string;
 }
 
-interface SpecialPickup {
+interface OnDemandPickup {
   id: string;
   address: string;
-  customer_name: string;
-  service_name: string;
-  service_price: number;
-  property_id: string;
+  customerName: string;
+  serviceName: string;
+  servicePrice: number;
+  locationId: string;
 }
 
 interface CalendarDay {
   date: string;
   isCurrentMonth: boolean;
   isToday: boolean;
-  pickupCount: number;
-  specialCount: number;
+  locationCount: number;
+  onDemandCount: number;
   routesByStatus: Record<string, number>;
 }
 
@@ -44,14 +44,14 @@ const DAY_NAME_MAP: Record<number, string> = {
 
 const ROUTE_TYPE_LABELS: Record<string, string> = {
   daily_route: 'Route',
-  bulk_pickup: 'Bulk',
-  special_pickup: 'Special',
+  bulk_collection: 'Bulk',
+  on_demand: 'On-Demand',
 };
 
 const ROUTE_TYPE_COLORS: Record<string, string> = {
   daily_route: 'bg-teal-100 text-teal-700',
-  bulk_pickup: 'bg-orange-100 text-orange-700',
-  special_pickup: 'bg-purple-100 text-purple-700',
+  bulk_collection: 'bg-orange-100 text-orange-700',
+  on_demand: 'bg-purple-100 text-purple-700',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -78,19 +78,19 @@ function getMonthDays(year: number, month: number): CalendarDay[] {
 
   for (let i = 0; i < firstDay.getDay(); i++) {
     const d = new Date(year, month, -firstDay.getDay() + i + 1);
-    days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
+    days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, locationCount: 0, onDemandCount: 0, routesByStatus: {} });
   }
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const dt = new Date(year, month, d);
-    days.push({ date: formatDateISO(dt), isCurrentMonth: true, isToday: formatDateISO(dt) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
+    days.push({ date: formatDateISO(dt), isCurrentMonth: true, isToday: formatDateISO(dt) === today, locationCount: 0, onDemandCount: 0, routesByStatus: {} });
   }
 
   const remaining = 7 - (days.length % 7);
   if (remaining < 7) {
     for (let i = 1; i <= remaining; i++) {
       const d = new Date(year, month + 1, i);
-      days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, pickupCount: 0, specialCount: 0, routesByStatus: {} });
+      days.push({ date: formatDateISO(d), isCurrentMonth: false, isToday: formatDateISO(d) === today, locationCount: 0, onDemandCount: 0, routesByStatus: {} });
     }
   }
 
@@ -106,8 +106,8 @@ const PlanningCalendar: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   // Day detail state
-  const [dayProperties, setDayProperties] = useState<PlanningProperty[]>([]);
-  const [daySpecials, setDaySpecials] = useState<SpecialPickup[]>([]);
+  const [dayLocations, setDayLocations] = useState<PlanningLocation[]>([]);
+  const [dayOnDemand, setDayOnDemand] = useState<OnDemandPickup[]>([]);
   const [dayRoutes, setDayRoutes] = useState<Route[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [autoPlanning, setAutoPlanning] = useState(false);
@@ -142,7 +142,7 @@ const PlanningCalendar: React.FC = () => {
       const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, { method: 'DELETE', credentials: 'include' });
       if (res.ok) {
         setRouteStops(prev => ({ ...prev, [routeId]: (prev[routeId] ?? []).filter(s => s.id !== stopId) }));
-        setDayRoutes(prev => prev.map(r => r.id === routeId ? { ...r, stop_count: Math.max(0, (r.stop_count ?? 0) - 1) } : r));
+        setDayRoutes(prev => prev.map(r => r.id === routeId ? { ...r, stopCount: Math.max(0, (r.stopCount ?? 0) - 1) } : r));
         fetchCalendarData();
       }
     } catch (e) {
@@ -176,29 +176,29 @@ const PlanningCalendar: React.FC = () => {
     if (calRes.ok) {
       const data = await calRes.json();
 
-      const specialsByDate = new Map<string, number>();
-      for (const s of data.specials ?? []) {
-        specialsByDate.set(s.pickup_date, s.special_count);
+      const onDemandByDate = new Map<string, number>();
+      for (const s of data.onDemand ?? []) {
+        onDemandByDate.set(s.collectionDate, s.onDemandCount);
       }
 
       const countsByDay = new Map<string, number>();
-      for (const pc of data.propertyCounts ?? []) {
-        countsByDay.set(pc.pickup_day, (countsByDay.get(pc.pickup_day) || 0) + Number(pc.property_count));
+      for (const pc of data.locationCounts ?? []) {
+        countsByDay.set(pc.collectionDay, (countsByDay.get(pc.collectionDay) || 0) + Number(pc.locationCount));
       }
 
       const routesByDate = new Map<string, Record<string, number>>();
       for (const j of data.routes ?? []) {
-        const key = j.scheduled_date.split('T')[0];
+        const key = j.scheduledDate.split('T')[0];
         if (!routesByDate.has(key)) routesByDate.set(key, {});
         const m = routesByDate.get(key)!;
-        m[j.status] = (m[j.status] || 0) + j.route_count;
+        m[j.status] = (m[j.status] || 0) + j.routeCount;
       }
 
       for (const day of days) {
         const dt = new Date(day.date + 'T12:00:00');
         const dayName = DAY_NAME_MAP[dt.getDay()];
-        day.pickupCount = countsByDay.get(dayName) ?? 0;
-        day.specialCount = specialsByDate.get(day.date) ?? 0;
+        day.locationCount = countsByDay.get(dayName) ?? 0;
+        day.onDemandCount = onDemandByDate.get(day.date) ?? 0;
         day.routesByStatus = routesByDate.get(day.date) ?? {};
       }
     }
@@ -246,8 +246,8 @@ const PlanningCalendar: React.FC = () => {
       const res = await fetch(`/api/admin/planning/date/${date}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setDayProperties(data.properties ?? []);
-        setDaySpecials(data.specials ?? []);
+        setDayLocations(data.properties ?? []);
+        setDayOnDemand(data.specials ?? []);
         setDayRoutes(data.existingRoutes ?? []);
       }
     } catch (e) {
@@ -425,7 +425,7 @@ const PlanningCalendar: React.FC = () => {
   const monthLabel = new Date(currentYear, currentMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const draftCount = dayRoutes.filter(r => r.status === 'draft').length;
-  const publishedUnsyncedCount = dayRoutes.filter(r => r.status !== 'draft' && r.status !== 'cancelled' && !r.optimo_synced).length;
+  const publishedUnsyncedCount = dayRoutes.filter(r => r.status !== 'draft' && r.status !== 'cancelled' && !r.optimoSynced).length;
 
   if (loading) return <LoadingSpinner />;
 
@@ -478,12 +478,12 @@ const PlanningCalendar: React.FC = () => {
 
                     {day.isCurrentMonth && (
                       <div className="space-y-0.5">
-                        {day.pickupCount > 0 && (
-                          <div className="text-[10px] text-gray-500 font-medium">{day.pickupCount} pickups</div>
+                        {day.locationCount > 0 && (
+                          <div className="text-[10px] text-gray-500 font-medium">{day.locationCount} collections</div>
                         )}
 
-                        {day.specialCount > 0 && (
-                          <div className="text-[10px] text-purple-600 font-semibold">{day.specialCount} special</div>
+                        {day.onDemandCount > 0 && (
+                          <div className="text-[10px] text-purple-600 font-semibold">{day.onDemandCount} on-demand</div>
                         )}
 
                         {totalRoutes > 0 && (
@@ -496,8 +496,8 @@ const PlanningCalendar: React.FC = () => {
                           </div>
                         )}
 
-                        {day.pickupCount > 0 && totalRoutes === 0 && (
-                          <div className="text-[10px] text-amber-600 font-bold mt-1">{day.pickupCount} unplanned</div>
+                        {day.locationCount > 0 && totalRoutes === 0 && (
+                          <div className="text-[10px] text-amber-600 font-bold mt-1">{day.locationCount} unplanned</div>
                         )}
                       </div>
                     )}
@@ -530,18 +530,18 @@ const PlanningCalendar: React.FC = () => {
                       <div className="text-[10px] font-bold text-gray-400 uppercase">Routes</div>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-bold text-gray-900">{dayRoutes.reduce((sum, r) => sum + (r.stop_count ?? r.estimated_stops ?? 0), 0)}</div>
+                      <div className="text-lg font-bold text-gray-900">{dayRoutes.reduce((sum, r) => sum + (r.stopCount ?? r.estimated_stops ?? 0), 0)}</div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">Stops</div>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-bold text-gray-900">{daySpecials.length}</div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Special</div>
+                      <div className="text-lg font-bold text-gray-900">{dayOnDemand.length}</div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">On-Demand</div>
                     </div>
                   </div>
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-2">
-                    {dayProperties.length > 0 && dayRoutes.filter(j => j.status === 'draft').length === 0 && (
+                    {dayLocations.length > 0 && dayRoutes.filter(j => j.status === 'draft').length === 0 && (
                       <button type="button" onClick={handlePlanRoutes} disabled={autoPlanning}
                         className="flex-1 px-3 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white text-xs font-bold rounded-lg transition-colors">
                         {autoPlanning ? 'Planning...' : 'Plan Routes'}
@@ -591,7 +591,7 @@ const PlanningCalendar: React.FC = () => {
                         <button type="button" onClick={() => setImportResult(null)} className="text-amber-600 hover:text-amber-800 font-bold">&times;</button>
                       </div>
                       {importResult.stopsUnmatched > 0 && (
-                        <div className="text-amber-700 mt-1">{importResult.stopsMatched} matched to local properties, {importResult.stopsUnmatched} address-only</div>
+                        <div className="text-amber-700 mt-1">{importResult.stopsMatched} matched to local locations, {importResult.stopsUnmatched} address-only</div>
                       )}
                       {importResult.errors.length > 0 && (
                         <div className="text-red-600 mt-1">{importResult.errors.join(', ')}</div>
@@ -605,7 +605,7 @@ const PlanningCalendar: React.FC = () => {
                       <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Routes</h4>
                       <div className="space-y-3">
                         {dayRoutes.map(route => {
-                          const stopCount = route.stop_count ?? route.estimated_stops ?? 0;
+                          const stopCount = route.stopCount ?? route.estimated_stops ?? 0;
                           const minutesPerStop = 8;
                           const estimatedHours = (stopCount * minutesPerStop / 60);
                           const overCapacity = stopCount > ROUTE_MAX_STOPS;
@@ -614,7 +614,7 @@ const PlanningCalendar: React.FC = () => {
                           const isLive = route.status === 'in_progress';
 
                           // Compute completed stops: use loaded stops + live statuses when available, else DB count
-                          let completedStops = route.completed_stop_count ?? 0;
+                          let completedStops = route.completedStopCount ?? 0;
                           if (stops && stops.length > 0) {
                             const DONE = new Set(['completed', 'success', 'failed', 'rejected']);
                             completedStops = stops.filter(s => {
@@ -638,24 +638,24 @@ const PlanningCalendar: React.FC = () => {
                                     <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full ${STATUS_COLORS[route.status]}`}>
                                       {route.status.replace('_', ' ')}
                                     </span>
-                                    {route.optimo_synced && (
+                                    {route.optimoSynced && (
                                       <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Synced</span>
                                     )}
                                     {route.source === 'optimo_import' && (
                                       <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Imported</span>
                                     )}
-                                    {(route.bid_count ?? 0) > 0 && (
+                                    {(route.bidCount ?? 0) > 0 && (
                                       <button type="button" onClick={(e) => { e.stopPropagation(); setExpandedBidRouteId(expandedBidRouteId === route.id ? null : route.id); }}
                                         className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
-                                        {route.bid_count} bid{(route.bid_count ?? 0) !== 1 ? 's' : ''}
+                                        {route.bidCount} bid{(route.bidCount ?? 0) !== 1 ? 's' : ''}
                                       </button>
                                     )}
                                   </div>
                                   <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                                     <span>{stopCount} stops</span>
                                     <span>~{estimatedHours.toFixed(1)}h</span>
-                                    {route.base_pay != null && <span>${Number(route.base_pay).toFixed(0)}</span>}
-                                    {route.driver_name && <span>{route.driver_name}</span>}
+                                    {route.basePay != null && <span>${Number(route.basePay).toFixed(0)}</span>}
+                                    {route.driverName && <span>{route.driverName}</span>}
                                   </div>
                                   {overCapacity && (
                                     <div className="mt-1 text-xs font-bold text-amber-600">
@@ -697,7 +697,7 @@ const PlanningCalendar: React.FC = () => {
                                         Publish
                                       </button>
                                     )}
-                                    {route.status !== 'draft' && route.status !== 'cancelled' && !route.optimo_synced && (
+                                    {route.status !== 'draft' && route.status !== 'cancelled' && !route.optimoSynced && (
                                       <button type="button" onClick={(e) => { e.stopPropagation(); handleSyncRoute(route.id); }}
                                         disabled={syncing === route.id}
                                         className="px-2.5 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors">
@@ -738,15 +738,15 @@ const PlanningCalendar: React.FC = () => {
                                             const displayStatus = liveStatus || p.status;
                                             return (
                                             <tr key={p.id} className="border-t border-gray-50">
-                                              <td className="px-3 py-1.5 text-gray-400 font-bold">{p.stop_number ?? idx + 1}</td>
+                                              <td className="px-3 py-1.5 text-gray-400 font-bold">{p.stopNumber ?? idx + 1}</td>
                                               <td className="px-3 py-1.5">
                                                 <div className="text-gray-900 truncate max-w-[180px]">{p.address}</div>
-                                                <div className="text-xs text-gray-400 truncate">{p.customer_name}</div>
+                                                <div className="text-xs text-gray-400 truncate">{p.customerName}</div>
                                               </td>
                                               <td className="px-3 py-1.5">
                                                 <span className={`text-xs font-bold ${
-                                                  p.order_type === 'special' ? 'text-purple-600' : p.order_type === 'missed_redo' ? 'text-red-600' : 'text-gray-500'
-                                                }`}>{p.order_type}</span>
+                                                  p.orderType === 'special' ? 'text-purple-600' : p.orderType === 'missed_redo' ? 'text-red-600' : 'text-gray-500'
+                                                }`}>{p.orderType}</span>
                                               </td>
                                               <td className="px-3 py-1.5">
                                                 <span className={`text-xs font-bold ${
@@ -781,7 +781,7 @@ const PlanningCalendar: React.FC = () => {
                                   {expandedBidRouteId === route.id && (
                                     <BidSection
                                       routeId={route.id}
-                                      basePay={route.base_pay != null ? Number(route.base_pay) : undefined}
+                                      basePay={route.basePay != null ? Number(route.basePay) : undefined}
                                       canAcceptBids={route.status === 'open' || route.status === 'bidding'}
                                       onBidAccepted={refreshDay}
                                     />
@@ -795,18 +795,18 @@ const PlanningCalendar: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Unassigned Properties */}
-                  {dayProperties.length > 0 && (
+                  {/* Unassigned Locations */}
+                  {dayLocations.length > 0 && (
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                        Unassigned Properties ({dayProperties.length})
+                        Unassigned Locations ({dayLocations.length})
                       </h4>
                       <div className="max-h-[200px] overflow-y-auto space-y-1">
-                        {dayProperties.map(prop => (
+                        {dayLocations.map(prop => (
                           <div key={prop.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs">
                             <div className="min-w-0 flex-1">
                               <div className="text-gray-900 font-medium truncate">{prop.address}</div>
-                              <div className="text-gray-400 truncate">{prop.customer_name}</div>
+                              <div className="text-gray-400 truncate">{prop.customerName}</div>
                             </div>
                           </div>
                         ))}
@@ -814,18 +814,18 @@ const PlanningCalendar: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Special pickups */}
-                  {daySpecials.length > 0 && (
+                  {/* On-demand pickups */}
+                  {dayOnDemand.length > 0 && (
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                        Special Pickups ({daySpecials.length})
+                        On-Demand Pickups ({dayOnDemand.length})
                       </h4>
                       <div className="space-y-1">
-                        {daySpecials.map(sp => (
+                        {dayOnDemand.map(sp => (
                           <div key={sp.id} className="px-2 py-1.5 rounded bg-purple-50 text-xs">
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-900 font-medium truncate">{sp.service_name}</span>
-                              <span className="font-bold text-purple-700">${Number(sp.service_price).toFixed(0)}</span>
+                              <span className="text-gray-900 font-medium truncate">{sp.serviceName}</span>
+                              <span className="font-bold text-purple-700">${Number(sp.servicePrice).toFixed(0)}</span>
                             </div>
                             <div className="text-gray-500 truncate">{sp.address}</div>
                           </div>
@@ -834,8 +834,8 @@ const PlanningCalendar: React.FC = () => {
                     </div>
                   )}
 
-                  {dayProperties.length === 0 && daySpecials.length === 0 && dayRoutes.length === 0 && (
-                    <EmptyState title="Nothing Scheduled" message="No pickups or routes for this date." />
+                  {dayLocations.length === 0 && dayOnDemand.length === 0 && dayRoutes.length === 0 && (
+                    <EmptyState title="Nothing Scheduled" message="No collections or routes for this date." />
                   )}
                 </div>
               )}

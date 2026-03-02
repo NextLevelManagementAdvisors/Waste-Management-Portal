@@ -1,9 +1,9 @@
 /**
  * OptimoRoute Automated Sync Service
  *
- * Maintains a rolling 4-week window of pickup orders in OptimoRoute:
- *  1. Detect/refresh pickup days from completion history (pickupDayDetector)
- *  2. Generate future pickup dates per property based on day + frequency
+ * Maintains a rolling 4-week window of collection orders in OptimoRoute:
+ *  1. Detect/refresh collection days from completion history (collectionDayDetector)
+ *  2. Generate future collection dates per location based on day + frequency
  *  3. Create orders in OptimoRoute with deterministic naming (SYNC-{id}-{date})
  *  4. Track every order in a local ledger (optimo_sync_orders) for dedup
  *  5. Clean up orphaned orders when subscriptions are cancelled/paused
@@ -14,8 +14,8 @@
 import { pool } from './db';
 import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
-import { detectAndStorePickupDays } from './pickupDayDetector';
-import { findOptimalPickupDay } from './pickupDayOptimizer';
+import { detectAndStoreCollectionDays } from './collectionDayDetector';
+import { findOptimalCollectionDay } from './collectionDayOptimizer';
 
 // ── Types ──
 
@@ -35,7 +35,7 @@ interface DriverInfo {
 
 export interface SyncRunResult {
   logId: string;
-  propertiesProcessed: number;
+  locationsProcessed: number;
   ordersCreated: number;
   ordersSkipped: number;
   ordersErrored: number;
@@ -49,7 +49,7 @@ function getSyncWindowDays(): number {
   return parseInt(process.env.OPTIMO_SYNC_WINDOW_DAYS || '28', 10);
 }
 
-// ── Pickup date generation ──
+// ── Collection date generation ──
 
 const DAY_MAP: Record<string, number> = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
@@ -57,15 +57,15 @@ const DAY_MAP: Record<string, number> = {
 };
 
 /**
- * Generate all future pickup dates within the rolling window based on day + frequency.
+ * Generate all future collection dates within the rolling window based on day + frequency.
  */
-export function generatePickupDates(
-  pickupDay: string,
+export function generateCollectionDates(
+  collectionDay: string,
   frequency: string,
   windowDays: number = getSyncWindowDays(),
   anchorDate?: string
 ): string[] {
-  const targetDow = DAY_MAP[pickupDay.toLowerCase()];
+  const targetDow = DAY_MAP[collectionDay.toLowerCase()];
   if (targetDow === undefined) return [];
 
   const today = new Date();
@@ -104,22 +104,22 @@ export function generatePickupDates(
 }
 
 /**
- * Generate deterministic order number for a property + date.
+ * Generate deterministic order number for a location + date.
  */
-function syncOrderNo(propertyId: string, date: string): string {
-  return `SYNC-${propertyId.substring(0, 8).toUpperCase()}-${date.replace(/-/g, '')}`;
+function syncOrderNo(locationId: string, date: string): string {
+  return `SYNC-${locationId.substring(0, 8).toUpperCase()}-${date.replace(/-/g, '')}`;
 }
 
-// ── Per-property sync ──
+// ── Per-location sync ──
 
-async function syncPropertyOrders(property: any): Promise<{ created: number; skipped: number; errors: string[] }> {
-  if (!property.pickup_day) {
+async function syncLocationOrders(location: any): Promise<{ created: number; skipped: number; errors: string[] }> {
+  if (!location.collection_day) {
     return { created: 0, skipped: 1, errors: [] };
   }
 
-  const dates = generatePickupDates(
-    property.pickup_day,
-    property.pickup_frequency || 'weekly'
+  const dates = generateCollectionDates(
+    location.collection_day,
+    location.collection_frequency || 'weekly'
   );
 
   let created = 0;
@@ -127,7 +127,7 @@ async function syncPropertyOrders(property: any): Promise<{ created: number; ski
   const errors: string[] = [];
 
   for (const date of dates) {
-    const orderNo = syncOrderNo(property.id, date);
+    const orderNo = syncOrderNo(location.id, date);
 
     // Check local ledger for existing active order
     const existing = await storage.getSyncOrderByOrderNo(orderNo);
@@ -138,8 +138,8 @@ async function syncPropertyOrders(property: any): Promise<{ created: number; ski
 
     // Check customer skip intent
     const skipCheck = await pool.query(
-      `SELECT 1 FROM collection_intents WHERE property_id = $1 AND pickup_date = $2 AND intent = 'skip'`,
-      [property.id, date]
+      `SELECT 1 FROM collection_intents WHERE location_id = $1 AND collection_date = $2 AND intent = 'skip'`,
+      [location.id, date]
     );
     if (skipCheck.rows.length > 0) {
       skipped++;
@@ -147,18 +147,18 @@ async function syncPropertyOrders(property: any): Promise<{ created: number; ski
     }
 
     try {
-      const customerName = `${property.first_name} ${property.last_name}`;
+      const customerName = `${location.first_name} ${location.last_name}`;
       await optimo.createOrder({
         orderNo,
         type: 'P',
         date,
-        address: property.address,
+        address: location.address,
         locationName: customerName,
         duration: 10,
-        notes: `Auto-synced | ${property.pickup_frequency || 'weekly'} pickup`,
+        notes: `Auto-synced | ${location.collection_frequency || 'weekly'} collection`,
       });
       await storage.createSyncOrder({
-        propertyId: property.id,
+        locationId: location.id,
         orderNo,
         scheduledDate: date,
       });
@@ -174,10 +174,10 @@ async function syncPropertyOrders(property: any): Promise<{ created: number; ski
 // ── Cleanup ──
 
 /**
- * Delete all future OptimoRoute orders for a property (e.g., after subscription cancellation).
+ * Delete all future OptimoRoute orders for a location (e.g., after subscription cancellation).
  */
-export async function cleanupFutureOrdersForProperty(propertyId: string): Promise<{ deleted: number; errors: number }> {
-  const futureOrders = await storage.getFutureSyncOrdersForProperty(propertyId);
+export async function cleanupFutureOrdersForLocation(locationId: string): Promise<{ deleted: number; errors: number }> {
+  const futureOrders = await storage.getFutureSyncOrdersForLocation(locationId);
   let deleted = 0;
   let errors = 0;
 
@@ -196,26 +196,26 @@ export async function cleanupFutureOrdersForProperty(propertyId: string): Promis
     }
   }
 
-  console.log(`[OptimoSync] Cleanup for property ${propertyId}: ${deleted} deleted, ${errors} errors`);
+  console.log(`[OptimoSync] Cleanup for location ${locationId}: ${deleted} deleted, ${errors} errors`);
   return { deleted, errors };
 }
 
 /**
- * Find and clean up orders for properties that no longer have active subscriptions.
+ * Find and clean up orders for locations that no longer have active subscriptions.
  */
 async function cleanupOrphanedOrders(): Promise<{ deleted: number; errors: number }> {
-  const orphanedIds = await storage.getOrphanedSyncPropertyIds();
+  const orphanedIds = await storage.getOrphanedSyncLocationIds();
   let totalDeleted = 0;
   let totalErrors = 0;
 
-  for (const propertyId of orphanedIds) {
-    const result = await cleanupFutureOrdersForProperty(propertyId);
+  for (const locationId of orphanedIds) {
+    const result = await cleanupFutureOrdersForLocation(locationId);
     totalDeleted += result.deleted;
     totalErrors += result.errors;
   }
 
   if (orphanedIds.length > 0) {
-    console.log(`[OptimoSync] Orphan cleanup: ${orphanedIds.length} properties, ${totalDeleted} orders deleted`);
+    console.log(`[OptimoSync] Orphan cleanup: ${orphanedIds.length} locations, ${totalDeleted} orders deleted`);
   }
   return { deleted: totalDeleted, errors: totalErrors };
 }
@@ -229,52 +229,52 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
   const logId = await storage.createSyncLogEntry(runType);
 
   try {
-    // Step 1: Detect/update pickup days
-    const detection = await detectAndStorePickupDays();
+    // Step 1: Detect/update collection days
+    const detection = await detectAndStoreCollectionDays();
 
-    // Step 1.5: Retry optimization for approved properties still missing pickup_day
+    // Step 1.5: Retry optimization for approved locations still missing collection_day
     let routeAssignments = 0;
     try {
-      const unassigned = await storage.getApprovedPropertiesWithoutPickupDay();
-      for (const prop of unassigned) {
+      const unassigned = await storage.getApprovedLocationsWithoutCollectionDay();
+      for (const loc of unassigned) {
         try {
-          const result = await findOptimalPickupDay(prop.id);
+          const result = await findOptimalCollectionDay(loc.id);
           if (result) {
-            await storage.updatePropertyPickupSchedule(prop.id, {
-              pickup_day: result.pickup_day,
-              pickup_day_source: 'route_optimized',
-              pickup_day_detected_at: new Date().toISOString(),
+            await storage.updateLocationCollectionSchedule(loc.id, {
+              collection_day: result.collection_day,
+              collection_day_source: 'route_optimized',
+              collection_day_detected_at: new Date().toISOString(),
             });
             routeAssignments++;
           }
         } catch (e: any) {
-          console.error(`[OptimoSync] Pickup day optimization failed for property ${prop.id}:`, e.message);
+          console.error(`[OptimoSync] Collection day optimization failed for location ${loc.id}:`, e.message);
         }
       }
       if (routeAssignments > 0) {
-        console.log(`[OptimoSync] Auto-assigned pickup day to ${routeAssignments} properties`);
+        console.log(`[OptimoSync] Auto-assigned collection day to ${routeAssignments} locations`);
       }
     } catch (e: any) {
-      console.error('[OptimoSync] Failed to retry pickup day assignments:', e.message);
+      console.error('[OptimoSync] Failed to retry collection day assignments:', e.message);
     }
 
-    // Step 2: Get eligible properties
-    const properties = await storage.getPropertiesForSync();
+    // Step 2: Get eligible locations
+    const locations = await storage.getLocationsForSync();
 
-    // Step 3: Sync orders per property
+    // Step 3: Sync orders per location
     let totalCreated = 0;
     let totalSkipped = 0;
     let totalErrored = 0;
 
-    for (const prop of properties) {
+    for (const loc of locations) {
       try {
-        const result = await syncPropertyOrders(prop);
+        const result = await syncLocationOrders(loc);
         totalCreated += result.created;
         totalSkipped += result.skipped;
         totalErrored += result.errors.length;
       } catch (err: any) {
         totalErrored++;
-        console.error(`[OptimoSync] Error syncing property ${prop.id}:`, err.message);
+        console.error(`[OptimoSync] Error syncing location ${loc.id}:`, err.message);
       }
     }
 
@@ -283,7 +283,7 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
 
     const result: SyncRunResult = {
       logId,
-      propertiesProcessed: properties.length,
+      locationsProcessed: locations.length,
       ordersCreated: totalCreated,
       ordersSkipped: totalSkipped,
       ordersErrored: totalErrored,
@@ -294,7 +294,7 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
     await storage.updateSyncLogEntry(logId, {
       finished_at: new Date().toISOString(),
       status: 'completed',
-      properties_processed: result.propertiesProcessed,
+      locations_processed: result.locationsProcessed,
       orders_created: result.ordersCreated,
       orders_skipped: result.ordersSkipped,
       orders_errored: result.ordersErrored,
@@ -319,30 +319,30 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
  * Preview what the sync would do without creating any orders.
  */
 export async function previewCustomerOrderSync() {
-  const properties = await storage.getPropertiesForSync();
+  const locations = await storage.getLocationsForSync();
   const preview: any[] = [];
   let totalWouldCreate = 0;
   let totalWouldSkip = 0;
 
-  for (const prop of properties) {
-    if (!prop.pickup_day) {
+  for (const loc of locations) {
+    if (!loc.collection_day) {
       preview.push({
-        property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-        pickupDay: null,
-        frequency: prop.pickup_frequency,
+        location: { id: loc.id, address: loc.address, customer: `${loc.first_name} ${loc.last_name}` },
+        collectionDay: null,
+        frequency: loc.collection_frequency,
         dates: [],
-        status: 'no_pickup_day',
+        status: 'no_collection_day',
       });
       totalWouldSkip++;
       continue;
     }
 
-    const dates = generatePickupDates(prop.pickup_day, prop.pickup_frequency || 'weekly');
+    const dates = generateCollectionDates(loc.collection_day, loc.collection_frequency || 'weekly');
     const wouldCreate: string[] = [];
     const alreadyExists: string[] = [];
 
     for (const date of dates) {
-      const orderNo = syncOrderNo(prop.id, date);
+      const orderNo = syncOrderNo(loc.id, date);
       const existing = await storage.getSyncOrderByOrderNo(orderNo);
       if (existing && existing.status === 'active') {
         alreadyExists.push(date);
@@ -352,9 +352,9 @@ export async function previewCustomerOrderSync() {
     }
 
     preview.push({
-      property: { id: prop.id, address: prop.address, customer: `${prop.first_name} ${prop.last_name}` },
-      pickupDay: prop.pickup_day,
-      frequency: prop.pickup_frequency,
+      location: { id: loc.id, address: loc.address, customer: `${loc.first_name} ${loc.last_name}` },
+      collectionDay: loc.collection_day,
+      frequency: loc.collection_frequency,
       dates: wouldCreate,
       existing: alreadyExists,
       status: wouldCreate.length > 0 ? 'will_create' : 'up_to_date',
@@ -363,7 +363,7 @@ export async function previewCustomerOrderSync() {
     totalWouldCreate += wouldCreate.length;
   }
 
-  return { total: properties.length, wouldCreate: totalWouldCreate, wouldSkip: totalWouldSkip, preview };
+  return { total: locations.length, wouldCreate: totalWouldCreate, wouldSkip: totalWouldSkip, preview };
 }
 
 /**

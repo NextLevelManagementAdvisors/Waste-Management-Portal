@@ -6,7 +6,7 @@ import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import PayBalanceModal from './PayBalanceModal.tsx';
 import { ArrowDownTrayIcon, CheckCircleIcon, CreditCardIcon, BanknotesIcon, BuildingOffice2Icon } from './Icons.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 
 const PayInvoiceModal: React.FC<{
     isOpen: boolean;
@@ -197,7 +197,7 @@ const InvoiceTable: React.FC<{
 };
 
 const Billing: React.FC = () => {
-    const { selectedProperty, properties } = useProperty();
+    const { selectedLocation, locations } = useLocation();
     const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
@@ -205,7 +205,7 @@ const Billing: React.FC = () => {
     const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
-    const isAllMode = !selectedProperty && properties.length > 0;
+    const isAllMode = !selectedLocation && locations.length > 0;
 
     const fetchAllData = async () => {
         setLoading(true);
@@ -225,32 +225,32 @@ const Billing: React.FC = () => {
     }, []);
 
     const outstandingInvoices = useMemo(() => 
-        allInvoices.filter(i => (i.status === 'Due' || i.status === 'Overdue') && (isAllMode || i.propertyId === selectedProperty?.id))
-    , [allInvoices, isAllMode, selectedProperty]);
+        allInvoices.filter(i => (i.status === 'Due' || i.status === 'Overdue') && (isAllMode || i.locationId === selectedLocation?.id))
+    , [allInvoices, isAllMode, selectedLocation]);
 
     const outstandingBalance = useMemo(() => 
         outstandingInvoices.reduce((total, inv) => total + inv.amount, 0)
     , [outstandingInvoices]);
 
-    const singlePropertyInvoices = useMemo(() => {
-        if (isAllMode || !selectedProperty) return [];
+    const singleLocationInvoices = useMemo(() => {
+        if (isAllMode || !selectedLocation) return [];
         return allInvoices
-            .filter(i => i.propertyId === selectedProperty.id)
+            .filter(i => i.locationId === selectedLocation.id)
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [allInvoices, selectedProperty, isAllMode]);
+    }, [allInvoices, selectedLocation, isAllMode]);
 
     const groupedInvoices = useMemo(() => {
         if (!isAllMode) return [];
-        return properties
-            .map(property => ({
-                property,
+        return locations
+            .map(location => ({
+                location,
                 invoices: allInvoices
-                    .filter(i => i.propertyId === property.id)
+                    .filter(i => i.locationId === location.id)
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
             }))
             .filter(group => group.invoices.length > 0)
-            .sort((a, b) => a.property.address.localeCompare(b.property.address));
-    }, [allInvoices, properties, isAllMode]);
+            .sort((a, b) => a.location.address.localeCompare(b.location.address));
+    }, [allInvoices, locations, isAllMode]);
     
     const handleOpenPayModal = (invoice: Invoice) => {
         setSelectedInvoice(invoice);
@@ -285,13 +285,13 @@ const Billing: React.FC = () => {
 
             {isAllMode ? (
                 <div className="space-y-8">
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History by Property</h2>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History by Location</h2>
                     {groupedInvoices.length > 0 ? (
-                        groupedInvoices.map(({ property, invoices }) => (
-                            <Card key={property.id} className="overflow-hidden border-none shadow-xl p-0">
+                        groupedInvoices.map(({ location, invoices }) => (
+                            <Card key={location.id} className="overflow-hidden border-none shadow-xl p-0">
                                 <div className="p-6 border-b border-base-100 bg-gray-50/50 flex items-center gap-3">
                                     <BuildingOffice2Icon className="w-5 h-5 text-primary" />
-                                    <h3 className="text-lg font-bold text-gray-800 tracking-tight">{property.address}</h3>
+                                    <h3 className="text-lg font-bold text-gray-800 tracking-tight">{location.address}</h3>
                                 </div>
                                  <div className="hidden sm:block">
                                     <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} />
@@ -303,7 +303,7 @@ const Billing: React.FC = () => {
                         ))
                     ) : (
                         <Card className="text-center py-20 text-gray-400 font-medium italic">
-                            No billing activity found for any property.
+                            No billing activity found for any location.
                         </Card>
                     )}
                 </div>
@@ -312,18 +312,18 @@ const Billing: React.FC = () => {
                     <div className="p-6 border-b border-base-100 bg-gray-50/50">
                         <h2 className="text-xl font-black text-gray-900 tracking-tight">Invoice History</h2>
                     </div>
-                    {singlePropertyInvoices.length > 0 ? (
+                    {singleLocationInvoices.length > 0 ? (
                         <>
                             <div className="hidden sm:block">
-                                <InvoiceTable invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                                <InvoiceTable invoices={singleLocationInvoices} onPay={handleOpenPayModal} />
                             </div>
                              <div className="block sm:hidden p-4">
-                                <InvoiceList invoices={singlePropertyInvoices} onPay={handleOpenPayModal} />
+                                <InvoiceList invoices={singleLocationInvoices} onPay={handleOpenPayModal} />
                             </div>
                         </>
                     ) : (
                         <div className="text-center py-20 text-gray-400 font-medium italic">
-                            No billing activity found for this property.
+                            No billing activity found for this location.
                         </div>
                     )}
                 </Card>

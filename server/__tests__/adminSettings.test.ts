@@ -29,6 +29,11 @@ vi.mock('../storage', () => ({
 
 vi.mock('../db', () => ({
   pool: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+  BaseRepository: class {
+    async query(_text: string, _params?: any[]) {
+      return { rows: [] };
+    }
+  },
 }));
 
 vi.mock('../settings', () => ({
@@ -54,7 +59,7 @@ vi.mock('../stripeClient', () => ({
 
 vi.mock('../gmailClient', () => ({ sendEmail: vi.fn() }));
 vi.mock('../notificationService', () => ({
-  sendPickupReminder: vi.fn().mockResolvedValue(undefined),
+  sendCollectionReminder: vi.fn().mockResolvedValue(undefined),
   sendBillingAlert: vi.fn().mockResolvedValue(undefined),
   sendServiceUpdate: vi.fn().mockResolvedValue(undefined),
   sendCustomNotification: vi.fn().mockResolvedValue(undefined),

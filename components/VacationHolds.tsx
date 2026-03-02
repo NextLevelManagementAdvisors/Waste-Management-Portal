@@ -1,24 +1,24 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
-import { getSubscriptions, pauseSubscriptionsForProperty, resumeSubscriptionsForProperty } from '../services/apiService.ts';
-import { Subscription, Property } from '../types.ts';
+import { useLocation } from '../LocationContext.tsx';
+import { getSubscriptions, pauseSubscriptionsForLocation, resumeSubscriptionsForLocation } from '../services/apiService.ts';
+import { Subscription, Location } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
 import { PauseCircleIcon, PlayCircleIcon, ArrowRightIcon, CheckCircleIcon } from './Icons.tsx';
 
 const PortfolioHoldCard: React.FC<{
-    property: Property;
+    location: Location;
     subscriptions: Subscription[];
     onSelect: (id: string) => void;
-}> = ({ property, subscriptions, onSelect }) => {
-    const propSubs = subscriptions.filter(s => s.propertyId === property.id && s.status !== 'canceled');
-    const isPaused = propSubs.some(s => s.status === 'paused');
-    
+}> = ({ location, subscriptions, onSelect }) => {
+    const locSubs = subscriptions.filter(s => s.locationId === location.id && s.status !== 'canceled');
+    const isPaused = locSubs.some(s => s.status === 'paused');
+
     return (
         <Card className="flex flex-col p-6">
             <div className="flex justify-between items-center mb-2">
-                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{location.serviceType}</p>
                 <div className={`px-3 py-1 rounded-full ${isPaused ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-500'}`}>
                     <span className="text-[10px] font-black uppercase tracking-widest">
                         {isPaused ? 'On Hold' : 'Service Active'}
@@ -27,12 +27,12 @@ const PortfolioHoldCard: React.FC<{
             </div>
 
             <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">
-                {property.address}
+                {location.address}
             </h3>
 
             <div className="flex items-end justify-end mt-4">
-                <Button 
-                    onClick={() => onSelect(property.id)} 
+                <Button
+                    onClick={() => onSelect(location.id)} 
                     variant="primary" 
                     className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest"
                 >
@@ -44,7 +44,7 @@ const PortfolioHoldCard: React.FC<{
 };
 
 const VacationHolds: React.FC = () => {
-    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
+    const { selectedLocation, locations, setSelectedLocationId } = useLocation();
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -68,15 +68,15 @@ const VacationHolds: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
-    const propertyHoldStatus = useMemo(() => {
-        if (!selectedProperty) return null;
-        const propSubs = allSubscriptions.filter(s => s.propertyId === selectedProperty.id && s.status !== 'canceled');
-        const pausedSub = propSubs.find(s => s.status === 'paused');
+    const locationHoldStatus = useMemo(() => {
+        if (!selectedLocation) return null;
+        const locSubs = allSubscriptions.filter(s => s.locationId === selectedLocation.id && s.status !== 'canceled');
+        const pausedSub = locSubs.find(s => s.status === 'paused');
         return {
             isPaused: !!pausedSub,
             pausedUntil: pausedSub?.pausedUntil || null,
         };
-    }, [allSubscriptions, selectedProperty]);
+    }, [allSubscriptions, selectedLocation]);
 
     const handleSetHoldClick = () => {
         const today = new Date();
@@ -86,11 +86,11 @@ const VacationHolds: React.FC = () => {
     };
 
     const handleConfirmPause = async () => {
-        if (!selectedProperty || !resumeDate) return;
-        
+        if (!selectedLocation || !resumeDate) return;
+
         setIsUpdating(true);
         try {
-            await pauseSubscriptionsForProperty(selectedProperty.id, resumeDate);
+            await pauseSubscriptionsForLocation(selectedLocation.id, resumeDate);
             await fetchData();
             setIsModalOpen(false);
         } catch (error) {
@@ -102,10 +102,10 @@ const VacationHolds: React.FC = () => {
     };
     
     const handleResumeAll = async () => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         setIsUpdating(true);
         try {
-            await resumeSubscriptionsForProperty(selectedProperty.id);
+            await resumeSubscriptionsForLocation(selectedLocation.id);
             await fetchData();
         } catch (error) {
             console.error("Failed to resume subscriptions:", error);
@@ -120,15 +120,15 @@ const VacationHolds: React.FC = () => {
     }
 
     // --- PORTFOLIO VIEW ---
-    if (!selectedProperty) {
-        const holdsCount = properties.filter(p => allSubscriptions.some(s => s.propertyId === p.id && s.status === 'paused')).length;
+    if (!selectedLocation) {
+        const holdsCount = locations.filter(p => allSubscriptions.some(s => s.locationId === p.id && s.status === 'paused')).length;
 
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
                 <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
                         <h1 className="text-4xl font-black text-gray-900 tracking-tight">Hold Management</h1>
-                        <p className="text-gray-500 font-medium mt-1 text-lg">Manage service availability across your entire property portfolio.</p>
+                        <p className="text-gray-500 font-medium mt-1 text-lg">Manage service availability across all your locations.</p>
                     </div>
                      <div className="bg-orange-50 px-6 py-4 rounded-2xl border border-orange-100">
                         <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest leading-none">Locations On Hold</p>
@@ -137,12 +137,12 @@ const VacationHolds: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {properties.map(prop => (
-                        <PortfolioHoldCard 
-                            key={prop.id} 
-                            property={prop} 
-                            subscriptions={allSubscriptions} 
-                            onSelect={(id) => setSelectedPropertyId(id)}
+                    {locations.map(loc => (
+                        <PortfolioHoldCard
+                            key={loc.id}
+                            location={loc}
+                            subscriptions={allSubscriptions}
+                            onSelect={(id) => setSelectedLocationId(id)}
                         />
                     ))}
                 </div>
@@ -150,24 +150,24 @@ const VacationHolds: React.FC = () => {
         );
     }
 
-    // --- PROPERTY FOCUS VIEW ---
+    // --- LOCATION FOCUS VIEW ---
     return (
         <div className="space-y-8 max-w-4xl mx-auto">
             <div className="flex justify-between items-end">
                 <div>
                     <h1 className="text-3xl font-black text-gray-900 tracking-tight">Vacation Holds</h1>
                     <p className="text-gray-500 font-medium mt-1 text-lg">
-                        Service availability for: <span className="font-bold text-gray-900">{selectedProperty.address}</span>
+                        Service availability for: <span className="font-bold text-gray-900">{selectedLocation.address}</span>
                     </p>
                 </div>
-                <Button variant="ghost" onClick={() => setSelectedPropertyId('all')} className="text-xs font-black uppercase tracking-widest">
+                <Button variant="ghost" onClick={() => setSelectedLocationId('all')} className="text-xs font-black uppercase tracking-widest">
                     Portfolio View
                 </Button>
             </div>
 
             <Card className="border-none ring-1 ring-base-200 overflow-hidden">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-12 p-8">
-                    {propertyHoldStatus?.isPaused ? (
+                    {locationHoldStatus?.isPaused ? (
                         <>
                             <div className="flex items-center gap-8 flex-1">
                                 <div className="w-24 h-24 rounded-3xl bg-orange-50 flex items-center justify-center text-orange-600 shadow-inner">
@@ -175,7 +175,7 @@ const VacationHolds: React.FC = () => {
                                 </div>
                                 <div>
                                     <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Service is On Hold</h2>
-                                    <p className="text-gray-500 font-medium mt-2">All collections for this address are suspended until <span className="text-orange-600 font-black">{propertyHoldStatus.pausedUntil}</span>.</p>
+                                    <p className="text-gray-500 font-medium mt-2">All collections for this address are suspended until <span className="text-orange-600 font-black">{locationHoldStatus.pausedUntil}</span>.</p>
                                 </div>
                             </div>
                             <Button variant="primary" onClick={handleResumeAll} disabled={isUpdating} className="w-full md:w-auto h-16 px-12 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20">

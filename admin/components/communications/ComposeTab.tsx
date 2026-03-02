@@ -177,7 +177,7 @@ const ComposeTab: React.FC<{ onSent?: () => void }> = ({ onSent }) => {
               )}
               {selectedTemplateId && (
                 <p className="text-xs text-gray-400">
-                  Variables: {'{'}{'{'} customer_name {'}'}{'}'}, {'{'}{'{'} pickup_date {'}'}{'}'}, etc. will be replaced per recipient
+                  Variables: {'{'}{'{'} customerName {'}'}{'}'}, {'{'}{'{'} collectionDate {'}'}{'}'}, etc. will be replaced per recipient
                 </p>
               )}
             </div>

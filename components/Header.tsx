@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View } from '../types.ts';
 import { Bars3Icon, UserCircleIcon, BellIcon } from './Icons.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { getNotifications, markNotificationsRead, InPortalNotification } from '../services/apiService.ts';
 
 interface HeaderProps {
   currentView: View;
   setCurrentView: (view: View) => void;
-  onAddPropertyClick: () => void;
+  onAddLocationClick: () => void;
   onToggleSidebar: () => void;
 }
 
@@ -35,8 +35,8 @@ function formatTimeAgo(dateStr: string): string {
     return date.toLocaleDateString();
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPropertyClick, onToggleSidebar }) => {
-  const { properties, selectedProperty, setSelectedPropertyId, loading } = useProperty();
+const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddLocationClick, onToggleSidebar }) => {
+  const { locations, selectedLocation, setSelectedLocationId, loading } = useLocation();
   const title = viewTitles[currentView] || 'Overview';
 
   // Notification state
@@ -91,17 +91,17 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
       setIsNotifOpen(false);
   };
 
-  const handlePropertyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleLocationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (e.target.value === 'add_new') {
-          onAddPropertyClick();
+          onAddLocationClick();
       } else {
-          setSelectedPropertyId(e.target.value);
+          setSelectedLocationId(e.target.value);
       }
   };
 
-  const currentVal = selectedProperty
-    ? selectedProperty.id
-    : (properties.length > 1 ? 'all' : (properties[0]?.id || ''));
+  const currentVal = selectedLocation
+    ? selectedLocation.id
+    : (locations.length > 1 ? 'all' : (locations[0]?.id || ''));
 
   return (
     <header className="flex-shrink-0 bg-white border-b border-base-300 z-20 sticky top-0">
@@ -123,20 +123,20 @@ const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView, onAddPrope
                 <div className="relative">
                     <select
                         value={currentVal}
-                        onChange={handlePropertyChange}
+                        onChange={handleLocationChange}
                         className="appearance-none w-full bg-base-200 border border-base-300 text-gray-900 py-2 sm:py-2.5 pl-3 sm:pl-4 pr-8 sm:pr-10 rounded-xl leading-tight focus:outline-none focus:bg-white focus:border-primary font-bold text-xs sm:text-sm transition-all cursor-pointer hover:border-primary max-w-[140px] sm:max-w-[220px]"
-                        aria-label="Select property context"
-                        disabled={properties.length === 0}
+                        aria-label="Select location context"
+                        disabled={locations.length === 0}
                     >
-                        {properties.length > 1 && (
-                            <option value="all">All Properties</option>
+                        {locations.length > 1 && (
+                            <option value="all">All Locations</option>
                         )}
-                        {properties.length > 0 ? (
-                            properties.map(p => (
+                        {locations.length > 0 ? (
+                            locations.map(p => (
                                 <option key={p.id} value={p.id}>{p.address}</option>
                             ))
                         ) : (
-                            <option value="">No properties found</option>
+                            <option value="">No locations found</option>
                         )}
                         <option value="add_new" className="font-bold text-primary">
                             + Add New Address...

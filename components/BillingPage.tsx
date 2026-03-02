@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { getInvoices, getSubscriptions, getPaymentMethods } from '../services/apiService.ts';
 import { Invoice, Subscription, PaymentMethod } from '../types.ts';
 import { Card } from './Card.tsx';
@@ -37,7 +37,7 @@ const statusColor: Record<string, string> = {
 };
 
 const BillingPage: React.FC = () => {
-    const { selectedProperty, properties } = useProperty();
+    const { selectedLocation, locations } = useLocation();
     const [activeTab, setActiveTabRaw] = useState<BillingTab>(getTabFromUrl);
 
     const setActiveTab = useCallback((tab: BillingTab | string) => {
@@ -59,7 +59,7 @@ const BillingPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
 
-    const isAllMode = !selectedProperty && properties.length > 0;
+    const isAllMode = !selectedLocation && locations.length > 0;
 
     useEffect(() => {
         if (activeTab !== 'overview') return;
@@ -76,8 +76,8 @@ const BillingPage: React.FC = () => {
 
     const filteredInvoices = useMemo(() => {
         if (isAllMode) return invoices;
-        return invoices.filter(i => i.propertyId === selectedProperty?.id);
-    }, [invoices, isAllMode, selectedProperty]);
+        return invoices.filter(i => i.locationId === selectedLocation?.id);
+    }, [invoices, isAllMode, selectedLocation]);
 
     const outstandingInvoices = useMemo(() =>
         filteredInvoices.filter(i => i.status === 'Due' || i.status === 'Overdue'),
@@ -90,8 +90,8 @@ const BillingPage: React.FC = () => {
     const activeSubscriptions = useMemo(() => {
         const subs = subscriptions.filter(s => s.status === 'active' || s.status === 'paused');
         if (isAllMode) return subs;
-        return subs.filter(s => s.propertyId === selectedProperty?.id);
-    }, [subscriptions, isAllMode, selectedProperty]);
+        return subs.filter(s => s.locationId === selectedLocation?.id);
+    }, [subscriptions, isAllMode, selectedLocation]);
 
     const totalMonthlyCost = useMemo(() =>
         activeSubscriptions.reduce((sum, s) => sum + Number(s.totalPrice || s.price || 0), 0),

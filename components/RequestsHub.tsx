@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import SpecialPickup from './SpecialPickup.tsx';
+import OnDemandPickup from './OnDemandPickup.tsx';
 import VacationHolds from './VacationHolds.tsx';
-import MissedPickup from './MissedPickup.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import MissedCollection from './MissedCollection.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { CalendarDaysIcon, PauseCircleIcon, ExclamationTriangleIcon, HomeIcon, PlusCircleIcon } from './Icons.tsx';
 import { Button } from './Button.tsx';
 
@@ -52,7 +52,7 @@ const Tabs: React.FC<{
 };
 
 const RequestsHub: React.FC = () => {
-    const { postNavAction, setPostNavAction, properties, setCurrentView } = useProperty();
+    const { postNavAction, setPostNavAction, locations, setCurrentView } = useLocation();
     const [view, setViewRaw] = useState<RequestView>(getRequestTabFromUrl);
 
     const setView = useCallback((tab: RequestView) => {
@@ -73,7 +73,7 @@ const RequestsHub: React.FC = () => {
         }
     }, [postNavAction, setPostNavAction]);
 
-    if (properties.length === 0) {
+    if (locations.length === 0) {
         return (
             <div className="animate-in fade-in duration-500 flex items-center justify-center min-h-[400px]">
                 <div className="text-center max-w-md mx-auto p-8">
@@ -98,10 +98,10 @@ const RequestsHub: React.FC = () => {
 
     const renderContent = () => {
         switch (view) {
-            case 'extra': return <SpecialPickup />;
+            case 'extra': return <OnDemandPickup />;
             case 'hold': return <VacationHolds />;
-            case 'missed': return <MissedPickup />;
-            default: return <SpecialPickup />;
+            case 'missed': return <MissedCollection />;
+            default: return <OnDemandPickup />;
         }
     };
 

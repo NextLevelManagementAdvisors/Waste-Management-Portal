@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Route, MissingClient } from '../../../shared/types/index.ts';
+import type { Route, MissingLocation } from '../../../shared/types/index.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -20,13 +20,13 @@ const FREQ_LABELS: Record<string, string> = {
 interface WeeklyPlannerDayColumnProps {
   date: string;
   routes: Route[];
-  missingClients: MissingClient[];
+  missingLocations: MissingLocation[];
   onRefresh: () => void;
 }
 
-const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, routes, missingClients, onRefresh }) => {
+const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, routes, missingLocations, onRefresh }) => {
   const [showMissing, setShowMissing] = useState(false);
-  const [addingTo, setAddingTo] = useState<{ propertyId: string; routeId: string } | null>(null);
+  const [addingTo, setAddingTo] = useState<{ locationId: string; routeId: string } | null>(null);
   const [publishingRoute, setPublishingRoute] = useState<string | null>(null);
 
   const dt = new Date(date + 'T12:00:00');
@@ -36,14 +36,14 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
 
   const draftRoutes = routes.filter(r => r.status === 'draft' || r.status === 'open' || r.status === 'bidding');
 
-  const handleAddToRoute = async (propertyId: string, routeId: string) => {
-    setAddingTo({ propertyId, routeId });
+  const handleAddToRoute = async (locationId: string, routeId: string) => {
+    setAddingTo({ locationId, routeId });
     try {
       const res = await fetch(`/api/admin/routes/${routeId}/stops`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyIds: [propertyId] }),
+        body: JSON.stringify({ locationIds: [locationId] }),
       });
       if (res.ok) onRefresh();
     } catch (e) {
@@ -80,7 +80,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
 
       {/* Route Cards */}
       <div className="p-2 space-y-2 flex-1">
-        {routes.length === 0 && missingClients.length === 0 && (
+        {routes.length === 0 && missingLocations.length === 0 && (
           <div className="text-xs text-gray-300 text-center py-4">No routes</div>
         )}
 
@@ -93,13 +93,13 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${STATUS_COLORS[route.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {route.status.replace('_', ' ')}
               </span>
-              <span className="text-[10px] text-gray-500">{route.stop_count || 0} stops</span>
+              <span className="text-[10px] text-gray-500">{route.stopCount || 0} stops</span>
             </div>
-            {route.driver_name && (
-              <div className="text-[10px] text-gray-400 mt-1 truncate">{route.driver_name}</div>
+            {route.driverName && (
+              <div className="text-[10px] text-gray-400 mt-1 truncate">{route.driverName}</div>
             )}
-            {route.base_pay != null && (
-              <div className="text-[10px] text-gray-400">${Number(route.base_pay).toFixed(0)}</div>
+            {route.basePay != null && (
+              <div className="text-[10px] text-gray-400">${Number(route.basePay).toFixed(0)}</div>
             )}
             {route.status === 'draft' && (
               <button
@@ -114,39 +114,39 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
           </div>
         ))}
 
-        {/* Missing clients */}
-        {missingClients.length > 0 && (
+        {/* Missing locations */}
+        {missingLocations.length > 0 && (
           <div className="border border-dashed border-amber-300 rounded-lg bg-amber-50/50">
             <button
               onClick={() => setShowMissing(!showMissing)}
               className="w-full px-2 py-1.5 flex items-center justify-between text-left"
             >
               <span className="text-[10px] font-bold text-amber-700 uppercase">
-                {missingClients.length} Missing
+                {missingLocations.length} Missing
               </span>
               <span className="text-amber-500 text-xs">{showMissing ? '▲' : '▼'}</span>
             </button>
 
             {showMissing && (
               <div className="px-2 pb-2 space-y-1 max-h-[200px] overflow-y-auto">
-                {missingClients.map(client => (
-                  <div key={client.id} className="bg-white rounded px-2 py-1.5 border border-amber-100">
+                {missingLocations.map(loc => (
+                  <div key={loc.id} className="bg-white rounded px-2 py-1.5 border border-amber-100">
                     <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[10px] font-medium text-gray-900 truncate">{client.customer_name}</span>
-                      {client.pickup_frequency && (
+                      <span className="text-[10px] font-medium text-gray-900 truncate">{loc.customerName}</span>
+                      {loc.collectionFrequency && (
                         <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1 rounded">
-                          {FREQ_LABELS[client.pickup_frequency] || client.pickup_frequency}
+                          {FREQ_LABELS[loc.collectionFrequency] || loc.collectionFrequency}
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-gray-400 truncate mb-1">{client.address}</div>
+                    <div className="text-[10px] text-gray-400 truncate mb-1">{loc.address}</div>
                     {draftRoutes.length > 0 ? (
                       <div className="flex gap-1 flex-wrap">
                         {draftRoutes.map(route => (
                           <button
                             key={route.id}
-                            onClick={() => handleAddToRoute(client.id, route.id)}
-                            disabled={addingTo?.propertyId === client.id}
+                            onClick={() => handleAddToRoute(loc.id, route.id)}
+                            disabled={addingTo?.locationId === loc.id}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors disabled:opacity-50"
                           >
                             + {route.title || 'Route'}
@@ -169,7 +169,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
         <div className="px-2 py-1.5 border-t border-gray-100 text-center">
           <span className="text-[10px] text-gray-400">
             {routes.length} route{routes.length !== 1 ? 's' : ''} &middot;{' '}
-            {routes.reduce((sum, r) => sum + (r.stop_count || 0), 0)} stops
+            {routes.reduce((sum, r) => sum + (r.stopCount || 0), 0)} stops
           </span>
         </div>
       )}

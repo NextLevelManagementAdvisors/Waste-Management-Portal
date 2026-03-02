@@ -791,15 +791,37 @@ export function registerTeamRoutes(app: Express) {
   app.post('/api/team/my-custom-zones', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const { name, center_lat, center_lng, radius_miles, color } = req.body;
-      if (!name || center_lat == null || center_lng == null) {
-        return res.status(400).json({ error: 'name, center_lat, and center_lng are required' });
+      const { name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: 'name is required' });
+      }
+      const type = zone_type || 'circle';
+      if (type === 'circle') {
+        if (center_lat == null || center_lng == null) {
+          return res.status(400).json({ error: 'center_lat and center_lng are required for circle zones' });
+        }
+      } else if (type === 'polygon') {
+        if (!polygon_coords || !Array.isArray(polygon_coords) || polygon_coords.length < 3) {
+          return res.status(400).json({ error: 'polygon_coords with at least 3 vertices required for polygon zones' });
+        }
+      } else if (type === 'zip') {
+        if (!zip_codes || !Array.isArray(zip_codes) || zip_codes.length === 0) {
+          return res.status(400).json({ error: 'zip_codes required for zip zones' });
+        }
+        if (!polygon_coords || !Array.isArray(polygon_coords) || polygon_coords.length < 3) {
+          return res.status(400).json({ error: 'polygon_coords required for zip zones' });
+        }
+      } else {
+        return res.status(400).json({ error: 'zone_type must be circle, polygon, or zip' });
       }
       const zone = await storage.createDriverCustomZone(driverId, {
         name,
-        center_lat: Number(center_lat),
-        center_lng: Number(center_lng),
-        radius_miles: Number(radius_miles) || 5,
+        zone_type: type,
+        center_lat: center_lat != null ? Number(center_lat) : undefined,
+        center_lng: center_lng != null ? Number(center_lng) : undefined,
+        radius_miles: radius_miles != null ? Number(radius_miles) : undefined,
+        polygon_coords,
+        zip_codes,
         color,
       });
       res.json({ data: zone });
@@ -834,6 +856,28 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // ── ZIP Boundary Lookup ──
+
+  app.get('/api/team/zip-boundary/:zip', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const { zip } = req.params;
+      if (!/^\d{5}(-\d{4})?$/.test(zip)) {
+        return res.status(400).json({ error: 'Invalid ZIP code format. Use 5-digit or ZIP+4 (e.g. 22630 or 22630-1234)' });
+      }
+      const coords = await storage.getZipBoundary(zip);
+      if (!coords) return res.status(404).json({ error: 'ZIP boundary not found' });
+      const isZipPlus4 = zip.includes('-');
+      res.json({
+        data: coords,
+        zip5: zip.substring(0, 5),
+        notice: isZipPlus4 ? 'ZIP+4 boundaries are not available. Showing the 5-digit ZIP boundary. You can edit the polygon to refine.' : null,
+      });
+    } catch (error) {
+      console.error('ZIP boundary lookup error:', error);
+      res.status(500).json({ error: 'Failed to look up ZIP boundary' });
+    }
+  });
+
   // ── Location Claims ──
 
   app.get('/api/team/available-locations', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
@@ -854,20 +898,20 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  app.post('/api/team/locations/:propertyId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.post('/api/team/locations/:locationId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const { propertyId } = req.params;
+      const { locationId } = req.params;
       const driverId = res.locals.driverProfile.id;
       const driverRating = parseFloat(res.locals.driverProfile.rating) || 0;
 
-      // Check if property exists and is approved
-      const property = await storage.getPropertyById(propertyId);
-      if (!property || property.service_status !== 'approved') {
-        return res.status(404).json({ error: 'Property not found or not approved' });
+      // Check if location exists and is approved
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.service_status !== 'approved') {
+        return res.status(404).json({ error: 'Location not found or not approved' });
       }
 
       // Check existing active claim
-      const existingClaim = await storage.getActiveClaimForProperty(propertyId);
+      const existingClaim = await storage.getActiveClaimForLocation(locationId);
 
       if (existingClaim) {
         if (existingClaim.driver_id === driverId) {
@@ -882,10 +926,10 @@ export function registerTeamRoutes(app: Express) {
           });
         }
         // Current driver has higher rating: revoke existing claim
-        await storage.revokeLocationClaimByProperty(propertyId, 'Displaced by higher-rated driver');
+        await storage.revokeLocationClaimByLocation(locationId, 'Displaced by higher-rated driver');
       }
 
-      const claim = await storage.createLocationClaim(propertyId, driverId, req.body.notes);
+      const claim = await storage.createLocationClaim(locationId, driverId, req.body.notes);
       res.status(201).json({ data: claim });
     } catch (error: any) {
       if (error.code === '23505') {
@@ -896,11 +940,11 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/team/locations/:propertyId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.delete('/api/team/locations/:locationId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const { propertyId } = req.params;
+      const { locationId } = req.params;
       const driverId = res.locals.driverProfile.id;
-      const released = await storage.releaseLocationClaim(propertyId, driverId);
+      const released = await storage.releaseLocationClaim(locationId, driverId);
       if (!released) {
         return res.status(404).json({ error: 'No active claim found for this location' });
       }
@@ -1205,52 +1249,52 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
-  // ── Special Pickups for Driver ──
+  // ── On-Demand Requests for Driver ──
 
-  app.get('/api/team/special-pickups', requireDriverAuth, async (_req: Request, res: Response) => {
+  app.get('/api/team/on-demand', requireDriverAuth, async (_req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const pickups = await storage.getSpecialPickupsForDriver(driverId);
+      const requests = await storage.getOnDemandRequestsForDriver(driverId);
       res.json({
-        data: pickups.map((p: any) => ({
+        data: requests.map((p: any) => ({
           id: p.id,
           address: p.address,
           serviceName: p.service_name,
           servicePrice: Number(p.service_price),
-          pickupDate: p.pickup_date,
+          pickupDate: p.requested_date,
           status: p.status,
           notes: p.notes,
           photos: p.photos || [],
         })),
       });
     } catch (error: any) {
-      console.error('Failed to fetch driver special pickups:', error);
-      res.status(500).json({ error: 'Failed to fetch special pickups' });
+      console.error('Failed to fetch driver on-demand requests:', error);
+      res.status(500).json({ error: 'Failed to fetch on-demand requests' });
     }
   });
 
-  app.put('/api/team/special-pickups/:id/complete', requireDriverAuth, async (req: Request, res: Response) => {
+  app.put('/api/team/on-demand/:id/complete', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
       const { id } = req.params;
-      // Verify this pickup is assigned to the requesting driver
-      const pickup = await storage.getSpecialPickupById(id);
-      if (!pickup || pickup.assigned_driver_id !== driverId) {
-        return res.status(403).json({ error: 'Pickup not found or not assigned to you' });
+      // Verify this on-demand request is assigned to the requesting driver
+      const onDemandRequest = await storage.getOnDemandRequestById(id);
+      if (!onDemandRequest || onDemandRequest.assigned_driver_id !== driverId) {
+        return res.status(403).json({ error: 'On-demand pickup not found or not assigned to you' });
       }
-      if (pickup.status === 'completed' || pickup.status === 'cancelled') {
-        return res.status(400).json({ error: 'Pickup is already ' + pickup.status });
+      if (onDemandRequest.status === 'completed' || onDemandRequest.status === 'cancelled') {
+        return res.status(400).json({ error: 'On-demand pickup is already ' + onDemandRequest.status });
       }
-      const updated = await storage.updateSpecialPickupRequest(id, { status: 'completed' });
+      const updated = await storage.updateOnDemandRequest(id, { status: 'completed' });
 
       // Notify customer
       const { sendServiceUpdate } = await import('./notificationService');
-      sendServiceUpdate(pickup.user_id, 'Pickup Completed', `Your ${pickup.service_name} pickup at ${pickup.address} has been completed. Thank you!`).catch(e => console.error('Completion notification failed:', e));
+      sendServiceUpdate(onDemandRequest.user_id, 'On-Demand Pickup Completed', `Your ${onDemandRequest.service_name} pickup at ${onDemandRequest.address} has been completed. Thank you!`).catch(e => console.error('Completion notification failed:', e));
 
       res.json({ success: true, data: updated });
     } catch (error: any) {
-      console.error('Failed to complete special pickup:', error);
-      res.status(500).json({ error: 'Failed to mark pickup as completed' });
+      console.error('Failed to complete on-demand request:', error);
+      res.status(500).json({ error: 'Failed to mark on-demand pickup as completed' });
     }
   });
 }

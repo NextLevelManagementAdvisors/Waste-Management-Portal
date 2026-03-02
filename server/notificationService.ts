@@ -154,37 +154,37 @@ async function trySendSms(phone: string, message: string): Promise<boolean> {
   }
 }
 
-export async function sendPickupReminder(userId: string, propertyAddress: string, pickupDate: string, pickupType: string = 'Regular') {
+export async function sendCollectionReminder(userId: string, locationAddress: string, collectionDate: string, collectionType: string = 'Regular') {
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesForUser(userId);
-  const property = properties.find((p: any) => p.address === propertyAddress);
-  const prefs = property?.notification_preferences;
+  const locations = await storage.getLocationsForUser(userId);
+  const location = locations.find((l: any) => l.address === locationAddress);
+  const prefs = location?.notification_preferences;
 
-  const emailEnabled = !(prefs?.pickupReminders?.email === false);
-  const smsEnabled = prefs?.pickupReminders?.sms === true;
+  const emailEnabled = !(prefs?.collectionReminders?.email === false);
+  const smsEnabled = prefs?.collectionReminders?.sms === true;
 
   if (emailEnabled) {
-    const subject = `Pickup Reminder - ${pickupDate}`;
+    const subject = `Collection Reminder - ${collectionDate}`;
     const body = `
       <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
-      <p style="color:#4b5563;line-height:1.6;">This is a reminder that your <strong>${pickupType}</strong> pickup is scheduled for:</p>
+      <p style="color:#4b5563;line-height:1.6;">This is a reminder that your <strong>${collectionType}</strong> collection is scheduled for:</p>
       <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
-        <p style="margin:0;color:#0d9488;font-weight:700;font-size:16px;">${pickupDate}</p>
-        <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${propertyAddress}</p>
+        <p style="margin:0;color:#0d9488;font-weight:700;font-size:16px;">${collectionDate}</p>
+        <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${locationAddress}</p>
       </div>
       <p style="color:#4b5563;line-height:1.6;">Please ensure your bins are placed curbside by 6:00 AM.</p>
     `;
     try {
-      await sendEmail(user.email, subject, baseTemplate('Pickup Reminder', body));
+      await sendEmail(user.email, subject, baseTemplate('Collection Reminder', body));
     } catch (e) {
-      console.error('Failed to send pickup reminder email:', e);
+      console.error('Failed to send collection reminder email:', e);
     }
   }
 
   if (smsEnabled && user.phone) {
-    await trySendSms(user.phone, `${APP_NAME}: Reminder - Your ${pickupType} pickup at ${propertyAddress} is scheduled for ${pickupDate}. Please have bins curbside by 6 AM.`);
+    await trySendSms(user.phone, `${APP_NAME}: Reminder - Your ${collectionType} collection at ${locationAddress} is scheduled for ${collectionDate}. Please have bins curbside by 6 AM.`);
   }
 }
 
@@ -192,7 +192,7 @@ export async function sendBillingAlert(userId: string, invoiceNumber: string, am
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesForUser(userId);
+  const properties = await storage.getLocationsForUser(userId);
   const prefs = properties[0]?.notification_preferences;
 
   const emailEnabled = !(prefs?.invoiceDue === false);
@@ -226,7 +226,7 @@ export async function sendPaymentConfirmation(userId: string, amount: number, in
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesForUser(userId);
+  const properties = await storage.getLocationsForUser(userId);
   const prefs = properties[0]?.notification_preferences;
 
   const emailEnabled = !(prefs?.paymentConfirmation === false);
@@ -260,7 +260,7 @@ export async function sendServiceUpdate(userId: string, updateType: string, deta
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const properties = await storage.getPropertiesForUser(userId);
+  const properties = await storage.getLocationsForUser(userId);
   const prefs = properties[0]?.notification_preferences;
 
   const emailEnabled = !(prefs?.serviceUpdates === false);
@@ -288,30 +288,30 @@ export async function sendServiceUpdate(userId: string, updateType: string, deta
   }
 }
 
-export async function sendMissedPickupConfirmation(userId: string, propertyAddress: string, pickupDate: string) {
+export async function sendMissedCollectionConfirmation(userId: string, locationAddress: string, collectionDate: string) {
   const user = await storage.getUserById(userId);
   if (!user) return;
 
-  const subject = `Missed Pickup Report Received`;
+  const subject = `Missed Collection Report Received`;
   const body = `
     <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
-    <p style="color:#4b5563;line-height:1.6;">We've received your missed pickup report and will investigate:</p>
+    <p style="color:#4b5563;line-height:1.6;">We've received your missed collection report and will investigate:</p>
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
-      <p style="margin:0;font-weight:700;color:#991b1b;">Missed Pickup Report</p>
-      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">${propertyAddress}</p>
-      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">Date: ${pickupDate}</p>
+      <p style="margin:0;font-weight:700;color:#991b1b;">Missed Collection Report</p>
+      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">${locationAddress}</p>
+      <p style="margin:4px 0 0;color:#7f1d1d;font-size:14px;">Date: ${collectionDate}</p>
     </div>
     <p style="color:#4b5563;line-height:1.6;">Our team will follow up within 24 hours.</p>
   `;
 
   try {
-    await sendEmail(user.email, subject, baseTemplate('Missed Pickup Report', body));
+    await sendEmail(user.email, subject, baseTemplate('Missed Collection Report', body));
   } catch (e) {
-    console.error('Failed to send missed pickup confirmation email:', e);
+    console.error('Failed to send missed collection confirmation email:', e);
   }
 
   if (user.phone) {
-    await trySendSms(user.phone, `${APP_NAME}: We received your missed pickup report for ${propertyAddress} on ${pickupDate}. Our team will follow up within 24 hours.`);
+    await trySendSms(user.phone, `${APP_NAME}: We received your missed collection report for ${locationAddress} on ${collectionDate}. Our team will follow up within 24 hours.`);
   }
 }
 

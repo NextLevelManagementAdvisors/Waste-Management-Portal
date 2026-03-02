@@ -4,16 +4,26 @@ import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 interface DriverZone {
   id: string;
   driver_id: string;
-  driver_name: string;
-  driver_email?: string;
+  driverName: string;
+  driverEmail?: string;
   name: string;
-  center_lat: number;
-  center_lng: number;
-  radius_miles: number;
+  zone_type?: string;
+  center_lat: number | null;
+  center_lng: number | null;
+  radius_miles: number | null;
+  polygon_coords: [number, number][] | null;
+  zip_codes: string[] | null;
   color: string;
   status: string;
   created_at: string;
 }
+
+const zoneDetail = (zone: DriverZone) => {
+  if (zone.zone_type === 'zip' && zone.zip_codes) return `ZIP ${zone.zip_codes.join(', ')}`;
+  if (zone.zone_type === 'polygon' && zone.polygon_coords) return `${zone.polygon_coords.length} vertices`;
+  if (zone.radius_miles != null) return `${Number(zone.radius_miles)} mi`;
+  return '—';
+};
 
 const ZonesPanel: React.FC = () => {
   const [zones, setZones] = useState<DriverZone[]>([]);
@@ -57,7 +67,8 @@ const ZonesPanel: React.FC = () => {
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Driver</th>
                 <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Zone Name</th>
-                <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Radius</th>
+                <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Type</th>
+                <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Detail</th>
                 <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Color</th>
                 <th className="px-5 py-3 font-bold text-gray-500 text-xs uppercase">Status</th>
               </tr>
@@ -67,12 +78,21 @@ const ZonesPanel: React.FC = () => {
                 <tr key={zone.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-5 py-3">
                     <div>
-                      <p className="font-bold text-gray-900">{zone.driver_name}</p>
-                      {zone.driver_email && <p className="text-xs text-gray-500">{zone.driver_email}</p>}
+                      <p className="font-bold text-gray-900">{zone.driverName}</p>
+                      {zone.driverEmail && <p className="text-xs text-gray-500">{zone.driverEmail}</p>}
                     </div>
                   </td>
                   <td className="px-5 py-3 font-medium text-gray-800">{zone.name}</td>
-                  <td className="px-5 py-3 text-gray-700">{Number(zone.radius_miles)} mi</td>
+                  <td className="px-5 py-3">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                      zone.zone_type === 'polygon' ? 'bg-green-100 text-green-700' :
+                      zone.zone_type === 'zip' ? 'bg-purple-100 text-purple-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {zone.zone_type === 'polygon' ? 'Polygon' : zone.zone_type === 'zip' ? 'ZIP' : 'Circle'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-gray-700">{zoneDetail(zone)}</td>
                   <td className="px-5 py-3">
                     <span className="w-4 h-4 rounded-full inline-block" style={{ backgroundColor: zone.color || '#9CA3AF' }} />
                   </td>

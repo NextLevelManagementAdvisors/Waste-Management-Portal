@@ -20,7 +20,7 @@ vi.mock('../storage', () => ({
     getUserById: vi.fn(),
     getUserByEmail: vi.fn(),
     createUser: vi.fn(),
-    getPropertiesForUser: vi.fn(),
+    getLocationsForUser: vi.fn(),
     updateUser: vi.fn(),
     getCustomer: vi.fn(),
     query: vi.fn(),
@@ -32,15 +32,15 @@ vi.mock('../storage', () => ({
     createPasswordResetToken: vi.fn(),
     getValidResetToken: vi.fn(),
     markResetTokenUsed: vi.fn(),
-    getPropertyById: vi.fn(),
-    createProperty: vi.fn(),
-    updateProperty: vi.fn(),
-    createMissedPickupReport: vi.fn(),
-    getMissedPickupReports: vi.fn(),
-    createSpecialPickupRequest: vi.fn(),
-    getSpecialPickupRequests: vi.fn(),
+    getLocationById: vi.fn(),
+    createLocation: vi.fn(),
+    updateLocation: vi.fn(),
+    createMissedCollectionReport: vi.fn(),
+    getMissedCollectionReports: vi.fn(),
+    createOnDemandRequest: vi.fn(),
+    getOnDemandRequests: vi.fn(),
     getActiveServiceAlerts: vi.fn(),
-    getSpecialPickupServices: vi.fn(),
+    getOnDemandServices: vi.fn(),
     getOrCreateReferralCode: vi.fn(),
     getReferralsByUser: vi.fn(),
     getReferralTotalRewards: vi.fn(),
@@ -48,12 +48,12 @@ vi.mock('../storage', () => ({
     deleteCollectionIntent: vi.fn(),
     getCollectionIntent: vi.fn(),
     upsertDriverFeedback: vi.fn(),
-    getDriverFeedbackForProperty: vi.fn(),
+    getDriverFeedbackForLocation: vi.fn(),
     getDriverFeedback: vi.fn(),
     createTipDismissal: vi.fn(),
-    getTipDismissalsForProperty: vi.fn(),
+    getTipDismissalsForLocation: vi.fn(),
     initiateTransfer: vi.fn(),
-    getPropertyByTransferToken: vi.fn(),
+    getLocationByTransferToken: vi.fn(),
     cancelTransfer: vi.fn(),
     completeTransfer: vi.fn(),
     getDriverById: vi.fn(),
@@ -174,7 +174,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getUncachableStripeClient).mockResolvedValue(mockStripe() as any);
   vi.mocked(getStripePublishableKey).mockResolvedValue('pk_test_123');
-  vi.mocked(storage.getPropertiesForUser).mockResolvedValue([]);
+  vi.mocked(storage.getLocationsForUser).mockResolvedValue([]);
   vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser } as any);
   vi.mocked(storage.query).mockResolvedValue({ rows: [] } as any);
   vi.mocked(storage.getPendingReferralForEmail).mockResolvedValue(null);
@@ -484,12 +484,12 @@ describe('GET /api/optimoroute/next-pickup', () => {
   });
 
   it('returns 403 when address not in user properties', async () => {
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([{ address: 'Different St' }] as any);
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([{ address: 'Different St' }] as any);
     expect((await supertest(createAuthApp()).get('/api/optimoroute/next-pickup?address=123+Main+St')).status).toBe(403);
   });
 
   it('returns 200 with pickup data when address is verified', async () => {
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
     vi.mocked(optimoRoute.getNextPickupForAddress).mockResolvedValue({ date: '2025-02-10' } as any);
     const res = await supertest(createAuthApp()).get('/api/optimoroute/next-pickup?address=123+Main+St');
     expect(res.status).toBe(200);
@@ -510,7 +510,7 @@ describe('GET /api/optimoroute/history', () => {
   });
 
   it('returns 200 with history when address verified', async () => {
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
     vi.mocked(optimoRoute.getCompletionHistoryForAddress).mockResolvedValue([{ date: '2025-01-01', status: 'done' }] as any);
     const res = await supertest(createAuthApp()).get('/api/optimoroute/history?address=123+Main+St');
     expect(res.status).toBe(200);
@@ -571,12 +571,12 @@ describe('POST /api/optimoroute/create-order', () => {
   });
 
   it('returns 403 when address not in user properties', async () => {
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([{ address: 'Other St' }] as any);
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([{ address: 'Other St' }] as any);
     expect((await supertest(createAuthApp()).post('/api/optimoroute/create-order').send({ orderNo: 'ORD-1', type: 'D', date: '2025-02-10', address: '123 Main St' })).status).toBe(403);
   });
 
   it('returns 200 when order is created', async () => {
-    vi.mocked(storage.getPropertiesForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
+    vi.mocked(storage.getLocationsForUser).mockResolvedValue([{ address: '123 Main St' }] as any);
     vi.mocked(optimoRoute.createOrder).mockResolvedValue({ success: true } as any);
     const res = await supertest(createAuthApp()).post('/api/optimoroute/create-order').send({ orderNo: 'ORD-1', type: 'D', date: '2025-02-10', address: '123 Main St' });
     expect(res.status).toBe(200);

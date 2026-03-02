@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Properties
-CREATE TABLE IF NOT EXISTS properties (
+-- Locations (customer service addresses)
+CREATE TABLE IF NOT EXISTS locations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   address TEXT NOT NULL,
@@ -85,12 +85,12 @@ CREATE TABLE IF NOT EXISTS service_alerts (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Missed pickup reports
-CREATE TABLE IF NOT EXISTS missed_pickup_reports (
+-- Missed collection reports
+CREATE TABLE IF NOT EXISTS missed_collection_reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
-  pickup_date DATE NOT NULL,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  collection_date DATE NOT NULL,
   notes TEXT,
   status VARCHAR(50) DEFAULT 'pending',
   resolution_notes TEXT,
@@ -98,8 +98,8 @@ CREATE TABLE IF NOT EXISTS missed_pickup_reports (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Special pickup services catalog
-CREATE TABLE IF NOT EXISTS special_pickup_services (
+-- On-demand services catalog
+CREATE TABLE IF NOT EXISTS on_demand_services (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   description TEXT,
@@ -109,14 +109,14 @@ CREATE TABLE IF NOT EXISTS special_pickup_services (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Special pickup requests
-CREATE TABLE IF NOT EXISTS special_pickup_requests (
+-- On-demand requests
+CREATE TABLE IF NOT EXISTS on_demand_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   service_name VARCHAR(255) NOT NULL,
   service_price NUMERIC(10,2) NOT NULL,
-  pickup_date DATE NOT NULL,
+  requested_date DATE NOT NULL,
   status VARCHAR(50) DEFAULT 'pending',
   notes TEXT,
   photos JSONB DEFAULT '[]',
@@ -133,35 +133,35 @@ CREATE TABLE IF NOT EXISTS special_pickup_requests (
 CREATE TABLE IF NOT EXISTS collection_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   intent VARCHAR(50) NOT NULL,
-  pickup_date DATE NOT NULL,
+  collection_date DATE NOT NULL,
   optimo_order_no TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE (property_id, pickup_date)
+  UNIQUE (location_id, collection_date)
 );
 
 -- Driver feedback / tips
 CREATE TABLE IF NOT EXISTS driver_feedback (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
-  pickup_date DATE NOT NULL,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  collection_date DATE NOT NULL,
   rating INTEGER,
   tip_amount NUMERIC(10,2),
   note TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE (property_id, pickup_date)
+  UNIQUE (location_id, collection_date)
 );
 
 -- Tip dismissals
 CREATE TABLE IF NOT EXISTS tip_dismissals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
-  pickup_date DATE NOT NULL,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  collection_date DATE NOT NULL,
   created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE (property_id, pickup_date)
+  UNIQUE (location_id, collection_date)
 );
 
 -- Audit log
@@ -351,10 +351,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN D
 ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS message_email_notifications BOOLEAN DEFAULT FALSE;
 
 -- Address serviceability review workflow
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status VARCHAR(50) DEFAULT 'approved';
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_updated_at TIMESTAMP;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
-CREATE INDEX IF NOT EXISTS idx_properties_service_status ON properties(service_status);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status VARCHAR(50) DEFAULT 'approved';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status_updated_at TIMESTAMP;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
+CREATE INDEX IF NOT EXISTS idx_locations_service_status ON locations(service_status);
 
 -- Communication templates
 CREATE TABLE IF NOT EXISTS communication_templates (
@@ -425,42 +425,42 @@ CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
 -- Pending service selections (deferred billing until address approval)
 CREATE TABLE IF NOT EXISTS pending_service_selections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   service_id TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
   use_sticker BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_pending_selections_property ON pending_service_selections(property_id);
+CREATE INDEX IF NOT EXISTS idx_pending_selections_location ON pending_service_selections(location_id);
 
--- Special pickup enhancements: customer notes, photos, AI estimate, admin tools, driver assignment
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS notes TEXT;
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]';
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS ai_estimate NUMERIC(10,2);
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS assigned_driver_id UUID REFERENCES driver_profiles(id);
-ALTER TABLE special_pickup_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
-ALTER TABLE special_pickup_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);
+-- On-demand enhancements: customer notes, photos, AI estimate, admin tools, driver assignment
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]';
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS ai_estimate NUMERIC(10,2);
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS assigned_driver_id UUID REFERENCES driver_profiles(id);
+ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+ALTER TABLE on_demand_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);
 
--- Pickup scheduling fields on properties
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_frequency VARCHAR(20) DEFAULT 'weekly';
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day VARCHAR(10);
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day_detected_at TIMESTAMP;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS pickup_day_source VARCHAR(20);
+-- Collection scheduling fields on locations
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_frequency VARCHAR(20) DEFAULT 'weekly';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day VARCHAR(10);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day_detected_at TIMESTAMP;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day_source VARCHAR(20);
 
 -- OptimoRoute sync order ledger (tracks every order the sync system creates)
 CREATE TABLE IF NOT EXISTS optimo_sync_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   order_no VARCHAR(100) NOT NULL UNIQUE,
   scheduled_date DATE NOT NULL,
   status VARCHAR(20) DEFAULT 'active',
   created_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_property ON optimo_sync_orders(property_id);
+CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_location ON optimo_sync_orders(location_id);
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_date ON optimo_sync_orders(scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_order_no ON optimo_sync_orders(order_no);
 
@@ -471,7 +471,7 @@ CREATE TABLE IF NOT EXISTS optimo_sync_log (
   started_at TIMESTAMP NOT NULL DEFAULT NOW(),
   finished_at TIMESTAMP,
   status VARCHAR(20) DEFAULT 'running',
-  properties_processed INT DEFAULT 0,
+  locations_processed INT DEFAULT 0,
   orders_created INT DEFAULT 0,
   orders_skipped INT DEFAULT 0,
   orders_errored INT DEFAULT 0,
@@ -495,13 +495,13 @@ CREATE TABLE IF NOT EXISTS service_zones (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Route stops (links properties/locations to routes)
+-- Route stops (links locations to routes)
 CREATE TABLE IF NOT EXISTS route_stops (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   route_id UUID NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-  property_id UUID NOT NULL REFERENCES properties(id),
+  location_id UUID NOT NULL REFERENCES locations(id),
   order_type VARCHAR(30) DEFAULT 'recurring',
-  special_pickup_id UUID REFERENCES special_pickup_requests(id),
+  on_demand_request_id UUID REFERENCES on_demand_requests(id),
   optimo_order_no VARCHAR(100),
   stop_number INTEGER,
   status VARCHAR(30) DEFAULT 'pending',
@@ -512,13 +512,13 @@ CREATE TABLE IF NOT EXISTS route_stops (
   created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
-CREATE INDEX IF NOT EXISTS idx_route_stops_property ON route_stops(property_id);
+CREATE INDEX IF NOT EXISTS idx_route_stops_location ON route_stops(location_id);
 
 -- Route extensions
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS route_type VARCHAR(30) DEFAULT 'daily_route';
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual';
-ALTER TABLE routes ADD COLUMN IF NOT EXISTS special_pickup_id UUID REFERENCES special_pickup_requests(id);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS on_demand_request_id UUID REFERENCES on_demand_requests(id);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_planning_id VARCHAR(100);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS accepted_bid_id UUID REFERENCES route_bids(id);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS actual_pay NUMERIC(10,2);
@@ -530,11 +530,11 @@ CREATE INDEX IF NOT EXISTS idx_routes_type ON routes(route_type);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_synced BOOLEAN DEFAULT FALSE;
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_synced_at TIMESTAMP;
 
--- Zone and coordinate fields on properties
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7);
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7);
-CREATE INDEX IF NOT EXISTS idx_properties_zone ON properties(zone_id);
+-- Zone and coordinate fields on locations
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_zones(id);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7);
+CREATE INDEX IF NOT EXISTS idx_locations_zone ON locations(zone_id);
 
 -- Track how users signed up (local registration vs Google OAuth)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local';
@@ -542,7 +542,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'lo
 -- OptimoRoute import support
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_route_key VARCHAR(100);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_routes_optimo_route_key ON routes(optimo_route_key) WHERE optimo_route_key IS NOT NULL;
-ALTER TABLE route_stops ALTER COLUMN property_id DROP NOT NULL;
+ALTER TABLE route_stops ALTER COLUMN location_id DROP NOT NULL;
 ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- In-portal notifications for customers
@@ -604,9 +604,12 @@ CREATE TABLE IF NOT EXISTS driver_custom_zones (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
   name VARCHAR(100) NOT NULL,
-  center_lat NUMERIC(10,7) NOT NULL,
-  center_lng NUMERIC(10,7) NOT NULL,
-  radius_miles NUMERIC(6,2) NOT NULL DEFAULT 5,
+  zone_type VARCHAR(20) NOT NULL DEFAULT 'circle',
+  center_lat NUMERIC(10,7),
+  center_lng NUMERIC(10,7),
+  radius_miles NUMERIC(6,2) DEFAULT 5,
+  polygon_coords JSONB,
+  zip_codes TEXT[],
   color VARCHAR(7) DEFAULT '#3B82F6',
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   created_at TIMESTAMP DEFAULT NOW(),
@@ -614,11 +617,12 @@ CREATE TABLE IF NOT EXISTS driver_custom_zones (
 );
 CREATE INDEX IF NOT EXISTS idx_dcz_driver ON driver_custom_zones(driver_id);
 CREATE INDEX IF NOT EXISTS idx_dcz_status ON driver_custom_zones(status);
+CREATE INDEX IF NOT EXISTS idx_dcz_type ON driver_custom_zones(zone_type);
 
 -- ── Location Claims (Dual Dispatch) ──
 CREATE TABLE IF NOT EXISTS location_claims (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   claimed_at TIMESTAMP DEFAULT NOW(),
@@ -628,7 +632,7 @@ CREATE TABLE IF NOT EXISTS location_claims (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_active_property ON location_claims(property_id) WHERE status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_active_location ON location_claims(location_id) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_lc_driver ON location_claims(driver_id);
 CREATE INDEX IF NOT EXISTS idx_lc_status ON location_claims(status);
 CREATE INDEX IF NOT EXISTS idx_lc_driver_status ON location_claims(driver_id, status);

@@ -7,7 +7,7 @@ export interface CustomerListItem {
   stripeCustomerId: string | null;
   isAdmin: boolean;
   createdAt: string;
-  propertyCount: number;
+  locationCount: number;
 }
 
 export interface CustomerDetail {
@@ -21,7 +21,7 @@ export interface CustomerDetail {
   stripeCustomerId: string | null;
   isAdmin: boolean;
   createdAt: string;
-  properties: { id: string; address: string; serviceType: string; transferStatus: string | null }[];
+  locations: { id: string; address: string; serviceType: string; transferStatus: string | null }[];
   stripe: {
     balance: number;
     subscriptions: { id: string; status: string; currentPeriodEnd: string; items: { productName: string; amount: number; interval: string }[] }[];

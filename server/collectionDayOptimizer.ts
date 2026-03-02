@@ -7,7 +7,7 @@ const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 const AVG_SPEED_MPH = 25;
 
 export interface OptimizationResult {
-  pickup_day: string;
+  collection_day: string;
   zone_name?: string;
   driver_name?: string;
   insertion_cost_miles: number;
@@ -76,24 +76,24 @@ function minInsertionCost(
 }
 
 /**
- * Find the optimal pickup day for a property by simulating insertion into
+ * Find the optimal collection day for a location by simulating insertion into
  * recent routes and picking the day with the lowest average additional mileage
  * (or estimated time).
  */
-export async function findOptimalPickupDay(propertyId: string): Promise<OptimizationResult | null> {
-  const property = await storage.getPropertyById(propertyId);
-  if (!property) return null;
+export async function findOptimalCollectionDay(locationId: string): Promise<OptimizationResult | null> {
+  const location = await storage.getLocationById(locationId);
+  if (!location) return null;
 
   // 1. Geocode if needed
-  let lat = property.latitude ? Number(property.latitude) : null;
-  let lng = property.longitude ? Number(property.longitude) : null;
+  let lat = location.latitude ? Number(location.latitude) : null;
+  let lng = location.longitude ? Number(location.longitude) : null;
 
   if (lat == null || lng == null) {
-    const geo = await geocodeAddress(property.address);
+    const geo = await geocodeAddress(location.address);
     if (!geo) return null;
     lat = geo.lat;
     lng = geo.lng;
-    await storage.updateProperty(propertyId, { latitude: lat, longitude: lng });
+    await storage.updateLocation(locationId, { latitude: lat, longitude: lng });
   }
 
   // 2. Find nearest driver zone (for context only)
@@ -185,7 +185,7 @@ export async function findOptimalPickupDay(propertyId: string): Promise<Optimiza
   const confidence = Math.min(routeResults.length / (windowDays * 0.7), 1);
 
   return {
-    pickup_day: bestDay,
+    collection_day: bestDay,
     zone_name: zone?.zone_name,
     driver_name: zone?.driver_name,
     insertion_cost_miles: bestAvg,

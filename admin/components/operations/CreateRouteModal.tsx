@@ -18,18 +18,18 @@ interface CreateRouteModalProps {
 
 const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated }) => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [properties, setProperties] = useState<AdminProperty[]>([]);
+  const [locations, setLocations] = useState<AdminProperty[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [propertySearch, setPropertySearch] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
   const [form, setForm] = useState({
     title: '',
-    scheduled_date: '',
+    scheduledDate: '',
     start_time: '',
     end_time: '',
     estimated_hours: '',
-    base_pay: '',
+    basePay: '',
     notes: '',
-    assigned_driver_id: '',
+    assignedDriverId: '',
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -42,10 +42,10 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
       })
       .catch(() => {});
 
-    fetch('/api/admin/properties', { credentials: 'include' })
+    fetch('/api/admin/locations', { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((data: AdminProperty[]) => {
-        setProperties(data.filter(p => p.serviceStatus === 'approved'));
+        setLocations(data.filter(p => p.serviceStatus === 'approved'));
       })
       .catch(() => {});
   }, []);
@@ -53,7 +53,7 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(prev => ({ ...prev, [field]: e.target.value }));
 
-  const toggleProperty = (id: string) => {
+  const toggleLocation = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -62,15 +62,15 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
     });
   };
 
-  const filteredProperties = useMemo(() => {
-    const q = propertySearch.toLowerCase().trim();
+  const filteredLocations = useMemo(() => {
+    const q = locationSearch.toLowerCase().trim();
     const list = q
-      ? properties.filter(p =>
+      ? locations.filter(p =>
           p.address?.toLowerCase().includes(q) ||
           p.ownerName?.toLowerCase().includes(q) ||
           p.zoneName?.toLowerCase().includes(q)
         )
-      : properties;
+      : locations;
 
     // Selected items float to top
     return [...list].sort((a, b) => {
@@ -78,12 +78,12 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
       const bSelected = selectedIds.has(b.id) ? 0 : 1;
       return aSelected - bSelected;
     });
-  }, [properties, propertySearch, selectedIds]);
+  }, [locations, locationSearch, selectedIds]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!form.title.trim() || !form.scheduled_date) {
+    if (!form.title.trim() || !form.scheduledDate) {
       setError('Title and scheduled date are required.');
       return;
     }
@@ -91,14 +91,14 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
     try {
       const body: Record<string, any> = {
         title: form.title.trim(),
-        scheduled_date: form.scheduled_date,
+        scheduledDate: form.scheduledDate,
       };
       if (form.start_time) body.start_time = form.start_time;
       if (form.end_time) body.end_time = form.end_time;
       if (form.estimated_hours) body.estimated_hours = Number(form.estimated_hours);
-      if (form.base_pay) body.base_pay = Number(form.base_pay);
+      if (form.basePay) body.basePay = Number(form.basePay);
       if (form.notes.trim()) body.notes = form.notes.trim();
-      if (form.assigned_driver_id) body.assigned_driver_id = form.assigned_driver_id;
+      if (form.assignedDriverId) body.assignedDriverId = form.assignedDriverId;
 
       // Step 1: Create route
       const res = await fetch('/api/admin/routes', {
@@ -120,7 +120,7 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ propertyIds: [...selectedIds] }),
+          body: JSON.stringify({ locationIds: [...selectedIds] }),
         });
         if (!stopsRes.ok) {
           // Route was created but stops failed — still close, user can add stops later
@@ -162,8 +162,8 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
             <label className="block text-xs font-bold text-gray-500 mb-1">Scheduled Date <span className="text-red-500">*</span></label>
             <input
               type="date"
-              value={form.scheduled_date}
-              onChange={set('scheduled_date')}
+              value={form.scheduledDate}
+              onChange={set('scheduledDate')}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             />
           </div>
@@ -210,8 +210,8 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
                 type="number"
                 min="0"
                 step="0.01"
-                value={form.base_pay}
-                onChange={set('base_pay')}
+                value={form.basePay}
+                onChange={set('basePay')}
                 placeholder="0.00"
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
               />
@@ -222,8 +222,8 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Assign Driver <span className="text-gray-400 font-normal">(optional — leave blank for open bidding)</span></label>
             <select
-              value={form.assigned_driver_id}
-              onChange={set('assigned_driver_id')}
+              value={form.assignedDriverId}
+              onChange={set('assignedDriverId')}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             >
               <option value="">Open for bidding</option>
@@ -240,24 +240,24 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
             </label>
             <input
               type="text"
-              value={propertySearch}
-              onChange={e => setPropertySearch(e.target.value)}
+              value={locationSearch}
+              onChange={e => setLocationSearch(e.target.value)}
               placeholder="Search by address, customer, or zone..."
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             />
             <div className="mt-1 border border-gray-200 rounded-lg max-h-[200px] overflow-y-auto">
-              {filteredProperties.length === 0 ? (
+              {filteredLocations.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-gray-400">
-                  {properties.length === 0 ? 'Loading properties...' : 'No matching properties'}
+                  {locations.length === 0 ? 'Loading locations...' : 'No matching locations'}
                 </div>
               ) : (
-                filteredProperties.map(p => {
+                filteredLocations.map(p => {
                   const selected = selectedIds.has(p.id);
                   return (
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => toggleProperty(p.id)}
+                      onClick={() => toggleLocation(p.id)}
                       className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-b-0 ${
                         selected ? 'bg-teal-50' : ''
                       }`}

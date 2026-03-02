@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const UPLOADS_DIR = path.resolve(__dirname, '..', 'uploads', 'special-pickups');
+const UPLOADS_DIR = path.resolve(__dirname, '..', 'uploads', 'on-demand');
 
 // Ensure directory exists
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -34,7 +34,7 @@ const storage = multer.diskStorage({
   },
 });
 
-export const specialPickupUpload = multer({
+export const onDemandUpload = multer({
   storage,
   limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
   fileFilter: (_req, file, cb) => {

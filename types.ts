@@ -10,7 +10,7 @@ export interface PostNavAction {
 }
 
 export interface NotificationPreferences {
-  pickupReminders: { email: boolean; sms: boolean };
+  collectionReminders: { email: boolean; sms: boolean };
   scheduleChanges: { email: boolean; sms: boolean };
   driverUpdates: { email: boolean; sms: boolean };
   invoiceDue?: boolean;
@@ -23,7 +23,7 @@ export interface NotificationPreferences {
 
 export type ServiceType = 'personal' | 'commercial' | 'short-term' | 'rental' | 'other';
 
-export interface Property {
+export interface Location {
   id: string;
   address: string;
   serviceType: ServiceType;
@@ -50,7 +50,7 @@ export interface User {
   email: string;
   password?: string;
   memberSince: string;
-  properties: Property[];
+  locations: Location[];
   autopayEnabled: boolean;
   stripeCustomerId?: string;
   isAdmin?: boolean;
@@ -70,7 +70,7 @@ export interface Service {
   category: 'base_service' | 'upgrade' | 'standalone' | 'base_fee';
 }
 
-export interface SpecialPickupService {
+export interface OnDemandService {
     id: string;
     name: string;
     description: string;
@@ -78,9 +78,9 @@ export interface SpecialPickupService {
     icon: React.ReactNode;
 }
 
-export interface SpecialPickupRequest {
+export interface OnDemandRequest {
     id: string;
-    propertyId: string;
+    locationId: string;
     serviceId: string;
     serviceName: string;
     date: string;
@@ -95,7 +95,7 @@ export interface SpecialPickupRequest {
 
 export interface Subscription {
   id:string;
-  propertyId: string;
+  locationId: string;
   serviceId: string;
   serviceName: string;
   startDate: string;
@@ -112,7 +112,7 @@ export interface Subscription {
 
 export interface Invoice {
   id: string;
-  propertyId: string;
+  locationId: string;
   amount: number;
   date: string;
   status: 'Paid' | 'Due' | 'Overdue';
@@ -144,7 +144,7 @@ export interface ServiceAlert {
     type: 'info' | 'warning' | 'error';
 }
 
-export interface NewPropertyInfo {
+export interface NewLocationInfo {
   street: string;
   city: string;
   state: string;
@@ -157,7 +157,7 @@ export interface NewPropertyInfo {
   notes?: string;
 }
 
-export interface UpdatePropertyInfo {
+export interface UpdateLocationInfo {
   serviceType: ServiceType;
   inHOA: 'yes' | 'no';
   communityName?: string;
@@ -166,7 +166,7 @@ export interface UpdatePropertyInfo {
   notes?: string;
 }
 
-export interface RegistrationInfo extends Omit<User, 'memberSince' | 'properties' | 'autopayEnabled'> {
+export interface RegistrationInfo extends Omit<User, 'memberSince' | 'locations' | 'autopayEnabled'> {
   referralCode?: string;
 }
 

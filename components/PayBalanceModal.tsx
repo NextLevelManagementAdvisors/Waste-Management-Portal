@@ -4,18 +4,18 @@ import { Button } from './Button.tsx';
 import { getInvoices, getPaymentMethods, payOutstandingBalance } from '../services/apiService.ts';
 import { Invoice, PaymentMethod, View } from '../types.ts';
 import { CreditCardIcon, BanknotesIcon, ArrowRightIcon } from './Icons.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { useToast } from './Toast.tsx';
 
 interface PayBalanceModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
-    propertyId?: string;
+    locationId?: string;
 }
 
-const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSuccess, propertyId }) => {
-    const { setCurrentView } = useProperty();
+const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSuccess, locationId }) => {
+    const { setCurrentView } = useLocation();
     const { showToast } = useToast();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -28,10 +28,10 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
             setLoading(true);
             Promise.all([getInvoices(), getPaymentMethods()]).then(([invs, methods]) => {
                 const dueInvoices = invs.filter(i => i.status === 'Due' || i.status === 'Overdue');
-                const relevantInvoices = propertyId
-                    ? propertyId === '__account__'
-                        ? dueInvoices.filter(i => !i.propertyId)
-                        : dueInvoices.filter(i => i.propertyId === propertyId)
+                const relevantInvoices = locationId
+                    ? locationId === '__account__'
+                        ? dueInvoices.filter(i => !i.locationId)
+                        : dueInvoices.filter(i => i.locationId === locationId)
                     : dueInvoices;
                 setInvoices(relevantInvoices);
                 setPaymentMethods(methods);
@@ -40,7 +40,7 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
                 setLoading(false);
             });
         }
-    }, [isOpen, propertyId]);
+    }, [isOpen, locationId]);
 
     const totalBalance = useMemo(() => invoices.reduce((sum, inv) => sum + inv.amount, 0), [invoices]);
 
@@ -51,7 +51,7 @@ const PayBalanceModal: React.FC<PayBalanceModalProps> = ({ isOpen, onClose, onSu
         }
         setIsPaying(true);
         try {
-            await payOutstandingBalance(selectedMethodId, propertyId);
+            await payOutstandingBalance(selectedMethodId, locationId);
             showToast('success', `Payment of $${totalBalance.toFixed(2)} processed successfully.`);
             onSuccess();
         } catch (error: any) {

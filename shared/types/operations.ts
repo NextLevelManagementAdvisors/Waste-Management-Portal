@@ -1,17 +1,17 @@
-export interface MissedPickupReport {
+export interface MissedCollectionReport {
   id: string;
-  propertyId: string;
+  locationId: string;
   customerName: string;
   customerEmail: string;
   address: string;
-  pickupDate: string;
+  collectionDate: string;
   notes: string;
   status: string;
   resolutionNotes: string | null;
   createdAt: string;
 }
 
-export interface PickupScheduleRequest {
+export interface OnDemandRequest {
   id: string;
   userId: string;
   customerName: string;
@@ -20,7 +20,7 @@ export interface PickupScheduleRequest {
   address: string;
   serviceName: string;
   servicePrice: number;
-  pickupDate: string;
+  requestedDate: string;
   status: string;
   notes?: string;
   photos?: string[];
@@ -37,11 +37,11 @@ export interface Driver {
   name: string;
   email?: string;
   phone?: string;
-  onboarding_status?: string;
+  onboardingStatus?: string;
   rating?: number;
 }
 
-export type RouteType = 'daily_route' | 'bulk_pickup' | 'special_pickup';
+export type RouteType = 'daily_route' | 'bulk_collection' | 'on_demand';
 export type RouteStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'processing' | 'paid';
 
@@ -49,33 +49,33 @@ export interface Route {
   id: string;
   title: string;
   description?: string;
-  scheduled_date: string;
-  start_time?: string;
-  end_time?: string;
-  estimated_stops?: number;
-  estimated_hours?: number;
-  base_pay?: number;
+  scheduledDate: string;
+  startTime?: string;
+  endTime?: string;
+  estimatedStops?: number;
+  estimatedHours?: number;
+  basePay?: number;
   status: RouteStatus;
-  assigned_driver_id?: string;
-  driver_name?: string;
+  assignedDriverId?: string;
+  driverName?: string;
   notes?: string;
-  created_at: string;
-  bid_count?: number;
+  createdAt: string;
+  bidCount?: number;
   // Route-centric fields
-  route_type?: RouteType;
+  routeType?: RouteType;
   source?: string;
-  special_pickup_id?: string;
-  optimo_planning_id?: string;
-  accepted_bid_id?: string;
-  actual_pay?: number;
-  payment_status?: PaymentStatus;
-  completed_at?: string;
-  stop_count?: number;
-  completed_stop_count?: number;
+  onDemandRequestId?: string;
+  optimoPlanningId?: string;
+  acceptedBidId?: string;
+  actualPay?: number;
+  paymentStatus?: PaymentStatus;
+  completedAt?: string;
+  stopCount?: number;
+  completedStopCount?: number;
   // OptimoRoute sync tracking
-  optimo_synced?: boolean;
-  optimo_synced_at?: string;
-  optimo_route_key?: string;
+  optimoSynced?: boolean;
+  optimoSyncedAt?: string;
+  optimoRouteKey?: string;
 }
 
 export interface RouteBid {
@@ -91,50 +91,55 @@ export interface RouteBid {
 
 export interface RouteStop {
   id: string;
-  route_id: string;
-  property_id: string | null;
-  order_type: 'recurring' | 'special' | 'missed_redo';
-  special_pickup_id?: string;
-  optimo_order_no?: string;
-  stop_number?: number;
+  routeId: string;
+  locationId: string | null;
+  orderType: 'recurring' | 'on_demand' | 'missed_redo';
+  onDemandRequestId?: string;
+  optimoOrderNo?: string;
+  stopNumber?: number;
   status: string;
-  scheduled_at?: string;
+  scheduledAt?: string;
   duration?: number;
   notes?: string;
-  location_name?: string;
-  created_at: string;
+  locationName?: string;
+  createdAt: string;
   // Joined fields
   address?: string;
-  service_type?: string;
-  customer_name?: string;
+  serviceType?: string;
+  customerName?: string;
 }
+
+export type ZoneType = 'circle' | 'polygon' | 'zip';
 
 export interface DriverCustomZoneAdmin {
   id: string;
-  driver_id: string;
-  driver_name: string;
-  driver_email?: string;
+  driverId: string;
+  driverName: string;
+  driverEmail?: string;
   name: string;
-  center_lat: number;
-  center_lng: number;
-  radius_miles: number;
+  zoneType: ZoneType;
+  centerLat: number | null;
+  centerLng: number | null;
+  radiusMiles: number | null;
+  polygonCoords: [number, number][] | null;
+  zipCodes: string[] | null;
   color: string;
   status: 'active' | 'paused';
-  created_at: string;
+  createdAt: string;
 }
 
 export interface PlanningDayData {
   date: string;
-  propertyCount: number;
-  specialPickupCount: number;
+  locationCount: number;
+  onDemandCount: number;
   routes: Array<{
     status: string;
-    route_type: string;
-    route_count: number;
+    routeType: string;
+    routeCount: number;
   }>;
 }
 
-// ── Route capacity warnings ──
+// -- Route capacity warnings --
 
 export interface CapacityWarning {
   routeId: string;
@@ -152,34 +157,34 @@ export interface AutoPlanResult {
   skippedDays: number;
 }
 
-// ── Planner types ──
+// -- Planner types --
 
-export interface MissingClient {
+export interface MissingLocation {
   id: string;
   address: string;
-  service_type: string;
-  pickup_frequency: string | null;
-  customer_name: string;
+  serviceType: string;
+  collectionFrequency: string | null;
+  customerName: string;
 }
 
-export interface CancelledPickup {
-  pickup_id: string;
-  route_id: string;
-  property_id: string;
+export interface CancelledCollection {
+  collectionId: string;
+  routeId: string;
+  locationId: string;
   address: string;
-  service_status: string;
-  customer_name: string;
-  scheduled_date: string;
-  route_title: string;
+  serviceStatus: string;
+  customerName: string;
+  scheduledDate: string;
+  routeTitle: string;
 }
 
 export interface WeekPlannerData {
   routes: Route[];
-  cancelled: CancelledPickup[];
-  missingByDay: Record<string, MissingClient[]>;
+  cancelled: CancelledCollection[];
+  missingByDay: Record<string, MissingLocation[]>;
 }
 
-// ── Location Directory ──
+// -- Location Directory --
 
 export interface LocationDirectoryItem {
   id: string;
@@ -188,8 +193,8 @@ export interface LocationDirectoryItem {
   ownerEmail: string;
   serviceType: string;
   serviceStatus: string;
-  pickupDay: string | null;
-  pickupFrequency: string | null;
+  collectionDay: string | null;
+  collectionFrequency: string | null;
   latitude: string | null;
   longitude: string | null;
   createdAt: string;
@@ -202,37 +207,37 @@ export interface LocationDirectoryResponse {
   limit: number;
 }
 
-// ── Location Claims (Dual Dispatch) ──
+// -- Location Claims (Dual Dispatch) --
 
 export type LocationClaimStatus = 'active' | 'revoked' | 'released';
 
 export interface LocationClaim {
   id: string;
-  property_id: string;
-  driver_id: string;
+  locationId: string;
+  driverId: string;
   status: LocationClaimStatus;
-  claimed_at: string;
-  revoked_at: string | null;
+  claimedAt: string;
+  revokedAt: string | null;
   notes: string | null;
-  driver_name?: string;
-  driver_rating?: number;
+  driverName?: string;
+  driverRating?: number;
   address?: string;
-  customer_name?: string;
+  customerName?: string;
 }
 
 export interface AvailableLocation {
   id: string;
   address: string;
-  service_type: string;
-  pickup_day: string | null;
-  pickup_frequency: string | null;
+  serviceType: string;
+  collectionDay: string | null;
+  collectionFrequency: string | null;
   latitude: number;
   longitude: number;
-  customer_name: string;
-  claimed_by_driver_id: string | null;
-  claimed_by_driver_name: string | null;
-  claim_status: LocationClaimStatus | null;
-  is_mine: boolean;
-  distance_miles: number;
-  matching_zone_name: string;
+  customerName: string;
+  claimedByDriverId: string | null;
+  claimedByDriverName: string | null;
+  claimStatus: LocationClaimStatus | null;
+  isMine: boolean;
+  distanceMiles: number;
+  matchingZoneName: string;
 }

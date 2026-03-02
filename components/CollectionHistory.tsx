@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
-import { useProperty } from '../PropertyContext.tsx';
-import { getCollectionHistory, leaveDriverTip, leaveDriverNote, reportMissedPickup, CollectionHistoryLogWithFeedback } from '../services/apiService.ts';
+import { useLocation } from '../LocationContext.tsx';
+import { getCollectionHistory, leaveDriverTip, leaveDriverNote, reportMissedCollection, CollectionHistoryLogWithFeedback } from '../services/apiService.ts';
 import { CheckCircleIcon, ExclamationTriangleIcon, SparklesIcon, CurrencyDollarIcon, PencilSquareIcon, UserCircleIcon, TruckIcon } from './Icons.tsx';
 
 const CollectionHistory: React.FC = () => {
-    const { selectedProperty, postNavAction, setPostNavAction } = useProperty();
+    const { selectedLocation, postNavAction, setPostNavAction } = useLocation();
     const [history, setHistory] = useState<CollectionHistoryLogWithFeedback[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -32,10 +32,10 @@ const CollectionHistory: React.FC = () => {
 
 
     const fetchData = async () => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         setLoading(true);
         try {
-            const historyData = await getCollectionHistory(selectedProperty.id);
+            const historyData = await getCollectionHistory(selectedLocation.id);
             setHistory(historyData);
         } catch (error) {
             console.error("Failed to fetch collection history:", error);
@@ -46,7 +46,7 @@ const CollectionHistory: React.FC = () => {
 
     useEffect(() => {
         fetchData();
-    }, [selectedProperty]);
+    }, [selectedLocation]);
 
     useEffect(() => {
       if (postNavAction && postNavAction.action === 'openTipModal' && !loading && history.length > 0) {
@@ -71,10 +71,10 @@ const CollectionHistory: React.FC = () => {
     };
 
     const handleLeaveTip = async (amount: number) => {
-        if (!selectedProperty || !selectedLog) return;
+        if (!selectedLocation || !selectedLog) return;
         setIsSubmitting(true);
         try {
-            await leaveDriverTip(selectedProperty.id, amount, selectedLog.date);
+            await leaveDriverTip(selectedLocation.id, amount, selectedLog.date);
             setIsTipModalOpen(false);
             fetchData(); // Refresh to update feedback status
         } catch (e) {
@@ -85,10 +85,10 @@ const CollectionHistory: React.FC = () => {
     };
 
     const handleLeaveNote = async (note: string) => {
-        if (!selectedProperty || !selectedLog) return;
+        if (!selectedLocation || !selectedLog) return;
         setIsSubmitting(true);
         try {
-            await leaveDriverNote(selectedProperty.id, note, selectedLog.date);
+            await leaveDriverNote(selectedLocation.id, note, selectedLog.date);
             setIsNoteModalOpen(false);
             fetchData(); // Refresh to update feedback status
         } catch (e) {
@@ -107,11 +107,11 @@ const CollectionHistory: React.FC = () => {
 
     const handleReportSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         
         setIsSubmittingReport(true);
         try {
-            await reportMissedPickup(selectedProperty.id, reportDate, reportNotes);
+            await reportMissedCollection(selectedLocation.id, reportDate, reportNotes);
             setReportSubmitted(true);
         } catch (error) {
             console.error("Failed to report missed pickup:", error);
@@ -132,7 +132,7 @@ const CollectionHistory: React.FC = () => {
                     <h2 className="text-xl font-black text-gray-900 tracking-tight">Full Collection History</h2>
                     <Button variant="secondary" className="rounded-xl" onClick={handleOpenReportModal}>
                         <ExclamationTriangleIcon className="w-4 h-4 mr-2 text-red-500"/>
-                        Report a Missed Pickup
+                        Report a Missed Collection
                     </Button>
                 </div>
                 <Card className="text-center py-16">
@@ -150,7 +150,7 @@ const CollectionHistory: React.FC = () => {
                 <h2 className="text-xl font-black text-gray-900 tracking-tight">Full Collection History</h2>
                 <Button variant="secondary" className="rounded-xl" onClick={handleOpenReportModal}>
                     <ExclamationTriangleIcon className="w-4 h-4 mr-2 text-red-500"/>
-                    Report a Missed Pickup
+                    Report a Missed Collection
                 </Button>
             </div>
              <Card className="border-none ring-1 ring-base-200 p-0 overflow-hidden shadow-xl">
@@ -227,8 +227,8 @@ const CollectionHistory: React.FC = () => {
                 </form>
             </Modal>
             
-            {/* Report Missed Pickup Modal */}
-            <Modal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} title={reportSubmitted ? "Report Received" : "Report Missed Pickup"}>
+            {/* Report Missed Collection Modal */}
+            <Modal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} title={reportSubmitted ? "Report Received" : "Report Missed Collection"}>
                 {reportSubmitted ? (
                     <div className="text-center py-4">
                         <CheckCircleIcon className="w-16 h-16 text-green-500 mx-auto mb-4" />

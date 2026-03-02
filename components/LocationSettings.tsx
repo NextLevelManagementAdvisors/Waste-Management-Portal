@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import { ServiceType, UpdatePropertyInfo } from '../types.ts';
+import { ServiceType, UpdateLocationInfo } from '../types.ts';
 
 const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
     <div className="flex flex-col sm:flex-row py-4 border-b border-base-200 last:border-b-0">
@@ -24,45 +24,45 @@ const formatServiceType = (type: ServiceType) => {
     return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
 
-const PropertySettings: React.FC = () => {
-    const { selectedProperty, updateProperty } = useProperty();
+const LocationSettings: React.FC = () => {
+    const { selectedLocation, updateLocation } = useLocation();
     const [isEditing, setIsEditing] = useState(false);
-    const [formData, setFormData] = useState<UpdatePropertyInfo | null>(null);
+    const [formData, setFormData] = useState<UpdateLocationInfo | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        if (selectedProperty) {
+        if (selectedLocation) {
             setFormData({
-                serviceType: selectedProperty.serviceType,
-                inHOA: selectedProperty.inHOA ? 'yes' : 'no',
-                communityName: selectedProperty.communityName || '',
-                hasGateCode: selectedProperty.hasGateCode ? 'yes' : 'no',
-                gateCode: selectedProperty.gateCode || '',
-                notes: selectedProperty.notes || '',
+                serviceType: selectedLocation.serviceType,
+                inHOA: selectedLocation.inHOA ? 'yes' : 'no',
+                communityName: selectedLocation.communityName || '',
+                hasGateCode: selectedLocation.hasGateCode ? 'yes' : 'no',
+                gateCode: selectedLocation.gateCode || '',
+                notes: selectedLocation.notes || '',
             });
             setIsEditing(false);
         }
-    }, [selectedProperty]);
+    }, [selectedLocation]);
 
     const handleCancel = () => {
-        if (selectedProperty) {
+        if (selectedLocation) {
             setFormData({
-                serviceType: selectedProperty.serviceType,
-                inHOA: selectedProperty.inHOA ? 'yes' : 'no',
-                communityName: selectedProperty.communityName || '',
-                hasGateCode: selectedProperty.hasGateCode ? 'yes' : 'no',
-                gateCode: selectedProperty.gateCode || '',
-                notes: selectedProperty.notes || '',
+                serviceType: selectedLocation.serviceType,
+                inHOA: selectedLocation.inHOA ? 'yes' : 'no',
+                communityName: selectedLocation.communityName || '',
+                hasGateCode: selectedLocation.hasGateCode ? 'yes' : 'no',
+                gateCode: selectedLocation.gateCode || '',
+                notes: selectedLocation.notes || '',
             });
         }
         setIsEditing(false);
     };
 
     const handleSave = async () => {
-        if (!selectedProperty || !formData) return;
+        if (!selectedLocation || !formData) return;
         setIsSaving(true);
         try {
-            await updateProperty(selectedProperty.id, formData);
+            await updateLocation(selectedLocation.id, formData);
             setIsEditing(false);
         } catch (error) {
             alert("Failed to save changes. Please try again.");
@@ -76,14 +76,14 @@ const PropertySettings: React.FC = () => {
         setFormData(prev => (prev ? { ...prev, [name]: value } : null));
     };
 
-    const handleRadioChange = (name: keyof UpdatePropertyInfo, value: 'yes' | 'no') => {
+    const handleRadioChange = (name: keyof UpdateLocationInfo, value: 'yes' | 'no') => {
         setFormData(prev => (prev ? { ...prev, [name]: value } : null));
     };
 
-    if (!selectedProperty) {
+    if (!selectedLocation) {
         return null;
     }
-    
+
     if (!formData) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
@@ -91,7 +91,7 @@ const PropertySettings: React.FC = () => {
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex justify-between items-center">
-                <h3 className="text-xl font-black text-gray-900 tracking-tight">Property Details</h3>
+                <h3 className="text-xl font-black text-gray-900 tracking-tight">Location Details</h3>
                 {!isEditing && (
                     <Button onClick={() => setIsEditing(true)} variant="secondary" className="rounded-lg px-4 py-2 font-black uppercase text-[10px] tracking-widest">Edit</Button>
                 )}
@@ -101,12 +101,12 @@ const PropertySettings: React.FC = () => {
                 {isEditing ? (
                     <form onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
                         <dl className="divide-y divide-base-100">
-                            <DetailRow label="Service Address" value={selectedProperty.address} />
+                            <DetailRow label="Service Address" value={selectedLocation.address} />
                             <EditRow label="Service Type">
-                                 <select 
-                                    name="serviceType" 
-                                    value={formData.serviceType} 
-                                    onChange={handleChange} 
+                                 <select
+                                    name="serviceType"
+                                    value={formData.serviceType}
+                                    onChange={handleChange}
                                     className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors appearance-none"
                                 >
                                     <option value="personal">Personal Residence</option>
@@ -119,50 +119,50 @@ const PropertySettings: React.FC = () => {
                             <EditRow label="HOA / Gated">
                                 <div className="flex items-center gap-6 h-full">
                                     <label className="flex items-center cursor-pointer group">
-                                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                                         <span className="ml-2 font-black uppercase text-[10px] tracking-widest text-gray-500 group-hover:text-primary transition-colors">Yes</span>
                                     </label>
                                     <label className="flex items-center cursor-pointer group">
-                                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                                         <span className="ml-2 font-black uppercase text-[10px] tracking-widest text-gray-500 group-hover:text-primary transition-colors">No</span>
                                     </label>
                                 </div>
                             </EditRow>
                             {formData.inHOA === 'yes' && (
                                 <EditRow label="HOA Name">
-                                    <input 
-                                        type="text" 
-                                        name="communityName" 
-                                        value={formData.communityName} 
-                                        onChange={handleChange} 
+                                    <input
+                                        type="text"
+                                        name="communityName"
+                                        value={formData.communityName}
+                                        onChange={handleChange}
                                         placeholder="e.g. Baldwin Ridge HOA"
-                                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors" 
-                                        required 
+                                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors"
+                                        required
                                     />
                                 </EditRow>
                             )}
                             <EditRow label="Gate Access">
                                  <div className="flex items-center gap-6 h-full">
                                     <label className="flex items-center cursor-pointer group">
-                                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                                         <span className="ml-2 font-black uppercase text-[10px] tracking-widest text-gray-500 group-hover:text-primary transition-colors">Yes</span>
                                     </label>
                                     <label className="flex items-center cursor-pointer group">
-                                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                                         <span className="ml-2 font-black uppercase text-[10px] tracking-widest text-gray-500 group-hover:text-primary transition-colors">No</span>
                                     </label>
                                 </div>
                             </EditRow>
                             {formData.hasGateCode === 'yes' && (
                                  <EditRow label="Access Code">
-                                    <input 
-                                        type="text" 
-                                        name="gateCode" 
-                                        value={formData.gateCode} 
-                                        onChange={handleChange} 
+                                    <input
+                                        type="text"
+                                        name="gateCode"
+                                        value={formData.gateCode}
+                                        onChange={handleChange}
                                         placeholder="#1234"
-                                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors" 
-                                        required 
+                                        className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-colors"
+                                        required
                                     />
                                 </EditRow>
                             )}
@@ -186,29 +186,29 @@ const PropertySettings: React.FC = () => {
                     </form>
                 ) : (
                     <dl className="divide-y divide-base-100">
-                        <DetailRow label="Service Address" value={selectedProperty.address} />
-                        <DetailRow label="Service Type" value={formatServiceType(selectedProperty.serviceType)} />
-                        <DetailRow 
-                            label="In HOA / Gated" 
-                            value={selectedProperty.inHOA ? 'Yes' : 'No'} 
+                        <DetailRow label="Service Address" value={selectedLocation.address} />
+                        <DetailRow label="Service Type" value={formatServiceType(selectedLocation.serviceType)} />
+                        <DetailRow
+                            label="In HOA / Gated"
+                            value={selectedLocation.inHOA ? 'Yes' : 'No'}
                         />
-                        {selectedProperty.inHOA && selectedProperty.communityName && (
-                            <DetailRow label="Community Name" value={selectedProperty.communityName} />
+                        {selectedLocation.inHOA && selectedLocation.communityName && (
+                            <DetailRow label="Community Name" value={selectedLocation.communityName} />
                         )}
-                        <DetailRow 
-                            label="Has Gate Access" 
-                            value={selectedProperty.hasGateCode ? 'Yes' : 'No'} 
+                        <DetailRow
+                            label="Has Gate Access"
+                            value={selectedLocation.hasGateCode ? 'Yes' : 'No'}
                         />
-                         {selectedProperty.hasGateCode && selectedProperty.gateCode && (
-                            <DetailRow label="Access Code" value={selectedProperty.gateCode} />
+                         {selectedLocation.hasGateCode && selectedLocation.gateCode && (
+                            <DetailRow label="Access Code" value={selectedLocation.gateCode} />
                         )}
-                        <DetailRow 
-                            label="Service Instructions" 
+                        <DetailRow
+                            label="Service Instructions"
                             value={
                                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-gray-600 italic font-medium leading-relaxed">
-                                    {selectedProperty.notes || "No special instructions provided for this location."}
+                                    {selectedLocation.notes || "No special instructions provided for this location."}
                                 </div>
-                            } 
+                            }
                         />
                     </dl>
                 )}
@@ -217,4 +217,4 @@ const PropertySettings: React.FC = () => {
     );
 };
 
-export default PropertySettings;
+export default LocationSettings;

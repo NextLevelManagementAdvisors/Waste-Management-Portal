@@ -4,7 +4,7 @@ import { pool } from './db';
 import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
 import * as optimoSync from './optimoSyncService';
-import { detectAndStorePickupDays } from './pickupDayDetector';
+import { detectAndStoreCollectionDays } from './collectionDayDetector';
 import { importRoutesFromOptimo, importRoutesForRange } from './optimoImportService';
 
 export function registerAdminOptimoRoutes(app: Express) {
@@ -309,7 +309,7 @@ export function registerAdminOptimoRoutes(app: Express) {
   });
 
   // ── Automated Sync Management ──
-  // Status, history, manual trigger, pickup-day detection, and per-property schedule editing
+  // Status, history, manual trigger, collection-day detection, and per-location schedule editing
 
   // GET /api/admin/optimoroute/sync/status — last sync info + next run time
   app.get('/api/admin/optimoroute/sync/status', requireAdmin, async (_req: Request, res: Response) => {
@@ -367,63 +367,63 @@ export function registerAdminOptimoRoutes(app: Express) {
     }
   });
 
-  // POST /api/admin/optimoroute/sync/detect-days — manual pickup day detection
+  // POST /api/admin/optimoroute/sync/detect-days — manual collection day detection
   app.post('/api/admin/optimoroute/sync/detect-days', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const result = await detectAndStorePickupDays();
+      const result = await detectAndStoreCollectionDays();
       res.json(result);
     } catch (error: any) {
-      console.error('[Admin OptimoRoute] Error detecting pickup days:', error);
-      res.status(500).json({ error: 'Failed to detect pickup days' });
+      console.error('[Admin OptimoRoute] Error detecting collection days:', error);
+      res.status(500).json({ error: 'Failed to detect collection days' });
     }
   });
 
-  // PUT /api/admin/properties/:id/pickup-schedule — admin sets pickup day/frequency
-  app.put('/api/admin/properties/:id/pickup-schedule', requireAdmin, async (req: Request, res: Response) => {
+  // PUT /api/admin/locations/:id/collection-schedule — admin sets collection day/frequency
+  app.put('/api/admin/locations/:id/collection-schedule', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { pickup_day, pickup_frequency } = req.body;
+      const { collection_day, collection_frequency } = req.body;
 
       const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const validFreqs = ['weekly', 'bi-weekly', 'monthly'];
 
-      if (pickup_day && !validDays.includes(pickup_day.toLowerCase())) {
-        return res.status(400).json({ error: `Invalid pickup_day. Must be one of: ${validDays.join(', ')}` });
+      if (collection_day && !validDays.includes(collection_day.toLowerCase())) {
+        return res.status(400).json({ error: `Invalid collection_day. Must be one of: ${validDays.join(', ')}` });
       }
-      if (pickup_frequency && !validFreqs.includes(pickup_frequency)) {
-        return res.status(400).json({ error: `Invalid pickup_frequency. Must be one of: ${validFreqs.join(', ')}` });
+      if (collection_frequency && !validFreqs.includes(collection_frequency)) {
+        return res.status(400).json({ error: `Invalid collection_frequency. Must be one of: ${validFreqs.join(', ')}` });
       }
 
       const updates: Record<string, any> = {};
-      if (pickup_day !== undefined) {
-        updates.pickup_day = pickup_day ? pickup_day.toLowerCase() : null;
-        updates.pickup_day_source = pickup_day ? 'manual' : null;
-        updates.pickup_day_detected_at = pickup_day ? new Date().toISOString() : null;
+      if (collection_day !== undefined) {
+        updates.collection_day = collection_day ? collection_day.toLowerCase() : null;
+        updates.collection_day_source = collection_day ? 'manual' : null;
+        updates.collection_day_detected_at = collection_day ? new Date().toISOString() : null;
       }
-      if (pickup_frequency !== undefined) {
-        updates.pickup_frequency = pickup_frequency || 'weekly';
+      if (collection_frequency !== undefined) {
+        updates.collection_frequency = collection_frequency || 'weekly';
       }
 
-      await storage.updatePropertyPickupSchedule(id, updates);
+      await storage.updateLocationCollectionSchedule(id, updates);
 
-      // If pickup day was cleared or changed, clean up existing future orders and let next sync recreate
-      if (pickup_day !== undefined) {
+      // If collection day was cleared or changed, clean up existing future orders and let next sync recreate
+      if (collection_day !== undefined) {
         try {
-          await optimoSync.cleanupFutureOrdersForProperty(id);
+          await optimoSync.cleanupFutureOrdersForLocation(id);
         } catch (err: any) {
           console.warn(`[Admin OptimoRoute] Cleanup after schedule change failed:`, err.message);
         }
       }
 
       const updated = await pool.query(
-        `SELECT id, pickup_day, pickup_frequency, pickup_day_source, pickup_day_detected_at FROM properties WHERE id = $1`,
+        `SELECT id, collection_day, collection_frequency, collection_day_source, collection_day_detected_at FROM locations WHERE id = $1`,
         [id]
       );
 
-      res.json({ success: true, property: updated.rows[0] || null });
+      res.json({ success: true, location: updated.rows[0] || null });
     } catch (error: any) {
-      console.error('[Admin OptimoRoute] Error updating pickup schedule:', error);
-      res.status(500).json({ error: 'Failed to update pickup schedule' });
+      console.error('[Admin OptimoRoute] Error updating collection schedule:', error);
+      res.status(500).json({ error: 'Failed to update collection schedule' });
     }
   });
 

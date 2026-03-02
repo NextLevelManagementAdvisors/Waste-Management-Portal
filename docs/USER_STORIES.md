@@ -257,6 +257,7 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-52 | As an admin, I want to bulk-assign properties to a zone, so that I can organize properties geographically. |
 | A-53 | As an admin, I want to create, edit, and delete special pickup service definitions (name, price), so that customers can request custom services. |
 | A-54 | As an admin, I want to manage pickup schedules (view all, edit pickup day/frequency per property), so that each property has the right collection schedule. |
+| A-88 | As an admin, I want to see all driver coverage zones in a read-only table with zone type (circle/polygon/ZIP), detail, color, and status, so that I can monitor driver territory coverage. |
 
 ### 2.8 Communications
 
@@ -401,6 +402,31 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | # | User Story |
 |---|-----------|
 | T-37 | As a driver, I want a dedicated earnings dashboard showing total earnings, pending payments, and payment history, so that I can track my income. |
+
+### 3.10 Coverage Zones
+
+| # | Status | User Story |
+|---|--------|-----------|
+| T-38 | Done | As a driver, I want to create circle coverage zones by clicking on the map and adjusting a radius slider, so that I can define round service areas quickly. |
+| T-39 | Done | As a driver, I want to draw freeform polygon coverage zones on the map, so that I can define precise, irregular service boundaries. |
+| T-40 | Done | As a driver, I want to enter a ZIP code and have the zone boundary auto-generated from Census data, so that I can claim an entire postal area without manual drawing. |
+| T-41 | Done | As a driver, I want ZIP+4 input to fall back to the 5-digit ZIP boundary with an info notice, so that I understand the boundary shown and can refine it. |
+| T-42 | Done | As a driver, I want to add multiple ZIP codes and merge them into a single named zone, so that I can cover adjacent postal areas as one zone. |
+| T-43 | Done | As a driver, I want to drag my circle zones to reposition them on the map, so that I can adjust coverage without deleting and recreating. |
+| T-44 | Done | As a driver, I want to drag polygon vertices to reshape my polygon zones, so that I can fine-tune my coverage boundaries. |
+| T-45 | Done | As a driver, I want to toggle an edit mode that enables dragging and reshaping all my zones at once, so that I can quickly adjust multiple zones. |
+| T-46 | Done | As a driver, I want to name, color-code, pause, and delete my coverage zones, so that I can organize and manage my territory. |
+
+### 3.11 Location Claiming & Unified Coverage
+
+| # | Status | User Story |
+|---|--------|-----------|
+| T-47 | Done | As a driver, I want to see all available locations within my coverage zones on the same map as my zones, so that I have a unified view of territory and opportunities. |
+| T-48 | Done | As a driver, I want to claim unclaimed locations as ongoing territory, so that I have consistent pickup assignments. |
+| T-49 | Done | As a driver, I want to release locations I've previously claimed, so that I can adjust my workload. |
+| T-50 | Done | As a driver, I want to see which locations are claimed by other drivers (with their name), so that I know what's already taken. |
+| T-51 | Done | As a driver, I want a tabbed panel (My Zones / Available / My Claimed) below the map, so that I can switch between managing zones and managing locations in one view. |
+| T-52 | Done | As a driver, I want a map legend showing unclaimed (green), my claim (blue), and other driver (orange) markers, so that I can visually distinguish location statuses. |
 
 ---
 

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { UpdateProfileInfo, UpdatePasswordInfo } from '../types.ts';
@@ -13,7 +13,7 @@ const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label,
 );
 
 const ProfileSettings: React.FC = () => {
-    const { user, updateProfile, updatePassword } = useProperty();
+    const { user, updateProfile, updatePassword } = useLocation();
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [profileData, setProfileData] = useState<UpdateProfileInfo | null>(null);
     const [passwordData, setPasswordData] = useState<UpdatePasswordInfo & { confirmNew: string }>({
@@ -46,6 +46,18 @@ const ProfileSettings: React.FC = () => {
     
     const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPasswordData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handleCancelEditingProfile = () => {
+        setIsEditingProfile(false);
+        if (user) {
+            setProfileData({
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phone: user.phone,
+            });
+        }
     };
 
     const handleSaveProfile = async (e: React.FormEvent) => {

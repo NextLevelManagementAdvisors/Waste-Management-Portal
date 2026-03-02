@@ -71,7 +71,7 @@ export class RoleRepository {
 
     const result = await pool.query(
       `SELECT u.*, ur.admin_role,
-        (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
+        (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) as property_count,
         (SELECT array_agg(ur2.role) FROM user_roles ur2 WHERE ur2.user_id = u.id) as roles
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.id
@@ -116,9 +116,9 @@ export class RoleRepository {
 
     if (options.pickupDay) {
       if (options.pickupDay === 'unassigned') {
-        conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_status = 'approved' AND p.pickup_day IS NULL)`);
+        conditions.push(`EXISTS (SELECT 1 FROM locations p WHERE p.user_id = u.id AND p.service_status = 'approved' AND p.collection_day IS NULL)`);
       } else {
-        conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.pickup_day = $${idx})`);
+        conditions.push(`EXISTS (SELECT 1 FROM locations p WHERE p.user_id = u.id AND p.collection_day = $${idx})`);
         params.push(options.pickupDay);
         idx++;
       }
@@ -135,9 +135,9 @@ export class RoleRepository {
 
     const result = await pool.query(
       `SELECT u.*,
-        (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
+        (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) as property_count,
         (SELECT array_agg(ur.role) FROM user_roles ur WHERE ur.user_id = u.id) as roles,
-        (SELECT array_agg(DISTINCT p.pickup_day) FROM properties p WHERE p.user_id = u.id AND p.pickup_day IS NOT NULL) as pickup_days,
+        (SELECT array_agg(DISTINCT p.collection_day) FROM locations p WHERE p.user_id = u.id AND p.collection_day IS NOT NULL) as pickup_days,
         dp.rating as driver_rating,
         dp.onboarding_status as driver_onboarding_status,
         dp.total_jobs_completed as driver_jobs_completed,

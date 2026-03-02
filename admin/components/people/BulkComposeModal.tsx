@@ -191,7 +191,7 @@ const BulkComposeModal: React.FC<BulkComposeModalProps> = ({ recipients: initial
               )}
               {selectedTemplateId && (
                 <p className="text-xs text-gray-400">
-                  Variables like {'{{'}customer_name{'}}'}  will be replaced per recipient
+                  Variables like {'{{'}customerName{'}}'}  will be replaced per recipient
                 </p>
               )}
             </div>

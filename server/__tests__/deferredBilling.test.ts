@@ -21,16 +21,16 @@ vi.mock('../storage', () => ({
     getUserByEmail: vi.fn(),
     getUserById: vi.fn(),
     createUser: vi.fn(),
-    getPropertiesForUser: vi.fn(),
+    getLocationsForUser: vi.fn(),
     updateUser: vi.fn(),
-    getPropertyById: vi.fn(),
-    createProperty: vi.fn(),
-    updateProperty: vi.fn(),
+    getLocationById: vi.fn(),
+    createLocation: vi.fn(),
+    updateLocation: vi.fn(),
     savePendingSelections: vi.fn(),
     getPendingSelections: vi.fn(),
     deletePendingSelections: vi.fn(),
     updateServiceStatus: vi.fn(),
-    getPendingReviewProperties: vi.fn(),
+    getPendingReviewLocations: vi.fn(),
     getPendingReviewCount: vi.fn(),
     // stubs needed by other routes
     findReferrerByCode: vi.fn(),
@@ -38,12 +38,12 @@ vi.mock('../storage', () => ({
     createPasswordResetToken: vi.fn(),
     getValidResetToken: vi.fn(),
     markResetTokenUsed: vi.fn(),
-    createMissedPickupReport: vi.fn(),
-    getMissedPickupReports: vi.fn(),
-    createSpecialPickupRequest: vi.fn(),
-    getSpecialPickupRequests: vi.fn(),
+    createMissedCollectionReport: vi.fn(),
+    getMissedCollectionReports: vi.fn(),
+    createOnDemandRequest: vi.fn(),
+    getOnDemandRequests: vi.fn(),
     getActiveServiceAlerts: vi.fn(),
-    getSpecialPickupServices: vi.fn(),
+    getOnDemandServices: vi.fn(),
     getOrCreateReferralCode: vi.fn(),
     getReferralsByUser: vi.fn(),
     getReferralTotalRewards: vi.fn(),
@@ -51,12 +51,12 @@ vi.mock('../storage', () => ({
     deleteCollectionIntent: vi.fn(),
     getCollectionIntent: vi.fn(),
     upsertDriverFeedback: vi.fn(),
-    getDriverFeedbackForProperty: vi.fn(),
+    getDriverFeedbackForLocation: vi.fn(),
     getDriverFeedback: vi.fn(),
     createTipDismissal: vi.fn(),
-    getTipDismissalsForProperty: vi.fn(),
+    getTipDismissalsForLocation: vi.fn(),
     initiateTransfer: vi.fn(),
-    getPropertyByTransferToken: vi.fn(),
+    getLocationByTransferToken: vi.fn(),
     cancelTransfer: vi.fn(),
     completeTransfer: vi.fn(),
     getDriverById: vi.fn(),
@@ -70,6 +70,11 @@ vi.mock('../storage', () => ({
 
 vi.mock('../db', () => ({
   pool: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+  BaseRepository: class {
+    async query(_text: string, _params?: any[]) {
+      return { rows: [] };
+    }
+  },
 }));
 
 vi.mock('../stripeClient', () => ({
@@ -194,15 +199,15 @@ beforeEach(() => {
 });
 
 // ===========================================================================
-// POST /api/properties/:propertyId/pending-selections
+// POST /api/locations/:locationId/pending-selections
 // ===========================================================================
-describe('POST /api/properties/:propertyId/pending-selections', () => {
+describe('POST /api/locations/:locationId/pending-selections', () => {
   it('saves pending selections for an owned property', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(baseProperty as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue(baseProperty as any);
     vi.mocked(storage.savePendingSelections).mockResolvedValue(undefined);
 
     const res = await supertest(createAuthApp())
-      .post('/api/properties/prop-1/pending-selections')
+      .post('/api/locations/prop-1/pending-selections')
       .send({
         selections: [
           { serviceId: 'svc-trash', quantity: 1, useSticker: false },
@@ -219,30 +224,30 @@ describe('POST /api/properties/:propertyId/pending-selections', () => {
   });
 
   it('rejects if property not found', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(null);
+    vi.mocked(storage.getLocationById).mockResolvedValue(null);
 
     const res = await supertest(createAuthApp())
-      .post('/api/properties/prop-999/pending-selections')
+      .post('/api/locations/prop-999/pending-selections')
       .send({ selections: [{ serviceId: 'svc-trash', quantity: 1 }] });
 
     expect(res.status).toBe(404);
   });
 
   it('rejects if property belongs to different user', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue({ ...baseProperty, user_id: 'other-user' } as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty, user_id: 'other-user' } as any);
 
     const res = await supertest(createAuthApp())
-      .post('/api/properties/prop-1/pending-selections')
+      .post('/api/locations/prop-1/pending-selections')
       .send({ selections: [{ serviceId: 'svc-trash', quantity: 1 }] });
 
     expect(res.status).toBe(404);
   });
 
   it('rejects if selections is not an array', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(baseProperty as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue(baseProperty as any);
 
     const res = await supertest(createAuthApp())
-      .post('/api/properties/prop-1/pending-selections')
+      .post('/api/locations/prop-1/pending-selections')
       .send({ selections: 'not-an-array' });
 
     expect(res.status).toBe(400);
@@ -250,15 +255,15 @@ describe('POST /api/properties/:propertyId/pending-selections', () => {
 });
 
 // ===========================================================================
-// GET /api/properties/:propertyId/pending-selections
+// GET /api/locations/:locationId/pending-selections
 // ===========================================================================
-describe('GET /api/properties/:propertyId/pending-selections', () => {
+describe('GET /api/locations/:locationId/pending-selections', () => {
   it('returns pending selections for an owned property', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(baseProperty as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue(baseProperty as any);
     vi.mocked(storage.getPendingSelections).mockResolvedValue(pendingSelections);
 
     const res = await supertest(createAuthApp())
-      .get('/api/properties/prop-1/pending-selections');
+      .get('/api/locations/prop-1/pending-selections');
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
@@ -267,19 +272,19 @@ describe('GET /api/properties/:propertyId/pending-selections', () => {
   });
 
   it('rejects if property not found', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(null);
+    vi.mocked(storage.getLocationById).mockResolvedValue(null);
 
     const res = await supertest(createAuthApp())
-      .get('/api/properties/prop-999/pending-selections');
+      .get('/api/locations/prop-999/pending-selections');
 
     expect(res.status).toBe(404);
   });
 
   it('rejects if property belongs to different user', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue({ ...baseProperty, user_id: 'other-user' } as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty, user_id: 'other-user' } as any);
 
     const res = await supertest(createAuthApp())
-      .get('/api/properties/prop-1/pending-selections');
+      .get('/api/locations/prop-1/pending-selections');
 
     expect(res.status).toBe(404);
   });
@@ -290,7 +295,7 @@ describe('GET /api/properties/:propertyId/pending-selections', () => {
 // ===========================================================================
 describe('POST /api/subscriptions (address approval guard)', () => {
   it('rejects subscription creation for pending_review property', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(baseProperty as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue(baseProperty as any);
 
     const res = await supertest(createAuthApp())
       .post('/api/subscriptions')
@@ -306,7 +311,7 @@ describe('POST /api/subscriptions (address approval guard)', () => {
   });
 
   it('rejects subscription creation for denied property', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue({ ...baseProperty, service_status: 'denied' } as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty, service_status: 'denied' } as any);
 
     const res = await supertest(createAuthApp())
       .post('/api/subscriptions')
@@ -321,7 +326,7 @@ describe('POST /api/subscriptions (address approval guard)', () => {
   });
 
   it('allows subscription creation for approved property', async () => {
-    vi.mocked(storage.getPropertyById).mockResolvedValue(approvedProperty as any);
+    vi.mocked(storage.getLocationById).mockResolvedValue(approvedProperty as any);
 
     const res = await supertest(createAuthApp())
       .post('/api/subscriptions')

@@ -244,14 +244,14 @@ const AdminApp: React.FC = () => {
   // Auto-re-show action bar when new items arrive after dismiss
   useEffect(() => {
     if (actionBarDismissed && dismissedCounts) {
-      const currentMp = badgeCounts.missedPickups || 0;
+      const currentMp = badgeCounts.missedCollections || 0;
       const currentAr = badgeCounts.addressReviews || 0;
       if (currentMp > dismissedCounts.mp || currentAr > dismissedCounts.ar) {
         setActionBarDismissed(false);
         setDismissedCounts(null);
       }
     }
-  }, [badgeCounts.missedPickups, badgeCounts.addressReviews, actionBarDismissed, dismissedCounts]);
+  }, [badgeCounts.missedCollections, badgeCounts.addressReviews, actionBarDismissed, dismissedCounts]);
 
   const navigateTo = useCallback((view: AdminView, filter?: NavFilter) => {
     setNavFilter(filter || null);
@@ -573,7 +573,7 @@ const AdminApp: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={e => handleGlobalSearch(e.target.value)}
-                  placeholder="Search customers, properties..."
+                  placeholder="Search customers, locations..."
                   className="w-full px-4 py-3 text-sm border-b border-gray-100 rounded-t-xl focus:outline-none"
                   autoFocus
                 />
@@ -590,10 +590,10 @@ const AdminApp: React.FC = () => {
                         ))}
                       </div>
                     )}
-                    {searchResults.properties?.length > 0 && (
+                    {searchResults.locations?.length > 0 && (
                       <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Properties</p>
-                        {searchResults.properties.map((p: any) => (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-2 py-1">Locations</p>
+                        {searchResults.locations.map((p: any) => (
                           <button key={p.id} onClick={() => { navigateTo('contacts', { search: p.address }); setSearchOpen(false); setSearchQuery(''); setSearchResults(null); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
                             <p className="font-bold text-gray-900">{p.address}</p>
                             <p className="text-xs text-gray-400">{p.owner_name} · {p.service_type}</p>
@@ -601,7 +601,7 @@ const AdminApp: React.FC = () => {
                         ))}
                       </div>
                     )}
-                    {(!searchResults.users?.length && !searchResults.properties?.length) && (
+                    {(!searchResults.users?.length && !searchResults.locations?.length) && (
                       <p className="text-sm text-gray-400 text-center py-4">No results found</p>
                     )}
                   </div>
@@ -613,12 +613,12 @@ const AdminApp: React.FC = () => {
 
         {/* Global Action Bar */}
         {(() => {
-          const mpCount = badgeCounts.missedPickups || 0;
+          const mpCount = badgeCounts.missedCollections || 0;
           const arCount = badgeCounts.addressReviews || 0;
-          const pdCount = badgeCounts.propertiesNeedingPickupDay || 0;
+          const pdCount = badgeCounts.locationsNeedingCollectionDay || 0;
           if (mpCount === 0 && arCount === 0 && pdCount === 0) return null;
           if (actionBarDismissed) return null;
-          const worstHours = Math.max(badgeCounts.oldestMissedPickupHours || 0, badgeCounts.oldestAddressReviewHours || 0);
+          const worstHours = Math.max(badgeCounts.oldestMissedCollectionHours || 0, badgeCounts.oldestAddressReviewHours || 0);
           const barBg = worstHours >= 72 ? 'bg-red-50 border-red-200' : worstHours >= 24 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200';
           const ageLabel = (hours: number | undefined) => {
             if (!hours || hours < 24) return null;
@@ -637,10 +637,10 @@ const AdminApp: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                   </svg>
                   <span className="text-xs font-bold text-red-700">
-                    {mpCount} Missed Pickup{mpCount !== 1 ? 's' : ''}
+                    {mpCount} Missed Collection{mpCount !== 1 ? 's' : ''}
                   </span>
-                  {ageLabel(badgeCounts.oldestMissedPickupHours) && (
-                    <span className="text-[10px] font-bold text-red-400">{ageLabel(badgeCounts.oldestMissedPickupHours)} old</span>
+                  {ageLabel(badgeCounts.oldestMissedCollectionHours) && (
+                    <span className="text-[10px] font-bold text-red-400">{ageLabel(badgeCounts.oldestMissedCollectionHours)} old</span>
                   )}
                 </button>
               )}
@@ -665,14 +665,14 @@ const AdminApp: React.FC = () => {
               {pdCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('contacts', { filter: 'no-pickup-day' })}
+                  onClick={() => navigateTo('contacts', { filter: 'no-collection-day' })}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-indigo-200 hover:bg-indigo-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
                   </svg>
                   <span className="text-xs font-bold text-indigo-700">
-                    {pdCount} Need Pickup Day
+                    {pdCount} Need Collection Day
                   </span>
                 </button>
               )}
@@ -694,7 +694,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedPickupsCount={badgeCounts.missedPickups || 0} onActionResolved={refreshBadgeCounts} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>

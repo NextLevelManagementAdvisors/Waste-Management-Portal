@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getSubscriptions, getPaymentMethods, updateSubscriptionPaymentMethod, cancelSubscription, pauseSubscription, resumeSubscription, getServices } from '../services/apiService.ts';
-import { Subscription, PaymentMethod, Service, Property } from '../types.ts';
+import { Subscription, PaymentMethod, Service, Location } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import Modal from './Modal.tsx';
 import { CreditCardIcon, BanknotesIcon, BuildingOffice2Icon, ChartPieIcon, SparklesIcon, ArrowRightIcon, ExclamationTriangleIcon } from './Icons.tsx';
 
@@ -97,7 +97,7 @@ const SubscriptionCard: React.FC<{
 }
 
 const Subscriptions: React.FC = () => {
-    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
+    const { selectedLocation, locations, setSelectedLocationId } = useLocation();
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [services, setServices] = useState<Service[]>([]);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -118,7 +118,7 @@ const Subscriptions: React.FC = () => {
         setTimeout(() => setNotification(null), 4000);
     };
 
-    const isAllMode = !selectedProperty && properties.length > 0;
+    const isAllMode = !selectedLocation && locations.length > 0;
 
     const fetchData = async () => {
         setLoading(true);
@@ -146,17 +146,16 @@ const Subscriptions: React.FC = () => {
         // FIX: Removed status filter to allow all subscriptions (including canceled) to be displayed. This resolves a downstream type error in SubscriptionCard.
         return isAllMode
             ? allSubscriptions
-            : allSubscriptions.filter(s => s.propertyId === selectedProperty?.id);
-    }, [isAllMode, allSubscriptions, selectedProperty]);
+            : allSubscriptions.filter(s => s.locationId === selectedLocation?.id);
+    }, [isAllMode, allSubscriptions, selectedLocation]);
 
     const groupedSubscriptions = useMemo(() => {
-        return properties.reduce((acc, prop) => {
-            // FIX: Removed status filter to allow all subscriptions (including canceled) to be displayed.
-            const subs = allSubscriptions.filter(s => s.propertyId === prop.id);
-            if (subs.length > 0) acc.push({ property: prop, subs });
+        return locations.reduce((acc, loc) => {
+            const subs = allSubscriptions.filter(s => s.locationId === loc.id);
+            if (subs.length > 0) acc.push({ location: loc, subs });
             return acc;
-        }, [] as { property: Property, subs: Subscription[] }[]);
-    }, [properties, allSubscriptions]);
+        }, [] as { location: Location, subs: Subscription[] }[]);
+    }, [locations, allSubscriptions]);
 
     // Handlers
     const openCancelModal = (sub: Subscription) => {
@@ -164,7 +163,7 @@ const Subscriptions: React.FC = () => {
         
         if (baseFeeService && sub.serviceId === baseFeeService.id) {
             const hasActiveCans = allSubscriptions.some(s => 
-                s.propertyId === sub.propertyId &&
+                s.locationId === sub.locationId &&
                 s.status === 'active' &&
                 s.id !== sub.id &&
                 services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
@@ -200,7 +199,7 @@ const Subscriptions: React.FC = () => {
                 const currentSubs = await getSubscriptions();
                 
                 const remainingCans = currentSubs.filter(s =>
-                    s.propertyId === selectedSub.propertyId &&
+                    s.locationId === selectedSub.locationId &&
                     s.status === 'active' &&
                     services.find(srv => srv.id === s.serviceId)?.category === 'base_service'
                 );
@@ -210,7 +209,7 @@ const Subscriptions: React.FC = () => {
                     const baseFeeService = services.find(s => s.category === 'base_fee');
                     if (baseFeeService) {
                         const baseFeeSub = currentSubs.find(s => 
-                            s.propertyId === selectedSub.propertyId &&
+                            s.locationId === selectedSub.locationId &&
                             s.serviceId === baseFeeService.id &&
                             s.status === 'active'
                         );
@@ -303,14 +302,14 @@ const Subscriptions: React.FC = () => {
             
             {isAllMode ? (
                 <div className="space-y-8">
-                    {groupedSubscriptions.map(({property, subs}) => (
-                        <div key={property.id}>
-                            <h3 
+                    {groupedSubscriptions.map(({location, subs}) => (
+                        <div key={location.id}>
+                            <h3
                                 className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2 mb-4 cursor-pointer hover:text-primary transition-colors"
-                                onClick={() => setSelectedPropertyId(property.id)}
+                                onClick={() => setSelectedLocationId(location.id)}
                             >
-                                <BuildingOffice2Icon className="w-5 h-5" /> 
-                                {property.address}
+                                <BuildingOffice2Icon className="w-5 h-5" />
+                                {location.address}
                                 <ArrowRightIcon className="w-4 h-4" />
                             </h3>
                             <div className="space-y-4">

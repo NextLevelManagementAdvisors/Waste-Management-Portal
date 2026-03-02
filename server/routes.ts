@@ -270,7 +270,7 @@ export function registerRoutes(app: Express) {
       // Validate propertyId exists, belongs to authenticated user, and is approved
       const propertyId = metadata?.propertyId;
       if (propertyId) {
-        const property = await storage.getPropertyById(propertyId);
+        const property = await storage.getLocationById(propertyId);
         if (!property) {
           return res.status(400).json({ error: 'Property not found' });
         }
@@ -389,8 +389,8 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders for this property
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
-        import('./optimoSyncService').then(({ cleanupFutureOrdersForProperty }) => {
-          cleanupFutureOrdersForProperty(propertyId).catch(err =>
+        import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
+          cleanupFutureOrdersForLocation(propertyId).catch(err =>
             console.error(`[OptimoSync] Cancellation cleanup failed for property ${propertyId}:`, err)
           );
         });
@@ -415,8 +415,8 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders while paused
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
-        import('./optimoSyncService').then(({ cleanupFutureOrdersForProperty }) => {
-          cleanupFutureOrdersForProperty(propertyId).catch(err =>
+        import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
+          cleanupFutureOrdersForLocation(propertyId).catch(err =>
             console.error(`[OptimoSync] Pause cleanup failed for property ${propertyId}:`, err)
           );
         });
@@ -558,8 +558,8 @@ export function registerRoutes(app: Express) {
   async function verifyUserOwnsAddress(req: Request, res: Response, address: string): Promise<boolean> {
     const userId = req.session?.userId;
     if (!userId) return false;
-    const properties = await storage.getPropertiesForUser(userId);
-    return properties.some(p => p.address.toLowerCase().trim() === address.toLowerCase().trim());
+    const locations = await storage.getLocationsForUser(userId);
+    return locations.some(p => p.address.toLowerCase().trim() === address.toLowerCase().trim());
   }
 
   app.get('/api/optimoroute/next-pickup', requireAuth, async (req: Request, res: Response) => {
@@ -651,10 +651,11 @@ export function registerRoutes(app: Express) {
 
       // Load context server-side from session — never trust client-supplied context
       const user = await storage.getUserById(req.session.userId!);
+      const userLocations = user ? await storage.getLocationsForUser(user.id) : [];
       const contextString = user ? `
     User Details:
     - Name: ${user.first_name} ${user.last_name}
-    - Properties: ${user.properties?.length ?? 0}
+    - Properties: ${userLocations.length}
   ` : '';
 
       const ai = new GoogleGenAI({ apiKey });

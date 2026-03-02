@@ -24,8 +24,8 @@ interface FeasibilityResult {
 
 interface RouteSuggestion {
   zone_name: string;
-  driver_name?: string;
-  pickup_day: string;
+  driverName?: string;
+  collectionDay: string;
   confidence: number;
   distance_miles: number;
 }
@@ -54,7 +54,7 @@ const reasonLabels: Record<string, { text: string; color: string; bg: string }> 
 };
 
 const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onActionResolved }) => {
-  const [properties, setProperties] = useState<PendingProperty[]>([]);
+  const [locations, setLocations] = useState<PendingProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [feasibilityResults, setFeasibilityResults] = useState<Record<string, FeasibilityResult>>({});
@@ -66,28 +66,28 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
   const [routeSuggestions, setRouteSuggestions] = useState<Record<string, RouteSuggestion | null>>({});
   const [suggestingIds, setSuggestingIds] = useState<Set<string>>(new Set());
 
-  const fetchRouteSuggestion = async (propertyId: string) => {
-    setSuggestingIds(prev => new Set(prev).add(propertyId));
+  const fetchRouteSuggestion = async (locationId: string) => {
+    setSuggestingIds(prev => new Set(prev).add(locationId));
     try {
-      const res = await fetch(`/api/admin/address-reviews/${propertyId}/route-suggestion`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/address-reviews/${locationId}/route-suggestion`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setRouteSuggestions(prev => ({ ...prev, [propertyId]: data.suggestion }));
+        setRouteSuggestions(prev => ({ ...prev, [locationId]: data.suggestion }));
       }
     } catch (e) {
       console.error('Route suggestion failed:', e);
     } finally {
-      setSuggestingIds(prev => { const next = new Set(prev); next.delete(propertyId); return next; });
+      setSuggestingIds(prev => { const next = new Set(prev); next.delete(locationId); return next; });
     }
   };
 
-  const fetchProperties = async () => {
+  const fetchLocations = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/address-reviews', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setProperties(data.properties);
+        setLocations(data.locations);
         setSelected(new Set());
       }
     } catch (e) {
@@ -97,16 +97,16 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     }
   };
 
-  useEffect(() => { fetchProperties(); }, []);
+  useEffect(() => { fetchLocations(); }, []);
 
-  // Auto-fetch route suggestions for all pending properties
+  // Auto-fetch route suggestions for all pending locations
   useEffect(() => {
-    for (const prop of properties) {
+    for (const prop of locations) {
       if (!(prop.id in routeSuggestions) && !suggestingIds.has(prop.id)) {
         fetchRouteSuggestion(prop.id);
       }
     }
-  }, [properties]);
+  }, [locations]);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -117,10 +117,10 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === properties.length) {
+    if (selected.size === locations.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(properties.map(p => p.id)));
+      setSelected(new Set(locations.map(p => p.id)));
     }
   };
 
@@ -132,13 +132,13 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyIds: Array.from(selected), decision }),
+        body: JSON.stringify({ locationIds: Array.from(selected), decision }),
       });
       if (res.ok) {
         const data = await res.json();
-        // Remove successfully processed properties
+        // Remove successfully processed locations
         const succeededIds = new Set(data.results.filter((r: any) => r.success).map((r: any) => r.id));
-        setProperties(prev => prev.filter(p => !succeededIds.has(p.id)));
+        setLocations(prev => prev.filter(p => !succeededIds.has(p.id)));
         setSelected(new Set());
         setFeasibilityResults(prev => {
           const next = { ...prev };
@@ -154,16 +154,16 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     }
   };
 
-  const checkFeasibility = async (propertyId: string) => {
-    setCheckingId(propertyId);
+  const checkFeasibility = async (locationId: string) => {
+    setCheckingId(locationId);
     try {
-      const res = await fetch(`/api/admin/address-reviews/${propertyId}/check-feasibility`, {
+      const res = await fetch(`/api/admin/address-reviews/${locationId}/check-feasibility`, {
         method: 'POST',
         credentials: 'include',
       });
       if (res.ok) {
         const result: FeasibilityResult = await res.json();
-        setFeasibilityResults(prev => ({ ...prev, [propertyId]: result }));
+        setFeasibilityResults(prev => ({ ...prev, [locationId]: result }));
       }
     } catch (e) {
       console.error('Feasibility check failed:', e);
@@ -172,25 +172,25 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     }
   };
 
-  const submitDecision = async (propertyId: string, decision: 'approved' | 'denied' | 'waitlist', notes?: string) => {
-    setSavingId(propertyId);
+  const submitDecision = async (locationId: string, decision: 'approved' | 'denied' | 'waitlist', notes?: string) => {
+    setSavingId(locationId);
     try {
-      const res = await fetch(`/api/admin/address-reviews/${propertyId}/decision`, {
+      const res = await fetch(`/api/admin/address-reviews/${locationId}/decision`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ decision, notes }),
       });
       if (res.ok) {
-        setProperties(prev => prev.filter(p => p.id !== propertyId));
+        setLocations(prev => prev.filter(p => p.id !== locationId));
         setFeasibilityResults(prev => {
           const next = { ...prev };
-          delete next[propertyId];
+          delete next[locationId];
           return next;
         });
         setSelected(prev => {
           const next = new Set(prev);
-          next.delete(propertyId);
+          next.delete(locationId);
           return next;
         });
         setDenyingId(null);
@@ -206,11 +206,11 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
 
   if (loading) return <LoadingSpinner />;
 
-  if (properties.length === 0) {
+  if (locations.length === 0) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <Button onClick={fetchProperties}>Refresh</Button>
+          <Button onClick={fetchLocations}>Refresh</Button>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
           <p className="text-green-700 font-bold">No addresses pending review</p>
@@ -222,9 +222,9 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <Button onClick={fetchProperties}>Refresh</Button>
+        <Button onClick={fetchLocations}>Refresh</Button>
         <p className="text-sm text-gray-500">
-          {properties.length} address{properties.length !== 1 ? 'es' : ''} pending review
+          {locations.length} address{locations.length !== 1 ? 'es' : ''} pending review
         </p>
         {selected.size > 0 && (
           <div className="flex items-center gap-2 ml-auto">
@@ -261,7 +261,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
               <th className="px-3 py-2 text-left">
                 <input
                   type="checkbox"
-                  checked={selected.size === properties.length && properties.length > 0}
+                  checked={selected.size === locations.length && locations.length > 0}
                   onChange={toggleSelectAll}
                   className="rounded border-gray-300"
                 />
@@ -277,7 +277,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
             </tr>
           </thead>
           <tbody>
-            {properties.map(prop => {
+            {locations.map(prop => {
               const result = feasibilityResults[prop.id];
               const isChecking = checkingId === prop.id;
               const isDenying = denyingId === prop.id;
@@ -338,9 +338,9 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                           <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
                             {routeSuggestions[prop.id]!.zone_name}
                           </span>
-                          {routeSuggestions[prop.id]!.pickup_day !== 'unknown' && (
+                          {routeSuggestions[prop.id]!.collectionDay !== 'unknown' && (
                             <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded capitalize">
-                              {routeSuggestions[prop.id]!.pickup_day.slice(0, 3)}
+                              {routeSuggestions[prop.id]!.collectionDay.slice(0, 3)}
                             </span>
                           )}
                         </div>

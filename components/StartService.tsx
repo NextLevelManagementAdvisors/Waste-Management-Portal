@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from './Button.tsx';
 import { Card } from './Card.tsx';
-import { NewPropertyInfo, PaymentMethod, Service } from '../types.ts';
+import { NewLocationInfo, PaymentMethod, Service } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
 import { getPaymentMethods, addPaymentMethod, setPrimaryPaymentMethod, getServices, uploadSpecialPickupPhotos, getServiceRecommendation } from '../services/apiService.ts';
 import * as stripeService from '../services/stripeService.ts';
@@ -9,7 +9,7 @@ import { CreditCardIcon, BanknotesIcon, ExclamationTriangleIcon, SparklesIcon } 
 import { PaymentElement, useStripe, useElements, Elements } from '@stripe/react-stripe-js';
 import { getStripePromise } from './StripeProvider.tsx';
 import ServiceSelector, { QuantitySelector } from './ServiceSelector.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 
 interface ServiceSelection {
     serviceId: string;
@@ -18,13 +18,13 @@ interface ServiceSelection {
 }
 
 interface StartServiceProps {
-    onCompleteSetup: (propertyInfo: NewPropertyInfo, services: ServiceSelection[]) => Promise<void>;
+    onCompleteSetup: (locationInfo: NewLocationInfo, services: ServiceSelection[]) => Promise<void>;
     onCancel: () => void;
     isOnboarding?: boolean;
     serviceFlowType?: 'recurring' | 'request';
 }
 
-const initialFormState: NewPropertyInfo = {
+const initialFormState: NewLocationInfo = {
     street: '', city: '', state: '', zip: '',
     serviceType: 'personal',
     inHOA: 'no',
@@ -160,7 +160,7 @@ const OrderSummary: React.FC<{
 
 
 const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
-    const { properties, setCurrentView } = useProperty();
+    const { locations, setCurrentView } = useLocation();
 
     // Flow type: determined by prop or chosen by user in step 0
     const [flowType, setFlowType] = useState<'recurring' | 'request' | null>(serviceFlowType || null);
@@ -172,7 +172,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     // For recurring: steps 1=Address, 2=Details, 3=Services, 4=Payment
     const [step, setStep] = useState(serviceFlowType ? 1 : 0);
 
-    const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
+    const [formData, setFormData] = useState<NewLocationInfo>(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Service selection state
@@ -257,7 +257,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleRadioChange = (name: keyof NewPropertyInfo, value: any) => {
+    const handleRadioChange = (name: keyof NewLocationInfo, value: any) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
@@ -497,7 +497,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
                 <button
                     type="button"
                     onClick={() => {
-                        if (properties.length > 0) {
+                        if (locations.length > 0) {
                             setCurrentView('requests');
                         } else {
                             setFlowType('request');

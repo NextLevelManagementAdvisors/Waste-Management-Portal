@@ -3,25 +3,25 @@ import { BaseRepository } from '../db';
 export class AdminRepository extends BaseRepository {
   async getAdminStats(): Promise<{
     totalUsers: number;
-    totalProperties: number;
+    totalLocations: number;
     recentUsers: number;
     activeTransfers: number;
     totalReferrals: number;
     pendingReferrals: number;
     pendingReviews: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews] = await Promise.all([
+    const [users, locations, recentUsers, transfers, referrals, pendingRefs, pendingReviews] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
-      this.query('SELECT COUNT(*) as count FROM properties'),
+      this.query('SELECT COUNT(*) as count FROM locations'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
-      this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM locations WHERE transfer_status = 'pending'`),
       this.query('SELECT COUNT(*) as count FROM referrals'),
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
-      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
+      this.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
-      totalProperties: parseInt(properties.rows[0].count),
+      totalLocations: parseInt(locations.rows[0].count),
       recentUsers: parseInt(recentUsers.rows[0].count),
       activeTransfers: parseInt(transfers.rows[0].count),
       totalReferrals: parseInt(referrals.rows[0].count),

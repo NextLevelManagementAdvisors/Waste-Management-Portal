@@ -49,7 +49,7 @@ const DriverPayTab: React.FC = () => {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set('payment_status', statusFilter);
+      if (statusFilter) params.set('paymentStatus', statusFilter);
       const res = await fetch(`/api/admin/driver-payments?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch driver payments');
       const data = await res.json();
@@ -74,7 +74,7 @@ const DriverPayTab: React.FC = () => {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ payment_status: 'paid' }),
+        body: JSON.stringify({ paymentStatus: 'paid' }),
       });
       if (!res.ok) throw new Error('Failed to update');
       setMarkPaidJob(null);

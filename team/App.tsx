@@ -4,9 +4,9 @@ import { Button } from '../components/Button.tsx';
 import TeamAuthLayout from './components/TeamAuthLayout';
 import TeamLogin from './components/TeamLogin';
 import TeamRegister from './components/TeamRegister';
-import SpecialPickups from './components/SpecialPickups';
+import OnDemandPickups from './components/OnDemandPickups';
 const ZoneMapView = React.lazy(() => import('./components/ZoneMapView'));
-const AvailableLocations = React.lazy(() => import('./components/AvailableLocations'));
+// AvailableLocations merged into ZoneMapView as unified Coverage view
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -16,7 +16,6 @@ import {
   XMarkIcon,
   ArchiveBoxIcon,
   MapPinIcon,
-  HomeModernIcon,
 } from '../components/Icons.tsx';
 
 interface Driver {
@@ -44,29 +43,29 @@ interface Route {
   id: string;
   title: string;
   description?: string;
-  route_type?: string;
-  scheduled_date?: string;
-  start_time?: string;
-  end_time?: string;
-  estimated_stops?: number;
-  estimated_hours?: number;
-  base_pay?: number;
+  routeType?: string;
+  scheduledDate?: string;
+  startTime?: string;
+  endTime?: string;
+  estimatedStops?: number;
+  estimatedHours?: number;
+  basePay?: number;
   status: string;
-  assigned_driver_id?: string;
+  assignedDriverId?: string;
   bids?: Bid[];
 }
 
 interface Bid {
   id: string;
-  route_id: string;
-  driver_id: string;
-  bid_amount: number;
+  routeId: string;
+  driverId: string;
+  bidAmount: number;
   message?: string;
-  driver_rating_at_bid?: number;
-  created_at?: string;
+  driverRatingAtBid?: number;
+  createdAt?: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'locations' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
@@ -74,7 +73,6 @@ const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   schedule: '/team/schedule',
   pickups: '/team/pickups',
   zones: '/team/zones',
-  locations: '/team/locations',
   messages: '/team/messages',
   profile: '/team/profile',
 };
@@ -85,6 +83,8 @@ const TEAM_PATH_TO_VIEW: Record<string, TeamView> = Object.fromEntries(
 
 function getTeamViewFromPath(pathname: string): TeamView {
   const normalized = pathname.replace(/\/+$/, '') || '/team';
+  // Redirect old /team/locations to unified zones/coverage view
+  if (normalized === '/team/locations') return 'zones';
   return TEAM_PATH_TO_VIEW[normalized] || 'dashboard';
 }
 
@@ -803,7 +803,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   const activeRoutes = myRoutes.filter(j => j.status === 'assigned' || j.status === 'in_progress');
   const upcomingRoutes = myRoutes
     .filter(j => j.status === 'assigned')
-    .sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''))
+    .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''))
     .slice(0, 3);
 
   if (loading) {
@@ -872,7 +872,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
                 <div className="min-w-0">
                   <p className="font-bold text-gray-900 text-sm">{route.title}</p>
                   <p className="text-xs text-gray-500">
-                    {formatDate(route.scheduled_date)} · {route.start_time}–{route.end_time}
+                    {formatDate(route.scheduledDate)} · {route.startTime}–{route.endTime}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -935,8 +935,8 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
                   <div className="min-w-0">
                     <p className="font-bold text-gray-900 text-sm truncate">{route.title}</p>
                     <p className="text-xs text-gray-500">
-                      {formatDate(route.scheduled_date)}
-                      {route.base_pay != null && <> · <span className="font-bold text-teal-700">${Number(route.base_pay).toFixed(2)}</span></>}
+                      {formatDate(route.scheduledDate)}
+                      {route.basePay != null && <> · <span className="font-bold text-teal-700">${Number(route.basePay).toFixed(2)}</span></>}
                     </p>
                   </div>
                   <StatusBadge status={route.status} />
@@ -990,13 +990,13 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
         const j = await res.json();
         const route = j.data;
         setSelectedRoute(route);
-        setBidAmount(route.base_pay && route.estimated_hours ? (Number(route.base_pay) * Number(route.estimated_hours)).toFixed(2) : (route.base_pay?.toString() || ''));
+        setBidAmount(route.basePay && route.estimatedHours ? (Number(route.basePay) * Number(route.estimatedHours)).toFixed(2) : (route.basePay?.toString() || ''));
         setBidMessage('');
         const profileRes = await fetch('/api/team/profile', { credentials: 'include' });
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           const driverId = profileData.data?.id?.toString();
-          const existing = route.bids?.find((b: Bid) => b.driver_id?.toString() === driverId);
+          const existing = route.bids?.find((b: Bid) => b.driverId?.toString() === driverId);
           setMyBid(existing || null);
         }
       }
@@ -1045,8 +1045,8 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
 
   const filteredRoutes = routes
     .sort((a, b) => {
-      if (sortBy === 'date') return (a.scheduled_date || '').localeCompare(b.scheduled_date || '');
-      if (sortBy === 'pay') return (b.base_pay || 0) - (a.base_pay || 0);
+      if (sortBy === 'date') return (a.scheduledDate || '').localeCompare(b.scheduledDate || '');
+      if (sortBy === 'pay') return (b.basePay || 0) - (a.basePay || 0);
       return 0;
     });
 
@@ -1110,12 +1110,12 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                 <StatusBadge status={route.status} />
               </div>
               <div className="space-y-1 text-sm text-gray-500 mb-4">
-                {route.scheduled_date && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(route.scheduled_date)}</p>}
-                {(route.start_time || route.end_time) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.start_time}–{route.end_time}</p>}
+                {route.scheduledDate && <p className="flex items-center gap-1"><CalendarDaysIcon className="w-4 h-4" />{formatDate(route.scheduledDate)}</p>}
+                {(route.startTime || route.endTime) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.startTime}–{route.endTime}</p>}
                 <div className="flex gap-4 mt-2">
-                  {route.estimated_stops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimated_stops} stops</span>}
-                  {route.estimated_hours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimated_hours}h est.</span>}
-                  {route.base_pay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(route.base_pay).toFixed(2)}</span>}
+                  {route.estimatedStops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimatedStops} stops</span>}
+                  {route.estimatedHours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimatedHours}h est.</span>}
+                  {route.basePay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(route.basePay).toFixed(2)}</span>}
                 </div>
               </div>
               <Button size="sm" onClick={() => openRouteDetail(route.id)} className="w-full">
@@ -1147,11 +1147,11 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                 {selectedRoute.description && <p className="text-sm text-gray-600">{selectedRoute.description}</p>}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  {selectedRoute.scheduled_date && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedRoute.scheduled_date)}</span></div>}
-                  {(selectedRoute.start_time || selectedRoute.end_time) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedRoute.start_time}–{selectedRoute.end_time}</span></div>}
-                  {selectedRoute.estimated_stops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedRoute.estimated_stops}</span></div>}
-                  {selectedRoute.estimated_hours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedRoute.estimated_hours}</span></div>}
-                  {selectedRoute.base_pay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedRoute.base_pay).toFixed(2)}</span></div>}
+                  {selectedRoute.scheduledDate && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedRoute.scheduledDate)}</span></div>}
+                  {(selectedRoute.startTime || selectedRoute.endTime) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedRoute.startTime}–{selectedRoute.endTime}</span></div>}
+                  {selectedRoute.estimatedStops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedRoute.estimatedStops}</span></div>}
+                  {selectedRoute.estimatedHours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedRoute.estimatedHours}</span></div>}
+                  {selectedRoute.basePay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedRoute.basePay).toFixed(2)}</span></div>}
                 </div>
 
                 {selectedRoute.bids && selectedRoute.bids.length > 0 && (
@@ -1164,12 +1164,12 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                           <div key={bid.id} className={`p-3 rounded-lg text-sm ${isMyBid ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50'}`}>
                             <div className="flex items-center justify-between">
                               <span className="font-bold">{isMyBid ? 'Your Bid' : `Driver #${idx + 1}`}</span>
-                              <span className="font-bold text-teal-700">${Number(bid.bid_amount).toFixed(2)}</span>
+                              <span className="font-bold text-teal-700">${Number(bid.bidAmount).toFixed(2)}</span>
                             </div>
-                            {bid.driver_rating_at_bid != null && (
+                            {bid.driverRatingAtBid != null && (
                               <div className="flex items-center gap-1 mt-1">
-                                <StarRating rating={bid.driver_rating_at_bid} className="w-3 h-3" />
-                                <span className="text-xs text-gray-400">{Number(bid.driver_rating_at_bid).toFixed(1)}</span>
+                                <StarRating rating={bid.driverRatingAtBid} className="w-3 h-3" />
+                                <span className="text-xs text-gray-400">{Number(bid.driverRatingAtBid).toFixed(1)}</span>
                               </div>
                             )}
                             {bid.message && <p className="text-xs text-gray-500 mt-1">{bid.message}</p>}
@@ -1187,7 +1187,7 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                 {myBid ? (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
                     <p className="text-sm font-bold text-teal-800 mb-2">You have already bid on this route</p>
-                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${Number(myBid.bid_amount).toFixed(2)}</span></p>
+                    <p className="text-sm text-teal-700">Your bid: <span className="font-bold">${Number(myBid.bidAmount).toFixed(2)}</span></p>
                     <Button variant="secondary" size="sm" onClick={handleWithdrawBid} disabled={bidLoading} className="mt-3">
                       {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
                     </Button>
@@ -1283,9 +1283,9 @@ const Schedule: React.FC = () => {
 
   const routesByDate: Record<string, Route[]> = {};
   routes.forEach(r => {
-    if (r.scheduled_date) {
-      if (!routesByDate[r.scheduled_date]) routesByDate[r.scheduled_date] = [];
-      routesByDate[r.scheduled_date].push(r);
+    if (r.scheduledDate) {
+      if (!routesByDate[r.scheduledDate]) routesByDate[r.scheduledDate] = [];
+      routesByDate[r.scheduledDate].push(r);
     }
   });
 
@@ -1299,7 +1299,7 @@ const Schedule: React.FC = () => {
   const todayStr = new Date().toISOString().split('T')[0];
   const selectedDayRoutes = selectedDay ? (routesByDate[selectedDay] || []) : [];
 
-  const allRoutesSorted = [...routes].sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
+  const allRoutesSorted = [...routes].sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
 
   return (
     <div>
@@ -1397,8 +1397,8 @@ const Schedule: React.FC = () => {
                         <StatusBadge status={route.status} />
                       </div>
                       <div className="text-xs text-gray-500 space-y-0.5">
-                        {(route.start_time || route.end_time) && <p>Time: {route.start_time}–{route.end_time}</p>}
-                        {route.estimated_stops != null && <p>Estimated stops: {route.estimated_stops}</p>}
+                        {(route.startTime || route.endTime) && <p>Time: {route.startTime}–{route.endTime}</p>}
+                        {route.estimatedStops != null && <p>Estimated stops: {route.estimatedStops}</p>}
                       </div>
                       {(route.status === 'assigned' || route.status === 'in_progress') && (
                         <Button
@@ -1431,8 +1431,8 @@ const Schedule: React.FC = () => {
                   <div className="min-w-0">
                     <p className="font-bold text-gray-900 text-sm">{route.title}</p>
                     <p className="text-xs text-gray-500">
-                      {formatDate(route.scheduled_date)} · {route.start_time}–{route.end_time}
-                      {route.estimated_stops != null && <> · {route.estimated_stops} stops</>}
+                      {formatDate(route.scheduledDate)} · {route.startTime}–{route.endTime}
+                      {route.estimatedStops != null && <> · {route.estimatedStops} stops</>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -2686,9 +2686,8 @@ const TeamApp: React.FC = () => {
     { view: 'dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
     { view: 'routes', label: 'Available Routes', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
-    { view: 'pickups', label: 'Special Pickups', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
-    { view: 'zones', label: 'My Zones', icon: <MapPinIcon className="w-5 h-5" /> },
-    { view: 'locations', label: 'Locations', icon: <HomeModernIcon className="w-5 h-5" /> },
+    { view: 'pickups', label: 'On-Demand', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
+    { view: 'zones', label: 'Coverage', icon: <MapPinIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
   ];
@@ -2783,15 +2782,10 @@ const TeamApp: React.FC = () => {
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'schedule' && <Schedule />}
-          {currentView === 'pickups' && <SpecialPickups />}
+          {currentView === 'pickups' && <OnDemandPickups />}
           {currentView === 'zones' && (
             <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
               <ZoneMapView />
-            </React.Suspense>
-          )}
-          {currentView === 'locations' && (
-            <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
-              <AvailableLocations />
             </React.Suspense>
           )}
           {currentView === 'messages' && <DriverMessages />}

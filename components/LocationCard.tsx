@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { Property } from '../types.ts';
-import { useProperty } from '../PropertyContext.tsx';
+import { Location } from '../types.ts';
+import { useLocation } from '../LocationContext.tsx';
 import { getNextPickupInfo, PickupInfo } from '../services/optimoRouteService.ts';
-import { getPendingSelections, getServices, deleteOrphanedProperty } from '../services/apiService.ts';
+import { getPendingSelections, getServices, deleteOrphanedLocation } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { ArrowRightIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, CalendarDaysIcon, ClockIcon } from './Icons.tsx';
-import { PropertyWithStatus } from './PropertyManagement.tsx';
+import { LocationWithStatus } from './LocationManagement.tsx';
 
 
 const statusConfig = {
@@ -16,16 +16,16 @@ const statusConfig = {
     canceled: { icon: <XCircleIcon className="w-4 h-4" />, text: 'Canceled', color: 'text-red-500', bg: 'bg-red-50' },
 };
 
-const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (propertyId: string) => void; onPropertyRemoved?: () => void }> = ({ property, onResumeSetup, onPropertyRemoved }) => {
-    const { setSelectedPropertyId } = useProperty();
+const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (locationId: string) => void; onLocationRemoved?: () => void }> = ({ location, onResumeSetup, onLocationRemoved }) => {
+    const { setSelectedLocationId } = useLocation();
     const [pickupInfo, setPickupInfo] = useState<PickupInfo | null>(null);
     const [loadingPickup, setLoadingPickup] = useState(true);
     const [pendingServiceNames, setPendingServiceNames] = useState<string[]>([]);
     const [selectionsLoaded, setSelectionsLoaded] = useState(false);
 
-    const isPending = property.serviceStatus === 'pending_review';
-    const isDenied = property.serviceStatus === 'denied';
-    const isWaitlist = property.serviceStatus === 'waitlist';
+    const isPending = location.serviceStatus === 'pending_review';
+    const isDenied = location.serviceStatus === 'denied';
+    const isWaitlist = location.serviceStatus === 'waitlist';
     const isReviewBlocked = isPending || isDenied || isWaitlist;
 
     useEffect(() => {
@@ -34,16 +34,16 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
             return;
         }
         setLoadingPickup(true);
-        getNextPickupInfo(property.address).then(info => {
+        getNextPickupInfo(location.address).then(info => {
             setPickupInfo(info);
             setLoadingPickup(false);
         });
-    }, [property.address, isReviewBlocked]);
+    }, [location.address, isReviewBlocked]);
 
-    // Load pending service selections for pending_review and waitlist properties
+    // Load pending service selections for pending_review and waitlist locations
     useEffect(() => {
         if (!isPending && !isWaitlist) return;
-        Promise.all([getPendingSelections(property.id), getServices()]).then(([selections, services]) => {
+        Promise.all([getPendingSelections(location.id), getServices()]).then(([selections, services]) => {
             const names = selections
                 .map(sel => {
                     const svc = services.find(s => s.id === sel.serviceId);
@@ -53,15 +53,15 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
             setPendingServiceNames(names);
             setSelectionsLoaded(true);
         }).catch(() => { setSelectionsLoaded(true); });
-    }, [isPending, isWaitlist, property.id]);
+    }, [isPending, isWaitlist, location.id]);
 
-    const config = statusConfig[property.status];
+    const config = statusConfig[location.status];
 
     return (
         <Card className="flex flex-col hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border-none ring-1 ring-base-200 group">
             <div className="flex justify-between items-start mb-4">
                 <div className="flex-1">
-                    <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors pr-4">{property.address}</h3>
+                    <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors pr-4">{location.address}</h3>
                 </div>
                 {isPending ? (
                     <div className="px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full flex items-center gap-2 shrink-0">
@@ -89,7 +89,7 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
             {isReviewBlocked ? (
                 <>
                     {isPending && selectionsLoaded && pendingServiceNames.length === 0 ? (
-                        // Orphaned property: created but wizard was abandoned before selecting services
+                        // Orphaned location: created but wizard was abandoned before selecting services
                         <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 mb-4">
                             <p className="text-sm font-bold text-amber-800 mb-1">Incomplete Setup</p>
                             <p className="text-sm text-amber-700">You started adding this address but didn't finish selecting services. Would you like to continue?</p>
@@ -123,8 +123,8 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
                                     size="sm"
                                     className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
                                     onClick={async () => {
-                                        await deleteOrphanedProperty(property.id);
-                                        onPropertyRemoved?.();
+                                        await deleteOrphanedLocation(location.id);
+                                        onLocationRemoved?.();
                                     }}
                                 >
                                     Remove
@@ -133,7 +133,7 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
                                     variant="primary"
                                     size="sm"
                                     className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
-                                    onClick={() => onResumeSetup?.(property.id)}
+                                    onClick={() => onResumeSetup?.(location.id)}
                                 >
                                     Continue Setup
                                 </Button>
@@ -153,11 +153,11 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
             ) : (
                 <>
                     <div className="space-y-2 mb-6">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{property.activeServicesCount} Active Service(s)</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{location.activeServicesCount} Active Service(s)</p>
                     </div>
 
                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-6">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><CalendarDaysIcon className="w-4 h-4" /> Next Pickup</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><CalendarDaysIcon className="w-4 h-4" /> Next Collection</p>
                         {loadingPickup ? (
                             <div className="h-5 bg-gray-200 rounded-full w-3/4 animate-pulse mt-1.5" />
                         ) : (
@@ -168,10 +168,10 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
                     <div className="flex items-center justify-between border-t border-base-100 pt-4 mt-auto">
                         <div>
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">Monthly Total</p>
-                            <p className="text-xl font-black text-gray-900 mt-1">${Number(property.monthlyTotal).toFixed(2)}</p>
+                            <p className="text-xl font-black text-gray-900 mt-1">${Number(location.monthlyTotal).toFixed(2)}</p>
                         </div>
                         <Button
-                            onClick={() => setSelectedPropertyId(property.id)}
+                            onClick={() => setSelectedLocationId(location.id)}
                             variant="primary"
                             size="sm"
                             className="rounded-xl px-5 py-2.5 font-black uppercase text-[10px] tracking-widest"
@@ -185,4 +185,4 @@ const PropertyCard: React.FC<{ property: PropertyWithStatus; onResumeSetup?: (pr
     );
 };
 
-export default PropertyCard;
+export default LocationCard;

@@ -1,32 +1,32 @@
 import React, { useState } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
-import { reportMissedPickup } from '../services/apiService.ts';
+import { useLocation } from '../LocationContext.tsx';
+import { reportMissedCollection } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { ExclamationTriangleIcon, ArrowRightIcon, CheckCircleIcon } from './Icons.tsx';
-import { Property } from '../types.ts';
+import { Location } from '../types.ts';
 
 const PortfolioMissedCard: React.FC<{
-    property: Property;
+    location: Location;
     onSelect: (id: string) => void;
-}> = ({ property, onSelect }) => {
+}> = ({ location, onSelect }) => {
     return (
         <Card className="flex flex-col p-6">
             <div className="flex justify-between items-center mb-2">
-                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{location.serviceType}</p>
                 <div className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full">
                     <span className="text-[10px] font-black uppercase tracking-widest">Ready to Report</span>
                 </div>
             </div>
 
             <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">
-                {property.address}
+                {location.address}
             </h3>
 
             <div className="flex items-end justify-end mt-4">
-                <Button 
-                    onClick={() => onSelect(property.id)} 
-                    variant="primary" 
+                <Button
+                    onClick={() => onSelect(location.id)}
+                    variant="primary"
                     className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest bg-red-600 hover:bg-red-700"
                 >
                     Report Issue
@@ -36,8 +36,8 @@ const PortfolioMissedCard: React.FC<{
     );
 };
 
-const MissedPickup: React.FC = () => {
-    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
+const MissedCollection: React.FC = () => {
+    const { selectedLocation, locations, setSelectedLocationId } = useLocation();
     const [pickupDate, setPickupDate] = useState(new Date().toISOString().split('T')[0]);
     const [notes, setNotes] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,16 +45,16 @@ const MissedPickup: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedProperty) return;
-        
+        if (!selectedLocation) return;
+
         setIsSubmitting(true);
         setSubmitted(false);
         try {
-            await reportMissedPickup(selectedProperty.id, pickupDate, notes);
+            await reportMissedCollection(selectedLocation.id, pickupDate, notes);
             setSubmitted(true);
             setNotes('');
         } catch (error) {
-            console.error("Failed to report missed pickup:", error);
+            console.error("Failed to report missed collection:", error);
             alert("Report failed. Please try again.");
         } finally {
             setIsSubmitting(false);
@@ -62,29 +62,29 @@ const MissedPickup: React.FC = () => {
     };
 
     // --- PORTFOLIO VIEW ---
-    if (!selectedProperty) {
+    if (!selectedLocation) {
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
                 <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
-                        <h1 className="text-4xl font-black text-gray-900 tracking-tight">Missed Pickup Hub</h1>
-                        <p className="text-gray-500 font-medium mt-1 text-lg">Report service failures across your property portfolio.</p>
+                        <h1 className="text-4xl font-black text-gray-900 tracking-tight">Missed Collection Hub</h1>
+                        <p className="text-gray-500 font-medium mt-1 text-lg">Report service failures across your location portfolio.</p>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {properties.map(prop => (
-                        <PortfolioMissedCard 
-                            key={prop.id} 
-                            property={prop} 
-                            onSelect={(id) => setSelectedPropertyId(id)}
+                    {locations.map(loc => (
+                        <PortfolioMissedCard
+                            key={loc.id}
+                            location={loc}
+                            onSelect={(id) => setSelectedLocationId(id)}
                         />
                     ))}
                 </div>
             </div>
         );
     }
-    
+
     // --- SUCCESS VIEW ---
     if (submitted) {
         return (
@@ -95,7 +95,7 @@ const MissedPickup: React.FC = () => {
                     </div>
                     <h1 className="text-3xl font-black text-gray-900 tracking-tight">Report Received</h1>
                     <p className="text-gray-500 font-medium mt-2">
-                        Incident report submitted for <span className="font-bold text-gray-900">{selectedProperty.address}</span>
+                        Incident report submitted for <span className="font-bold text-gray-900">{selectedLocation.address}</span>
                     </p>
                 </div>
                 <Card className="border-none ring-1 ring-base-200">
@@ -104,7 +104,7 @@ const MissedPickup: React.FC = () => {
                          <p className="mt-4 text-gray-500 font-medium leading-relaxed">Our dispatch team has been notified. We will review the route history for <span className="font-bold text-gray-900">{pickupDate}</span> and schedule a recovery collection if verified. You'll receive an SMS update shortly.</p>
                          <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
                             <Button onClick={() => setSubmitted(false)} variant="secondary" className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Submit Another</Button>
-                            <Button onClick={() => setSelectedPropertyId('all')} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Back to Hub</Button>
+                            <Button onClick={() => setSelectedLocationId('all')} className="rounded-xl px-8 font-black uppercase tracking-widest text-xs h-14">Back to Hub</Button>
                          </div>
                     </div>
                 </Card>
@@ -119,10 +119,10 @@ const MissedPickup: React.FC = () => {
                 <div>
                     <h1 className="text-3xl font-black text-gray-900 tracking-tight">Report Incident</h1>
                     <p className="text-gray-500 font-medium mt-1 text-lg">
-                        Filing for: <span className="font-bold text-gray-900">{selectedProperty.address}</span>
+                        Filing for: <span className="font-bold text-gray-900">{selectedLocation.address}</span>
                     </p>
                 </div>
-                <Button variant="ghost" onClick={() => setSelectedPropertyId('all')} className="text-xs font-black uppercase tracking-widest">
+                <Button variant="ghost" onClick={() => setSelectedLocationId('all')} className="text-xs font-black uppercase tracking-widest">
                     Back to Hub
                 </Button>
             </div>
@@ -133,7 +133,7 @@ const MissedPickup: React.FC = () => {
                         <label htmlFor="pickupDate" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">
                             Missed Collection Date
                         </label>
-                        <input 
+                        <input
                             type="date"
                             id="pickupDate"
                             value={pickupDate}
@@ -175,4 +175,4 @@ const MissedPickup: React.FC = () => {
     );
 };
 
-export default MissedPickup;
+export default MissedCollection;

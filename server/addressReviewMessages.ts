@@ -4,9 +4,9 @@
  * and admin bulk approval flows.
  */
 
-export function approvalMessage(address: string, pickupDay?: string, hasRentalDelivery?: boolean): { subject: string; body: string } {
-  const dayInfo = pickupDay
-    ? ` Your scheduled pickup day is ${pickupDay.charAt(0).toUpperCase() + pickupDay.slice(1)}. Please have your bins at the curb by 6:00 AM on your pickup day.`
+export function approvalMessage(address: string, collectionDay?: string, hasRentalDelivery?: boolean): { subject: string; body: string } {
+  const dayInfo = collectionDay
+    ? ` Your scheduled collection day is ${collectionDay.charAt(0).toUpperCase() + collectionDay.slice(1)}. Please have your bins at the curb by 6:00 AM on your collection day.`
     : '';
   const deliveryInfo = hasRentalDelivery
     ? ' A rental container will be delivered to your address within 3-5 business days.'

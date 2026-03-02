@@ -18,7 +18,7 @@ import type { DbPendingSelection } from '../storage';
 vi.mock('../storage', () => ({
   storage: {
     getUserById: vi.fn(),
-    getPropertyById: vi.fn(),
+    getLocationById: vi.fn(),
     claimPendingSelections: vi.fn(),
     savePendingSelections: vi.fn(),
     createAuditLog: vi.fn(),
@@ -51,8 +51,8 @@ const userWithoutStripe = {
 };
 
 const dbSelections: DbPendingSelection[] = [
-  { id: 'sel-1', property_id: 'prop-1', user_id: 'user-1', service_id: 'svc-trash', quantity: 1, use_sticker: false, created_at: new Date() },
-  { id: 'sel-2', property_id: 'prop-1', user_id: 'user-1', service_id: 'svc-recycling', quantity: 2, use_sticker: true, created_at: new Date() },
+  { id: 'sel-1', location_id: 'prop-1', user_id: 'user-1', service_id: 'svc-trash', quantity: 1, use_sticker: false, created_at: new Date() },
+  { id: 'sel-2', location_id: 'prop-1', user_id: 'user-1', service_id: 'svc-recycling', quantity: 2, use_sticker: true, created_at: new Date() },
 ];
 
 const mockStripe = {
@@ -98,17 +98,17 @@ describe('activatePendingSelections', () => {
     expect(mockStripe.subscriptions.create).toHaveBeenCalledWith(expect.objectContaining({
       customer: 'cus_test123',
       items: [{ price: 'price_trash', quantity: 1 }],
-      metadata: { propertyId: 'prop-1', equipmentType: 'rental' },
+      metadata: { locationId: 'prop-1', equipmentType: 'rental' },
     }));
     expect(mockStripe.subscriptions.create).toHaveBeenCalledWith(expect.objectContaining({
       customer: 'cus_test123',
       items: [{ price: 'price_recycling', quantity: 2 }],
-      metadata: { propertyId: 'prop-1', equipmentType: 'own_can' },
+      metadata: { locationId: 'prop-1', equipmentType: 'own_can' },
     }));
 
     // Should log audit
     expect(storage.createAuditLog).toHaveBeenCalledWith(
-      'user-1', 'subscriptions_activated', 'property', 'prop-1',
+      'user-1', 'subscriptions_activated', 'location', 'prop-1',
       expect.objectContaining({ source: 'auto_approval', automated: true, activated: 2, failed: 0 }),
     );
   });
@@ -166,7 +166,7 @@ describe('activatePendingSelections', () => {
 
     // Audit should reflect partial success
     expect(storage.createAuditLog).toHaveBeenCalledWith(
-      'user-1', 'subscriptions_activated', 'property', 'prop-1',
+      'user-1', 'subscriptions_activated', 'location', 'prop-1',
       expect.objectContaining({ activated: 1, failed: 1, totalSelections: 2 }),
     );
   });
@@ -191,7 +191,7 @@ describe('activatePendingSelections', () => {
 
     // Audit trail should still fire
     expect(storage.createAuditLog).toHaveBeenCalledWith(
-      'user-1', 'subscriptions_activated', 'property', 'prop-1',
+      'user-1', 'subscriptions_activated', 'location', 'prop-1',
       expect.objectContaining({ activated: 0, failed: 2 }),
     );
   });

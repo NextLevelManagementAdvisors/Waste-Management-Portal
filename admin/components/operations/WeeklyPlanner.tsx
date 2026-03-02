@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import WeeklyPlannerDayColumn from './WeeklyPlannerDayColumn.tsx';
-import type { Route, MissingClient, CancelledPickup } from '../../../shared/types/index.ts';
+import type { Route, MissingLocation, CancelledCollection } from '../../../shared/types/index.ts';
 
 interface WeekData {
   routes: Route[];
-  cancelled: CancelledPickup[];
-  missingByDay: Record<string, MissingClient[]>;
+  cancelled: CancelledCollection[];
+  missingByDay: Record<string, MissingLocation[]>;
 }
 
 function getMondayOfWeek(d: Date): Date {
@@ -32,7 +32,7 @@ const WeeklyPlanner: React.FC = () => {
   const [copying, setCopying] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [removingPickup, setRemovingPickup] = useState<string | null>(null);
+  const [removingCollection, setRemovingCollection] = useState<string | null>(null);
 
   const mondayStr = formatDateISO(weekStart);
 
@@ -118,8 +118,8 @@ const WeeklyPlanner: React.FC = () => {
     }
   };
 
-  const handleRemovePickup = async (routeId: string, stopId: string) => {
-    setRemovingPickup(stopId);
+  const handleRemoveCollection = async (routeId: string, stopId: string) => {
+    setRemovingCollection(stopId);
     try {
       const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, {
         method: 'DELETE',
@@ -127,9 +127,9 @@ const WeeklyPlanner: React.FC = () => {
       });
       if (res.ok) await fetchWeekData();
     } catch (e) {
-      console.error('Failed to remove pickup:', e);
+      console.error('Failed to remove collection:', e);
     } finally {
-      setRemovingPickup(null);
+      setRemovingCollection(null);
     }
   };
 
@@ -140,7 +140,7 @@ const WeeklyPlanner: React.FC = () => {
   }
   if (data) {
     for (const route of data.routes) {
-      const rDate = route.scheduled_date.split('T')[0];
+      const rDate = route.scheduledDate.split('T')[0];
       if (routesByDate[rDate]) {
         routesByDate[rDate].push(route);
       }
@@ -197,19 +197,19 @@ const WeeklyPlanner: React.FC = () => {
           </h3>
           <div className="space-y-1">
             {data.cancelled.map(cp => (
-              <div key={cp.pickup_id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-red-100">
+              <div key={cp.collectionId} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-red-100">
                 <div className="text-xs min-w-0 flex-1">
-                  <span className="font-medium text-gray-900">{cp.customer_name}</span>
+                  <span className="font-medium text-gray-900">{cp.customerName}</span>
                   <span className="text-gray-400 ml-2 truncate">{cp.address}</span>
-                  <span className="text-red-500 ml-2">({cp.service_status})</span>
-                  <span className="text-gray-400 ml-2">in {cp.route_title}</span>
+                  <span className="text-red-500 ml-2">({cp.serviceStatus})</span>
+                  <span className="text-gray-400 ml-2">in {cp.routeTitle}</span>
                 </div>
                 <button
-                  onClick={() => handleRemovePickup(cp.route_id, cp.pickup_id)}
-                  disabled={removingPickup === cp.pickup_id}
+                  onClick={() => handleRemoveCollection(cp.routeId, cp.collectionId)}
+                  disabled={removingCollection === cp.collectionId}
                   className="flex-shrink-0 ml-2 text-xs font-bold text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50"
                 >
-                  {removingPickup === cp.pickup_id ? 'Removing...' : 'Remove'}
+                  {removingCollection === cp.collectionId ? 'Removing...' : 'Remove'}
                 </button>
               </div>
             ))}
@@ -224,14 +224,14 @@ const WeeklyPlanner: React.FC = () => {
             key={date}
             date={date}
             routes={routesByDate[date] || []}
-            missingClients={data?.missingByDay[date] || []}
+            missingLocations={data?.missingByDay[date] || []}
             onRefresh={fetchWeekData}
           />
         ))}
       </div>
 
       {/* Empty state */}
-      {data && data.routes.length === 0 && Object.values(data.missingByDay).every((m: MissingClient[]) => m.length === 0) && (
+      {data && data.routes.length === 0 && Object.values(data.missingByDay).every((m: MissingLocation[]) => m.length === 0) && (
         <EmptyState
           title="No Routes This Week"
           message="Use 'Copy to Next Week' from a previous week, or go to the Planning Calendar to create routes."

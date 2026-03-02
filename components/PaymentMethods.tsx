@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { PaymentMethod, Subscription } from '../types.ts';
-import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForProperty, updateAllUserSubscriptions, getSubscriptions } from '../services/apiService.ts';
+import { getPaymentMethods, addPaymentMethod, deletePaymentMethod, setPrimaryPaymentMethod, updateSubscriptionsForLocation, updateAllUserSubscriptions, getSubscriptions } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
@@ -380,7 +380,7 @@ const PaymentMethods: React.FC = () => {
         setIsUpdatingSubscriptions(true);
         try {
             if (scope === 'property') {
-                await updateSubscriptionsForProperty(selectedProperty.id, newlyAddedMethod.id);
+                await updateSubscriptionsForLocation(selectedProperty.id, newlyAddedMethod.id);
                 showToast('success', `Subscriptions for ${selectedProperty.address} have been updated.`);
             } else {
                 await updateAllUserSubscriptions(newlyAddedMethod.id);
@@ -405,7 +405,7 @@ const PaymentMethods: React.FC = () => {
         setIsAssigning(true);
         try {
             if (scope === 'property' && selectedProperty) {
-                await updateSubscriptionsForProperty(selectedProperty.id, assignMethod.id);
+                await updateSubscriptionsForLocation(selectedProperty.id, assignMethod.id);
                 showToast('success', `Subscriptions for ${selectedProperty.address} updated to use ${assignMethod.brand || 'payment method'} ending in ${assignMethod.last4}.`);
             } else {
                 await updateAllUserSubscriptions(assignMethod.id);

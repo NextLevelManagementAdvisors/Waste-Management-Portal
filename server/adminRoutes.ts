@@ -5,7 +5,7 @@ import { storage, DbPendingSelection } from './storage';
 import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
-import { sendPickupReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
+import { sendCollectionReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
 import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
@@ -13,7 +13,7 @@ import { expenseRepo } from './repositories/ExpenseRepository';
 import { billingRepo } from './repositories/BillingRepository';
 import { optimizeRouteJob, checkRouteOptimizationStatus } from './optimoSyncService';
 import { suggestRoute } from './routeSuggestionService';
-import { findOptimalPickupDay } from './pickupDayOptimizer';
+import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
@@ -111,33 +111,33 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedPickups, unreadMessages, oldestMissedPickup, oldestReview, noPickupDay] = await Promise.all([
-        storage.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
-        storage.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
+      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay] = await Promise.all([
+        storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
+        storage.query(`SELECT COUNT(*) as count FROM missed_collection_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
-        storage.query(`SELECT MIN(created_at) as oldest FROM missed_pickup_reports WHERE status = 'pending'`),
-        storage.query(`SELECT MIN(created_at) as oldest FROM properties WHERE service_status = 'pending_review'`),
-        storage.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'approved' AND pickup_day IS NULL`),
+        storage.query(`SELECT MIN(created_at) as oldest FROM missed_collection_reports WHERE status = 'pending'`),
+        storage.query(`SELECT MIN(created_at) as oldest FROM locations WHERE service_status = 'pending_review'`),
+        storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'approved' AND collection_day IS NULL`),
       ]);
-      const missedPickups = parseInt(pendingMissedPickups.rows[0]?.count || '0');
+      const missedCollections = parseInt(pendingMissedCollections.rows[0]?.count || '0');
       const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
-      const propertiesNeedingPickupDay = parseInt(noPickupDay.rows[0]?.count || '0');
-      const oldestMpDate = oldestMissedPickup.rows[0]?.oldest;
+      const locationsNeedingCollectionDay = parseInt(noCollectionDay.rows[0]?.count || '0');
+      const oldestMcDate = oldestMissedCollection.rows[0]?.oldest;
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
       res.json({
-        operations: missedPickups,
+        operations: missedCollections,
         dashboard: addressReviews,
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
-        missedPickups,
+        missedCollections,
         addressReviews,
-        propertiesNeedingPickupDay,
-        oldestMissedPickupHours: hoursAgo(oldestMpDate),
+        locationsNeedingCollectionDay,
+        oldestMissedCollectionHours: hoursAgo(oldestMcDate),
         oldestAddressReviewHours: hoursAgo(oldestArDate),
       });
     } catch (error) {
       console.error('Badge counts error:', error);
-      res.json({ operations: 0, dashboard: 0, communications: 0, missedPickups: 0, addressReviews: 0 });
+      res.json({ operations: 0, dashboard: 0, communications: 0, missedCollections: 0, addressReviews: 0 });
     }
   });
 
@@ -170,7 +170,7 @@ export function registerAdminRoutes(app: Express) {
         stripeCustomerId: u.stripe_customer_id,
         isAdmin: u.is_admin,
         createdAt: u.created_at,
-        propertyCount: parseInt(u.property_count || '0'),
+        locationCount: parseInt(u.property_count || '0'),
       }));
 
       res.json({ customers, total, limit: options.limit, offset: options.offset });
@@ -185,7 +185,7 @@ export function registerAdminRoutes(app: Express) {
       const user = await storage.getUserById(req.params.id as string);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
-      const properties = await storage.getPropertiesForUser(user.id);
+      const locations = await storage.getLocationsForUser(user.id);
 
       let stripeData = null;
       if (user.stripe_customer_id) {
@@ -249,7 +249,7 @@ export function registerAdminRoutes(app: Express) {
         stripeCustomerId: user.stripe_customer_id,
         isAdmin: user.is_admin,
         createdAt: user.created_at,
-        properties: properties.map(p => ({
+        locations: locations.map(p => ({
           id: p.id,
           address: p.address,
           serviceType: p.service_type,
@@ -263,27 +263,26 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get('/api/admin/properties', requireAdmin, async (req: Request, res: Response) => {
+  app.get('/api/admin/locations', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { search, zone, status, pickupDay, page, limit } = req.query;
-      const { rows: properties, total } = await storage.getPropertiesPaginated({
+      const { search, status, collectionDay, page, limit } = req.query;
+      const { rows: locations, total } = await storage.getLocationsPaginated({
         search: search as string | undefined,
-        zone: zone as string | undefined,
         status: status as string | undefined,
-        pickupDay: pickupDay as string | undefined,
+        pickupDay: collectionDay as string | undefined,
         page: page ? parseInt(page as string, 10) : 1,
         limit: limit ? parseInt(limit as string, 10) : 50,
       });
       res.json({
-        locations: properties.map(p => ({
+        locations: locations.map(p => ({
           id: p.id,
           address: p.address,
           serviceType: p.service_type,
           serviceStatus: p.service_status,
           ownerName: p.user_name,
           ownerEmail: p.user_email,
-          pickupDay: p.pickup_day,
-          pickupFrequency: p.pickup_frequency,
+          collectionDay: p.collection_day,
+          collectionFrequency: p.collection_frequency,
           latitude: p.latitude,
           longitude: p.longitude,
           createdAt: p.created_at,
@@ -293,16 +292,16 @@ export function registerAdminRoutes(app: Express) {
         limit: limit ? parseInt(limit as string, 10) : 50,
       });
     } catch (error) {
-      console.error('Admin properties error:', error);
-      res.status(500).json({ error: 'Failed to fetch properties' });
+      console.error('Admin locations error:', error);
+      res.status(500).json({ error: 'Failed to fetch locations' });
     }
   });
 
   app.get('/api/admin/activity', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const [recentUsers, recentPickups, recentReferrals] = await Promise.all([
+      const [recentUsers, recentOnDemand, recentReferrals] = await Promise.all([
         storage.query(`SELECT id, first_name, last_name, email, created_at FROM users ORDER BY created_at DESC LIMIT 10`),
-        storage.query(`SELECT spr.*, u.first_name || ' ' || u.last_name as user_name FROM special_pickup_requests spr LEFT JOIN users u ON spr.user_id = u.id ORDER BY spr.created_at DESC LIMIT 10`),
+        storage.query(`SELECT odr.*, u.first_name || ' ' || u.last_name as user_name FROM on_demand_requests odr LEFT JOIN users u ON odr.user_id = u.id ORDER BY odr.created_at DESC LIMIT 10`),
         storage.query(`SELECT r.*, u.first_name || ' ' || u.last_name as referrer_name FROM referrals r LEFT JOIN users u ON r.referrer_user_id = u.id ORDER BY r.created_at DESC LIMIT 10`),
       ]);
 
@@ -313,11 +312,11 @@ export function registerAdminRoutes(app: Express) {
           email: u.email,
           date: u.created_at,
         })),
-        recentPickups: recentPickups.rows.map(p => ({
+        recentOnDemand: recentOnDemand.rows.map(p => ({
           id: p.id,
           userName: p.user_name,
           serviceName: p.service_name,
-          pickupDate: p.pickup_date,
+          pickupDate: p.requested_date,
           status: p.status,
           date: p.created_at,
         })),
@@ -438,7 +437,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/analytics/services', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const stats = await storage.getPropertyStats();
+      const stats = await storage.getLocationStats();
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch service stats' });
@@ -471,7 +470,7 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/search', requireAdmin, async (req: Request, res: Response) => {
     try {
       const query = (req.query.q as string) || '';
-      if (!query || query.length < 2) return res.json({ users: [], properties: [] });
+      if (!query || query.length < 2) return res.json({ users: [], locations: [] });
       const results = await storage.globalSearch(query);
       res.json(results);
     } catch (error) {
@@ -509,8 +508,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Missed Pickup Reports
-  app.get('/api/admin/missed-pickups', requireAdmin, async (req: Request, res: Response) => {
+  // Missed Collection Reports
+  app.get('/api/admin/missed-collections', requireAdmin, async (req: Request, res: Response) => {
     try {
       const statusParam = req.query.status as string | undefined;
       const options = {
@@ -518,15 +517,15 @@ export function registerAdminRoutes(app: Express) {
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };
-      const result = await storage.getMissedPickupReportsAdmin(options);
+      const result = await storage.getMissedCollectionReportsAdmin(options);
       res.json({
         reports: result.reports.map((r: any) => ({
           id: r.id,
-          propertyId: r.property_id,
+          locationId: r.location_id,
           customerName: `${r.first_name} ${r.last_name}`,
           customerEmail: r.email,
           address: r.address,
-          pickupDate: r.pickup_date,
+          collectionDate: r.pickup_date,
           notes: r.notes,
           status: r.status,
           resolutionNotes: r.resolution_notes,
@@ -535,30 +534,30 @@ export function registerAdminRoutes(app: Express) {
         total: result.total,
       });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch missed pickups' });
+      res.status(500).json({ error: 'Failed to fetch missed collections' });
     }
   });
 
-  app.put('/api/admin/missed-pickups/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.put('/api/admin/missed-collections/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { status, resolutionNotes } = req.body;
-      await storage.updateMissedPickupStatus(req.params.id, status, resolutionNotes);
-      await audit(req, 'resolve_missed_pickup', 'missed_pickup', req.params.id, { status, resolutionNotes });
+      await storage.updateMissedCollectionStatus(req.params.id, status, resolutionNotes);
+      await audit(req, 'resolve_missed_collection', 'missed_collection', req.params.id, { status, resolutionNotes });
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to update missed pickup' });
+      res.status(500).json({ error: 'Failed to update missed collection' });
     }
   });
 
-  // Special Pickup Requests (Schedule Overview)
-  app.get('/api/admin/pickup-schedule', requireAdmin, async (req: Request, res: Response) => {
+  // On-Demand Requests (Schedule Overview)
+  app.get('/api/admin/on-demand', requireAdmin, async (req: Request, res: Response) => {
     try {
       const options = {
         status: (req.query.status as string) || undefined,
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };
-      const result = await storage.getSpecialPickupRequestsAdmin(options);
+      const result = await storage.getOnDemandRequestsAdmin(options);
       res.json({
         requests: result.requests.map((r: any) => ({
           id: r.id,
@@ -568,7 +567,7 @@ export function registerAdminRoutes(app: Express) {
           address: r.address,
           serviceName: r.service_name,
           servicePrice: r.service_price,
-          pickupDate: r.pickup_date,
+          pickupDate: r.requested_date,
           status: r.status,
           notes: r.notes,
           photos: r.photos || [],
@@ -582,15 +581,15 @@ export function registerAdminRoutes(app: Express) {
         total: result.total,
       });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch pickup schedule' });
+      res.status(500).json({ error: 'Failed to fetch on-demand requests' });
     }
   });
 
-  // Get single special pickup detail
-  app.get('/api/admin/pickup-schedule/:id', requireAdmin, async (req: Request, res: Response) => {
+  // Get single on-demand request detail
+  app.get('/api/admin/on-demand/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const record = await storage.getSpecialPickupById(req.params.id);
-      if (!record) return res.status(404).json({ error: 'Pickup request not found' });
+      const record = await storage.getOnDemandRequestById(req.params.id);
+      if (!record) return res.status(404).json({ error: 'On-demand request not found' });
       res.json({
         id: record.id,
         userId: record.user_id,
@@ -600,7 +599,7 @@ export function registerAdminRoutes(app: Express) {
         address: record.address,
         serviceName: record.service_name,
         servicePrice: record.service_price,
-        pickupDate: record.pickup_date,
+        pickupDate: record.requested_date,
         status: record.status,
         notes: record.notes,
         photos: record.photos || [],
@@ -612,12 +611,12 @@ export function registerAdminRoutes(app: Express) {
         createdAt: record.created_at,
       });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch pickup request' });
+      res.status(500).json({ error: 'Failed to fetch on-demand request' });
     }
   });
 
-  // Update Special Pickup Request (status, notes, driver, price, date)
-  app.put('/api/admin/pickup-schedule/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  // Update On-Demand Request (status, notes, driver, price, date)
+  app.put('/api/admin/on-demand/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { status, adminNotes, assignedDriverId, pickupDate, servicePrice } = req.body;
@@ -630,9 +629,9 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Fetch existing record for notifications
-      const existing = await storage.getSpecialPickupById(id);
+      const existing = await storage.getOnDemandRequestById(id);
       if (!existing) {
-        return res.status(404).json({ error: 'Pickup request not found' });
+        return res.status(404).json({ error: 'On-demand request not found' });
       }
 
       const updates: any = {};
@@ -642,22 +641,22 @@ export function registerAdminRoutes(app: Express) {
       if (pickupDate !== undefined) updates.pickupDate = pickupDate;
       if (servicePrice !== undefined) updates.servicePrice = servicePrice;
 
-      const updated = await storage.updateSpecialPickupRequest(id, updates);
+      const updated = await storage.updateOnDemandRequest(id, updates);
 
       // Send customer notification on status change
       if (status && status !== existing.status) {
         const messages: Record<string, string> = {
-          scheduled: `Your ${existing.service_name} pickup at ${existing.address} has been confirmed and scheduled for ${pickupDate || existing.pickup_date}.`,
-          completed: `Your ${existing.service_name} pickup at ${existing.address} has been completed. Thank you!`,
-          cancelled: `Your ${existing.service_name} pickup at ${existing.address} has been cancelled.`,
+          scheduled: `Your ${existing.service_name} request at ${existing.address} has been confirmed and scheduled for ${pickupDate || existing.requested_date}.`,
+          completed: `Your ${existing.service_name} request at ${existing.address} has been completed. Thank you!`,
+          cancelled: `Your ${existing.service_name} request at ${existing.address} has been cancelled.`,
         };
         if (messages[status]) {
-          sendServiceUpdate(existing.user_id, `Pickup ${status.charAt(0).toUpperCase() + status.slice(1)}`, messages[status]).catch(e => console.error('Pickup status notification failed:', e));
+          sendServiceUpdate(existing.user_id, `Request ${status.charAt(0).toUpperCase() + status.slice(1)}`, messages[status]).catch(e => console.error('On-demand status notification failed:', e));
         }
       }
 
       // Update OptimoRoute if date changed
-      if (pickupDate && pickupDate !== existing.pickup_date) {
+      if (pickupDate && pickupDate !== existing.requested_date) {
         try {
           const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
           await optimo.updateOrder(orderNo, { date: pickupDate });
@@ -666,10 +665,10 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      await audit(req, 'update_special_pickup', 'special_pickup_request', id, { status, adminNotes, assignedDriverId, pickupDate, servicePrice });
+      await audit(req, 'update_on_demand_request', 'on_demand_request', id, { status, adminNotes, assignedDriverId, pickupDate, servicePrice });
       res.json({ success: true, data: updated });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to update pickup request' });
+      res.status(500).json({ error: 'Failed to update on-demand request' });
     }
   });
 
@@ -799,24 +798,24 @@ export function registerAdminRoutes(app: Express) {
   app.post('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
-      const { propertyIds, specialPickupIds, missedRedoPropertyIds } = req.body;
-      const stops: Array<{ property_id: string; order_type?: string; special_pickup_id?: string }> = [];
-      if (propertyIds?.length) {
-        for (const pid of propertyIds) {
-          stops.push({ property_id: pid, order_type: 'recurring' });
+      const { locationIds, onDemandIds, missedRedoLocationIds } = req.body;
+      const stops: Array<{ location_id: string; order_type?: string; on_demand_request_id?: string }> = [];
+      if (locationIds?.length) {
+        for (const pid of locationIds) {
+          stops.push({ location_id: pid, order_type: 'recurring' });
         }
       }
-      if (specialPickupIds?.length) {
-        for (const spId of specialPickupIds) {
-          const sp = await storage.getSpecialPickupById(spId);
+      if (onDemandIds?.length) {
+        for (const spId of onDemandIds) {
+          const sp = await storage.getOnDemandRequestById(spId);
           if (sp) {
-            stops.push({ property_id: sp.property_id, order_type: 'special', special_pickup_id: spId });
+            stops.push({ location_id: sp.location_id, order_type: 'on_demand', on_demand_request_id: spId });
           }
         }
       }
-      if (missedRedoPropertyIds?.length) {
-        for (const pid of missedRedoPropertyIds) {
-          stops.push({ property_id: pid, order_type: 'missed_redo' });
+      if (missedRedoLocationIds?.length) {
+        for (const pid of missedRedoLocationIds) {
+          stops.push({ location_id: pid, order_type: 'missed_redo' });
         }
       }
       const added = await storage.addRouteStops(routeId, stops);
@@ -920,15 +919,15 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/properties/:propertyId/assign-driver', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.put('/api/admin/locations/:locationId/assign-driver', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const { propertyId } = req.params;
+      const { locationId } = req.params;
       const { driverId } = req.body;
       if (!driverId) return res.status(400).json({ error: 'driverId is required' });
 
       const adminUserId = getAdminId(req);
-      const claim = await storage.adminAssignLocationClaim(propertyId, driverId, adminUserId);
-      await audit(req, 'admin_assign_location', 'location_claim', claim.id, { propertyId, driverId });
+      const claim = await storage.adminAssignLocationClaim(locationId, driverId, adminUserId);
+      await audit(req, 'admin_assign_location', 'location_claim', claim.id, { locationId, driverId });
       res.json({ claim });
     } catch (error) {
       console.error('Assign driver error:', error);
@@ -953,12 +952,12 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/planning/date/:date', requireAdmin, async (req: Request, res: Response) => {
     try {
       const date = req.params.date as string;
-      const [properties, specials, existingRoutes] = await Promise.all([
-        storage.getPropertiesDueOnDate(date),
-        storage.getSpecialPickupsForDate(date),
+      const [locations, onDemandRequests, existingRoutes] = await Promise.all([
+        storage.getLocationsDueOnDate(date),
+        storage.getOnDemandRequestsForDate(date),
         storage.getAllRoutes({ date_from: date, date_to: date }),
       ]);
-      res.json({ properties, specials, existingRoutes });
+      res.json({ locations, onDemandRequests, existingRoutes });
     } catch (error) {
       console.error('Failed to fetch planning date:', error);
       res.status(500).json({ error: 'Failed to fetch planning data for date' });
@@ -970,12 +969,12 @@ export function registerAdminRoutes(app: Express) {
       const { date } = req.body;
       if (!date) return res.status(400).json({ error: 'date is required' });
 
-      const properties = await storage.getPropertiesDueOnDate(date);
+      const locations = await storage.getLocationsDueOnDate(date);
       const created: any[] = [];
 
       // Phase A: Create routes for driver-claimed locations
       const claimedRows = await storage.getActiveClaimsForDate(date);
-      const claimedPropertyIds = new Set(claimedRows.map((c: any) => c.property_id));
+      const claimedLocationIds = new Set(claimedRows.map((c: any) => c.location_id));
 
       const byDriver = new Map<string, typeof claimedRows>();
       for (const row of claimedRows) {
@@ -983,12 +982,12 @@ export function registerAdminRoutes(app: Express) {
         byDriver.get(row.driver_id)!.push(row);
       }
 
-      for (const [dId, driverProps] of byDriver) {
-        const driverName = driverProps[0].driver_name;
+      for (const [dId, driverLocs] of byDriver) {
+        const driverName = driverLocs[0].driver_name;
         const route = await storage.createRoute({
           title: `${driverName} Claimed - ${date}`,
           scheduled_date: date,
-          estimated_stops: driverProps.length,
+          estimated_stops: driverLocs.length,
           route_type: 'daily_route',
           source: 'driver_claimed',
           assigned_driver_id: dId,
@@ -996,57 +995,57 @@ export function registerAdminRoutes(app: Express) {
         });
         await storage.addRouteStops(
           route.id,
-          driverProps.map((p: any) => ({ property_id: p.property_id, order_type: 'recurring' }))
+          driverLocs.map((p: any) => ({ location_id: p.location_id, order_type: 'recurring' }))
         );
         created.push(route);
       }
 
-      // Phase B: Create route for unclaimed properties
-      const unclaimedProperties = properties.filter((p: any) => !claimedPropertyIds.has(p.id));
-      if (unclaimedProperties.length > 0) {
+      // Phase B: Create route for unclaimed locations
+      const unclaimedLocations = locations.filter((p: any) => !claimedLocationIds.has(p.id));
+      if (unclaimedLocations.length > 0) {
         const dayName = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
         const route = await storage.createRoute({
           title: `${dayName} Route - ${date}`,
           scheduled_date: date,
-          estimated_stops: unclaimedProperties.length,
+          estimated_stops: unclaimedLocations.length,
           route_type: 'daily_route',
           source: 'auto_planned',
           status: 'draft',
         });
         await storage.addRouteStops(
           route.id,
-          unclaimedProperties.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
+          unclaimedLocations.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
         );
         created.push(route);
       }
 
-      // Auto-bundle small special pickups
-      const specials = await storage.getSpecialPickupsForDate(date);
+      // Auto-bundle small on-demand requests
+      const onDemandRequests = await storage.getOnDemandRequestsForDate(date);
       const bulkThreshold = 200;
-      for (const sp of specials) {
+      for (const sp of onDemandRequests) {
         if (Number(sp.service_price) < bulkThreshold && created.length > 0) {
           // Add to the daily route
           await storage.addRouteStops(created[0].id, [{
-            property_id: sp.property_id,
-            order_type: 'special',
-            special_pickup_id: sp.id,
+            location_id: sp.location_id,
+            order_type: 'on_demand',
+            on_demand_request_id: sp.id,
           }]);
         } else {
-          // Create standalone bulk_pickup route
+          // Create standalone bulk_collection route
           const bulkRoute = await storage.createRoute({
-            title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
+            title: `Bulk Collection - ${sp.customer_name || sp.address}`,
             scheduled_date: date,
             estimated_stops: 1,
-            route_type: 'bulk_pickup',
-            source: 'special_pickup',
-            special_pickup_id: sp.id,
+            route_type: 'bulk_collection',
+            source: 'on_demand',
+            on_demand_request_id: sp.id,
             base_pay: Number(sp.service_price),
             status: 'draft',
           });
           await storage.addRouteStops(bulkRoute.id, [{
-            property_id: sp.property_id,
-            order_type: 'special',
-            special_pickup_id: sp.id,
+            location_id: sp.location_id,
+            order_type: 'on_demand',
+            on_demand_request_id: sp.id,
           }]);
           created.push(bulkRoute);
         }
@@ -1088,12 +1087,12 @@ export function registerAdminRoutes(app: Express) {
         // Skip dates that already have routes
         if (existingDates.has(dateStr)) { skippedDays++; continue; }
 
-        const properties = await storage.getPropertiesDueOnDate(dateStr);
-        if (properties.length === 0) { skippedDays++; continue; }
+        const locations = await storage.getLocationsDueOnDate(dateStr);
+        if (locations.length === 0) { skippedDays++; continue; }
 
         // Phase A: Create routes for driver-claimed locations
         const claimedRows = await storage.getActiveClaimsForDate(dateStr);
-        const claimedPropertyIds = new Set(claimedRows.map((c: any) => c.property_id));
+        const claimedLocationIds = new Set(claimedRows.map((c: any) => c.location_id));
 
         const byDriver = new Map<string, typeof claimedRows>();
         for (const row of claimedRows) {
@@ -1101,12 +1100,12 @@ export function registerAdminRoutes(app: Express) {
           byDriver.get(row.driver_id)!.push(row);
         }
 
-        for (const [dId, driverProps] of byDriver) {
-          const driverName = driverProps[0].driver_name;
+        for (const [dId, driverLocs] of byDriver) {
+          const driverName = driverLocs[0].driver_name;
           const route = await storage.createRoute({
             title: `${driverName} Claimed - ${dateStr}`,
             scheduled_date: dateStr,
-            estimated_stops: driverProps.length,
+            estimated_stops: driverLocs.length,
             route_type: 'daily_route',
             source: 'driver_claimed',
             assigned_driver_id: dId,
@@ -1114,23 +1113,23 @@ export function registerAdminRoutes(app: Express) {
           });
           await storage.addRouteStops(
             route.id,
-            driverProps.map((p: any) => ({ property_id: p.property_id, order_type: 'recurring' }))
+            driverLocs.map((p: any) => ({ location_id: p.location_id, order_type: 'recurring' }))
           );
           routesCreated++;
         }
 
-        // Phase B: Create routes for unclaimed properties
-        const unclaimedProperties = properties.filter((p: any) => !claimedPropertyIds.has(p.id));
+        // Phase B: Create routes for unclaimed locations
+        const unclaimedLocations = locations.filter((p: any) => !claimedLocationIds.has(p.id));
         const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
 
         // Split into multiple routes if exceeding capacity
-        const chunks: typeof unclaimedProperties[] = [];
-        if (unclaimedProperties.length > maxStops) {
-          for (let c = 0; c < unclaimedProperties.length; c += maxStops) {
-            chunks.push(unclaimedProperties.slice(c, c + maxStops));
+        const chunks: typeof unclaimedLocations[] = [];
+        if (unclaimedLocations.length > maxStops) {
+          for (let c = 0; c < unclaimedLocations.length; c += maxStops) {
+            chunks.push(unclaimedLocations.slice(c, c + maxStops));
           }
-        } else if (unclaimedProperties.length > 0) {
-          chunks.push(unclaimedProperties);
+        } else if (unclaimedLocations.length > 0) {
+          chunks.push(unclaimedLocations);
         }
 
         for (let ci = 0; ci < chunks.length; ci++) {
@@ -1146,30 +1145,30 @@ export function registerAdminRoutes(app: Express) {
           });
           await storage.addRouteStops(
             route.id,
-            chunk.map((p: any) => ({ property_id: p.id, order_type: 'recurring' }))
+            chunk.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
           );
           routesCreated++;
         }
 
-        // Auto-bundle small special pickups
-        const specials = await storage.getSpecialPickupsForDate(dateStr);
+        // Auto-bundle small on-demand requests
+        const onDemandRequests = await storage.getOnDemandRequestsForDate(dateStr);
         const bulkThreshold = 200;
-        for (const sp of specials) {
+        for (const sp of onDemandRequests) {
           if (Number(sp.service_price) >= bulkThreshold) {
             const bulkRoute = await storage.createRoute({
-              title: `Bulk Pickup - ${sp.customer_name || sp.address}`,
+              title: `Bulk Collection - ${sp.customer_name || sp.address}`,
               scheduled_date: dateStr,
               estimated_stops: 1,
-              route_type: 'bulk_pickup',
-              source: 'special_pickup',
-              special_pickup_id: sp.id,
+              route_type: 'bulk_collection',
+              source: 'on_demand',
+              on_demand_request_id: sp.id,
               base_pay: Number(sp.service_price),
               status: 'draft',
             });
             await storage.addRouteStops(bulkRoute.id, [{
-              property_id: sp.property_id,
-              order_type: 'special',
-              special_pickup_id: sp.id,
+              location_id: sp.location_id,
+              order_type: 'on_demand',
+              on_demand_request_id: sp.id,
             }]);
             routesCreated++;
           }
@@ -1205,7 +1204,7 @@ export function registerAdminRoutes(app: Express) {
           errors.push(`Stop ${stop.id}: missing address, skipped`);
           continue;
         }
-        const stopKey = stop.property_id ? stop.property_id.substring(0, 8) : stop.id.substring(0, 8);
+        const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
         const orderNo = `ROUTE-${routeId.substring(0, 8)}-${stopKey}`;
         try {
           const result = await optimo.createOrder({
@@ -1264,7 +1263,7 @@ export function registerAdminRoutes(app: Express) {
             routeErrors++;
             continue;
           }
-          const stopKey = stop.property_id ? stop.property_id.substring(0, 8) : stop.id.substring(0, 8);
+          const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
           const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
           try {
             const result = await optimo.createOrder({
@@ -1419,7 +1418,7 @@ export function registerAdminRoutes(app: Express) {
 
       const [routes, cancelled] = await Promise.all([
         storage.getAllRoutes({ date_from: monday, date_to: saturday }),
-        storage.getCancelledPickupsForWeek(monday, saturday),
+        storage.getCancelledCollectionsForWeek(monday, saturday),
       ]);
 
       // Get missing clients for each day (Mon-Sat)
@@ -1666,7 +1665,7 @@ export function registerAdminRoutes(app: Express) {
         try {
           switch (type) {
             case 'pickup_reminder':
-              await sendPickupReminder(userId, data?.address || '', data?.date || '', data?.pickupType || 'Regular');
+              await sendCollectionReminder(userId, data?.address || '', data?.date || '', data?.collectionType || 'Regular');
               break;
             case 'billing_alert':
               await sendBillingAlert(userId, data?.invoiceNumber || '', data?.amount || 0, data?.dueDate || '');
@@ -1811,7 +1810,7 @@ export function registerAdminRoutes(app: Express) {
           } else if (type) {
             switch (type) {
               case 'pickup_reminder':
-                await sendPickupReminder(uid, data?.address || '', data?.date || '', data?.pickupType || 'Regular');
+                await sendCollectionReminder(uid, data?.address || '', data?.date || '', data?.collectionType || 'Regular');
                 break;
               case 'billing_alert':
                 await sendBillingAlert(uid, data?.invoiceNumber || '', data?.amount || 0, data?.dueDate || '');
@@ -2048,7 +2047,7 @@ export function registerAdminRoutes(app: Express) {
       const search = req.query.search as string | undefined;
       const sortBy = req.query.sortBy as string | undefined;
       const sortDir = req.query.sortDir as string | undefined;
-      const pickupDay = req.query.pickupDay as string | undefined;
+      const collectionDay = req.query.collectionDay as string | undefined;
       const limit = parseInt(req.query.limit as string) || 50;
       const page = parseInt(req.query.page as string) || 1;
       const offset = (page - 1) * limit;
@@ -2060,7 +2059,7 @@ export function registerAdminRoutes(app: Express) {
         sortDir,
         limit,
         offset,
-        pickupDay: pickupDay || undefined,
+        pickupDay: collectionDay || undefined,
       });
 
       res.json({
@@ -2073,8 +2072,8 @@ export function registerAdminRoutes(app: Express) {
           roles: u.roles || [],
           isAdmin: (u.roles || []).includes('admin'),
           createdAt: u.created_at,
-          propertyCount: parseInt(u.property_count) || 0,
-          pickupDays: u.pickup_days || [],
+          locationCount: parseInt(u.property_count) || 0,
+          collectionDays: u.pickup_days || [],
           driverRating: u.driver_rating ? parseFloat(u.driver_rating) : null,
           driverOnboardingStatus: u.driver_onboarding_status || null,
           driverJobsCompleted: u.driver_jobs_completed || null,
@@ -2098,7 +2097,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const roles = await roleRepo.getUserRoles(user.id);
-      const properties = await storage.getPropertiesForUser(user.id);
+      const locations = await storage.getLocationsForUser(user.id);
       let driverProfile = null;
       if (roles.includes('driver')) {
         driverProfile = await storage.getDriverProfileByUserId(user.id);
@@ -2115,7 +2114,7 @@ export function registerAdminRoutes(app: Express) {
         adminRole,
         isAdmin: roles.includes('admin'),
         createdAt: user.created_at,
-        properties,
+        locations,
         driverProfile,
       });
     } catch (error) {
@@ -2224,55 +2223,55 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Special Pickup Services CRUD
-  app.get('/api/admin/special-pickup-services', requireAdmin, async (_req: Request, res: Response) => {
+  // On-Demand Services CRUD
+  app.get('/api/admin/on-demand-services', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const result = await storage.query('SELECT * FROM special_pickup_services ORDER BY name');
+      const result = await storage.query('SELECT * FROM on_demand_services ORDER BY name');
       res.json(result.rows);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch special pickup services' });
+      res.status(500).json({ error: 'Failed to fetch on-demand services' });
     }
   });
 
-  app.post('/api/admin/special-pickup-services', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.post('/api/admin/on-demand-services', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { name, description, price, icon } = req.body;
       if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
       const result = await storage.query(
-        'INSERT INTO special_pickup_services (name, description, price, icon) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO on_demand_services (name, description, price, icon) VALUES ($1, $2, $3, $4) RETURNING *',
         [name, description || '', Math.round(price * 100) / 100, icon || null]
       );
-      await audit(req, 'create_special_service', 'special_pickup_service', result.rows[0].id, { name, price });
+      await audit(req, 'create_on_demand_service', 'on_demand_service', result.rows[0].id, { name, price });
       res.status(201).json(result.rows[0]);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to create special pickup service' });
+      res.status(500).json({ error: 'Failed to create on-demand service' });
     }
   });
 
-  app.put('/api/admin/special-pickup-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.put('/api/admin/on-demand-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { name, description, price, active, icon } = req.body;
       if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
       const result = await storage.query(
-        'UPDATE special_pickup_services SET name=$1, description=$2, price=$3, active=$4, icon=$5 WHERE id=$6 RETURNING *',
+        'UPDATE on_demand_services SET name=$1, description=$2, price=$3, active=$4, icon=$5 WHERE id=$6 RETURNING *',
         [name, description || '', Math.round(price * 100) / 100, active !== false, icon || null, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
-      await audit(req, 'update_special_service', 'special_pickup_service', req.params.id, { name, price, active });
+      await audit(req, 'update_on_demand_service', 'on_demand_service', req.params.id, { name, price, active });
       res.json(result.rows[0]);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to update special pickup service' });
+      res.status(500).json({ error: 'Failed to update on-demand service' });
     }
   });
 
-  app.delete('/api/admin/special-pickup-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.delete('/api/admin/on-demand-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const result = await storage.query('DELETE FROM special_pickup_services WHERE id=$1 RETURNING id', [req.params.id]);
+      const result = await storage.query('DELETE FROM on_demand_services WHERE id=$1 RETURNING id', [req.params.id]);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
-      await audit(req, 'delete_special_service', 'special_pickup_service', req.params.id);
+      await audit(req, 'delete_on_demand_service', 'on_demand_service', req.params.id);
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to delete special pickup service' });
+      res.status(500).json({ error: 'Failed to delete on-demand service' });
     }
   });
 
@@ -2280,9 +2279,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/address-reviews', requireAdmin, async (_req: Request, res: Response) => {
     try {
-      const properties = await storage.getPendingReviewProperties();
+      const locations = await storage.getPendingReviewLocations();
       res.json({
-        properties: properties.map(p => ({
+        locations: locations.map(p => ({
           id: p.id,
           address: p.address,
           serviceType: p.service_type,
@@ -2304,84 +2303,84 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Bulk approve/deny multiple pending addresses in one request.
-  // Each property is processed in its own transaction with row-level locking.
+  // Each location is processed in its own transaction with row-level locking.
   // On approval: creates Stripe subscriptions + notifies customer.
   app.post('/api/admin/address-reviews/bulk-decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const { propertyIds, decision, notes } = req.body;
-      if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
-        return res.status(400).json({ error: 'propertyIds must be a non-empty array' });
+      const { locationIds, decision, notes } = req.body;
+      if (!Array.isArray(locationIds) || locationIds.length === 0) {
+        return res.status(400).json({ error: 'locationIds must be a non-empty array' });
       }
       if (!decision || !['approved', 'denied', 'waitlist'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be approved, denied, or waitlist' });
       }
 
       const results: { id: string; success: boolean; error?: string }[] = [];
-      for (const propertyId of propertyIds) {
+      for (const locationId of locationIds) {
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
-          const lockResult = await client.query('SELECT * FROM properties WHERE id = $1 FOR UPDATE', [propertyId]);
-          const property = lockResult.rows[0];
-          if (!property) {
+          const lockResult = await client.query('SELECT * FROM locations WHERE id = $1 FOR UPDATE', [locationId]);
+          const location = lockResult.rows[0];
+          if (!location) {
             await client.query('ROLLBACK');
-            results.push({ id: propertyId, success: false, error: 'Not found' });
+            results.push({ id: locationId, success: false, error: 'Not found' });
             continue;
           }
           const terminalStatuses = ['approved', 'denied'];
-          if (terminalStatuses.includes(property.service_status)) {
+          if (terminalStatuses.includes(location.service_status)) {
             await client.query('ROLLBACK');
-            results.push({ id: propertyId, success: false, error: `Already ${property.service_status}` });
+            results.push({ id: locationId, success: false, error: `Already ${location.service_status}` });
             continue;
           }
 
           await client.query(
-            `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
-            [decision, notes || null, propertyId]
+            `UPDATE locations SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
+            [decision, notes || null, locationId]
           );
 
           // For waitlist: preserve pending selections; for approved/denied: claim and delete
           let pendingSelections: DbPendingSelection[] = [];
           if (decision !== 'waitlist') {
-            const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+            const selResult = await client.query('SELECT * FROM pending_service_selections WHERE location_id = $1', [locationId]);
             pendingSelections = selResult.rows;
-            await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+            await client.query('DELETE FROM pending_service_selections WHERE location_id = $1', [locationId]);
           }
           await client.query('COMMIT');
 
-          await audit(req, `address_review_${decision}`, 'property', propertyId, { notes, bulk: true });
+          await audit(req, `address_review_${decision}`, 'location', locationId, { notes, bulk: true });
 
           // Activate subscriptions on approval
           if (decision === 'approved' && pendingSelections.length > 0) {
-            activatePendingSelections(propertyId, property.user_id, {
+            activatePendingSelections(locationId, location.user_id, {
               source: 'bulk_approval',
               preloadedSelections: pendingSelections,
             }).catch(err => {
-              console.error(`Bulk: Failed to activate subscriptions for ${propertyId}:`, err);
+              console.error(`Bulk: Failed to activate subscriptions for ${locationId}:`, err);
             });
           }
 
           // Notify customer of decision
           const hasRental = decision === 'approved' && pendingSelections.some(s => !s.use_sticker);
           const msg = decision === 'approved'
-            ? approvalMessage(property.address, property.pickup_day, hasRental)
+            ? approvalMessage(location.address, location.collection_day, hasRental)
             : decision === 'waitlist'
-            ? waitlistMessage(property.address)
-            : denialMessage(property.address, notes);
-          sendServiceUpdate(property.user_id, msg.subject, msg.body).catch(() => {});
+            ? waitlistMessage(location.address)
+            : denialMessage(location.address, notes);
+          sendServiceUpdate(location.user_id, msg.subject, msg.body).catch(() => {});
 
           // Create in-portal notification
           const notifType = decision === 'approved' ? 'address_approved'
             : decision === 'waitlist' ? 'address_waitlisted'
             : 'address_denied';
-          storage.createNotification(property.user_id, notifType, msg.subject, msg.body, { propertyId }).catch(err => {
+          storage.createNotification(location.user_id, notifType, msg.subject, msg.body, { locationId }).catch(err => {
             console.error('Failed to create in-portal notification:', err);
           });
 
-          results.push({ id: propertyId, success: true });
+          results.push({ id: locationId, success: true });
         } catch (txErr) {
           await client.query('ROLLBACK');
-          results.push({ id: propertyId, success: false, error: 'Transaction failed' });
+          results.push({ id: locationId, success: false, error: 'Transaction failed' });
         } finally {
           client.release();
         }
@@ -2396,15 +2395,15 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/address-reviews/:propertyId/check-feasibility', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.post('/api/admin/address-reviews/:locationId/check-feasibility', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const propertyId = req.params.propertyId as string;
-      const property = await storage.getPropertyById(propertyId);
-      if (!property) return res.status(404).json({ error: 'Property not found' });
+      const locationId = req.params.locationId as string;
+      const location = await storage.getLocationById(locationId);
+      if (!location) return res.status(404).json({ error: 'Location not found' });
 
-      const feasibilityResult = await checkRouteFeasibility(property.address, property.id);
+      const feasibilityResult = await checkRouteFeasibility(location.address, location.id);
 
-      await audit(req, 'check_feasibility', 'property', property.id, feasibilityResult);
+      await audit(req, 'check_feasibility', 'location', location.id, feasibilityResult);
       res.json(feasibilityResult);
     } catch (error) {
       console.error('Feasibility check error:', error);
@@ -2412,10 +2411,10 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Route suggestion for a property (geocode → nearest zone → day detection)
-  app.get('/api/admin/address-reviews/:propertyId/route-suggestion', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  // Route suggestion for a location (geocode → nearest zone → day detection)
+  app.get('/api/admin/address-reviews/:locationId/route-suggestion', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const suggestion = await suggestRoute(req.params.propertyId as string);
+      const suggestion = await suggestRoute(req.params.locationId as string);
       res.json({ suggestion });
     } catch (error) {
       console.error('Route suggestion error:', error);
@@ -2423,76 +2422,76 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/address-reviews/:propertyId/decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.put('/api/admin/address-reviews/:locationId/decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const propertyId = req.params.propertyId as string;
+      const locationId = req.params.locationId as string;
       const { decision, notes } = req.body;
       if (!decision || !['approved', 'denied', 'waitlist'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be approved, denied, or waitlist' });
       }
 
-      // Pre-compute optimal pickup day before acquiring lock (geocoding is slow)
-      let optimizationResult: Awaited<ReturnType<typeof findOptimalPickupDay>> = null;
+      // Pre-compute optimal collection day before acquiring lock (geocoding is slow)
+      let optimizationResult: Awaited<ReturnType<typeof findOptimalCollectionDay>> = null;
       if (decision === 'approved') {
         try {
-          optimizationResult = await findOptimalPickupDay(propertyId);
+          optimizationResult = await findOptimalCollectionDay(locationId);
         } catch (e) {
-          console.error('Pickup day optimization failed (non-blocking):', e);
+          console.error('Collection day optimization failed (non-blocking):', e);
         }
       }
 
       // Hoist for notification after connection is released
       let notifyUserId: string | undefined;
       let notifyAddress: string | undefined;
+      let pendingSelections: DbPendingSelection[] = [];
 
       // Use a dedicated connection with FOR UPDATE to prevent double-approval race condition
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const lockResult = await client.query('SELECT * FROM properties WHERE id = $1 FOR UPDATE', [propertyId]);
-        const property = lockResult.rows[0];
-        if (!property) {
+        const lockResult = await client.query('SELECT * FROM locations WHERE id = $1 FOR UPDATE', [locationId]);
+        const location = lockResult.rows[0];
+        if (!location) {
           await client.query('ROLLBACK');
-          return res.status(404).json({ error: 'Property not found' });
+          return res.status(404).json({ error: 'Location not found' });
         }
-        notifyUserId = property.user_id;
-        notifyAddress = property.address;
+        notifyUserId = location.user_id;
+        notifyAddress = location.address;
 
         // Prevent re-processing if already decided (allow waitlist → approved transition)
         const terminalStatuses = ['approved', 'denied'];
-        if (terminalStatuses.includes(property.service_status)) {
+        if (terminalStatuses.includes(location.service_status)) {
           await client.query('ROLLBACK');
-          return res.status(409).json({ error: `Property already ${property.service_status}` });
+          return res.status(409).json({ error: `Location already ${location.service_status}` });
         }
 
         await client.query(
-          `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
-          [decision, notes || null, propertyId]
+          `UPDATE locations SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
+          [decision, notes || null, locationId]
         );
 
-        // Auto-assign pickup day from route insertion optimization
+        // Auto-assign collection day from route insertion optimization
         if (optimizationResult) {
           await client.query(
-            `UPDATE properties SET pickup_day = $1, pickup_day_source = 'route_optimized', pickup_day_detected_at = NOW() WHERE id = $2`,
-            [optimizationResult.pickup_day, propertyId]
+            `UPDATE locations SET collection_day = $1, collection_day_source = 'route_optimized', collection_day_detected_at = NOW() WHERE id = $2`,
+            [optimizationResult.collection_day, locationId]
           );
         }
 
         // For waitlist: preserve pending selections (customer stays on waiting list)
         // For approved/denied: claim and delete pending selections
-        let pendingSelections: DbPendingSelection[] = [];
         if (decision !== 'waitlist') {
-          const selResult = await client.query('SELECT * FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          const selResult = await client.query('SELECT * FROM pending_service_selections WHERE location_id = $1', [locationId]);
           pendingSelections = selResult.rows;
-          await client.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
+          await client.query('DELETE FROM pending_service_selections WHERE location_id = $1', [locationId]);
         }
         await client.query('COMMIT');
 
-        await audit(req, `address_review_${decision}`, 'property', propertyId, { notes });
+        await audit(req, `address_review_${decision}`, 'location', locationId, { notes });
 
-        // Activate subscriptions on approval (outside transaction — Stripe is external)
+        // Activate subscriptions on approval (outside transaction -- Stripe is external)
         if (decision === 'approved' && pendingSelections.length > 0) {
-          activatePendingSelections(propertyId, property.user_id, {
+          activatePendingSelections(locationId, location.user_id, {
             source: 'admin_approval',
             preloadedSelections: pendingSelections,
           }).catch(err => {
@@ -2510,7 +2509,7 @@ export function registerAdminRoutes(app: Express) {
       if (notifyUserId) {
         const hasRental = decision === 'approved' && pendingSelections.some(s => !s.use_sticker);
         const msg = decision === 'approved'
-          ? approvalMessage(notifyAddress!, optimizationResult?.pickup_day, hasRental)
+          ? approvalMessage(notifyAddress!, optimizationResult?.collection_day, hasRental)
           : decision === 'waitlist'
           ? waitlistMessage(notifyAddress!)
           : denialMessage(notifyAddress!, notes);
@@ -2522,7 +2521,7 @@ export function registerAdminRoutes(app: Express) {
         const notifType = decision === 'approved' ? 'address_approved'
           : decision === 'waitlist' ? 'address_waitlisted'
           : 'address_denied';
-        storage.createNotification(notifyUserId, notifType, msg.subject, msg.body, { propertyId }).catch(err => {
+        storage.createNotification(notifyUserId, notifType, msg.subject, msg.body, { locationId }).catch(err => {
           console.error('Failed to create in-portal notification:', err);
         });
       }
@@ -2567,10 +2566,10 @@ export function registerAdminRoutes(app: Express) {
     OPTIMO_SYNC_ENABLED:        { category: 'optimoroute', isSecret: false, label: 'Auto Sync Enabled',    displayType: 'toggle' },
     OPTIMO_SYNC_HOUR:           { category: 'optimoroute', isSecret: false, label: 'Sync Hour (0-23)',     displayType: 'text' },
     OPTIMO_SYNC_WINDOW_DAYS:    { category: 'optimoroute', isSecret: false, label: 'Sync Window (days)',   displayType: 'text' },
-    // Pickup Day Optimization
+    // Collection Day Optimization
     PICKUP_OPTIMIZATION_WINDOW_DAYS: { category: 'optimoroute', isSecret: false, label: 'Optimization Window (days)', displayType: 'text' },
     PICKUP_OPTIMIZATION_METRIC:      { category: 'optimoroute', isSecret: false, label: 'Optimize By (distance/time/both)', displayType: 'text' },
-    PICKUP_AUTO_ASSIGN:              { category: 'optimoroute', isSecret: false, label: 'Auto-Assign Pickup Day at Signup', displayType: 'toggle' },
+    PICKUP_AUTO_ASSIGN:              { category: 'optimoroute', isSecret: false, label: 'Auto-Assign Collection Day at Signup', displayType: 'toggle' },
     PICKUP_AUTO_APPROVE:             { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Addresses in Zone', displayType: 'toggle' },
     PICKUP_AUTO_APPROVE_MAX_MILES:   { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Distance (miles)', displayType: 'text' },
     PICKUP_AUTO_APPROVE_MAX_MINUTES: { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Time (minutes)', displayType: 'text' },

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Service, User, Property, NotificationPreferences, SpecialPickupService, SpecialPickupRequest, ServiceAlert, Subscription, PaymentMethod, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
+import { Service, User, Location, NotificationPreferences, OnDemandService, OnDemandRequest, ServiceAlert, Subscription, PaymentMethod, NewLocationInfo, RegistrationInfo, UpdateLocationInfo, UpdateProfileInfo, UpdatePasswordInfo, ReferralInfo } from '../types.ts';
 import { TrashIcon, ArrowPathIcon, SunIcon, TruckIcon, ArchiveBoxIcon, SparklesIcon, BuildingOffice2Icon, WrenchScrewdriverIcon, HomeModernIcon } from '../components/Icons.tsx';
 import * as stripeService from './stripeService.ts';
 import * as optimoRouteService from './optimoRouteService.ts';
@@ -13,16 +13,16 @@ const safeJson = async (res: Response, fallbackError = 'Request failed') => {
     }
 };
 
-export interface PropertyState {
-    property: Property;
-    nextPickup: {
+export interface LocationState {
+    location: Location;
+    nextCollection: {
         date: string;
         label: string;
         isToday: boolean;
         status: 'upcoming' | 'in-progress' | 'paused';
         eta?: string;
     } | null;
-    lastPickup: {
+    lastCollection: {
         date: string;
         label: string;
         status: 'completed';
@@ -38,7 +38,7 @@ export interface PropertyState {
 export interface AccountHealth {
     totalMonthlyCost: number;
     outstandingBalance: number;
-    activePropertiesCount: number;
+    activeLocationsCount: number;
     activeServicesCount: number;
     criticalAlerts: ServiceAlert[];
 }
@@ -81,7 +81,7 @@ export const getServiceAlerts = async () => {
 /**
  * The "Better Way": A single call that prepares the entire dashboard state.
  */
-export const getDashboardState = async (selectedPropertyId: string | 'all') => {
+export const getDashboardState = async (selectedLocationId: string | 'all') => {
     const [user, subscriptions, invoices, alerts] = await Promise.all([
         getUser(),
         getSubscriptions(),
@@ -89,101 +89,101 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
         getServiceAlerts()
     ]);
 
-    const targetProperties = selectedPropertyId === 'all' 
-        ? user.properties 
-        : user.properties.filter(p => p.id === selectedPropertyId);
+    const targetLocations = selectedLocationId === 'all'
+        ? user.locations
+        : user.locations.filter(p => p.id === selectedLocationId);
 
-    const states: PropertyState[] = await Promise.all(targetProperties.map(async (prop) => {
-        const propSubs = subscriptions.filter(s => s.propertyId === prop.id && s.status === 'active');
-        const isPaused = subscriptions.some(s => s.propertyId === prop.id && s.status === 'paused');
-        
-        let state: Omit<PropertyState, 'property' | 'monthlyTotal' | 'activeServices'>;
-        
+    const states: LocationState[] = await Promise.all(targetLocations.map(async (loc) => {
+        const locSubs = subscriptions.filter(s => s.locationId === loc.id && s.status === 'active');
+        const isPaused = subscriptions.some(s => s.locationId === loc.id && s.status === 'paused');
+
+        let state: Omit<LocationState, 'location' | 'monthlyTotal' | 'activeServices'>;
+
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
 
-        const [nextPickupInfo, pastPickups, dismissedDates] = await Promise.all([
-            optimoRouteService.getNextPickupInfo(prop.address),
-            optimoRouteService.getPastPickups(prop.address),
-            fetchTipDismissals(prop.id),
+        const [nextCollectionInfo, pastCollections, dismissedDates] = await Promise.all([
+            optimoRouteService.getNextPickupInfo(loc.address),
+            optimoRouteService.getPastPickups(loc.address),
+            fetchTipDismissals(loc.id),
         ]);
 
-        const lastCompletedPickup = pastPickups.find(h => h.status === 'completed');
+        const lastCompletedCollection = pastCollections.find(h => h.status === 'completed');
 
-        if (nextPickupInfo) {
-            const pickupDate = nextPickupInfo.date;
-            const isToday = pickupDate === todayStr;
-            const pickupDateObj = new Date(pickupDate + 'T00:00:00');
-            const diffDays = Math.round((pickupDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-            let label = isToday ? 'TODAY' : diffDays === 1 ? 'Tomorrow' : pickupDate;
-            let pickupStatus: string = isPaused ? 'paused' : isToday ? 'in-progress' : 'upcoming';
+        if (nextCollectionInfo) {
+            const collectionDate = nextCollectionInfo.date;
+            const isToday = collectionDate === todayStr;
+            const collectionDateObj = new Date(collectionDate + 'T00:00:00');
+            const diffDays = Math.round((collectionDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            let label = isToday ? 'TODAY' : diffDays === 1 ? 'Tomorrow' : collectionDate;
+            let collectionStatus: string = isPaused ? 'paused' : isToday ? 'in-progress' : 'upcoming';
 
             let intent: string | null = null;
             if (!isToday) {
                 try {
-                    const ciRes = await fetch(`/api/collection-intent/${prop.id}/${pickupDate}`, { credentials: 'include' });
+                    const ciRes = await fetch(`/api/collection-intent/${loc.id}/${collectionDate}`, { credentials: 'include' });
                     if (ciRes.ok) { const ciJson = await ciRes.json(); intent = ciJson.data?.intent || null; }
                 } catch {}
             }
 
-            let lastPickup = null;
-            if (lastCompletedPickup) {
+            let lastCollection = null;
+            if (lastCompletedCollection) {
                 let feedback: any = null;
                 try {
-                    const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
+                    const fbRes = await fetch(`/api/driver-feedback/${loc.id}/${lastCompletedCollection.date}`, { credentials: 'include' });
                     if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
                 } catch {}
-                const hasBeenDismissed = dismissedDates.includes(lastCompletedPickup.date);
-                lastPickup = {
-                    date: lastCompletedPickup.date,
-                    label: 'Last Pickup',
+                const hasBeenDismissed = dismissedDates.includes(lastCompletedCollection.date);
+                lastCollection = {
+                    date: lastCompletedCollection.date,
+                    label: 'Last Collection',
                     status: 'completed' as const,
                     feedbackSubmitted: !!feedback,
                     showTipPrompt: !feedback && !hasBeenDismissed,
-                    driverName: lastCompletedPickup.driver,
+                    driverName: lastCompletedCollection.driver,
                 };
             }
 
             state = {
-                nextPickup: { date: pickupDate, label, isToday, status: pickupStatus as any, eta: nextPickupInfo.eta },
-                lastPickup,
+                nextCollection: { date: collectionDate, label, isToday, status: collectionStatus as any, eta: nextCollectionInfo.eta },
+                lastCollection,
                 collectionIntent: intent as any
             };
-        } else if (lastCompletedPickup) {
+        } else if (lastCompletedCollection) {
             let feedback: any = null;
             try {
-                const fbRes = await fetch(`/api/driver-feedback/${prop.id}/${lastCompletedPickup.date}`, { credentials: 'include' });
+                const fbRes = await fetch(`/api/driver-feedback/${loc.id}/${lastCompletedCollection.date}`, { credentials: 'include' });
                 if (fbRes.ok) { const fbJson = await fbRes.json(); feedback = fbJson.data; }
             } catch {}
-            const hasBeenDismissed = dismissedDates.includes(lastCompletedPickup.date);
+            const hasBeenDismissed = dismissedDates.includes(lastCompletedCollection.date);
             state = {
-                nextPickup: null,
-                lastPickup: {
-                    date: lastCompletedPickup.date,
-                    label: 'Last Pickup',
+                nextCollection: null,
+                lastCollection: {
+                    date: lastCompletedCollection.date,
+                    label: 'Last Collection',
                     status: 'completed',
                     feedbackSubmitted: !!feedback,
                     showTipPrompt: !feedback && !hasBeenDismissed,
-                    driverName: lastCompletedPickup.driver,
+                    driverName: lastCompletedCollection.driver,
                 },
                 collectionIntent: null
             };
         } else {
-            state = { nextPickup: null, lastPickup: null, collectionIntent: null };
+            state = { nextCollection: null, lastCollection: null, collectionIntent: null };
         }
 
         return {
             ...state,
-            property: prop,
-            monthlyTotal: propSubs.reduce((acc, s) => acc + s.totalPrice, 0),
-            activeServices: propSubs.map(s => s.serviceName)
+            location: loc,
+            monthlyTotal: locSubs.reduce((acc, s) => acc + s.totalPrice, 0),
+            activeServices: locSubs.map(s => s.serviceName)
         };
     }));
 
     const health: AccountHealth = {
         totalMonthlyCost: subscriptions.filter(s => s.status === 'active').reduce((acc, s) => acc + s.totalPrice, 0),
         outstandingBalance: invoices.filter(i => i.status !== 'Paid').reduce((acc, i) => acc + i.amount, 0),
-        activePropertiesCount: user.properties.length,
+        activeLocationsCount: user.locations.length,
         activeServicesCount: subscriptions.filter(s => s.status === 'active').length,
         criticalAlerts: alerts
     };
@@ -191,23 +191,23 @@ export const getDashboardState = async (selectedPropertyId: string | 'all') => {
     return { states, health };
 };
 
-const fetchTipDismissals = async (propertyId: string): Promise<string[]> => {
+const fetchTipDismissals = async (locationId: string): Promise<string[]> => {
     try {
-        const res = await fetch(`/api/tip-dismissals/${propertyId}`, { credentials: 'include' });
+        const res = await fetch(`/api/tip-dismissals/${locationId}`, { credentials: 'include' });
         if (res.ok) { const json = await res.json(); return json.data || []; }
     } catch {}
     return [];
 };
 
-export const getCollectionHistory = async (propertyId: string): Promise<CollectionHistoryLogWithFeedback[]> => {
-    const property = cachedUser?.properties.find(p => p.id === propertyId);
-    if (!property) return [];
+export const getCollectionHistory = async (locationId: string): Promise<CollectionHistoryLogWithFeedback[]> => {
+    const location = cachedUser?.locations.find(p => p.id === locationId);
+    if (!location) return [];
 
-    const history = await optimoRouteService.getPastPickups(property.address);
+    const history = await optimoRouteService.getPastPickups(location.address);
 
     let feedbackList: any[] = [];
     try {
-        const res = await fetch(`/api/driver-feedback/${propertyId}/list`, { credentials: 'include' });
+        const res = await fetch(`/api/driver-feedback/${locationId}/list`, { credentials: 'include' });
         if (res.ok) { const json = await safeJson(res); feedbackList = json.data || []; }
     } catch {}
 
@@ -254,8 +254,8 @@ export const register = async (info: RegistrationInfo): Promise<User> => {
     }
     return json.data;
 };
-export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
-    const res = await fetch('/api/properties', {
+export const addLocation = async (info: NewLocationInfo): Promise<Location> => {
+    const res = await fetch('/api/locations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -269,13 +269,14 @@ export const addProperty = async (info: NewPropertyInfo): Promise<Property> => {
             notes: info.notes,
         }),
     });
-    const json = await safeJson(res, 'Failed to add property');
-    if (!res.ok) throw new Error(json.error || 'Failed to add property');
-    const newP = json.data;
-    return newP;
+    const json = await safeJson(res, 'Failed to add location');
+    if (!res.ok) throw new Error(json.error || 'Failed to add location');
+    const newL = json.data;
+    return newL;
 };
-export const savePendingSelections = async (propertyId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> => {
-    const res = await fetch(`/api/properties/${propertyId}/pending-selections`, {
+export const addProperty = addLocation;
+export const savePendingSelections = async (locationId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> => {
+    const res = await fetch(`/api/locations/${locationId}/pending-selections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -285,17 +286,18 @@ export const savePendingSelections = async (propertyId: string, selections: { se
     if (!res.ok) throw new Error(json.error || 'Failed to save service selections');
 };
 
-export const deleteOrphanedProperty = async (propertyId: string): Promise<void> => {
-    const res = await fetch(`/api/properties/${propertyId}`, {
+export const deleteOrphanedLocation = async (locationId: string): Promise<void> => {
+    const res = await fetch(`/api/locations/${locationId}`, {
         method: 'DELETE',
         credentials: 'include',
     });
-    const json = await safeJson(res, 'Failed to delete property');
-    if (!res.ok) throw new Error(json.error || 'Failed to delete property');
+    const json = await safeJson(res, 'Failed to delete location');
+    if (!res.ok) throw new Error(json.error || 'Failed to delete location');
 };
+export const deleteOrphanedProperty = deleteOrphanedLocation;
 
-export const getPendingSelections = async (propertyId: string): Promise<{ serviceId: string; quantity: number; useSticker: boolean }[]> => {
-    const res = await fetch(`/api/properties/${propertyId}/pending-selections`, {
+export const getPendingSelections = async (locationId: string): Promise<{ serviceId: string; quantity: number; useSticker: boolean }[]> => {
+    const res = await fetch(`/api/locations/${locationId}/pending-selections`, {
         credentials: 'include',
     });
     const json = await safeJson(res, 'Failed to get pending selections');
@@ -303,8 +305,8 @@ export const getPendingSelections = async (propertyId: string): Promise<{ servic
     return json.data;
 };
 
-export const updatePropertyDetails = async (id: string, details: UpdatePropertyInfo): Promise<Property> => {
-    const res = await fetch(`/api/properties/${id}`, {
+export const updateLocationDetails = async (id: string, details: UpdateLocationInfo): Promise<Location> => {
+    const res = await fetch(`/api/locations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -317,10 +319,11 @@ export const updatePropertyDetails = async (id: string, details: UpdatePropertyI
             notes: details.notes,
         }),
     });
-    const json = await safeJson(res, 'Failed to update property');
-    if (!res.ok) throw new Error(json.error || 'Failed to update property');
+    const json = await safeJson(res, 'Failed to update location');
+    if (!res.ok) throw new Error(json.error || 'Failed to update location');
     return json.data;
 };
+export const updatePropertyDetails = updateLocationDetails;
 export const updateUserProfile = async (info: UpdateProfileInfo): Promise<User> => {
     const res = await fetch('/api/auth/profile', {
         method: 'PUT',
@@ -379,32 +382,32 @@ export const getServices = async (): Promise<Service[]> => {
 };
 
 export const payInvoice = stripeService.payInvoice;
-export const payOutstandingBalance = (paymentMethodId: string, propertyId?: string) => stripeService.payOutstandingBalance(paymentMethodId, propertyId);
+export const payOutstandingBalance = (paymentMethodId: string, locationId?: string) => stripeService.payOutstandingBalance(paymentMethodId, locationId);
 
-export const subscribeToNewService = async (service: Service, propertyId: string, quantity: number, useSticker: boolean) => {
-    const property = cachedUser?.properties.find(p => p.id === propertyId);
-    if (!property) throw new Error("Property not found for creating subscription.");
+export const subscribeToNewService = async (service: Service, locationId: string, quantity: number, useSticker: boolean) => {
+    const location = cachedUser?.locations.find(p => p.id === locationId);
+    if (!location) throw new Error("Location not found for creating subscription.");
 
     const paymentMethods = await stripeService.listPaymentMethods();
     const paymentMethodId = paymentMethods.length > 0 ? paymentMethods[0].id : undefined;
 
-    const newSub = await stripeService.createSubscription(service, propertyId, paymentMethodId, quantity, useSticker);
+    const newSub = await stripeService.createSubscription(service, locationId, paymentMethodId, quantity, useSticker);
 
     // If a new physical can is being rented, create a delivery task.
     if (service.category === 'base_service' && !useSticker) {
-        await optimoRouteService.createDeliveryTask(property.address, service.name, quantity);
+        await optimoRouteService.createDeliveryTask(location.address, service.name, quantity);
     }
-    
+
     return newSub;
 };
 
-export const changeServiceQuantity = async (service: Service, propertyId: string, change: 'increment' | 'decrement', useSticker?: boolean) => {
-    const property = cachedUser?.properties.find(p => p.id === propertyId);
-    if (!property) throw new Error("Property not found for changing quantity.");
+export const changeServiceQuantity = async (service: Service, locationId: string, change: 'increment' | 'decrement', useSticker?: boolean) => {
+    const location = cachedUser?.locations.find(p => p.id === locationId);
+    if (!location) throw new Error("Location not found for changing quantity.");
 
     const subs = await stripeService.listSubscriptions();
-    const existing = subs.find(s => s.propertyId === propertyId && s.serviceId === service.id && s.status === 'active');
-    
+    const existing = subs.find(s => s.locationId === locationId && s.serviceId === service.id && s.status === 'active');
+
     if (existing) {
         const newQty = change === 'increment' ? existing.quantity + 1 : existing.quantity - 1;
         const changeAmount = newQty - existing.quantity;
@@ -414,9 +417,9 @@ export const changeServiceQuantity = async (service: Service, propertyId: string
         // If it's a rental can and quantity changed, create a task.
         if (service.category === 'base_service' && existing.equipmentType === 'rental') {
             if (changeAmount > 0) {
-                await optimoRouteService.createDeliveryTask(property.address, service.name, changeAmount);
+                await optimoRouteService.createDeliveryTask(location.address, service.name, changeAmount);
             } else if (changeAmount < 0) {
-                await optimoRouteService.createPickupTask(property.address, service.name, Math.abs(changeAmount));
+                await optimoRouteService.createPickupTask(location.address, service.name, Math.abs(changeAmount));
             }
         }
         return updatedSub;
@@ -425,10 +428,10 @@ export const changeServiceQuantity = async (service: Service, propertyId: string
         // This is creating a new subscription
         const pms = await stripeService.listPaymentMethods();
         const pmId = pms.length > 0 ? pms[0].id : undefined;
-        const newSub = await stripeService.createSubscription(service, propertyId, pmId, 1, useSticker ?? false);
+        const newSub = await stripeService.createSubscription(service, locationId, pmId, 1, useSticker ?? false);
         // If a new physical can is being rented, create a delivery task.
         if (service.category === 'base_service' && !(useSticker ?? false)) {
-            await optimoRouteService.createDeliveryTask(property.address, service.name, 1);
+            await optimoRouteService.createDeliveryTask(location.address, service.name, 1);
         }
         return newSub;
     }
@@ -445,12 +448,12 @@ export const cancelSubscription = async (subscriptionId: string) => {
     if (!subToCancel) throw new Error("Subscription to cancel not found.");
 
     const service = (await getServices()).find(s => s.id === subToCancel.serviceId);
-    const property = cachedUser?.properties.find(p => p.id === subToCancel.propertyId);
+    const location = cachedUser?.locations.find(p => p.id === subToCancel.locationId);
 
     const result = await stripeService.cancelSubscription(subscriptionId);
 
-    if (property && service?.category === 'base_service' && subToCancel.equipmentType === 'rental' && subToCancel.quantity > 0) {
-        await optimoRouteService.createPickupTask(property.address, subToCancel.serviceName, subToCancel.quantity);
+    if (location && service?.category === 'base_service' && subToCancel.equipmentType === 'rental' && subToCancel.quantity > 0) {
+        await optimoRouteService.createPickupTask(location.address, subToCancel.serviceName, subToCancel.quantity);
     }
     
     return result;
@@ -463,9 +466,9 @@ export const addPaymentMethod = stripeService.attachPaymentMethod;
 export const deletePaymentMethod = stripeService.detachPaymentMethod;
 export const setPrimaryPaymentMethod = stripeService.updateCustomerDefaultPaymentMethod;
 
-export const updateSubscriptionsForProperty = async (propertyId: string, paymentMethodId: string) => {
+export const updateSubscriptionsForLocation = async (locationId: string, paymentMethodId: string) => {
     const subs = await stripeService.listSubscriptions();
-    const targets = subs.filter(s => s.propertyId === propertyId && s.status === 'active');
+    const targets = subs.filter(s => s.locationId === locationId && s.status === 'active');
     await Promise.all(targets.map(t => stripeService.updateSubscriptionPaymentMethod(t.id, paymentMethodId)));
 };
 
@@ -475,8 +478,8 @@ export const updateAllUserSubscriptions = async (paymentMethodId: string) => {
     await Promise.all(targets.map(t => stripeService.updateSubscriptionPaymentMethod(t.id, paymentMethodId)));
 };
 
-export const updateNotificationPreferences = async (propertyId: string, prefs: NotificationPreferences) => {
-    const res = await fetch(`/api/properties/${propertyId}/notifications`, {
+export const updateNotificationPreferences = async (locationId: string, prefs: NotificationPreferences) => {
+    const res = await fetch(`/api/locations/${locationId}/notifications`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -491,9 +494,9 @@ const iconMap: Record<string, React.FC<any>> = {
     ArchiveBoxIcon, HomeModernIcon, SparklesIcon, TruckIcon, WrenchScrewdriverIcon, BuildingOffice2Icon, TrashIcon,
 };
 
-export const getSpecialPickupServices = async (): Promise<SpecialPickupService[]> => {
+export const getOnDemandServices = async (): Promise<OnDemandService[]> => {
     try {
-        const res = await fetch('/api/special-pickup-services', { credentials: 'include' });
+        const res = await fetch('/api/on-demand-services', { credentials: 'include' });
         const json = await safeJson(res);
         if (res.ok && json.data) {
             return json.data.map((s: any) => {
@@ -510,15 +513,16 @@ export const getSpecialPickupServices = async (): Promise<SpecialPickupService[]
     } catch {}
     return [];
 };
+export const getSpecialPickupServices = getOnDemandServices;
 
-export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]> => {
+export const getOnDemandRequests = async (): Promise<OnDemandRequest[]> => {
     try {
-        const res = await fetch('/api/special-pickups', { credentials: 'include' });
+        const res = await fetch('/api/on-demand', { credentials: 'include' });
         const json = await safeJson(res);
         if (res.ok && json.data) {
             return json.data.map((r: any) => ({
                 id: r.id,
-                propertyId: r.property_id,
+                locationId: r.property_id,
                 serviceId: r.id,
                 serviceName: r.service_name,
                 date: r.pickup_date,
@@ -534,29 +538,30 @@ export const getSpecialPickupRequests = async (): Promise<SpecialPickupRequest[]
     } catch {}
     return [];
 };
+export const getSpecialPickupRequests = getOnDemandRequests;
 
-export const requestSpecialPickup = async (
-    serviceId: string, propertyId: string, date: string,
+export const requestOnDemandPickup = async (
+    serviceId: string, locationId: string, date: string,
     opts?: { notes?: string; photos?: string[]; aiEstimate?: number; aiReasoning?: string }
 ) => {
-    const services = await getSpecialPickupServices();
+    const services = await getOnDemandServices();
     const service = services.find(s => s.id === serviceId);
     if (!service) throw new Error("Service not found");
-    const res = await fetch('/api/special-pickup', {
+    const res = await fetch('/api/on-demand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-            propertyId, serviceName: service.name, servicePrice: service.price, date,
+            locationId, serviceName: service.name, servicePrice: service.price, date,
             notes: opts?.notes, photos: opts?.photos,
             aiEstimate: opts?.aiEstimate, aiReasoning: opts?.aiReasoning,
         }),
     });
-    const json = await safeJson(res, 'Failed to create special pickup request');
-    if (!res.ok) throw new Error(json.error || 'Failed to create special pickup request');
+    const json = await safeJson(res, 'Failed to create on-demand pickup request');
+    if (!res.ok) throw new Error(json.error || 'Failed to create on-demand pickup request');
     return {
         id: json.data.id,
-        propertyId,
+        locationId,
         serviceId,
         serviceName: service.name,
         date,
@@ -564,11 +569,12 @@ export const requestSpecialPickup = async (
         price: opts?.aiEstimate || service.price,
     };
 };
+export const requestSpecialPickup = requestOnDemandPickup;
 
-export const uploadSpecialPickupPhotos = async (files: File[]): Promise<string[]> => {
+export const uploadOnDemandPhotos = async (files: File[]): Promise<string[]> => {
     const formData = new FormData();
     files.forEach(f => formData.append('photos', f));
-    const res = await fetch('/api/upload/special-pickup', {
+    const res = await fetch('/api/upload/on-demand', {
         method: 'POST',
         credentials: 'include',
         body: formData,
@@ -577,9 +583,10 @@ export const uploadSpecialPickupPhotos = async (files: File[]): Promise<string[]
     if (!res.ok) throw new Error(json.error || 'Failed to upload photos');
     return json.urls;
 };
+export const uploadSpecialPickupPhotos = uploadOnDemandPhotos;
 
-export const estimateSpecialPickup = async (description: string, photoUrls: string[]): Promise<{ estimate: number; reasoning: string }> => {
-    const res = await fetch('/api/special-pickup/estimate', {
+export const estimateOnDemandPickup = async (description: string, photoUrls: string[]): Promise<{ estimate: number; reasoning: string }> => {
+    const res = await fetch('/api/on-demand/estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -589,9 +596,10 @@ export const estimateSpecialPickup = async (description: string, photoUrls: stri
     if (!res.ok) throw new Error(json.error || 'Failed to get AI estimate');
     return { estimate: json.estimate, reasoning: json.reasoning };
 };
+export const estimateSpecialPickup = estimateOnDemandPickup;
 
-export const cancelSpecialPickup = async (requestId: string, reason?: string) => {
-    const res = await fetch(`/api/special-pickup/${requestId}`, {
+export const cancelOnDemandPickup = async (requestId: string, reason?: string) => {
+    const res = await fetch(`/api/on-demand/${requestId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -601,9 +609,10 @@ export const cancelSpecialPickup = async (requestId: string, reason?: string) =>
     if (!res.ok) throw new Error(json.error || 'Failed to cancel pickup');
     return json.data;
 };
+export const cancelSpecialPickup = cancelOnDemandPickup;
 
-export const rescheduleSpecialPickup = async (requestId: string, newDate: string) => {
-    const res = await fetch(`/api/special-pickup/${requestId}`, {
+export const rescheduleOnDemandPickup = async (requestId: string, newDate: string) => {
+    const res = await fetch(`/api/on-demand/${requestId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -613,76 +622,83 @@ export const rescheduleSpecialPickup = async (requestId: string, newDate: string
     if (!res.ok) throw new Error(json.error || 'Failed to reschedule pickup');
     return json.data;
 };
+export const rescheduleSpecialPickup = rescheduleOnDemandPickup;
 
-export const pauseSubscriptionsForProperty = async (propertyId: string, until: string) => {
-    return stripeService.pauseSubscriptionsForProperty(propertyId, until);
+export const pauseSubscriptionsForLocation = async (locationId: string, until: string) => {
+    return stripeService.pauseSubscriptionsForLocation(locationId, until);
 };
+export const pauseSubscriptionsForProperty = pauseSubscriptionsForLocation;
 
-export const resumeSubscriptionsForProperty = async (propertyId: string) => {
-    return stripeService.resumeSubscriptionsForProperty(propertyId);
+export const resumeSubscriptionsForLocation = async (locationId: string) => {
+    return stripeService.resumeSubscriptionsForLocation(locationId);
 };
+export const resumeSubscriptionsForProperty = resumeSubscriptionsForLocation;
 
-export const reportMissedPickup = async (propertyId: string, date: string, notes: string) => {
-    const res = await fetch('/api/missed-pickup', {
+export const reportMissedCollection = async (locationId: string, date: string, notes: string) => {
+    const res = await fetch('/api/missed-collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, date, notes }),
+        body: JSON.stringify({ locationId, date, notes }),
     });
-    const json = await safeJson(res, 'Failed to report missed pickup');
-    if (!res.ok) throw new Error(json.error || 'Failed to report missed pickup');
+    const json = await safeJson(res, 'Failed to report missed collection');
+    if (!res.ok) throw new Error(json.error || 'Failed to report missed collection');
     return json;
 };
+export const reportMissedPickup = reportMissedCollection;
 
-export const transferPropertyOwnership = async (propertyId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
+export const transferLocationOwnership = async (locationId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
     const res = await fetch('/api/account-transfer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, firstName: newOwner.firstName, lastName: newOwner.lastName, email: newOwner.email }),
+        body: JSON.stringify({ locationId, firstName: newOwner.firstName, lastName: newOwner.lastName, email: newOwner.email }),
     });
     const json = await safeJson(res, 'Failed to initiate transfer');
     if (!res.ok) throw new Error(json.error || 'Failed to initiate transfer');
     return json.data;
 };
+export const transferPropertyOwnership = transferLocationOwnership;
 
-export const sendTransferReminder = async (propertyId: string) => {
+export const sendTransferReminder = async (locationId: string) => {
     const res = await fetch('/api/account-transfer/remind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId }),
+        body: JSON.stringify({ locationId }),
     });
     const json = await safeJson(res, 'Failed to send reminder');
     if (!res.ok) throw new Error(json.error || 'Failed to send reminder');
     return json.data;
 };
 
-export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
-    const property = cachedUser?.properties.find(p => p.id === propertyId);
-    if (!property) throw new Error("Property not found for cancellation.");
+export const cancelAllSubscriptionsForLocation = async (locationId: string) => {
+    const location = cachedUser?.locations.find(p => p.id === locationId);
+    if (!location) throw new Error("Location not found for cancellation.");
 
     const allSubs = await stripeService.listSubscriptions();
     const services = await getServices();
-    
-    const subsToCancel = allSubs.filter(s => s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused'));
-    
-    const result = await stripeService.cancelAllSubscriptionsForProperty(propertyId);
+
+    const subsToCancel = allSubs.filter(s => s.locationId === locationId && (s.status === 'active' || s.status === 'paused'));
+
+    const result = await stripeService.cancelAllSubscriptionsForLocation(locationId);
 
     // After cancellation, create pickup tasks for each rental can
     for (const sub of subsToCancel) {
         const service = services.find(s => s.id === sub.serviceId);
         if (service?.category === 'base_service' && sub.equipmentType === 'rental' && sub.quantity > 0) {
-            await optimoRouteService.createPickupTask(property.address, sub.serviceName, sub.quantity);
+            await optimoRouteService.createPickupTask(location.address, sub.serviceName, sub.quantity);
         }
     }
 
     return result;
 };
+export const cancelAllSubscriptionsForProperty = cancelAllSubscriptionsForLocation;
 
-export const restartAllSubscriptionsForProperty = (propertyId: string) => {
-    return stripeService.restartAllSubscriptionsForProperty(propertyId);
+export const restartAllSubscriptionsForLocation = (locationId: string) => {
+    return stripeService.restartAllSubscriptionsForLocation(locationId);
 };
+export const restartAllSubscriptionsForProperty = restartAllSubscriptionsForLocation;
 
 export const getReferralInfo = async (): Promise<ReferralInfo> => {
     try {
@@ -697,49 +713,49 @@ export const getReferralInfo = async (): Promise<ReferralInfo> => {
 
 // --- DRIVER COMMUNICATION FUNCTIONS (DB-BACKED) ---
 
-export const setCollectionIntent = async (propertyId: string, intent: 'out' | 'skip', date: string) => {
+export const setCollectionIntent = async (locationId: string, intent: 'out' | 'skip', date: string) => {
     const res = await fetch('/api/collection-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, intent, date }),
+        body: JSON.stringify({ locationId, intent, date }),
     });
     const json = await safeJson(res, 'Failed to save collection intent');
     if (!res.ok) throw new Error(json.error || 'Failed to save collection intent');
     return { success: true };
 };
 
-export const leaveDriverTip = async (propertyId: string, amount: number, pickupDate: string) => {
+export const leaveDriverTip = async (locationId: string, amount: number, collectionDate: string) => {
     const res = await fetch('/api/driver-feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, pickupDate, tipAmount: amount, rating: null, note: null }),
+        body: JSON.stringify({ locationId, pickupDate: collectionDate, tipAmount: amount, rating: null, note: null }),
     });
     const json = await safeJson(res, 'Failed to save tip');
     if (!res.ok) throw new Error(json.error || 'Failed to save tip');
     return { success: true };
 };
 
-export const leaveDriverNote = async (propertyId: string, note: string, pickupDate: string) => {
+export const leaveDriverNote = async (locationId: string, note: string, collectionDate: string) => {
     const res = await fetch('/api/driver-feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ propertyId, pickupDate, tipAmount: null, rating: null, note }),
+        body: JSON.stringify({ locationId, pickupDate: collectionDate, tipAmount: null, rating: null, note }),
     });
     const json = await safeJson(res, 'Failed to save note');
     if (!res.ok) throw new Error(json.error || 'Failed to save note');
     return { success: true };
 };
 
-export const dismissTipPrompt = async (propertyId: string, pickupDate: string) => {
+export const dismissTipPrompt = async (locationId: string, collectionDate: string) => {
     try {
         await fetch('/api/tip-dismissal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ propertyId, pickupDate }),
+            body: JSON.stringify({ locationId, pickupDate: collectionDate }),
         });
     } catch {}
     return { success: true };

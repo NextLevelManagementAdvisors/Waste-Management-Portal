@@ -1,15 +1,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
-import { Property, Subscription } from '../types.ts';
-import PropertyCard from './PropertyCard.tsx';
+import { Location, Subscription } from '../types.ts';
+import LocationCard from './LocationCard.tsx';
 import { ListBulletIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, PlusCircleIcon } from './Icons.tsx';
 import { Card } from './Card.tsx';
 
 type FilterStatus = 'all' | 'active' | 'paused' | 'canceled';
 
-export interface PropertyWithStatus extends Property {
+export interface LocationWithStatus extends Location {
     status: 'active' | 'paused' | 'canceled';
     monthlyTotal: number;
     activeServicesCount: number;
@@ -36,15 +36,15 @@ const FilterButton: React.FC<{
     </button>
 );
 
-interface PropertyManagementProps {
-    onAddProperty?: () => void;
-    onResumeSetup?: (propertyId: string) => void;
-    onPropertyRemoved?: () => void;
+interface LocationManagementProps {
+    onAddLocation?: () => void;
+    onResumeSetup?: (locationId: string) => void;
+    onLocationRemoved?: () => void;
 }
 
-const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, onResumeSetup, onPropertyRemoved }) => {
-    const { properties, startNewServiceFlow, setSelectedPropertyId } = useProperty();
-    const handleAddProperty = onAddProperty || startNewServiceFlow;
+const LocationManagement: React.FC<LocationManagementProps> = ({ onAddLocation, onResumeSetup, onLocationRemoved }) => {
+    const { locations, startNewServiceFlow, setSelectedLocationId } = useLocation();
+    const handleAddLocation = onAddLocation || startNewServiceFlow;
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
@@ -56,55 +56,55 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
         });
     }, []);
 
-    // Auto-select the only property for single-address customers
+    // Auto-select the only location for single-address customers
     useEffect(() => {
-        if (!loading && properties.length === 1) {
-            const prop = properties[0];
-            const isApproved = !prop.serviceStatus || prop.serviceStatus === 'approved';
+        if (!loading && locations.length === 1) {
+            const loc = locations[0];
+            const isApproved = !loc.serviceStatus || loc.serviceStatus === 'approved';
             if (isApproved) {
-                setSelectedPropertyId(prop.id);
+                setSelectedLocationId(loc.id);
             }
         }
-    }, [loading, properties, setSelectedPropertyId]);
+    }, [loading, locations, setSelectedLocationId]);
 
-    const propertiesWithStatus = useMemo((): PropertyWithStatus[] => {
-        return properties.map(prop => {
-            const propSubs = allSubscriptions.filter(s => s.propertyId === prop.id);
+    const locationsWithStatus = useMemo((): LocationWithStatus[] => {
+        return locations.map(loc => {
+            const locSubs = allSubscriptions.filter(s => s.propertyId === loc.id);
             let status: 'active' | 'paused' | 'canceled' = 'canceled';
-            if (propSubs.some(s => s.status === 'active')) {
+            if (locSubs.some(s => s.status === 'active')) {
                 status = 'active';
-            } else if (propSubs.some(s => s.status === 'paused')) {
+            } else if (locSubs.some(s => s.status === 'paused')) {
                 status = 'paused';
             }
-            
-            const activeSubs = propSubs.filter(s => s.status === 'active' || s.status === 'paused');
+
+            const activeSubs = locSubs.filter(s => s.status === 'active' || s.status === 'paused');
             return {
-                ...prop,
+                ...loc,
                 status,
                 monthlyTotal: activeSubs.reduce((acc, s) => acc + s.totalPrice, 0),
                 activeServicesCount: activeSubs.length,
             };
         });
-    }, [properties, allSubscriptions]);
+    }, [locations, allSubscriptions]);
 
-    const filteredProperties = useMemo(() => {
-        if (activeFilter === 'all') return propertiesWithStatus;
-        return propertiesWithStatus.filter(p => p.status === activeFilter);
-    }, [propertiesWithStatus, activeFilter]);
-    
+    const filteredLocations = useMemo(() => {
+        if (activeFilter === 'all') return locationsWithStatus;
+        return locationsWithStatus.filter(l => l.status === activeFilter);
+    }, [locationsWithStatus, activeFilter]);
+
     const filterCounts = useMemo(() => ({
-        all: propertiesWithStatus.length,
-        active: propertiesWithStatus.filter(p => p.status === 'active').length,
-        paused: propertiesWithStatus.filter(p => p.status === 'paused').length,
-        canceled: propertiesWithStatus.filter(p => p.status === 'canceled').length,
-    }), [propertiesWithStatus]);
+        all: locationsWithStatus.length,
+        active: locationsWithStatus.filter(l => l.status === 'active').length,
+        paused: locationsWithStatus.filter(l => l.status === 'paused').length,
+        canceled: locationsWithStatus.filter(l => l.status === 'canceled').length,
+    }), [locationsWithStatus]);
 
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div></div>;
     }
 
-    // Simplified welcome for zero properties
-    if (properties.length === 0) {
+    // Simplified welcome for zero locations
+    if (locations.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center text-center py-20 space-y-6">
                 <PlusCircleIcon className="w-16 h-16 text-gray-300" />
@@ -113,7 +113,7 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
                     <p className="text-gray-500 font-medium mt-2 text-lg">Get started by adding your address.</p>
                 </div>
                 <button
-                    onClick={handleAddProperty}
+                    onClick={handleAddLocation}
                     className="px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all"
                 >
                     Add Your Address
@@ -131,8 +131,8 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
                 </div>
             </div>
 
-            {/* Only show filter bar for multi-property users */}
-            {properties.length > 1 && (
+            {/* Only show filter bar for multi-location users */}
+            {locations.length > 1 && (
                  <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-100 rounded-2xl">
                     <FilterButton label="All" count={filterCounts.all} icon={<ListBulletIcon className="w-5 h-5" />} isActive={activeFilter === 'all'} onClick={() => setActiveFilter('all')} />
                     <FilterButton label="Active" count={filterCounts.active} icon={<CheckCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'active'} onClick={() => setActiveFilter('active')} />
@@ -142,13 +142,13 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-in fade-in duration-500">
-                {filteredProperties.map(prop => (
-                    <PropertyCard key={prop.id} property={prop} onResumeSetup={onResumeSetup} onPropertyRemoved={onPropertyRemoved} />
+                {filteredLocations.map(loc => (
+                    <LocationCard key={loc.id} location={loc} onResumeSetup={onResumeSetup} onLocationRemoved={onLocationRemoved} />
                 ))}
 
                 {(activeFilter === 'all') && (
                     <Card
-                        onClick={handleAddProperty}
+                        onClick={handleAddLocation}
                         className="bg-gray-50 border-2 border-dashed border-gray-300 hover:border-primary hover:bg-primary/5 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center text-center p-8 group min-h-[300px] sm:min-h-[370px]"
                     >
                         <PlusCircleIcon className="w-12 h-12 text-gray-400 group-hover:text-primary transition-colors mb-4" />
@@ -156,14 +156,14 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
                             Add New Service Address
                         </h3>
                         <p className="text-sm text-gray-500 mt-2">
-                            Register a new property to manage its waste services.
+                            Register a new location to manage its waste services.
                         </p>
                     </Card>
                 )}
 
-                {filteredProperties.length === 0 && properties.length > 0 && activeFilter !== 'all' && (
+                {filteredLocations.length === 0 && locations.length > 0 && activeFilter !== 'all' && (
                     <div className="text-center py-20 bg-gray-50 rounded-2xl md:col-span-2 lg:col-span-3">
-                        <h3 className="text-lg font-bold text-gray-500">No properties match the filter "{activeFilter}".</h3>
+                        <h3 className="text-lg font-bold text-gray-500">No locations match the filter "{activeFilter}".</h3>
                     </div>
                 )}
             </div>
@@ -171,4 +171,4 @@ const PropertyManagement: React.FC<PropertyManagementProps> = ({ onAddProperty, 
     );
 };
 
-export default PropertyManagement;
+export default LocationManagement;

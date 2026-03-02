@@ -27,18 +27,18 @@ const roleBadge = (role: string) => {
   );
 };
 
-// ── Pickup Schedule Editor (per-property) ──
+// ── Collection Schedule Editor (per-location) ──
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const FREQUENCIES = ['weekly', 'bi-weekly', 'monthly'];
 
-const PropertyPickupEditor: React.FC<{
+const LocationCollectionEditor: React.FC<{
   property: any;
   onSaved: (updated: any) => void;
 }> = ({ property, onSaved }) => {
   const [editing, setEditing] = useState(false);
-  const [day, setDay] = useState(property.pickup_day || '');
-  const [freq, setFreq] = useState(property.pickup_frequency || 'weekly');
+  const [day, setDay] = useState(property.collectionDay || '');
+  const [freq, setFreq] = useState(property.collectionFrequency || 'weekly');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -46,11 +46,11 @@ const PropertyPickupEditor: React.FC<{
     setSaving(true);
     setError('');
     try {
-      const res = await fetch(`/api/admin/properties/${property.id}/pickup-schedule`, {
+      const res = await fetch(`/api/admin/locations/${property.id}/collection-schedule`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ pickup_day: day || null, pickup_frequency: freq }),
+        body: JSON.stringify({ collectionDay: day || null, collectionFrequency: freq }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -58,7 +58,7 @@ const PropertyPickupEditor: React.FC<{
         return;
       }
       const data = await res.json();
-      onSaved(data.property);
+      onSaved(data.location);
       setEditing(false);
     } catch {
       setError('Network error');
@@ -71,15 +71,15 @@ const PropertyPickupEditor: React.FC<{
     return (
       <div className="flex items-center gap-3 mt-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">Pickup:</span>
-          {property.pickup_day ? (
+          <span className="text-xs text-gray-400">Collection:</span>
+          {property.collectionDay ? (
             <>
-              <span className="text-xs font-bold text-gray-700 capitalize">{property.pickup_day}</span>
-              <span className="text-xs text-gray-400">({property.pickup_frequency || 'weekly'})</span>
+              <span className="text-xs font-bold text-gray-700 capitalize">{property.collectionDay}</span>
+              <span className="text-xs text-gray-400">({property.collectionFrequency || 'weekly'})</span>
               <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
-                property.pickup_day_source === 'manual' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
+                property.collectionDaySource === 'manual' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
               }`}>
-                {property.pickup_day_source === 'manual' ? 'Manual' : 'Auto-detected'}
+                {property.collectionDaySource === 'manual' ? 'Manual' : 'Auto-detected'}
               </span>
             </>
           ) : (
@@ -97,7 +97,7 @@ const PropertyPickupEditor: React.FC<{
     <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
       <div className="flex items-center gap-3">
         <div>
-          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Pickup Day</label>
+          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Collection Day</label>
           <select
             value={day}
             onChange={e => setDay(e.target.value)}
@@ -135,14 +135,14 @@ const PropertyPickupEditor: React.FC<{
   );
 };
 
-const PropertyTabContent: React.FC<{
-  properties: any[];
+const LocationTabContent: React.FC<{
+  locations: any[];
   personId: string;
   onPersonUpdated: (updated: any) => void;
-}> = ({ properties, personId, onPersonUpdated }) => {
-  const [localProps, setLocalProps] = useState(properties);
+}> = ({ locations, personId, onPersonUpdated }) => {
+  const [localProps, setLocalProps] = useState(locations);
 
-  const handlePickupSaved = (propId: string, updated: any) => {
+  const handleCollectionSaved = (propId: string, updated: any) => {
     setLocalProps(prev => prev.map(p =>
       p.id === propId ? { ...p, ...updated } : p
     ));
@@ -151,7 +151,7 @@ const PropertyTabContent: React.FC<{
   if (localProps.length === 0) {
     return (
       <Card className="p-8 text-center">
-        <p className="text-gray-400">No properties registered</p>
+        <p className="text-gray-400">No locations registered</p>
       </Card>
     );
   }
@@ -171,9 +171,9 @@ const PropertyTabContent: React.FC<{
             </div>
             <StatusBadge status={p.transfer_status || 'active'} />
           </div>
-          <PropertyPickupEditor
+          <LocationCollectionEditor
             property={p}
-            onSaved={(updated) => handlePickupSaved(p.id, updated)}
+            onSaved={(updated) => handleCollectionSaved(p.id, updated)}
           />
         </Card>
       ))}
@@ -181,7 +181,7 @@ const PropertyTabContent: React.FC<{
   );
 };
 
-type TabKey = 'overview' | 'properties' | 'driver' | 'activity' | 'communications';
+type TabKey = 'overview' | 'locations' | 'driver' | 'activity' | 'communications';
 
 const PersonDetail: React.FC<{
   person: any;
@@ -327,7 +327,7 @@ const PersonDetail: React.FC<{
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
-    ...(isCustomer ? [{ key: 'properties' as TabKey, label: `Properties (${(person.properties || []).length})` }] : []),
+    ...(isCustomer ? [{ key: 'locations' as TabKey, label: `Locations (${(person.properties || []).length})` }] : []),
     ...(isDriver ? [{ key: 'driver' as TabKey, label: 'Driver Profile' }] : []),
     { key: 'activity', label: 'Activity' },
     { key: 'communications', label: 'Messages' },
@@ -585,8 +585,8 @@ const PersonDetail: React.FC<{
         </div>
       )}
 
-      {activeTab === 'properties' && (
-        <PropertyTabContent properties={person.properties || []} personId={person.id} onPersonUpdated={onPersonUpdated} />
+      {activeTab === 'locations' && (
+        <LocationTabContent locations={person.properties || []} personId={person.id} onPersonUpdated={onPersonUpdated} />
       )}
 
       {activeTab === 'driver' && person.driverProfile && (

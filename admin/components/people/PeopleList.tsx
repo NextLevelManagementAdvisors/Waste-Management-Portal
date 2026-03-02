@@ -43,7 +43,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState('newest');
-  const [pickupDayFilter, setPickupDayFilter] = useState('');
+  const [collectionDayFilter, setPickupDayFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [showCreateDriver, setShowCreateDriver] = useState(false);
@@ -83,7 +83,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
       if (navFilter.search) setSearchQuery(navFilter.search);
       if (navFilter.tab) setRoleFilter(navFilter.tab);
       if (navFilter.sort) setSortBy(navFilter.sort);
-      if (navFilter.filter === 'no-pickup-day') {
+      if (navFilter.filter === 'no-collection-day') {
         setPickupDayFilter('unassigned');
         setRoleFilter('customer');
       }
@@ -98,7 +98,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
       const params = new URLSearchParams();
       if (searchQuery) params.set('search', searchQuery);
       if (roleFilter !== 'all') params.set('role', roleFilter);
-      if (pickupDayFilter) params.set('pickupDay', pickupDayFilter);
+      if (collectionDayFilter) params.set('collectionDay', collectionDayFilter);
       const sortMap: Record<string, { sortBy: string; sortDir: string }> = {
         newest:    { sortBy: 'created_at', sortDir: 'desc' },
         oldest:    { sortBy: 'created_at', sortDir: 'asc' },
@@ -121,7 +121,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, roleFilter, sortBy, pickupDayFilter, limit, page]);
+  }, [searchQuery, roleFilter, sortBy, collectionDayFilter, limit, page]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
 
@@ -254,7 +254,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
           />
         </div>
         <select
-          value={pickupDayFilter}
+          value={collectionDayFilter}
           onChange={e => { setPickupDayFilter(e.target.value); setPage(1); clearSelection(); }}
           className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
         >
@@ -424,10 +424,10 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
                       {person.driverRating && (
                         <span className="text-xs text-yellow-600 font-medium flex-shrink-0">{Number(person.driverRating).toFixed(1)} rating</span>
                       )}
-                      {person.propertyCount > 0 && (
-                        <span className="text-xs text-gray-400 flex-shrink-0">{person.propertyCount} properties</span>
+                      {person.locationCount > 0 && (
+                        <span className="text-xs text-gray-400 flex-shrink-0">{person.locationCount} locations</span>
                       )}
-                      {person.pickupDays?.length > 0 && person.pickupDays.map((day: string) => (
+                      {person.collectionDays?.length > 0 && person.collectionDays.map((day: string) => (
                         <span key={day} className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded capitalize flex-shrink-0">
                           {day.slice(0, 3)}
                         </span>

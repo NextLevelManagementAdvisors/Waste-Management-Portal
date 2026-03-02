@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import {
-    getSpecialPickupServices, getSpecialPickupRequests, requestSpecialPickup,
-    uploadSpecialPickupPhotos, estimateSpecialPickup, cancelSpecialPickup, rescheduleSpecialPickup,
+    getOnDemandServices, getOnDemandRequests, requestOnDemandPickup,
+    uploadOnDemandPhotos, estimateOnDemandPickup, cancelOnDemandPickup, rescheduleOnDemandPickup,
 } from '../services/apiService.ts';
-import { SpecialPickupService, SpecialPickupRequest, Property } from '../types.ts';
+import { OnDemandService, OnDemandRequest, Location } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
@@ -24,29 +24,29 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
 );
 
 const PortfolioPickupCard: React.FC<{
-    property: Property;
-    requests: SpecialPickupRequest[];
+    location: Location;
+    requests: OnDemandRequest[];
     onSelect: (id: string) => void;
-}> = ({ property, requests, onSelect }) => {
-    const upcomingCount = requests.filter(r => r.propertyId === property.id && (r.status === 'pending' || r.status === 'scheduled')).length;
+}> = ({ location, requests, onSelect }) => {
+    const upcomingCount = requests.filter(r => r.locationId === location.id && (r.status === 'pending' || r.status === 'scheduled')).length;
 
     return (
         <Card className="flex flex-col p-6">
             <div className="flex justify-between items-center mb-2">
-                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{property.serviceType}</p>
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">{location.serviceType}</p>
                 <div className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full">
                     <span className="text-[10px] font-black uppercase tracking-widest">
                         {upcomingCount > 0 ? `${upcomingCount} Active` : 'No Active Requests'}
                     </span>
                 </div>
             </div>
-            <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">{property.address}</h3>
+            <h3 className="text-2xl font-black text-gray-900 leading-tight mb-auto">{location.address}</h3>
             <div className="flex items-end justify-between mt-4">
                 <div>
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">History</p>
-                    <p className="text-sm font-bold text-gray-600 mt-1">{requests.filter(r => r.propertyId === property.id).length} Total Pickups</p>
+                    <p className="text-sm font-bold text-gray-600 mt-1">{requests.filter(r => r.locationId === location.id).length} Total Pickups</p>
                 </div>
-                <Button onClick={() => onSelect(property.id)} variant="primary" className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest">
+                <Button onClick={() => onSelect(location.id)} variant="primary" className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest">
                     Manage Requests
                 </Button>
             </div>
@@ -54,15 +54,15 @@ const PortfolioPickupCard: React.FC<{
     );
 };
 
-const SpecialPickup: React.FC = () => {
-    const { selectedProperty, properties, setSelectedPropertyId } = useProperty();
-    const [services, setServices] = useState<SpecialPickupService[]>([]);
-    const [allRequests, setAllRequests] = useState<SpecialPickupRequest[]>([]);
+const OnDemandPickup: React.FC = () => {
+    const { selectedLocation, locations, setSelectedLocationId } = useLocation();
+    const [services, setServices] = useState<OnDemandService[]>([]);
+    const [allRequests, setAllRequests] = useState<OnDemandRequest[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Schedule modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedService, setSelectedService] = useState<SpecialPickupService | null>(null);
+    const [selectedService, setSelectedService] = useState<OnDemandService | null>(null);
     const [pickupDate, setPickupDate] = useState('');
     const [notes, setNotes] = useState('');
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
@@ -74,7 +74,7 @@ const SpecialPickup: React.FC = () => {
     const [modalError, setModalError] = useState('');
 
     // Cancel/reschedule modal state
-    const [actionTarget, setActionTarget] = useState<SpecialPickupRequest | null>(null);
+    const [actionTarget, setActionTarget] = useState<OnDemandRequest | null>(null);
     const [actionType, setActionType] = useState<'cancel' | 'reschedule' | null>(null);
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [cancelReason, setCancelReason] = useState('');
@@ -84,13 +84,13 @@ const SpecialPickup: React.FC = () => {
         setLoading(true);
         try {
             const [servicesData, requestsData] = await Promise.all([
-                getSpecialPickupServices(),
-                getSpecialPickupRequests()
+                getOnDemandServices(),
+                getOnDemandRequests()
             ]);
             setServices(servicesData);
             setAllRequests(requestsData);
         } catch (error) {
-            console.error("Failed to fetch special pickup data:", error);
+            console.error("Failed to fetch on-demand pickup data:", error);
         } finally {
             setLoading(false);
         }
@@ -109,7 +109,7 @@ const SpecialPickup: React.FC = () => {
         setModalError('');
     };
 
-    const handleScheduleClick = (service: SpecialPickupService) => {
+    const handleScheduleClick = (service: OnDemandService) => {
         resetModal();
         setSelectedService(service);
         const tomorrow = new Date();
@@ -145,10 +145,10 @@ const SpecialPickup: React.FC = () => {
             // Upload photos first if not already uploaded
             let urls = uploadedUrls;
             if (photoFiles.length > 0 && uploadedUrls.length === 0) {
-                urls = await uploadSpecialPickupPhotos(photoFiles);
+                urls = await uploadOnDemandPhotos(photoFiles);
                 setUploadedUrls(urls);
             }
-            const result = await estimateSpecialPickup(notes, urls);
+            const result = await estimateOnDemandPickup(notes, urls);
             setAiEstimate(result);
         } catch (error: any) {
             setModalError(error.message || 'Failed to get estimate');
@@ -158,17 +158,17 @@ const SpecialPickup: React.FC = () => {
     };
 
     const handleConfirmSchedule = async () => {
-        if (!selectedService || !selectedProperty || !pickupDate) return;
+        if (!selectedService || !selectedLocation || !pickupDate) return;
         setIsScheduling(true);
         setModalError('');
         try {
             // Upload photos if we haven't already (user may have skipped estimate)
             let urls = uploadedUrls;
             if (photoFiles.length > 0 && uploadedUrls.length === 0) {
-                urls = await uploadSpecialPickupPhotos(photoFiles);
+                urls = await uploadOnDemandPhotos(photoFiles);
                 setUploadedUrls(urls);
             }
-            await requestSpecialPickup(selectedService.id, selectedProperty.id, pickupDate, {
+            await requestOnDemandPickup(selectedService.id, selectedLocation.id, pickupDate, {
                 notes: notes || undefined,
                 photos: urls.length > 0 ? urls : undefined,
                 aiEstimate: aiEstimate?.estimate,
@@ -188,7 +188,7 @@ const SpecialPickup: React.FC = () => {
         if (!actionTarget) return;
         setIsActioning(true);
         try {
-            await cancelSpecialPickup(actionTarget.id, cancelReason || undefined);
+            await cancelOnDemandPickup(actionTarget.id, cancelReason || undefined);
             await fetchData();
             setActionTarget(null);
             setActionType(null);
@@ -204,7 +204,7 @@ const SpecialPickup: React.FC = () => {
         if (!actionTarget || !rescheduleDate) return;
         setIsActioning(true);
         try {
-            await rescheduleSpecialPickup(actionTarget.id, rescheduleDate);
+            await rescheduleOnDemandPickup(actionTarget.id, rescheduleDate);
             await fetchData();
             setActionTarget(null);
             setActionType(null);
@@ -221,13 +221,13 @@ const SpecialPickup: React.FC = () => {
     }
 
     // --- PORTFOLIO VIEW ---
-    if (!selectedProperty) {
+    if (!selectedLocation) {
         const globalUpcoming = allRequests.filter(r => r.status === 'pending' || r.status === 'scheduled').length;
         return (
             <div className="space-y-8 animate-in fade-in duration-500">
                 <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div>
-                        <h1 className="text-4xl font-black text-gray-900 tracking-tight">Special Requests Hub</h1>
+                        <h1 className="text-4xl font-black text-gray-900 tracking-tight">On-Demand Requests Hub</h1>
                         <p className="text-gray-500 font-medium mt-1 text-lg">Portfolio-wide management for bulk and specialized collections.</p>
                     </div>
                     <div className="bg-primary/5 px-6 py-4 rounded-2xl border border-primary/10">
@@ -236,16 +236,16 @@ const SpecialPickup: React.FC = () => {
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                    {properties.map(prop => (
-                        <PortfolioPickupCard key={prop.id} property={prop} requests={allRequests} onSelect={(id) => setSelectedPropertyId(id)} />
+                    {locations.map(loc => (
+                        <PortfolioPickupCard key={loc.id} location={loc} requests={allRequests} onSelect={(id) => setSelectedLocationId(id)} />
                     ))}
                 </div>
             </div>
         );
     }
 
-    // --- PROPERTY FOCUS VIEW ---
-    const requests = allRequests.filter(r => r.propertyId === selectedProperty.id);
+    // --- LOCATION FOCUS VIEW ---
+    const requests = allRequests.filter(r => r.locationId === selectedLocation.id);
     const upcomingRequests = requests.filter(r => r.status === 'pending' || r.status === 'scheduled').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const pastRequests = requests.filter(r => r.status === 'completed' || r.status === 'cancelled').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const minDate = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
@@ -254,12 +254,12 @@ const SpecialPickup: React.FC = () => {
         <div className="space-y-8 max-w-6xl mx-auto">
             <div className="flex justify-between items-end">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">Special Pickups</h1>
+                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">On-Demand Pickups</h1>
                     <p className="text-gray-500 font-medium mt-1 text-lg">
-                        Scheduling for: <span className="font-bold text-gray-900">{selectedProperty.address}</span>
+                        Scheduling for: <span className="font-bold text-gray-900">{selectedLocation.address}</span>
                     </p>
                 </div>
-                <Button variant="ghost" onClick={() => setSelectedPropertyId('all')} className="text-xs font-black uppercase tracking-widest">
+                <Button variant="ghost" onClick={() => setSelectedLocationId('all')} className="text-xs font-black uppercase tracking-widest">
                     Back to Hub
                 </Button>
             </div>
@@ -539,4 +539,4 @@ const SpecialPickup: React.FC = () => {
     );
 };
 
-export default SpecialPickup;
+export default OnDemandPickup;

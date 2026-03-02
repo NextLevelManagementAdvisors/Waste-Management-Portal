@@ -2,16 +2,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Modal from './Modal.tsx';
 import { Button } from './Button.tsx';
-import { NewPropertyInfo, ServiceType } from '../types.ts';
+import { NewLocationInfo, ServiceType } from '../types.ts';
 import AddressAutocomplete from './AddressAutocomplete.tsx';
 
-interface AddPropertyModalProps {
+interface AddLocationModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onAddProperty: (propertyInfo: NewPropertyInfo) => Promise<void>;
+    onAddLocation: (locationInfo: NewLocationInfo) => Promise<void>;
 }
 
-const initialFormState: NewPropertyInfo = {
+const initialFormState: NewLocationInfo = {
     street: '', city: '', state: '', zip: '',
     serviceType: 'personal',
     inHOA: 'no',
@@ -21,9 +21,9 @@ const initialFormState: NewPropertyInfo = {
     notes: ''
 };
 
-const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, onAddProperty }) => {
+const AddLocationModal: React.FC<AddLocationModalProps> = ({ isOpen, onClose, onAddLocation }) => {
     const [step, setStep] = useState(1);
-    const [formData, setFormData] = useState<NewPropertyInfo>(initialFormState);
+    const [formData, setFormData] = useState<NewLocationInfo>(initialFormState);
     const [isAdding, setIsAdding] = useState(false);
 
     useEffect(() => {
@@ -37,8 +37,8 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
-    
-    const handleRadioChange = (name: keyof NewPropertyInfo, value: any) => {
+
+    const handleRadioChange = (name: keyof NewLocationInfo, value: any) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
@@ -59,7 +59,7 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
         e.preventDefault();
         setIsAdding(true);
         try {
-            await onAddProperty(formData);
+            await onAddLocation(formData);
         } finally {
             setIsAdding(false);
         }
@@ -99,16 +99,16 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
             </div>
         </div>
     );
-    
+
     const renderStep2 = () => (
          <div className="space-y-6 animate-in fade-in duration-300">
             <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Service Type</label>
                 <div className="relative">
-                    <select 
-                        name="serviceType" 
-                        value={formData.serviceType} 
-                        onChange={handleChange} 
+                    <select
+                        name="serviceType"
+                        value={formData.serviceType}
+                        onChange={handleChange}
                         className="appearance-none w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3.5 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all cursor-pointer"
                     >
                         <option value="personal">Personal Residence</option>
@@ -129,11 +129,11 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Is the address in a HOA or gated community?</label>
                 <div className="flex gap-6">
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="inHOA" value="yes" checked={formData.inHOA === 'yes'} onChange={() => handleRadioChange('inHOA', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">Yes</span>
                     </label>
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="inHOA" value="no" checked={formData.inHOA === 'no'} onChange={() => handleRadioChange('inHOA', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">No</span>
                     </label>
                 </div>
@@ -145,16 +145,16 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
                     <input type="text" name="communityName" id="communityName" value={formData.communityName} onChange={handleChange} className="w-full bg-gray-50 border-2 border-base-200 rounded-xl px-4 py-3 font-bold text-gray-900 focus:outline-none focus:border-primary transition-all" required />
                 </div>
             )}
-            
+
             <div className="space-y-3">
                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Is there a gate code?</label>
                 <div className="flex gap-6">
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="hasGateCode" value="yes" checked={formData.hasGateCode === 'yes'} onChange={() => handleRadioChange('hasGateCode', 'yes')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">Yes</span>
                     </label>
                     <label className="flex items-center group cursor-pointer">
-                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" /> 
+                        <input type="radio" name="hasGateCode" value="no" checked={formData.hasGateCode === 'no'} onChange={() => handleRadioChange('hasGateCode', 'no')} className="w-5 h-5 text-primary border-gray-300 focus:ring-primary" />
                         <span className="ml-2 font-bold text-sm text-gray-600 group-hover:text-primary transition-colors">No</span>
                     </label>
                 </div>
@@ -190,7 +190,7 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
     );
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={step === 1 ? "Add Service Location" : "Property Details"}>
+        <Modal isOpen={isOpen} onClose={onClose} title={step === 1 ? "Add Service Location" : "Location Details"}>
             <form onSubmit={handleSubmit} noValidate>
                 {step === 1 ? renderStep1() : renderStep2()}
             </form>
@@ -198,4 +198,4 @@ const AddPropertyModal: React.FC<AddPropertyModalProps> = ({ isOpen, onClose, on
     );
 };
 
-export default AddPropertyModal;
+export default AddLocationModal;

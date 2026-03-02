@@ -3,13 +3,13 @@ import { getServices, getSubscriptions, changeServiceQuantity, cancelSubscriptio
 import { Service, Subscription } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { ExclamationTriangleIcon, PlayCircleIcon } from './Icons.tsx';
 import ServiceSelector, { EquipmentChoiceModal } from './ServiceSelector.tsx';
 
 
 const Services: React.FC = () => {
-    const { selectedProperty, restartPropertyServices, setCurrentView } = useProperty();
+    const { selectedLocation, restartLocationServices, setCurrentView } = useLocation();
     const [services, setServices] = useState<Service[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
@@ -46,17 +46,17 @@ const Services: React.FC = () => {
     const linerService = useMemo(() => services.find(s => s.name.toLowerCase().includes('liner')), [services]);
 
     const totalBaseServiceCans = useMemo(() => {
-        if (!selectedProperty) return 0;
+        if (!selectedLocation) return 0;
         const baseServiceIds = services.filter(s => s.category === 'base_service').map(s => s.id);
         return subscriptions
-            .filter(s => s.propertyId === selectedProperty.id && baseServiceIds.includes(s.serviceId) && s.status === 'active')
+            .filter(s => s.locationId === selectedLocation.id && baseServiceIds.includes(s.serviceId) && s.status === 'active')
             .reduce((total, sub) => total + sub.quantity, 0);
-    }, [subscriptions, services, selectedProperty]);
+    }, [subscriptions, services, selectedLocation]);
 
     const linerSubscription = useMemo(() => {
-        if (!linerService || !selectedProperty) return undefined;
-        return subscriptions.find(sub => sub.serviceId === linerService.id && sub.propertyId === selectedProperty.id && sub.status === 'active');
-    }, [subscriptions, linerService, selectedProperty]);
+        if (!linerService || !selectedLocation) return undefined;
+        return subscriptions.find(sub => sub.serviceId === linerService.id && sub.locationId === selectedLocation.id && sub.status === 'active');
+    }, [subscriptions, linerService, selectedLocation]);
 
     useEffect(() => {
         if (loading || isSyncing || !linerSubscription || !linerService || updatingIds[linerService.id]) {
@@ -82,30 +82,30 @@ const Services: React.FC = () => {
     }, [totalBaseServiceCans, linerSubscription, loading, isSyncing, updatingIds]);
 
     const propertyStatus = useMemo(() => {
-        if (!selectedProperty || loading) return 'loading';
-        const propSubs = subscriptions.filter(s => s.propertyId === selectedProperty.id);
+        if (!selectedLocation || loading) return 'loading';
+        const propSubs = subscriptions.filter(s => s.locationId === selectedLocation.id);
         if (propSubs.length === 0) return 'new';
         if (propSubs.some(s => s.status !== 'canceled')) return 'active';
         return 'canceled';
-    }, [subscriptions, selectedProperty, loading]);
+    }, [subscriptions, selectedLocation, loading]);
 
     const handleSubscriptionChange = async (service: Service, change: 'increment' | 'decrement', useSticker?: boolean) => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         setUpdatingIds(prev => ({...prev, [service.id]: true }));
         try {
-            await changeServiceQuantity(service, selectedProperty.id, change, useSticker);
+            await changeServiceQuantity(service, selectedLocation.id, change, useSticker);
 
             if (service.category === 'base_service') {
                 const currentSubs = await getSubscriptions();
                 const newTotalCans = currentSubs
-                    .filter(s => s.propertyId === selectedProperty!.id && services.find(srv => srv.id === s.serviceId)?.category === 'base_service' && s.status === 'active')
+                    .filter(s => s.locationId === selectedLocation!.id && services.find(srv => srv.id === s.serviceId)?.category === 'base_service' && s.status === 'active')
                     .reduce((total, sub) => total + sub.quantity, 0);
 
                 if (newTotalCans === 0) {
-                    const linerSub = currentSubs.find(s => s.serviceId === linerService?.id && s.propertyId === selectedProperty!.id && s.status === 'active');
+                    const linerSub = currentSubs.find(s => s.serviceId === linerService?.id && s.locationId === selectedLocation!.id && s.status === 'active');
                     if (linerSub) await cancelSubscription(linerSub.id);
 
-                    const atHouseSub = currentSubs.find(s => s.serviceId === atHouseService?.id && s.propertyId === selectedProperty!.id && s.status === 'active');
+                    const atHouseSub = currentSubs.find(s => s.serviceId === atHouseService?.id && s.locationId === selectedLocation!.id && s.status === 'active');
                     if (atHouseSub) await cancelSubscription(atHouseSub.id);
                 }
             }
@@ -137,10 +137,10 @@ const Services: React.FC = () => {
     };
 
     const handleRestartServices = async () => {
-        if (!selectedProperty) return;
+        if (!selectedLocation) return;
         setIsRestarting(true);
         try {
-            await restartPropertyServices(selectedProperty.id);
+            await restartLocationServices(selectedLocation.id);
             await fetchData();
         } catch(error) {
             showNotification('error', "Failed to restart services. Please try again.");
@@ -150,23 +150,23 @@ const Services: React.FC = () => {
     };
 
     const isAtHouseSubscribed = useMemo(() => {
-        if (!atHouseService || !selectedProperty) return false;
-        return subscriptions.some(sub => sub.serviceId === atHouseService.id && sub.propertyId === selectedProperty.id && sub.status === 'active');
-    }, [subscriptions, atHouseService, selectedProperty]);
+        if (!atHouseService || !selectedLocation) return false;
+        return subscriptions.some(sub => sub.serviceId === atHouseService.id && sub.locationId === selectedLocation.id && sub.status === 'active');
+    }, [subscriptions, atHouseService, selectedLocation]);
 
     const isLinerSubscribed = useMemo(() => !!linerSubscription, [linerSubscription]);
 
     const getSubscriptionForService = (serviceId: string) =>
-        subscriptions.find(sub => sub.serviceId === serviceId && sub.propertyId === selectedProperty?.id && sub.status !== 'canceled');
+        subscriptions.find(sub => sub.serviceId === serviceId && sub.locationId === selectedLocation?.id && sub.status !== 'canceled');
 
     const monthlyTotal = useMemo(() => {
-        if (!selectedProperty) return 0;
+        if (!selectedLocation) return 0;
         return subscriptions
-            .filter(s => s.propertyId === selectedProperty.id && s.status === 'active')
+            .filter(s => s.locationId === selectedLocation.id && s.status === 'active')
             .reduce((total, sub) => total + sub.totalPrice, 0);
-    }, [subscriptions, selectedProperty]);
+    }, [subscriptions, selectedLocation]);
 
-    const isTransferPending = selectedProperty?.transferStatus === 'pending';
+    const isTransferPending = selectedLocation?.transferStatus === 'pending';
 
     if (loading || propertyStatus === 'loading') {
         return <div className="flex justify-center items-center h-full p-12"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div></div>;

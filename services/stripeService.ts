@@ -70,7 +70,7 @@ export const updateCustomerDefaultPaymentMethod = async (id: string) => {
   return res.data;
 };
 
-export const createSubscription = async (service: Service, propertyId: string, paymentMethodId: string | undefined, quantity: number, _useSticker: boolean) => {
+export const createSubscription = async (service: Service, locationId: string, paymentMethodId: string | undefined, quantity: number, _useSticker: boolean) => {
   if (!_customerId) throw new Error('No customer ID set');
 
   const products = await listProducts();
@@ -82,7 +82,7 @@ export const createSubscription = async (service: Service, propertyId: string, p
     priceId: product.default_price.id,
     quantity,
     metadata: {
-      propertyId,
+      locationId,
       equipmentType: _useSticker ? 'own_can' : 'rental',
     },
   };
@@ -123,11 +123,11 @@ export const resumeSubscription = async (subscriptionId: string) => {
   return res.data;
 };
 
-export const cancelAllSubscriptionsForProperty = async (propertyId: string) => {
+export const cancelAllSubscriptionsForLocation = async (locationId: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
   const active = subs.filter((s: Subscription) =>
-    s.propertyId === propertyId && (s.status === 'active' || s.status === 'paused')
+    s.locationId === locationId && (s.status === 'active' || s.status === 'paused')
   );
   for (const sub of active) {
     await cancelSubscription(sub.id);
@@ -161,12 +161,12 @@ export const payInvoice = async (invoiceId: string, paymentMethodId: string) => 
   return mapStripeInvoice(res.data);
 };
 
-export const payOutstandingBalance = async (paymentMethodId: string, propertyId?: string): Promise<{ success: boolean }> => {
+export const payOutstandingBalance = async (paymentMethodId: string, locationId?: string): Promise<{ success: boolean }> => {
   const invoices = await listInvoices();
   const unpaid = invoices.filter(inv => {
     const isDue = inv.status === 'Due' || inv.status === 'Overdue';
-    const matchesProperty = !propertyId || 
-      (propertyId === '__account__' ? !inv.propertyId : inv.propertyId === propertyId);
+    const matchesProperty = !locationId || 
+      (locationId === '__account__' ? !inv.locationId : inv.locationId === locationId);
     return isDue && matchesProperty;
   });
 
@@ -176,28 +176,28 @@ export const payOutstandingBalance = async (paymentMethodId: string, propertyId?
   return { success: true };
 };
 
-export const createInvoice = async (propertyId: string, amount: number, description: string) => {
+export const createInvoice = async (locationId: string, amount: number, description: string) => {
   const res = await apiRequest('POST', '/invoices', {
     amount: Math.round(amount * 100),
     description,
-    metadata: { propertyId },
+    metadata: { locationId },
   });
   return res.data;
 };
 
-export const restartAllSubscriptionsForProperty = async (propertyId: string) => {
+export const restartAllSubscriptionsForLocation = async (locationId: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
 
   const paused = subs.filter((s: Subscription) =>
-    s.propertyId === propertyId && s.status === 'paused'
+    s.locationId === locationId && s.status === 'paused'
   );
   for (const sub of paused) {
     await apiRequest('POST', `/subscriptions/${sub.id}/resume`);
   }
 
   const canceled = subs.filter((s: Subscription) =>
-    s.propertyId === propertyId && s.status === 'canceled'
+    s.locationId === locationId && s.status === 'canceled'
   );
   if (canceled.length > 0) {
     const products = await listProducts();
@@ -213,7 +213,7 @@ export const restartAllSubscriptionsForProperty = async (propertyId: string) => 
         priceId: product.default_price.id,
         quantity: sub.quantity || 1,
         metadata: {
-          propertyId,
+          locationId,
           equipmentType: sub.equipmentType || 'own_can',
         },
       };
@@ -230,11 +230,11 @@ export const restartAllSubscriptionsForProperty = async (propertyId: string) => 
   return { success: true };
 };
 
-export const pauseSubscriptionsForProperty = async (propertyId: string, _until: string) => {
+export const pauseSubscriptionsForLocation = async (locationId: string, _until: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
   const active = subs.filter((s: Subscription) =>
-    s.propertyId === propertyId && s.status === 'active'
+    s.locationId === locationId && s.status === 'active'
   );
   for (const sub of active) {
     await apiRequest('POST', `/subscriptions/${sub.id}/pause`);
@@ -242,11 +242,11 @@ export const pauseSubscriptionsForProperty = async (propertyId: string, _until: 
   return { success: true };
 };
 
-export const resumeSubscriptionsForProperty = async (propertyId: string) => {
+export const resumeSubscriptionsForLocation = async (locationId: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
   const paused = subs.filter((s: Subscription) =>
-    s.propertyId === propertyId && s.status === 'paused'
+    s.locationId === locationId && s.status === 'paused'
   );
   for (const sub of paused) {
     await apiRequest('POST', `/subscriptions/${sub.id}/resume`);
@@ -274,7 +274,7 @@ function mapStripeSubscription(sub: any, product?: any): Subscription {
 
   return {
     id: sub.id,
-    propertyId: metadata.propertyId || '',
+    locationId: metadata.locationId || metadata.propertyId || '',
     serviceId: prodId,
     serviceName: prodName,
     startDate: sub.start_date ? new Date(sub.start_date * 1000).toISOString().split('T')[0] : '',
@@ -306,7 +306,7 @@ function mapStripeInvoice(inv: any): Invoice {
 
   return {
     id: inv.id,
-    propertyId: metadata.propertyId || inv.subscription_details?.metadata?.propertyId || '',
+    locationId: metadata.locationId || metadata.propertyId || inv.subscription_details?.metadata?.locationId || inv.subscription_details?.metadata?.propertyId || '',
     amount: (inv.amount_due || inv.total || 0) / 100,
     date: inv.created ? new Date(inv.created * 1000).toISOString().split('T')[0] : '',
     status,

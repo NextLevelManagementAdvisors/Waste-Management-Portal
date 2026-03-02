@@ -16,9 +16,9 @@ import ResetPassword from './components/ResetPassword.tsx';
 import AcceptTransfer from './components/AcceptTransfer.tsx';
 import ChatWidget from './components/ChatWidget.tsx';
 import LandingPage from './components/LandingPage.tsx';
-import { View, User, NewPropertyInfo, RegistrationInfo, UpdatePropertyInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
-import { PropertyContext } from './PropertyContext.tsx';
-import { addProperty, login, register, logout, getUser, updatePropertyDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForProperty, restartAllSubscriptionsForProperty, sendTransferReminder, getServices, subscribeToNewService, savePendingSelections } from './services/apiService.ts';
+import { View, User, NewLocationInfo, RegistrationInfo, UpdateLocationInfo, UpdateProfileInfo, UpdatePasswordInfo, Service, PostNavAction } from './types.ts';
+import { LocationContext } from './LocationContext.tsx';
+import { addLocation, login, register, logout, getUser, updateLocationDetails, updateUserProfile, updateUserPassword, cancelAllSubscriptionsForLocation, restartAllSubscriptionsForLocation, sendTransferReminder, getServices, subscribeToNewService, savePendingSelections } from './services/apiService.ts';
 import StripeProvider from './components/StripeProvider.tsx';
 import { Card } from './components/Card.tsx';
 import { Button } from './components/Button.tsx';
@@ -90,7 +90,7 @@ const App: React.FC = () => {
     if (path.startsWith('/settings/')) return path;
     return null;
   });
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
@@ -144,23 +144,23 @@ const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [isAuthenticated]);
 
-  const properties = useMemo(() => user?.properties || [], [user]);
-  const selectedProperty = useMemo(() => 
-    selectedPropertyId === 'all' ? null : properties.find(p => p.id === selectedPropertyId) || null
-  , [selectedPropertyId, properties]);
+  const locations = useMemo(() => user?.locations || [], [user]);
+  const selectedLocation = useMemo(() =>
+    selectedLocationId === 'all' ? null : locations.find(p => p.id === selectedLocationId) || null
+  , [selectedLocationId, locations]);
 
   const fetchUserAndSetState = useCallback((userData: any) => {
     setImpersonating(!!userData.impersonating);
     setImpersonatedBy(userData.impersonatedBy || null);
     setUser(userData);
-    if (userData.properties && userData.properties.length > 0) {
-        if (userData.properties.length > 1) {
-            setSelectedPropertyId('all');
+    if (userData.locations && userData.locations.length > 0) {
+        if (userData.locations.length > 1) {
+            setSelectedLocationId('all');
         } else {
-            setSelectedPropertyId(userData.properties[0].id);
+            setSelectedLocationId(userData.locations[0].id);
         }
     } else {
-        setSelectedPropertyId(null);
+        setSelectedLocationId(null);
     }
   }, []);
     
@@ -278,7 +278,7 @@ const App: React.FC = () => {
     await logout();
     setIsAuthenticated(false);
     setUser(null);
-    setSelectedPropertyId(null);
+    setSelectedLocationId(null);
     setAuthView('login');
     setCurrentViewRaw('home');
     window.history.replaceState({}, '', '/login');
@@ -305,24 +305,24 @@ const App: React.FC = () => {
   }, [fetchUserAndSetState, setCurrentView, pendingDeepLink, pendingDeepLinkQuery, pendingSettingsPath]);
 
   const startNewServiceFlow = useCallback(() => {
-    setSelectedPropertyId(null);
+    setSelectedLocationId(null);
     setCurrentView('myservice');
   }, [setCurrentView]);
 
   const handleCompleteSetup = useCallback(async (
-    propertyInfo: NewPropertyInfo,
+    locationInfo: NewLocationInfo,
     servicesToSubscribe: { serviceId: string; useSticker: boolean; quantity: number }[]
   ) => {
     try {
-      // 1. Add property (created with service_status='pending_review')
-      const newProperty = await addProperty(propertyInfo);
+      // 1. Add location (created with service_status='pending_review')
+      const newLocation = await addLocation(locationInfo);
 
       // 2. Save service selections for deferred billing (subscriptions created on admin approval)
-      await savePendingSelections(newProperty.id, servicesToSubscribe);
+      await savePendingSelections(newLocation.id, servicesToSubscribe);
 
       // 3. Refresh user data and navigate
       await refreshUser();
-      setSelectedPropertyId(newProperty.id);
+      setSelectedLocationId(newLocation.id);
       setCurrentView('myservice');
     } catch (error) {
       console.error("Failed to complete setup:", error);
@@ -330,18 +330,18 @@ const App: React.FC = () => {
     }
   }, [refreshUser, setCurrentView]);
 
-  const handleUpdateProperty = useCallback(async (propertyId: string, details: UpdatePropertyInfo) => {
+  const handleUpdateLocation = useCallback(async (locationId: string, details: UpdateLocationInfo) => {
     try {
-      const updatedProperty = await updatePropertyDetails(propertyId, details);
+      const updatedLocation = await updateLocationDetails(locationId, details);
       setUser(prevUser => {
         if (!prevUser) return null;
-        const updatedProperties = prevUser.properties.map(p => 
-          p.id === propertyId ? updatedProperty : p
+        const updatedLocations = prevUser.locations.map(p =>
+          p.id === locationId ? updatedLocation : p
         );
-        return { ...prevUser, properties: updatedProperties };
+        return { ...prevUser, locations: updatedLocations };
       });
     } catch (error) {
-      console.error("Failed to update property:", error);
+      console.error("Failed to update location:", error);
       throw error;
     }
   }, []);
@@ -365,9 +365,9 @@ const App: React.FC = () => {
       }
   }, []);
 
-  const handleCancelPropertyServices = useCallback(async (propertyId: string) => {
+  const handleCancelLocationServices = useCallback(async (locationId: string) => {
     try {
-      await cancelAllSubscriptionsForProperty(propertyId);
+      await cancelAllSubscriptionsForLocation(locationId);
       await refreshUser(); // Re-fetch user data to get updated subscription statuses
     } catch (error) {
       console.error("Failed to cancel services:", error);
@@ -375,19 +375,19 @@ const App: React.FC = () => {
     }
   }, [refreshUser]);
 
-  const handleRestartPropertyServices = useCallback(async (propertyId: string) => {
+  const handleRestartLocationServices = useCallback(async (locationId: string) => {
     try {
-      await restartAllSubscriptionsForProperty(propertyId);
+      await restartAllSubscriptionsForLocation(locationId);
       await refreshUser(); // Re-fetch user data to get updated subscription statuses
     } catch (error) {
       console.error("Failed to restart services:", error);
       throw error;
     }
   }, [refreshUser]);
-  
-  const handleSendTransferReminder = useCallback(async (propertyId: string) => {
+
+  const handleSendTransferReminder = useCallback(async (locationId: string) => {
       try {
-          await sendTransferReminder(propertyId);
+          await sendTransferReminder(locationId);
       } catch (error) {
           console.error("Failed to send reminder:", error);
           throw error;
@@ -396,23 +396,31 @@ const App: React.FC = () => {
 
   const contextValue = useMemo(() => ({
     user,
-    properties,
-    selectedProperty,
-    selectedPropertyId,
-    setSelectedPropertyId,
-    loading, 
+    locations,
+    selectedLocation,
+    selectedLocationId,
+    setSelectedLocationId,
+    loading,
     refreshUser,
-    updateProperty: handleUpdateProperty,
+    updateLocation: handleUpdateLocation,
     updateProfile: handleUpdateProfile,
     updatePassword: handleUpdatePassword,
-    cancelPropertyServices: handleCancelPropertyServices,
-    restartPropertyServices: handleRestartPropertyServices,
+    cancelLocationServices: handleCancelLocationServices,
+    restartLocationServices: handleRestartLocationServices,
     sendTransferReminder: handleSendTransferReminder,
     startNewServiceFlow,
     postNavAction,
     setPostNavAction,
     setCurrentView,
-  }), [user, properties, selectedProperty, selectedPropertyId, loading, postNavAction, refreshUser, handleUpdateProperty, handleUpdateProfile, handleUpdatePassword, handleCancelPropertyServices, handleRestartPropertyServices, handleSendTransferReminder, startNewServiceFlow, setCurrentView]);
+    // Backward-compat aliases (remove after all components migrate to new names)
+    properties: locations,
+    selectedProperty: selectedLocation,
+    selectedPropertyId: selectedLocationId,
+    setSelectedPropertyId: setSelectedLocationId,
+    updateProperty: handleUpdateLocation,
+    cancelPropertyServices: handleCancelLocationServices,
+    restartPropertyServices: handleRestartLocationServices,
+  }), [user, locations, selectedLocation, selectedLocationId, loading, postNavAction, refreshUser, handleUpdateLocation, handleUpdateProfile, handleUpdatePassword, handleCancelLocationServices, handleRestartLocationServices, handleSendTransferReminder, startNewServiceFlow, setCurrentView]);
 
   const renderView = () => {
     switch (currentView) {
@@ -558,7 +566,7 @@ const App: React.FC = () => {
   return (
     <StripeProvider>
       <ToastProvider>
-        <PropertyContext.Provider value={contextValue}>
+        <LocationContext.Provider value={contextValue}>
           <div className="flex h-screen bg-base-100 text-neutral">
             <Sidebar currentView={currentView} setCurrentView={setCurrentView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onLogout={handleLogout} />
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -579,7 +587,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
               )}
-              <Header currentView={currentView} setCurrentView={setCurrentView} onAddPropertyClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
+              <Header currentView={currentView} setCurrentView={setCurrentView} onAddLocationClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
               <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
                 <div className="max-w-7xl mx-auto w-full">
                   {renderView()}
@@ -588,7 +596,7 @@ const App: React.FC = () => {
             </div>
           </div>
           {user && <ChatWidget userId={user.id} />}
-        </PropertyContext.Provider>
+        </LocationContext.Provider>
       </ToastProvider>
     </StripeProvider>
   );

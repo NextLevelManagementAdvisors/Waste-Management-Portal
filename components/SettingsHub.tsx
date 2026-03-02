@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
@@ -89,7 +89,7 @@ const SettingsHub: React.FC = () => {
 };
 
 const ProfileTab: React.FC = () => {
-  const { user, updateProfile } = useProperty();
+  const { user, updateProfile } = useLocation();
   const { showToast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<UpdateProfileInfo | null>(null);
@@ -201,7 +201,7 @@ const ProfileTab: React.FC = () => {
 };
 
 const DEFAULT_PREFS: NotificationPreferences = {
-  pickupReminders: { email: true, sms: false },
+  collectionReminders: { email: true, sms: false },
   scheduleChanges: { email: true, sms: false },
   driverUpdates: { email: true, sms: false },
   invoiceDue: true,
@@ -213,24 +213,24 @@ const DEFAULT_PREFS: NotificationPreferences = {
 };
 
 const NotificationsTab: React.FC = () => {
-  const { selectedProperty, properties, setSelectedPropertyId, refreshUser } = useProperty();
+  const { selectedLocation, locations, setSelectedLocationId, refreshUser } = useLocation();
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [notification, setNotification] = useState('');
 
-  // Auto-select first property when none is selected
+  // Auto-select first location when none is selected
   useEffect(() => {
-    if (!selectedProperty && properties.length > 0) {
-      setSelectedPropertyId(properties[0].id);
+    if (!selectedLocation && locations.length > 0) {
+      setSelectedLocationId(locations[0].id);
     }
-  }, [selectedProperty, properties, setSelectedPropertyId]);
+  }, [selectedLocation, locations, setSelectedLocationId]);
 
   useEffect(() => {
-    if (selectedProperty) {
-      const np = selectedProperty.notificationPreferences;
+    if (selectedLocation) {
+      const np = selectedLocation.notificationPreferences;
       setPrefs({
-        pickupReminders: { email: np.pickupReminders?.email !== false, sms: np.pickupReminders?.sms === true },
+        collectionReminders: { email: np.collectionReminders?.email !== false, sms: np.collectionReminders?.sms === true },
         scheduleChanges: { email: np.scheduleChanges?.email !== false, sms: np.scheduleChanges?.sms === true },
         driverUpdates: { email: np.driverUpdates?.email !== false, sms: np.driverUpdates?.sms === true },
         invoiceDue: np.invoiceDue !== false,
@@ -241,13 +241,13 @@ const NotificationsTab: React.FC = () => {
         referralUpdates: np.referralUpdates !== false,
       });
       setHasChanges(false);
-    } else if (properties.length > 0) {
+    } else if (locations.length > 0) {
       // Show defaults while auto-select takes effect
       setPrefs({ ...DEFAULT_PREFS });
     } else {
       setPrefs(null);
     }
-  }, [selectedProperty, properties.length]);
+  }, [selectedLocation, locations.length]);
 
   const handlePrefChange = useCallback((category: keyof NotificationPreferences, type?: 'email' | 'sms') => {
     setPrefs(prev => {
@@ -263,11 +263,11 @@ const NotificationsTab: React.FC = () => {
   }, []);
 
   const handleSave = async () => {
-    if (!selectedProperty || !prefs) return;
+    if (!selectedLocation || !prefs) return;
     setIsSaving(true);
     setNotification('');
     try {
-      await updateNotificationPreferences(selectedProperty.id, prefs);
+      await updateNotificationPreferences(selectedLocation.id, prefs);
       await refreshUser();
       setHasChanges(false);
       setNotification('Preferences saved successfully!');
@@ -311,13 +311,13 @@ const NotificationsTab: React.FC = () => {
     </div>
   );
 
-  if (properties.length === 0) {
+  if (locations.length === 0) {
     return (
       <Card className="border-none ring-1 ring-base-200 shadow-xl">
         <div className="text-center py-12">
           <BellIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-bold text-gray-600">No Properties</h3>
-          <p className="text-gray-400 mt-1">Add a property to configure notification preferences.</p>
+          <h3 className="text-lg font-bold text-gray-600">No Locations</h3>
+          <p className="text-gray-400 mt-1">Add a location to configure notification preferences.</p>
         </div>
       </Card>
     );
@@ -328,14 +328,14 @@ const NotificationsTab: React.FC = () => {
       <Card className="border-none ring-1 ring-base-200 shadow-xl">
         <h2 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-3 mb-2">
           <BellIcon className="w-6 h-6 text-primary" />
-          Pickup Notifications
+          Collection Notifications
         </h2>
         <p className="text-sm text-gray-500 mb-4">
-          {selectedProperty ? `Settings for ${selectedProperty.address}` : 'Loading property...'}
+          {selectedLocation ? `Settings for ${selectedLocation.address}` : 'Loading location...'}
         </p>
         {prefs && (
           <div className="divide-y divide-base-200">
-            <NotifRow title="Pickup Reminders" description="Get a reminder the day before your scheduled pickup." categoryKey="pickupReminders" />
+            <NotifRow title="Collection Reminders" description="Get a reminder the day before your scheduled collection." categoryKey="collectionReminders" />
             <NotifRow title="Schedule Changes" description="Be notified about holiday schedule changes or cancellations." categoryKey="scheduleChanges" />
             <NotifRow title="Driver Updates" description="Receive an alert if the driver is running late on pickup day." categoryKey="driverUpdates" />
           </div>
@@ -379,7 +379,7 @@ const NotificationsTab: React.FC = () => {
 };
 
 const SecurityTab: React.FC = () => {
-  const { user, updatePassword, refreshUser } = useProperty();
+  const { user, updatePassword, refreshUser } = useLocation();
   const { showToast } = useToast();
   const isOAuthUser = user?.authProvider === 'google';
   const [passwordData, setPasswordData] = useState<UpdatePasswordInfo & { confirmNew: string }>({

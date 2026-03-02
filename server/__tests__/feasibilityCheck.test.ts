@@ -17,7 +17,7 @@ vi.mock('../storage', () => ({
   storage: {
     createAuditLog: vi.fn(),
     approveIfPending: vi.fn(),
-    updateProperty: vi.fn(),
+    updateLocation: vi.fn(),
   },
 }));
 
@@ -51,7 +51,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(storage.createAuditLog).mockResolvedValue(undefined as any);
   vi.mocked(storage.approveIfPending).mockResolvedValue(true);
-  vi.mocked(storage.updateProperty).mockResolvedValue(undefined as any);
+  vi.mocked(storage.updateLocation).mockResolvedValue(undefined as any);
   vi.mocked(optimo.createOrder).mockResolvedValue(undefined as any);
   vi.mocked(optimo.deleteOrder).mockResolvedValue(undefined as any);
   vi.mocked(activatePendingSelections).mockResolvedValue({ activated: 1, failed: 0, rentalDeliveries: 0 });
@@ -114,9 +114,10 @@ describe('checkRouteFeasibility', () => {
 
     // For invalid address, startPlanning returns the order in ordersWithInvalidLocation
     vi.mocked(optimo.startPlanning).mockImplementation(async (params: any) => ({
+      success: false,
       ordersWithInvalidLocation: params.useOrders,
-      planningId: null,
-    }));
+      planningId: undefined,
+    } as any));
 
     const result = await checkRouteFeasibility('Invalid Address', 'prop-3');
 
@@ -216,7 +217,7 @@ describe('runFeasibilityAndApprove', () => {
     await runFeasibilityAndApprove('prop-1', 'user-1', '123 Main St');
 
     expect(storage.createAuditLog).toHaveBeenCalledWith(
-      'user-1', 'auto_feasibility_check', 'property', 'prop-1',
+      'user-1', 'auto_feasibility_check', 'location', 'prop-1',
       expect.objectContaining({ feasible: true, reason: 'scheduled', automated: true }),
     );
   });

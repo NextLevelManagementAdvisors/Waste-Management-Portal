@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Services from './Services.tsx';
-import PropertySettings from './PropertySettings.tsx';
+import LocationSettings from './LocationSettings.tsx';
 import Notifications from './Notifications.tsx';
 import ServiceStatusOverview from './ServiceStatusOverview.tsx';
-import PropertyManagement from './PropertyManagement.tsx';
+import LocationManagement from './LocationManagement.tsx';
 import StartService from './StartService.tsx';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
-import { Subscription, NewPropertyInfo } from '../types.ts';
+import { Subscription, NewLocationInfo } from '../types.ts';
 import {
     ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon
 } from './Icons.tsx';
@@ -17,7 +17,7 @@ import DangerZone from './DangerZone.tsx';
 import CollectionHistory from './CollectionHistory.tsx';
 
 interface MyServiceHubProps {
-    onCompleteSetup: (propertyInfo: NewPropertyInfo, services: { serviceId: string; useSticker: boolean; quantity: number }[]) => Promise<void>;
+    onCompleteSetup: (locationInfo: NewLocationInfo, services: { serviceId: string; useSticker: boolean; quantity: number }[]) => Promise<void>;
 }
 
 const TABS = [
@@ -35,7 +35,7 @@ function getTabFromUrl(): string {
 }
 
 const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
-    const { properties, selectedProperty, postNavAction, setCurrentView, refreshUser } = useProperty();
+    const { locations, selectedLocation, postNavAction, setCurrentView, refreshUser } = useLocation();
     const [activeTab, setActiveTabRaw] = useState(getTabFromUrl);
 
     const setActiveTab = useCallback((tab: string) => {
@@ -53,7 +53,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     const [loadingSubs, setLoadingSubs] = useState(true);
     const [showSetupWizard, setShowSetupWizard] = useState(false);
 
-    const hasNoProperties = properties.length === 0;
+    const hasNoLocations = locations.length === 0;
 
     const [serviceFlowType, setServiceFlowType] = useState<'recurring' | 'request' | undefined>(() => {
         const params = new URLSearchParams(window.location.search);
@@ -77,10 +77,10 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     }, []);
 
     useEffect(() => {
-        if (selectedProperty) {
+        if (selectedLocation) {
             setActiveTabRaw('overview');
         }
-    }, [selectedProperty]);
+    }, [selectedLocation]);
 
     useEffect(() => {
         if (postNavAction && postNavAction.targetTab) {
@@ -102,7 +102,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     const activeOrPausedSubs = allSubscriptions.filter(s => s.status === 'active' || s.status === 'paused');
     const hasExistingSubscriptions = !loadingSubs && activeOrPausedSubs.length > 0;
 
-    if (hasNoProperties && loadingSubs) {
+    if (hasNoLocations && loadingSubs) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
@@ -113,34 +113,34 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
         );
     }
 
-    if (showSetupWizard || (hasNoProperties && !hasExistingSubscriptions && !loadingSubs)) {
+    if (showSetupWizard || (hasNoLocations && !hasExistingSubscriptions && !loadingSubs)) {
         return (
             <div className="animate-in fade-in duration-500">
                 <StartService
-                    onCompleteSetup={async (propertyInfo, services) => {
-                        await onCompleteSetup(propertyInfo, services);
+                    onCompleteSetup={async (locationInfo, services) => {
+                        await onCompleteSetup(locationInfo, services);
                         setShowSetupWizard(false);
                     }}
                     onCancel={() => {
-                        if (hasNoProperties) {
+                        if (hasNoLocations) {
                             setCurrentView('home');
                         } else {
                             setShowSetupWizard(false);
                         }
                     }}
-                    isOnboarding={hasNoProperties}
+                    isOnboarding={hasNoLocations}
                     serviceFlowType={serviceFlowType}
                 />
             </div>
         );
     }
 
-    if (hasNoProperties && hasExistingSubscriptions) {
+    if (hasNoLocations && hasExistingSubscriptions) {
         return (
             <div className="animate-in fade-in duration-500 max-w-3xl mx-auto">
                 <div className="bg-white rounded-2xl shadow-lg border border-base-200 p-8 mb-6">
                     <h2 className="text-2xl font-black text-gray-900 mb-2">Welcome Back!</h2>
-                    <p className="text-gray-600 mb-6">We found your existing plan. Add your property address to manage everything from the portal.</p>
+                    <p className="text-gray-600 mb-6">We found your existing plan. Add your service address to manage everything from the portal.</p>
                     <div className="space-y-3 mb-6">
                         {activeOrPausedSubs.map(sub => (
                             <div key={sub.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-base-200">
@@ -160,20 +160,20 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                         onClick={() => setShowSetupWizard(true)}
                         className="w-full bg-primary text-white font-black uppercase tracking-widest text-xs py-4 rounded-2xl shadow-xl shadow-primary/20 hover:bg-primary-focus transition-colors"
                     >
-                        Add Your Property
+                        Add Your Location
                     </button>
                 </div>
             </div>
         );
     }
 
-    if (!selectedProperty) {
+    if (!selectedLocation) {
         return (
             <div className="animate-in fade-in duration-500">
-                <PropertyManagement
-                    onAddProperty={() => setShowSetupWizard(true)}
+                <LocationManagement
+                    onAddLocation={() => setShowSetupWizard(true)}
                     onResumeSetup={() => setShowSetupWizard(true)}
-                    onPropertyRemoved={() => refreshUser()}
+                    onLocationRemoved={() => refreshUser()}
                 />
             </div>
         );
@@ -205,7 +205,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                 return (
                     <div className="p-4 sm:p-6 lg:p-8">
                         <div className="max-w-4xl mx-auto space-y-12">
-                            <PropertySettings />
+                            <LocationSettings />
                             <Notifications />
                             <AccountTransfer />
                             <DangerZone />

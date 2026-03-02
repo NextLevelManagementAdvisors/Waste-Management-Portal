@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, Pagination, StatusBadge, EmptyState, FilterBar } from '../ui/index.ts';
-import type { MissedPickupReport, Route } from '../../../shared/types/index.ts';
+import type { MissedCollectionReport, Route } from '../../../shared/types/index.ts';
 
-interface MissedPickupsResponse {
-  reports: MissedPickupReport[];
+interface MissedCollectionsResponse {
+  reports: MissedCollectionReport[];
   total: number;
 }
 
@@ -42,7 +42,7 @@ const ageColor = (dateStr: string) => {
 
 interface ResolveModalProps {
   isOpen: boolean;
-  report: MissedPickupReport | null;
+  report: MissedCollectionReport | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -67,7 +67,7 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
 
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/admin/missed-pickups/${report.id}`, {
+      const res = await fetch(`/api/admin/missed-collections/${report.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -79,10 +79,10 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
         onClose();
       } else {
         const json = await res.json();
-        setError(json.error || 'Failed to update missed pickup report');
+        setError(json.error || 'Failed to update missed collection report');
       }
     } catch {
-      setError('Failed to update missed pickup report');
+      setError('Failed to update missed collection report');
     } finally {
       setIsSaving(false);
     }
@@ -94,7 +94,7 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <Card className="relative w-full max-w-lg p-6 shadow-lg">
-        <h2 className="text-lg font-black text-gray-900 mb-1">Resolve Missed Pickup</h2>
+        <h2 className="text-lg font-black text-gray-900 mb-1">Resolve Missed Collection</h2>
         <p className="text-sm text-gray-500 mb-4">{report.customerName} - {report.address}</p>
         {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -136,7 +136,7 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
 
 interface AddToRouteModalProps {
   isOpen: boolean;
-  report: MissedPickupReport | null;
+  report: MissedCollectionReport | null;
   onClose: () => void;
   onAdded: () => void;
 }
@@ -175,18 +175,18 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ missedRedoPropertyIds: [report.propertyId] }),
+        body: JSON.stringify({ missedRedoLocationIds: [report.locationId] }),
       });
       if (!addRes.ok) {
         const json = await addRes.json();
         setError(json.error || 'Failed to add stop');
         return;
       }
-      await fetch(`/api/admin/missed-pickups/${report.id}`, {
+      await fetch(`/api/admin/missed-collections/${report.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ status: 'resolved', resolutionNotes: 'Added to route as redo pickup' }),
+        body: JSON.stringify({ status: 'resolved', resolutionNotes: 'Added to route as redo collection' }),
       });
       onAdded();
       onClose();
@@ -230,7 +230,7 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
                 <div>
                   <div className="text-sm font-semibold text-gray-900">{route.title}</div>
                   <div className="text-xs text-gray-500">
-                    {route.stop_count ?? 0} stops &middot; {route.status}
+                    {route.stopCount ?? 0} stops &middot; {route.status}
                   </div>
                 </div>
                 <Button size="sm" disabled={adding} onClick={() => handleAdd(route.id)}>
@@ -249,14 +249,14 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
   );
 };
 
-const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActionResolved }) => {
-  const [reports, setReports] = useState<MissedPickupReport[]>([]);
+const MissedCollectionsList: React.FC<{ onActionResolved?: () => void }> = ({ onActionResolved }) => {
+  const [reports, setReports] = useState<MissedCollectionReport[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [selectedReport, setSelectedReport] = useState<MissedPickupReport | null>(null);
+  const [selectedReport, setSelectedReport] = useState<MissedCollectionReport | null>(null);
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [showAddToRouteModal, setShowAddToRouteModal] = useState(false);
 
@@ -267,14 +267,14 @@ const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActi
       query.set('status', statusFilter);
       query.set('limit', String(limit));
       query.set('offset', String(offset));
-      const res = await fetch(`/api/admin/missed-pickups?${query}`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/missed-collections?${query}`, { credentials: 'include' });
       if (res.ok) {
-        const data: MissedPickupsResponse = await res.json();
+        const data: MissedCollectionsResponse = await res.json();
         setReports(data.reports);
         setTotal(data.total);
       }
     } catch (e) {
-      console.error('Failed to load missed pickup reports:', e);
+      console.error('Failed to load missed collection reports:', e);
     } finally {
       setLoading(false);
     }
@@ -284,12 +284,12 @@ const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActi
     loadReports();
   }, [loadReports]);
 
-  const handleResolveClick = (report: MissedPickupReport) => {
+  const handleResolveClick = (report: MissedCollectionReport) => {
     setSelectedReport(report);
     setShowResolveModal(true);
   };
 
-  const handleAddToRouteClick = (report: MissedPickupReport) => {
+  const handleAddToRouteClick = (report: MissedCollectionReport) => {
     setSelectedReport(report);
     setShowAddToRouteModal(true);
   };
@@ -324,8 +324,8 @@ const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActi
 
       {reports.length === 0 ? (
         <EmptyState
-          title="No Missed Pickups"
-          message="There are no missed pickup reports matching your filters."
+          title="No Missed Collections"
+          message="There are no missed collection reports matching your filters."
         />
       ) : (
         <>
@@ -336,7 +336,7 @@ const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActi
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Customer</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Address</th>
-                  <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pickup Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Collection Date</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Notes</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Resolution</th>
@@ -406,4 +406,4 @@ const MissedPickupsList: React.FC<{ onActionResolved?: () => void }> = ({ onActi
   );
 };
 
-export default MissedPickupsList;
+export default MissedCollectionsList;

@@ -3,7 +3,7 @@ import { storage } from './storage.ts';
 export interface RouteSuggestion {
   zone_name: string;
   driver_name?: string;
-  pickup_day: string;
+  collection_day: string;
   confidence: number;
   distance_miles: number;
 }
@@ -55,21 +55,21 @@ export async function findNearestZone(lat: number, lng: number): Promise<{ zone_
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-export async function suggestRoute(propertyId: string): Promise<RouteSuggestion | null> {
-  const property = await storage.getPropertyById(propertyId);
-  if (!property) return null;
+export async function suggestRoute(locationId: string): Promise<RouteSuggestion | null> {
+  const location = await storage.getLocationById(locationId);
+  if (!location) return null;
 
   // Geocode if needed
-  let lat = property.latitude ? Number(property.latitude) : null;
-  let lng = property.longitude ? Number(property.longitude) : null;
+  let lat = location.latitude ? Number(location.latitude) : null;
+  let lng = location.longitude ? Number(location.longitude) : null;
 
   if (lat == null || lng == null) {
-    const geo = await geocodeAddress(property.address);
+    const geo = await geocodeAddress(location.address);
     if (!geo) return null;
     lat = geo.lat;
     lng = geo.lng;
     // Persist coordinates
-    await storage.updateProperty(propertyId, { latitude: lat, longitude: lng });
+    await storage.updateLocation(locationId, { latitude: lat, longitude: lng });
   }
 
   // Find nearest driver zone
@@ -98,7 +98,7 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
     return {
       zone_name: zone.zone_name,
       driver_name: zone.driver_name,
-      pickup_day: 'unknown',
+      collection_day: 'unknown',
       confidence: 0.2,
       distance_miles: zone.distance_miles,
     };
@@ -127,7 +127,7 @@ export async function suggestRoute(propertyId: string): Promise<RouteSuggestion 
   return {
     zone_name: zone.zone_name,
     driver_name: zone.driver_name,
-    pickup_day: bestDay,
+    collection_day: bestDay,
     confidence,
     distance_miles: zone.distance_miles,
   };

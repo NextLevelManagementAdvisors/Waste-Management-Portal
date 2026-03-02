@@ -14,18 +14,18 @@ import {
 import ActivityFeed from '../operations/ActivityFeed.tsx';
 import AddressReviewPanel from '../operations/AddressReviewPanel.tsx';
 import type { NavFilter } from '../../../shared/types/index.ts';
-import type { MissedPickupReport } from '../../../shared/types/index.ts';
+import type { MissedCollectionReport } from '../../../shared/types/index.ts';
 
 interface AdminStats {
   totalUsers: number;
-  totalProperties: number;
+  totalLocations: number;
   recentUsers: number;
   activeTransfers: number;
   totalReferrals: number;
   pendingReferrals: number;
   pendingReviews: number;
-  pendingMissedPickups: number;
-  propertiesWithoutPickupDay: number;
+  pendingMissedCollections: number;
+  locationsWithoutCollectionDay: number;
   revenue: number;
   activeSubscriptions: number;
   openInvoices: number;
@@ -44,7 +44,7 @@ interface RevenueData {
 }
 
 interface ServiceData {
-  service_type: string;
+  serviceType: string;
   count: string;
 }
 
@@ -90,8 +90,8 @@ const DashboardView: React.FC<{
 
   // Action Items state
   const [expandedAction, setExpandedAction] = useState<ActionSection | null>(null);
-  const [pendingPickups, setPendingPickups] = useState<MissedPickupReport[]>([]);
-  const [pickupsLoading, setPickupsLoading] = useState(false);
+  const [pendingCollections, setPendingCollections] = useState<MissedCollectionReport[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/stats', { credentials: 'include' })
@@ -101,30 +101,30 @@ const DashboardView: React.FC<{
       .finally(() => setStatsLoading(false));
   }, []);
 
-  // Fetch pending missed pickups for the action items mini-list
-  const fetchPendingPickups = useCallback(async () => {
-    setPickupsLoading(true);
+  // Fetch pending missed collections for the action items mini-list
+  const fetchPendingCollections = useCallback(async () => {
+    setCollectionsLoading(true);
     try {
-      const res = await fetch('/api/admin/missed-pickups?status=pending&limit=10', { credentials: 'include' });
+      const res = await fetch('/api/admin/missed-collections?status=pending&limit=10', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setPendingPickups(data.reports || []);
+        setPendingCollections(data.reports || []);
       }
     } catch {
       // silently fail
     } finally {
-      setPickupsLoading(false);
+      setCollectionsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchPendingPickups();
-  }, [fetchPendingPickups]);
+    fetchPendingCollections();
+  }, [fetchPendingCollections]);
 
   // Auto-expand the first action section that has items
   useEffect(() => {
     if (stats && expandedAction === null) {
-      if (stats.pendingMissedPickups > 0) setExpandedAction('pickups');
+      if (stats.pendingMissedCollections > 0) setExpandedAction('pickups');
       else if (stats.pendingReviews > 0) setExpandedAction('addresses');
     }
   }, [stats, expandedAction]);
@@ -207,13 +207,13 @@ const DashboardView: React.FC<{
 
   const handleActionResolved = useCallback(() => {
     onActionResolved?.();
-    fetchPendingPickups();
+    fetchPendingCollections();
     // Re-fetch stats to update counts
     fetch('/api/admin/stats', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setStats(data); })
       .catch(() => {});
-  }, [onActionResolved, fetchPendingPickups]);
+  }, [onActionResolved, fetchPendingCollections]);
 
   useEffect(() => {
     fetchSignupTrends(signupDays);
@@ -386,7 +386,7 @@ const DashboardView: React.FC<{
                 <div key={idx} className="space-y-2 group">
                   <div className="flex justify-between items-center">
                     <label className="text-sm font-semibold text-gray-900 capitalize">
-                      {item.service_type}
+                      {item.serviceType}
                     </label>
                     <span className="text-sm font-bold text-teal-700">
                       {count} ({percentage.toFixed(1)}%)
@@ -423,7 +423,7 @@ const DashboardView: React.FC<{
           />
           <StatCard
             label="Most Popular"
-            value={serviceData.reduce((max, d) => parseInt(d.count) > parseInt(max.count) ? d : max).service_type}
+            value={serviceData.reduce((max, d) => parseInt(d.count) > parseInt(max.count) ? d : max).serviceType}
             icon={<span className="text-2xl">⭐</span>}
             accent="text-teal-600"
           />
@@ -434,7 +434,7 @@ const DashboardView: React.FC<{
 
   if (statsLoading) return <LoadingSpinner />;
 
-  const actionTotal = (stats?.pendingMissedPickups || 0) + (stats?.pendingReviews || 0);
+  const actionTotal = (stats?.pendingMissedCollections || 0) + (stats?.pendingReviews || 0);
   const hasActions = actionTotal > 0;
 
   return (
@@ -443,7 +443,7 @@ const DashboardView: React.FC<{
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('contacts')} />
-            <StatCard label="Total Properties" value={stats.totalProperties} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('contacts')} />
+            <StatCard label="Total Locations" value={stats.totalLocations} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('contacts')} />
             <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('contacts', { sort: 'newest' })} />
             <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('accounting', { tab: 'income' })} />
             <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('accounting', { tab: 'subscriptions' })} />
@@ -453,7 +453,7 @@ const DashboardView: React.FC<{
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
-            <StatCard label="No Pickup Day" value={stats.propertiesWithoutPickupDay} icon={<CalendarDaysIcon className="w-8 h-8" />} accent={stats.propertiesWithoutPickupDay > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('contacts', { filter: 'no-pickup-day' })} />
+            <StatCard label="No Collection Day" value={stats.locationsWithoutCollectionDay} icon={<CalendarDaysIcon className="w-8 h-8" />} accent={stats.locationsWithoutCollectionDay > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('contacts', { filter: 'no-collection-day' })} />
           </div>
         </div>
       ) : (
@@ -471,8 +471,8 @@ const DashboardView: React.FC<{
           </div>
 
           <div className="divide-y divide-gray-100">
-            {/* Missed Pickups accordion */}
-            {(stats?.pendingMissedPickups || 0) > 0 && (
+            {/* Missed Collections accordion */}
+            {(stats?.pendingMissedCollections || 0) > 0 && (
               <div>
                 <button
                   type="button"
@@ -480,21 +480,21 @@ const DashboardView: React.FC<{
                   className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                 >
                   <ExclamationTriangleIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
-                  <span className="text-sm font-bold text-gray-900 flex-1 text-left">Missed Pickups</span>
+                  <span className="text-sm font-bold text-gray-900 flex-1 text-left">Missed Collections</span>
                   <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black bg-red-100 text-red-700">
-                    {stats!.pendingMissedPickups}
+                    {stats!.pendingMissedCollections}
                   </span>
                   <ChevronIcon className="w-4 h-4 text-gray-400" open={expandedAction === 'pickups'} />
                 </button>
                 {expandedAction === 'pickups' && (
                   <div className="px-5 pb-4">
-                    {pickupsLoading ? (
+                    {collectionsLoading ? (
                       <LoadingSpinner />
-                    ) : pendingPickups.length === 0 ? (
-                      <p className="text-sm text-gray-400 py-2">No pending missed pickups</p>
+                    ) : pendingCollections.length === 0 ? (
+                      <p className="text-sm text-gray-400 py-2">No pending missed collections</p>
                     ) : (
                       <div className="space-y-1">
-                        {pendingPickups.map(report => (
+                        {pendingCollections.map(report => (
                           <button
                             key={report.id}
                             type="button"

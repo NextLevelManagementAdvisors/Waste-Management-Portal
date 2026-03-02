@@ -31,7 +31,7 @@ export interface DbUser {
   auth_provider?: string;
 }
 
-export interface DbProperty {
+export interface DbLocation {
   id: string;
   user_id: string;
   address: string;
@@ -47,13 +47,16 @@ export interface DbProperty {
   service_status: string | null;
   service_status_updated_at: string | null;
   service_status_notes: string | null;
-  pickup_frequency: string | null;
-  pickup_day: string | null;
-  pickup_day_detected_at: string | null;
-  pickup_day_source: string | null;
+  collection_frequency: string | null;
+  collection_day: string | null;
+  collection_day_detected_at: string | null;
+  collection_day_source: string | null;
   zone_id: string | null;
   latitude: number | null;
   longitude: number | null;
   created_at: string;
   updated_at: string;
 }
+
+/** @deprecated Use DbLocation instead */
+export type DbProperty = DbLocation;

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useProperty } from '../PropertyContext.tsx';
+import { useLocation } from '../LocationContext.tsx';
 import { updateNotificationPreferences } from '../services/apiService.ts';
 import { NotificationPreferences } from '../types.ts';
 import { Card } from './Card.tsx';
@@ -8,7 +8,7 @@ import { Button } from './Button.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 
 const Notifications: React.FC = () => {
-    const { selectedProperty, refreshUser } = useProperty();
+    const { selectedLocation, refreshUser } = useLocation();
     const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);
@@ -17,14 +17,14 @@ const Notifications: React.FC = () => {
     const [msgEmailSaving, setMsgEmailSaving] = useState(false);
 
     useEffect(() => {
-        if (selectedProperty) {
+        if (selectedLocation) {
             // Deep copy to prevent direct mutation of context state
-            setPrefs(JSON.parse(JSON.stringify(selectedProperty.notificationPreferences)));
+            setPrefs(JSON.parse(JSON.stringify(selectedLocation.notificationPreferences)));
             setHasChanges(false);
         } else {
             setPrefs(null);
         }
-    }, [selectedProperty]);
+    }, [selectedLocation]);
 
     useEffect(() => {
         fetch('/api/profile/message-notifications')
@@ -59,11 +59,11 @@ const Notifications: React.FC = () => {
     }, []);
 
     const handleSaveChanges = async () => {
-        if (!selectedProperty || !prefs) return;
+        if (!selectedLocation || !prefs) return;
         setIsSaving(true);
         setNotification('');
         try {
-            await updateNotificationPreferences(selectedProperty.id, prefs);
+            await updateNotificationPreferences(selectedLocation.id, prefs);
             await refreshUser(); // Refresh global user state
             setHasChanges(false);
             setNotification('Preferences saved successfully!');
@@ -77,7 +77,7 @@ const Notifications: React.FC = () => {
         }
     };
     
-    if (!selectedProperty) {
+    if (!selectedLocation) {
         return null;
     }
     
@@ -122,9 +122,9 @@ const Notifications: React.FC = () => {
             <Card>
                 <div className="divide-y divide-gray-200">
                     <NotificationCategory
-                        title="Pickup Reminders"
-                        description="Get a reminder the day before your scheduled pickup."
-                        categoryKey="pickupReminders"
+                        title="Collection Reminders"
+                        description="Get a reminder the day before your scheduled collection."
+                        categoryKey="collectionReminders"
                     />
                      <NotificationCategory
                         title="Schedule Changes"

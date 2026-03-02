@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { pool } from './db';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { point, polygon as turfPolygon } from '@turf/helpers';
 export { pool };
 
 export interface DbUser {
@@ -39,7 +41,7 @@ export interface DbDriverProfile {
   updated_at: string;
 }
 
-export interface DbProperty {
+export interface DbLocation {
   id: string;
   user_id: string;
   address: string;
@@ -55,16 +57,19 @@ export interface DbProperty {
   service_status: string | null;
   service_status_updated_at: string | null;
   service_status_notes: string | null;
-  pickup_frequency: string | null;
-  pickup_day: string | null;
-  pickup_day_detected_at: string | null;
-  pickup_day_source: string | null;
+  collection_frequency: string | null;
+  collection_day: string | null;
+  collection_day_detected_at: string | null;
+  collection_day_source: string | null;
   latitude: string | null;
   longitude: string | null;
   zone_id: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/** @deprecated Use DbLocation instead */
+export type DbProperty = DbLocation;
 
 export interface DbNotification {
   id: string;
@@ -80,7 +85,7 @@ export interface DbNotification {
 /** Raw DB row from pending_service_selections (snake_case columns). */
 export interface DbPendingSelection {
   id: string;
-  property_id: string;
+  location_id: string;
   user_id: string;
   service_id: string;
   quantity: number;
@@ -135,31 +140,31 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getPropertiesForUser(userId: string): Promise<DbProperty[]> {
+  async getLocationsForUser(userId: string): Promise<DbLocation[]> {
     const result = await this.query(
-      'SELECT * FROM properties WHERE user_id = $1 ORDER BY created_at',
+      'SELECT * FROM locations WHERE user_id = $1 ORDER BY created_at',
       [userId]
     );
     return result.rows;
   }
 
-  async findPropertyByAddress(address: string, excludeUserId?: string): Promise<DbProperty | null> {
+  async findLocationByAddress(address: string, excludeUserId?: string): Promise<DbLocation | null> {
     const normalized = address.trim().toLowerCase();
     const result = excludeUserId
       ? await this.query(
-          `SELECT * FROM properties WHERE LOWER(TRIM(address)) = $1 AND user_id != $2 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
+          `SELECT * FROM locations WHERE LOWER(TRIM(address)) = $1 AND user_id != $2 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
           [normalized, excludeUserId]
         )
       : await this.query(
-          `SELECT * FROM properties WHERE LOWER(TRIM(address)) = $1 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
+          `SELECT * FROM locations WHERE LOWER(TRIM(address)) = $1 AND service_status NOT IN ('denied') ORDER BY created_at LIMIT 1`,
           [normalized]
         );
     return result.rows[0] || null;
   }
 
-  async createProperty(data: { userId: string; address: string; serviceType: string; inHoa: boolean; communityName?: string; hasGateCode: boolean; gateCode?: string; notes?: string; notificationPreferences?: any }): Promise<DbProperty> {
+  async createLocation(data: { userId: string; address: string; serviceType: string; inHoa: boolean; communityName?: string; hasGateCode: boolean; gateCode?: string; notes?: string; notificationPreferences?: any }): Promise<DbLocation> {
     const result = await this.query(
-      `INSERT INTO properties (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences, service_status, service_status_updated_at)
+      `INSERT INTO locations (user_id, address, service_type, in_hoa, community_name, has_gate_code, gate_code, notes, notification_preferences, service_status, service_status_updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending_review', NOW())
        RETURNING *`,
       [
@@ -172,18 +177,18 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getPropertyById(propertyId: string): Promise<DbProperty | null> {
-    const result = await this.query('SELECT * FROM properties WHERE id = $1', [propertyId]);
+  async getLocationById(propertyId: string): Promise<DbLocation | null> {
+    const result = await this.query('SELECT * FROM locations WHERE id = $1', [propertyId]);
     return result.rows[0] || null;
   }
 
-  async deleteProperty(propertyId: string): Promise<void> {
-    await this.query('DELETE FROM pending_service_selections WHERE property_id = $1', [propertyId]);
-    await this.query('DELETE FROM properties WHERE id = $1', [propertyId]);
+  async deleteLocation(propertyId: string): Promise<void> {
+    await this.query('DELETE FROM pending_service_selections WHERE location_id = $1', [propertyId]);
+    await this.query('DELETE FROM locations WHERE id = $1', [propertyId]);
   }
 
-  async updateProperty(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any; zone_id: string | null; latitude: number | null; longitude: number | null }>): Promise<DbProperty> {
-    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner', 'pickup_frequency', 'pickup_day', 'pickup_day_detected_at', 'pickup_day_source', 'zone_id', 'latitude', 'longitude'];
+  async updateLocation(propertyId: string, data: Partial<{ address: string; service_type: string; in_hoa: boolean; community_name: string | null; has_gate_code: boolean; gate_code: string | null; notes: string | null; notification_preferences: any; transfer_status: string | null; pending_owner: any; collection_day: string | null; collection_day_source: string | null; collection_day_detected_at: string | null; collection_frequency: string | null; zone_id: string | null; latitude: number | null; longitude: number | null }>): Promise<DbLocation> {
+    const ALLOWED_COLUMNS = ['address', 'service_type', 'in_hoa', 'community_name', 'has_gate_code', 'gate_code', 'notes', 'notification_preferences', 'transfer_status', 'pending_owner', 'collection_frequency', 'collection_day', 'collection_day_detected_at', 'collection_day_source', 'zone_id', 'latitude', 'longitude'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -197,7 +202,7 @@ export class Storage {
     fields.push(`updated_at = NOW()`);
     values.push(propertyId);
     const result = await this.query(
-      `UPDATE properties SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE locations SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0];
@@ -351,44 +356,44 @@ export class Storage {
     return result.rows;
   }
 
-  async createMissedPickupReport(data: { userId: string; propertyId: string; pickupDate: string; notes: string }) {
+  async createMissedCollectionReport(data: { userId: string; locationId: string; collectionDate: string; notes: string }) {
     const result = await this.query(
-      `INSERT INTO missed_pickup_reports (user_id, property_id, pickup_date, notes)
+      `INSERT INTO missed_collection_reports (user_id, location_id, collection_date, notes)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [data.userId, data.propertyId, data.pickupDate, data.notes]
+      [data.userId, data.locationId, data.collectionDate, data.notes]
     );
     return result.rows[0];
   }
 
-  async getMissedPickupReports(userId: string) {
+  async getMissedCollectionReports(userId: string) {
     const result = await this.query(
-      'SELECT * FROM missed_pickup_reports WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM missed_collection_reports WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
     return result.rows;
   }
 
-  async createSpecialPickupRequest(data: {
-    userId: string; propertyId: string; serviceName: string; servicePrice: number;
-    pickupDate: string; notes?: string; photos?: any[]; aiEstimate?: number; aiReasoning?: string;
+  async createOnDemandRequest(data: {
+    userId: string; locationId: string; serviceName: string; servicePrice: number;
+    requestedDate: string; notes?: string; photos?: any[]; aiEstimate?: number; aiReasoning?: string;
   }) {
     const result = await this.query(
-      `INSERT INTO special_pickup_requests (user_id, property_id, service_name, service_price, pickup_date, notes, photos, ai_estimate, ai_reasoning)
+      `INSERT INTO on_demand_requests (user_id, location_id, service_name, service_price, requested_date, notes, photos, ai_estimate, ai_reasoning)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [data.userId, data.propertyId, data.serviceName, data.servicePrice, data.pickupDate,
+      [data.userId, data.locationId, data.serviceName, data.servicePrice, data.requestedDate,
        data.notes || null, JSON.stringify(data.photos || []), data.aiEstimate || null, data.aiReasoning || null]
     );
     return result.rows[0];
   }
 
-  async updateSpecialPickupRequest(id: string, data: {
+  async updateOnDemandRequest(id: string, data: {
     pickupDate?: string; status?: string; cancellationReason?: string;
     adminNotes?: string; assignedDriverId?: string | null; servicePrice?: number;
   }) {
     const sets: string[] = ['updated_at = NOW()'];
     const params: any[] = [];
     let idx = 1;
-    if (data.pickupDate !== undefined) { sets.push(`pickup_date = $${idx++}`); params.push(data.pickupDate); }
+    if (data.pickupDate !== undefined) { sets.push(`requested_date = $${idx++}`); params.push(data.pickupDate); }
     if (data.status !== undefined) { sets.push(`status = $${idx++}`); params.push(data.status); }
     if (data.cancellationReason !== undefined) { sets.push(`cancellation_reason = $${idx++}`); params.push(data.cancellationReason); }
     if (data.adminNotes !== undefined) { sets.push(`admin_notes = $${idx++}`); params.push(data.adminNotes); }
@@ -396,92 +401,92 @@ export class Storage {
     if (data.servicePrice !== undefined) { sets.push(`service_price = $${idx++}`); params.push(data.servicePrice); }
     params.push(id);
     const result = await this.query(
-      `UPDATE special_pickup_requests SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE on_demand_requests SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
       params
     );
     return result.rows[0] || null;
   }
 
-  async getSpecialPickupById(id: string) {
+  async getOnDemandRequestById(id: string) {
     const result = await this.query(
       `SELECT s.*, u.first_name, u.last_name, u.email, u.phone, p.address
-       FROM special_pickup_requests s
+       FROM on_demand_requests s
        JOIN users u ON s.user_id = u.id
-       JOIN properties p ON s.property_id = p.id
+       JOIN locations p ON s.location_id = p.id
        WHERE s.id = $1`,
       [id]
     );
     return result.rows[0] || null;
   }
 
-  async getSpecialPickupsForDriver(driverProfileId: string) {
+  async getOnDemandRequestsForDriver(driverProfileId: string) {
     const result = await this.query(
       `SELECT s.*, p.address
-       FROM special_pickup_requests s
-       JOIN properties p ON s.property_id = p.id
+       FROM on_demand_requests s
+       JOIN locations p ON s.location_id = p.id
        WHERE s.assigned_driver_id = $1 AND s.status IN ('scheduled', 'pending')
-       ORDER BY s.pickup_date ASC`,
+       ORDER BY s.requested_date ASC`,
       [driverProfileId]
     );
     return result.rows;
   }
 
-  async getSpecialPickupRequests(userId: string) {
+  async getOnDemandRequests(userId: string) {
     const result = await this.query(
-      'SELECT * FROM special_pickup_requests WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM on_demand_requests WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
     return result.rows;
   }
 
-  async upsertCollectionIntent(data: { userId: string; propertyId: string; intent: string; pickupDate: string; optimoOrderNo?: string }) {
+  async upsertCollectionIntent(data: { userId: string; locationId: string; intent: string; collectionDate: string; optimoOrderNo?: string }) {
     const result = await this.query(
-      `INSERT INTO collection_intents (user_id, property_id, intent, pickup_date, optimo_order_no)
+      `INSERT INTO collection_intents (user_id, location_id, intent, collection_date, optimo_order_no)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (property_id, pickup_date) DO UPDATE SET intent = $3, optimo_order_no = $5
+       ON CONFLICT (location_id, collection_date) DO UPDATE SET intent = $3, optimo_order_no = $5
        RETURNING *`,
-      [data.userId, data.propertyId, data.intent, data.pickupDate, data.optimoOrderNo || null]
+      [data.userId, data.locationId, data.intent, data.collectionDate, data.optimoOrderNo || null]
     );
     return result.rows[0];
   }
 
   async deleteCollectionIntent(propertyId: string, pickupDate: string) {
     await this.query(
-      'DELETE FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      'DELETE FROM collection_intents WHERE location_id = $1 AND collection_date = $2',
       [propertyId, pickupDate]
     );
   }
 
   async getCollectionIntent(propertyId: string, pickupDate: string) {
     const result = await this.query(
-      'SELECT * FROM collection_intents WHERE property_id = $1 AND pickup_date = $2',
+      'SELECT * FROM collection_intents WHERE location_id = $1 AND collection_date = $2',
       [propertyId, pickupDate]
     );
     return result.rows[0] || null;
   }
 
-  async upsertDriverFeedback(data: { userId: string; propertyId: string; pickupDate: string; rating?: number; tipAmount?: number; note?: string }) {
+  async upsertDriverFeedback(data: { userId: string; locationId: string; collectionDate: string; rating?: number; tipAmount?: number; note?: string }) {
     const result = await this.query(
-      `INSERT INTO driver_feedback (user_id, property_id, pickup_date, rating, tip_amount, note)
+      `INSERT INTO driver_feedback (user_id, location_id, collection_date, rating, tip_amount, note)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (property_id, pickup_date) DO UPDATE SET rating = $4, tip_amount = $5, note = $6
+       ON CONFLICT (location_id, collection_date) DO UPDATE SET rating = $4, tip_amount = $5, note = $6
        RETURNING *`,
-      [data.userId, data.propertyId, data.pickupDate, data.rating || null, data.tipAmount || null, data.note || null]
+      [data.userId, data.locationId, data.collectionDate, data.rating || null, data.tipAmount || null, data.note || null]
     );
     return result.rows[0];
   }
 
   async getDriverFeedback(propertyId: string, pickupDate: string) {
     const result = await this.query(
-      'SELECT * FROM driver_feedback WHERE property_id = $1 AND pickup_date = $2',
+      'SELECT * FROM driver_feedback WHERE location_id = $1 AND collection_date = $2',
       [propertyId, pickupDate]
     );
     return result.rows[0] || null;
   }
 
-  async getDriverFeedbackForProperty(propertyId: string) {
+  async getDriverFeedbackForLocation(propertyId: string) {
     const result = await this.query(
-      'SELECT * FROM driver_feedback WHERE property_id = $1 ORDER BY pickup_date DESC',
+      'SELECT * FROM driver_feedback WHERE location_id = $1 ORDER BY collection_date DESC',
       [propertyId]
     );
     return result.rows;
@@ -546,14 +551,14 @@ export class Storage {
 
   async initiateTransfer(propertyId: string, newOwner: { firstName: string; lastName: string; email: string }, token: string, expiresAt: Date) {
     await this.query(
-      `UPDATE properties SET transfer_status = 'pending', pending_owner = $1, transfer_token = $2, transfer_token_expires = $3 WHERE id = $4`,
+      `UPDATE locations SET transfer_status = 'pending', pending_owner = $1, transfer_token = $2, transfer_token_expires = $3 WHERE id = $4`,
       [JSON.stringify(newOwner), token, expiresAt, propertyId]
     );
   }
 
-  async getPropertyByTransferToken(token: string): Promise<DbProperty | null> {
+  async getLocationByTransferToken(token: string): Promise<DbLocation | null> {
     const result = await this.query(
-      "SELECT * FROM properties WHERE transfer_token = $1 AND transfer_status = 'pending' AND transfer_token_expires > NOW()",
+      "SELECT * FROM locations WHERE transfer_token = $1 AND transfer_status = 'pending' AND transfer_token_expires > NOW()",
       [token]
     );
     return result.rows[0] || null;
@@ -561,14 +566,14 @@ export class Storage {
 
   async completeTransfer(propertyId: string, newUserId: string) {
     await this.query(
-      `UPDATE properties SET user_id = $1, transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $2`,
+      `UPDATE locations SET user_id = $1, transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $2`,
       [newUserId, propertyId]
     );
   }
 
   async cancelTransfer(propertyId: string) {
     await this.query(
-      `UPDATE properties SET transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $1`,
+      `UPDATE locations SET transfer_status = NULL, pending_owner = NULL, transfer_token = NULL, transfer_token_expires = NULL WHERE id = $1`,
       [propertyId]
     );
   }
@@ -580,23 +585,23 @@ export class Storage {
     return result.rows;
   }
 
-  async getAllProperties(): Promise<(DbProperty & { user_email?: string; user_name?: string })[]> {
+  async getAllLocations(): Promise<(DbLocation & { user_email?: string; user_name?: string })[]> {
     const result = await this.query(
       `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
-       FROM properties p
+       FROM locations p
        LEFT JOIN users u ON p.user_id = u.id
        ORDER BY p.created_at DESC`
     );
     return result.rows;
   }
 
-  async getPropertiesPaginated(opts: {
+  async getLocationsPaginated(opts: {
     search?: string;
     status?: string;
     pickupDay?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ rows: (DbProperty & { user_email?: string; user_name?: string })[]; total: number }> {
+  }): Promise<{ rows: (DbLocation & { user_email?: string; user_name?: string })[]; total: number }> {
     const page = opts.page || 1;
     const limit = opts.limit || 50;
     const offset = (page - 1) * limit;
@@ -615,7 +620,7 @@ export class Storage {
       idx++;
     }
     if (opts.pickupDay) {
-      conditions.push(`p.pickup_day = $${idx}`);
+      conditions.push(`p.collection_day = $${idx}`);
       params.push(opts.pickupDay);
       idx++;
     }
@@ -623,14 +628,14 @@ export class Storage {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countResult = await this.query(
-      `SELECT COUNT(*) as count FROM properties p LEFT JOIN users u ON p.user_id = u.id ${where}`,
+      `SELECT COUNT(*) as count FROM locations p LEFT JOIN users u ON p.user_id = u.id ${where}`,
       params
     );
     const total = parseInt(countResult.rows[0].count, 10);
 
     const dataResult = await this.query(
       `SELECT p.*, u.email as user_email, u.first_name || ' ' || u.last_name as user_name
-       FROM properties p
+       FROM locations p
        LEFT JOIN users u ON p.user_id = u.id
        ${where}
        ORDER BY p.address ASC
@@ -643,45 +648,45 @@ export class Storage {
 
   async getAdminStats(): Promise<{
     totalUsers: number;
-    totalProperties: number;
+    totalLocations: number;
     recentUsers: number;
     activeTransfers: number;
     totalReferrals: number;
     pendingReferrals: number;
     pendingReviews: number;
-    pendingMissedPickups: number;
-    propertiesWithoutPickupDay: number;
+    pendingMissedCollections: number;
+    locationsWithoutCollectionDay: number;
   }> {
-    const [users, properties, recentUsers, transfers, referrals, pendingRefs, pendingReviews, pendingMissedPickups, noPickupDay] = await Promise.all([
+    const [users, locations, recentUsers, transfers, referrals, pendingRefs, pendingReviews, pendingMissedCollections, noCollectionDay] = await Promise.all([
       this.query('SELECT COUNT(*) as count FROM users'),
-      this.query('SELECT COUNT(*) as count FROM properties'),
+      this.query('SELECT COUNT(*) as count FROM locations'),
       this.query(`SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL '30 days'`),
-      this.query(`SELECT COUNT(*) as count FROM properties WHERE transfer_status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM locations WHERE transfer_status = 'pending'`),
       this.query('SELECT COUNT(*) as count FROM referrals'),
       this.query(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`),
-      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'pending_review'`),
-      this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports WHERE status = 'pending'`),
-      this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status = 'approved' AND pickup_day IS NULL`),
+      this.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
+      this.query(`SELECT COUNT(*) as count FROM missed_collection_reports WHERE status = 'pending'`),
+      this.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'approved' AND collection_day IS NULL`),
     ]);
     return {
       totalUsers: parseInt(users.rows[0].count),
-      totalProperties: parseInt(properties.rows[0].count),
+      totalLocations: parseInt(locations.rows[0].count),
       recentUsers: parseInt(recentUsers.rows[0].count),
       activeTransfers: parseInt(transfers.rows[0].count),
       totalReferrals: parseInt(referrals.rows[0].count),
       pendingReferrals: parseInt(pendingRefs.rows[0].count),
       pendingReviews: parseInt(pendingReviews.rows[0].count),
-      pendingMissedPickups: parseInt(pendingMissedPickups.rows[0].count),
-      propertiesWithoutPickupDay: parseInt(noPickupDay.rows[0].count),
+      pendingMissedCollections: parseInt(pendingMissedCollections.rows[0].count),
+      locationsWithoutCollectionDay: parseInt(noCollectionDay.rows[0].count),
     };
   }
 
-  async getApprovedPropertiesWithoutPickupDay() {
+  async getApprovedLocationsWithoutCollectionDay() {
     const result = await this.query(
-      `SELECT * FROM properties
+      `SELECT * FROM locations
        WHERE service_status = 'approved'
-         AND pickup_day IS NULL
-         AND (pickup_day_source IS NULL OR pickup_day_source != 'manual')`
+         AND collection_day IS NULL
+         AND (collection_day_source IS NULL OR collection_day_source != 'manual')`
     );
     return result.rows;
   }
@@ -698,16 +703,16 @@ export class Storage {
     }
   }
 
-  async getSpecialPickupServices() {
+  async getOnDemandServices() {
     const result = await this.query(
-      'SELECT * FROM special_pickup_services WHERE active = true ORDER BY name'
+      'SELECT * FROM on_demand_services WHERE active = true ORDER BY name'
     );
     return result.rows;
   }
 
   async getTipDismissal(propertyId: string, pickupDate: string) {
     const result = await this.query(
-      'SELECT * FROM tip_dismissals WHERE property_id = $1 AND pickup_date = $2',
+      'SELECT * FROM tip_dismissals WHERE location_id = $1 AND collection_date = $2',
       [propertyId, pickupDate]
     );
     return result.rows[0] || null;
@@ -715,17 +720,17 @@ export class Storage {
 
   async createTipDismissal(userId: string, propertyId: string, pickupDate: string) {
     await this.query(
-      'INSERT INTO tip_dismissals (user_id, property_id, pickup_date) VALUES ($1, $2, $3) ON CONFLICT (property_id, pickup_date) DO NOTHING',
+      'INSERT INTO tip_dismissals (user_id, location_id, collection_date) VALUES ($1, $2, $3) ON CONFLICT (location_id, collection_date) DO NOTHING',
       [userId, propertyId, pickupDate]
     );
   }
 
-  async getTipDismissalsForProperty(propertyId: string) {
+  async getTipDismissalsForLocation(propertyId: string) {
     const result = await this.query(
-      'SELECT pickup_date FROM tip_dismissals WHERE property_id = $1',
+      'SELECT collection_date FROM tip_dismissals WHERE location_id = $1',
       [propertyId]
     );
-    return result.rows.map(r => r.pickup_date);
+    return result.rows.map(r => r.collection_date);
   }
 
   async searchUsers(query: string): Promise<DbUser[]> {
@@ -801,17 +806,17 @@ export class Storage {
     return result.rows;
   }
 
-  async getPropertyStats() {
+  async getLocationStats() {
     const result = await this.query(
-      `SELECT service_type, COUNT(*) as count FROM properties GROUP BY service_type ORDER BY count DESC`
+      `SELECT service_type, COUNT(*) as count FROM locations GROUP BY service_type ORDER BY count DESC`
     );
     return result.rows;
   }
 
-  async getPendingReviewProperties(): Promise<(DbProperty & { first_name: string; last_name: string; email: string; phone: string })[]> {
+  async getPendingReviewLocations(): Promise<(DbLocation & { first_name: string; last_name: string; email: string; phone: string })[]> {
     const result = await this.query(
       `SELECT p.*, u.first_name, u.last_name, u.email, u.phone
-       FROM properties p JOIN users u ON p.user_id = u.id
+       FROM locations p JOIN users u ON p.user_id = u.id
        WHERE p.service_status IN ('pending_review', 'waitlist')
        ORDER BY p.created_at ASC`
     );
@@ -819,13 +824,13 @@ export class Storage {
   }
 
   async getPendingReviewCount(): Promise<number> {
-    const result = await this.query(`SELECT COUNT(*) as count FROM properties WHERE service_status IN ('pending_review', 'waitlist')`);
+    const result = await this.query(`SELECT COUNT(*) as count FROM locations WHERE service_status IN ('pending_review', 'waitlist')`);
     return parseInt(result.rows[0].count);
   }
 
-  async updateServiceStatus(propertyId: string, status: string, notes?: string): Promise<DbProperty> {
+  async updateServiceStatus(propertyId: string, status: string, notes?: string): Promise<DbLocation> {
     const result = await this.query(
-      `UPDATE properties SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW()
+      `UPDATE locations SET service_status = $1, service_status_notes = $2, service_status_updated_at = NOW(), updated_at = NOW()
        WHERE id = $3 RETURNING *`,
       [status, notes || null, propertyId]
     );
@@ -835,7 +840,7 @@ export class Storage {
   /** Approve only if still pending_review or waitlist. Returns true if the update happened (no one else decided first). */
   async approveIfPending(propertyId: string): Promise<boolean> {
     const result = await this.query(
-      `UPDATE properties SET service_status = 'approved', service_status_updated_at = NOW(), updated_at = NOW()
+      `UPDATE locations SET service_status = 'approved', service_status_updated_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND service_status IN ('pending_review', 'waitlist') RETURNING id`,
       [propertyId],
     );
@@ -846,10 +851,10 @@ export class Storage {
 
   async savePendingSelections(propertyId: string, userId: string, selections: { serviceId: string; quantity: number; useSticker: boolean }[]): Promise<void> {
     // Delete existing selections for this property, then insert new ones
-    await this.query(`DELETE FROM pending_service_selections WHERE property_id = $1`, [propertyId]);
+    await this.query(`DELETE FROM pending_service_selections WHERE location_id = $1`, [propertyId]);
     for (const sel of selections) {
       await this.query(
-        `INSERT INTO pending_service_selections (property_id, user_id, service_id, quantity, use_sticker)
+        `INSERT INTO pending_service_selections (location_id, user_id, service_id, quantity, use_sticker)
          VALUES ($1, $2, $3, $4, $5)`,
         [propertyId, userId, sel.serviceId, sel.quantity, sel.useSticker]
       );
@@ -858,13 +863,13 @@ export class Storage {
 
   async getPendingSelections(propertyId: string): Promise<{ id: string; propertyId: string; userId: string; serviceId: string; quantity: number; useSticker: boolean; createdAt: Date }[]> {
     const result = await this.query(
-      `SELECT id, property_id, user_id, service_id, quantity, use_sticker, created_at
-       FROM pending_service_selections WHERE property_id = $1 ORDER BY created_at`,
+      `SELECT id, location_id, user_id, service_id, quantity, use_sticker, created_at
+       FROM pending_service_selections WHERE location_id = $1 ORDER BY created_at`,
       [propertyId]
     );
     return result.rows.map((r: any) => ({
       id: r.id,
-      propertyId: r.property_id,
+      propertyId: r.location_id,
       userId: r.user_id,
       serviceId: r.service_id,
       quantity: r.quantity,
@@ -874,13 +879,13 @@ export class Storage {
   }
 
   async deletePendingSelections(propertyId: string): Promise<void> {
-    await this.query(`DELETE FROM pending_service_selections WHERE property_id = $1`, [propertyId]);
+    await this.query(`DELETE FROM pending_service_selections WHERE location_id = $1`, [propertyId]);
   }
 
   /** Atomically delete and return pending selections (prevents race condition on concurrent activation). */
   async claimPendingSelections(propertyId: string): Promise<DbPendingSelection[]> {
     const result = await this.query(
-      `DELETE FROM pending_service_selections WHERE property_id = $1 RETURNING *`,
+      `DELETE FROM pending_service_selections WHERE location_id = $1 RETURNING *`,
       [propertyId],
     );
     return result.rows;
@@ -898,7 +903,7 @@ export class Storage {
     if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
     if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
     if (options.serviceType) {
-      conditions.push(`EXISTS (SELECT 1 FROM properties p WHERE p.user_id = u.id AND p.service_type = $${idx})`);
+      conditions.push(`EXISTS (SELECT 1 FROM locations p WHERE p.user_id = u.id AND p.service_type = $${idx})`);
       params.push(options.serviceType);
       idx++;
     }
@@ -910,7 +915,7 @@ export class Storage {
     const offset = options.offset || 0;
     params.push(limit, offset);
     const result = await this.query(
-      `SELECT u.*, (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count
+      `SELECT u.*, (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) as location_count
        FROM users u ${where} ORDER BY ${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx}`,
       params
     );
@@ -976,23 +981,23 @@ export class Storage {
 
   async globalSearch(query: string) {
     const searchParam = `%${query}%`;
-    const [users, properties] = await Promise.all([
+    const [users, locations] = await Promise.all([
       this.query(
         `SELECT id, first_name, last_name, email, 'user' as type FROM users
          WHERE LOWER(email) LIKE LOWER($1) OR LOWER(first_name || ' ' || last_name) LIKE LOWER($1) LIMIT 10`,
         [searchParam]
       ),
       this.query(
-        `SELECT p.id, p.address, p.service_type, u.first_name || ' ' || u.last_name as owner_name, 'property' as type
-         FROM properties p JOIN users u ON p.user_id = u.id
+        `SELECT p.id, p.address, p.service_type, u.first_name || ' ' || u.last_name as owner_name, 'location' as type
+         FROM locations p JOIN users u ON p.user_id = u.id
          WHERE LOWER(p.address) LIKE LOWER($1) LIMIT 10`,
         [searchParam]
       ),
     ]);
-    return { users: users.rows, properties: properties.rows };
+    return { users: users.rows, locations: locations.rows };
   }
 
-  async getMissedPickupReportsAdmin(options: { status?: string; limit?: number; offset?: number }) {
+  async getMissedCollectionReportsAdmin(options: { status?: string; limit?: number; offset?: number }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -1003,24 +1008,24 @@ export class Storage {
     params.push(limit, offset);
     const result = await this.query(
       `SELECT m.*, u.first_name, u.last_name, u.email, p.address
-       FROM missed_pickup_reports m
+       FROM missed_collection_reports m
        JOIN users u ON m.user_id = u.id
-       JOIN properties p ON m.property_id = p.id
+       JOIN locations p ON m.location_id = p.id
        ${where} ORDER BY m.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
       params
     );
-    const countResult = await this.query(`SELECT COUNT(*) as count FROM missed_pickup_reports m ${where}`, params.slice(0, -2));
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM missed_collection_reports m ${where}`, params.slice(0, -2));
     return { reports: result.rows, total: parseInt(countResult.rows[0].count) };
   }
 
-  async updateMissedPickupStatus(reportId: string, status: string, resolutionNotes?: string) {
+  async updateMissedCollectionStatus(reportId: string, status: string, resolutionNotes?: string) {
     await this.query(
-      `UPDATE missed_pickup_reports SET status = $1, resolution_notes = $2, updated_at = NOW() WHERE id = $3`,
+      `UPDATE missed_collection_reports SET status = $1, resolution_notes = $2, updated_at = NOW() WHERE id = $3`,
       [status, resolutionNotes || null, reportId]
     );
   }
 
-  async getSpecialPickupRequestsAdmin(options: { status?: string; limit?: number; offset?: number }) {
+  async getOnDemandRequestsAdmin(options: { status?: string; limit?: number; offset?: number }) {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -1031,13 +1036,13 @@ export class Storage {
     params.push(limit, offset);
     const result = await this.query(
       `SELECT s.*, u.first_name, u.last_name, u.email, p.address
-       FROM special_pickup_requests s
+       FROM on_demand_requests s
        JOIN users u ON s.user_id = u.id
-       JOIN properties p ON s.property_id = p.id
+       JOIN locations p ON s.location_id = p.id
        ${where} ORDER BY s.created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
       params
     );
-    const countResult = await this.query(`SELECT COUNT(*) as count FROM special_pickup_requests s ${where}`, params.slice(0, -2));
+    const countResult = await this.query(`SELECT COUNT(*) as count FROM on_demand_requests s ${where}`, params.slice(0, -2));
     return { requests: result.rows, total: parseInt(countResult.rows[0].count) };
   }
 
@@ -1053,7 +1058,7 @@ export class Storage {
     if (options.hasStripe === 'yes') conditions.push(`u.stripe_customer_id IS NOT NULL`);
     if (options.hasStripe === 'no') conditions.push(`u.stripe_customer_id IS NULL`);
     if (options.serviceType) {
-      conditions.push(`EXISTS (SELECT 1 FROM properties p2 WHERE p2.user_id = u.id AND p2.service_type = $${idx})`);
+      conditions.push(`EXISTS (SELECT 1 FROM locations p2 WHERE p2.user_id = u.id AND p2.service_type = $${idx})`);
       params.push(options.serviceType);
       idx++;
     }
@@ -1062,8 +1067,8 @@ export class Storage {
       `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.member_since, u.stripe_customer_id,
        EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role = 'admin') as is_admin,
        u.created_at,
-       (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id) as property_count,
-       (SELECT string_agg(p.address, '; ') FROM properties p WHERE p.user_id = u.id) as addresses
+       (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) as location_count,
+       (SELECT string_agg(p.address, '; ') FROM locations p WHERE p.user_id = u.id) as addresses
        FROM users u ${where} ORDER BY u.created_at DESC`,
       params
     );
@@ -1380,7 +1385,7 @@ export class Storage {
     route_type?: string;
     zone_id?: string;
     source?: string;
-    special_pickup_id?: string;
+    on_demand_request_id?: string;
     status?: string;
   }) {
     const status = data.status ?? (data.assigned_driver_id ? 'assigned' : 'open');
@@ -1388,7 +1393,7 @@ export class Storage {
       `INSERT INTO routes
          (title, description, scheduled_date, start_time, end_time,
           estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status,
-          route_type, zone_id, source, special_pickup_id)
+          route_type, zone_id, source, on_demand_request_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
@@ -1406,7 +1411,7 @@ export class Storage {
         data.route_type ?? 'daily_route',
         data.zone_id ?? null,
         data.source ?? 'manual',
-        data.special_pickup_id ?? null,
+        data.on_demand_request_id ?? null,
       ]
     );
     return result.rows[0];
@@ -1500,7 +1505,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; special_pickup_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string; optimo_route_key: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; on_demand_request_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string; optimo_route_key: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1627,10 +1632,10 @@ export class Storage {
 
   // ==================== OptimoRoute Sync ====================
 
-  async getPropertiesForSync(): Promise<any[]> {
+  async getLocationsForSync(): Promise<any[]> {
     const result = await this.query(
       `SELECT p.*, u.first_name, u.last_name, u.email, u.stripe_customer_id
-       FROM properties p
+       FROM locations p
        JOIN users u ON u.id = p.user_id
        WHERE p.address IS NOT NULL AND p.address != ''
          AND p.service_status = 'approved'
@@ -1644,33 +1649,33 @@ export class Storage {
     return result.rows;
   }
 
-  async getPropertiesNeedingDayDetection(): Promise<any[]> {
+  async getLocationsNeedingDayDetection(): Promise<any[]> {
     const result = await this.query(
       `SELECT p.*, u.first_name, u.last_name
-       FROM properties p
+       FROM locations p
        JOIN users u ON u.id = p.user_id
        WHERE p.address IS NOT NULL AND p.address != ''
          AND (
-           p.pickup_day IS NULL
-           OR (p.pickup_day_source = 'auto_detected' AND p.pickup_day_detected_at < NOW() - INTERVAL '30 days')
+           p.collection_day IS NULL
+           OR (p.collection_day_source = 'auto_detected' AND p.collection_day_detected_at < NOW() - INTERVAL '30 days')
          )
-         AND (p.pickup_day_source IS NULL OR p.pickup_day_source != 'manual')
+         AND (p.collection_day_source IS NULL OR p.collection_day_source != 'manual')
        ORDER BY u.last_name, u.first_name`
     );
     return result.rows;
   }
 
-  async updatePropertyPickupSchedule(propertyId: string, data: { pickup_day?: string | null; pickup_frequency?: string; pickup_day_detected_at?: string; pickup_day_source?: string }): Promise<any> {
+  async updateLocationCollectionSchedule(propertyId: string, data: { collection_day?: string | null; collection_frequency?: string; collection_day_detected_at?: string; collection_day_source?: string }): Promise<any> {
     const sets: string[] = ['updated_at = NOW()'];
     const params: any[] = [];
     let idx = 1;
-    if (data.pickup_day !== undefined) { sets.push(`pickup_day = $${idx++}`); params.push(data.pickup_day); }
-    if (data.pickup_frequency !== undefined) { sets.push(`pickup_frequency = $${idx++}`); params.push(data.pickup_frequency); }
-    if (data.pickup_day_detected_at !== undefined) { sets.push(`pickup_day_detected_at = $${idx++}`); params.push(data.pickup_day_detected_at); }
-    if (data.pickup_day_source !== undefined) { sets.push(`pickup_day_source = $${idx++}`); params.push(data.pickup_day_source); }
+    if (data.collection_day !== undefined) { sets.push(`collection_day = $${idx++}`); params.push(data.collection_day); }
+    if (data.collection_frequency !== undefined) { sets.push(`collection_frequency = $${idx++}`); params.push(data.collection_frequency); }
+    if (data.collection_day_detected_at !== undefined) { sets.push(`collection_day_detected_at = $${idx++}`); params.push(data.collection_day_detected_at); }
+    if (data.collection_day_source !== undefined) { sets.push(`collection_day_source = $${idx++}`); params.push(data.collection_day_source); }
     params.push(propertyId);
     const result = await this.query(
-      `UPDATE properties SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE locations SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
       params
     );
     return result.rows[0];
@@ -1683,10 +1688,10 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async createSyncOrder(data: { propertyId: string; orderNo: string; scheduledDate: string }): Promise<any> {
+  async createSyncOrder(data: { locationId: string; orderNo: string; scheduledDate: string }): Promise<any> {
     const result = await this.query(
-      `INSERT INTO optimo_sync_orders (property_id, order_no, scheduled_date) VALUES ($1, $2, $3) RETURNING *`,
-      [data.propertyId, data.orderNo, data.scheduledDate]
+      `INSERT INTO optimo_sync_orders (location_id, order_no, scheduled_date) VALUES ($1, $2, $3) RETURNING *`,
+      [data.locationId, data.orderNo, data.scheduledDate]
     );
     return result.rows[0];
   }
@@ -1698,22 +1703,22 @@ export class Storage {
     );
   }
 
-  async getFutureSyncOrdersForProperty(propertyId: string): Promise<any[]> {
+  async getFutureSyncOrdersForLocation(propertyId: string): Promise<any[]> {
     const today = new Date().toISOString().split('T')[0];
     const result = await this.query(
-      `SELECT * FROM optimo_sync_orders WHERE property_id = $1 AND status = 'active' AND scheduled_date >= $2 ORDER BY scheduled_date`,
+      `SELECT * FROM optimo_sync_orders WHERE location_id = $1 AND status = 'active' AND scheduled_date >= $2 ORDER BY scheduled_date`,
       [propertyId, today]
     );
     return result.rows;
   }
 
-  async getOrphanedSyncPropertyIds(): Promise<string[]> {
+  async getOrphanedSyncLocationIds(): Promise<string[]> {
     const today = new Date().toISOString().split('T')[0];
     const result = await this.query(
-      `SELECT DISTINCT oso.property_id FROM optimo_sync_orders oso
+      `SELECT DISTINCT oso.location_id FROM optimo_sync_orders oso
        WHERE oso.status = 'active' AND oso.scheduled_date >= $1
-         AND oso.property_id NOT IN (
-           SELECT p.id FROM properties p
+         AND oso.location_id NOT IN (
+           SELECT p.id FROM locations p
            JOIN users u ON u.id = p.user_id
            WHERE u.stripe_customer_id IS NOT NULL
              AND EXISTS (
@@ -1723,7 +1728,7 @@ export class Storage {
          )`,
       [today]
     );
-    return result.rows.map((r: any) => r.property_id);
+    return result.rows.map((r: any) => r.location_id);
   }
 
   // -- Sync log --
@@ -1737,7 +1742,7 @@ export class Storage {
   }
 
   async updateSyncLogEntry(id: string, data: {
-    finished_at?: string; status?: string; properties_processed?: number;
+    finished_at?: string; status?: string; locations_processed?: number;
     orders_created?: number; orders_skipped?: number; orders_errored?: number;
     orders_deleted?: number; detection_updates?: number; error_message?: string; details?: any;
   }): Promise<void> {
@@ -1783,21 +1788,41 @@ export class Storage {
     return result.rows;
   }
 
-  async createDriverCustomZone(driverId: string, data: { name: string; center_lat: number; center_lng: number; radius_miles: number; color?: string }) {
+  async createDriverCustomZone(driverId: string, data: {
+    name: string;
+    zone_type?: string;
+    center_lat?: number;
+    center_lng?: number;
+    radius_miles?: number;
+    polygon_coords?: [number, number][];
+    zip_codes?: string[];
+    color?: string;
+  }) {
+    const zoneType = data.zone_type || 'circle';
     const result = await this.query(
-      `INSERT INTO driver_custom_zones (driver_id, name, center_lat, center_lng, radius_miles, color)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [driverId, data.name, data.center_lat, data.center_lng, data.radius_miles, data.color || '#3B82F6']
+      `INSERT INTO driver_custom_zones (driver_id, name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        driverId, data.name, zoneType,
+        data.center_lat ?? null, data.center_lng ?? null, data.radius_miles ?? null,
+        data.polygon_coords ? JSON.stringify(data.polygon_coords) : null,
+        data.zip_codes ?? null,
+        data.color || '#3B82F6',
+      ]
     );
     return result.rows[0];
   }
 
-  async updateDriverCustomZone(id: string, driverId: string, data: Partial<{ name: string; center_lat: number; center_lng: number; radius_miles: number; color: string; status: string }>) {
+  async updateDriverCustomZone(id: string, driverId: string, data: Partial<{ name: string; center_lat: number; center_lng: number; radius_miles: number; polygon_coords: [number, number][]; color: string; status: string }>) {
     const sets: string[] = [];
     const params: any[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined) { sets.push(`${key} = $${idx}`); params.push(val); idx++; }
+      if (val !== undefined) {
+        sets.push(`${key} = $${idx}`);
+        params.push(key === 'polygon_coords' ? JSON.stringify(val) : val);
+        idx++;
+      }
     }
     if (sets.length === 0) return null;
     sets.push(`updated_at = NOW()`);
@@ -1817,6 +1842,35 @@ export class Storage {
     return result.rowCount! > 0;
   }
 
+  // In-memory cache for ZIP code boundary lookups
+  private zipBoundaryCache = new Map<string, [number, number][]>();
+
+  async getZipBoundary(zip: string): Promise<[number, number][] | null> {
+    const zip5 = zip.substring(0, 5);
+    if (this.zipBoundaryCache.has(zip5)) return this.zipBoundaryCache.get(zip5)!;
+
+    try {
+      const url = `https://public.opendatasoft.com/api/records/1.0/search/?dataset=georef-united-states-of-america-zcta5&q=${zip5}&refine.zip_code=${zip5}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.records?.length > 0) {
+        const geoShape = data.records[0].fields.geo_shape;
+        if (!geoShape?.coordinates) return null;
+        // Handle both Polygon and MultiPolygon types
+        const geoCoords = geoShape.type === 'MultiPolygon'
+          ? geoShape.coordinates[0][0] // use first polygon of multi
+          : geoShape.coordinates[0];
+        // Convert GeoJSON [lng, lat] to [lat, lng] for Leaflet
+        const coords: [number, number][] = geoCoords.map((c: number[]) => [c[1], c[0]]);
+        this.zipBoundaryCache.set(zip5, coords);
+        return coords;
+      }
+    } catch (err) {
+      console.error('ZIP boundary fetch failed:', err);
+    }
+    return null;
+  }
+
   async getAllDriverCustomZones() {
     const result = await this.query(
       `SELECT dcz.*, dp.name AS driver_name, u.email AS driver_email
@@ -1831,7 +1885,8 @@ export class Storage {
   // ── Location Claims ──
 
   async getAvailableLocationsForDriver(driverId: string) {
-    const result = await this.query(
+    // Step 1: Circle-based matching (existing Haversine SQL for circle zones)
+    const circleResult = await this.query(
       `WITH driver_zones AS (
          SELECT sz.id AS zone_source_id, sz.name AS zone_source_name,
                 sz.center_lat, sz.center_lng, sz.radius_miles
@@ -1845,10 +1900,11 @@ export class Storage {
                 dcz.center_lat, dcz.center_lng, dcz.radius_miles
          FROM driver_custom_zones dcz
          WHERE dcz.driver_id = $1 AND dcz.status = 'active'
+           AND dcz.center_lat IS NOT NULL AND dcz.radius_miles IS NOT NULL
        ),
-       matched_properties AS (
+       matched_locations AS (
          SELECT DISTINCT ON (p.id)
-           p.id, p.address, p.service_type, p.pickup_day, p.pickup_frequency,
+           p.id, p.address, p.service_type, p.collection_day, p.collection_frequency,
            p.latitude, p.longitude, p.zone_id,
            u.first_name || ' ' || u.last_name AS customer_name,
            sz.name AS zone_name, sz.color AS zone_color,
@@ -1858,7 +1914,7 @@ export class Storage {
              COS(RADIANS(CAST(dz.center_lat AS float))) * COS(RADIANS(CAST(p.latitude AS float))) *
              POWER(SIN(RADIANS(CAST(p.longitude AS float) - CAST(dz.center_lng AS float)) / 2), 2)
            ))) AS distance_miles
-         FROM properties p
+         FROM locations p
          JOIN users u ON p.user_id = u.id
          LEFT JOIN service_zones sz ON p.zone_id = sz.id
          CROSS JOIN driver_zones dz
@@ -1875,30 +1931,84 @@ export class Storage {
          lc.driver_id AS claimed_by_driver_id,
          dp.name AS claimed_by_driver_name,
          lc.status AS claim_status
-       FROM matched_properties mp
-       LEFT JOIN location_claims lc ON lc.property_id = mp.id AND lc.status = 'active'
+       FROM matched_locations mp
+       LEFT JOIN location_claims lc ON lc.location_id = mp.id AND lc.status = 'active'
        LEFT JOIN driver_profiles dp ON lc.driver_id = dp.id
        ORDER BY mp.distance_miles ASC`,
       [driverId]
     );
-    return result.rows;
+
+    // Step 2: Polygon/ZIP zone matching via Turf.js
+    const polyZonesResult = await this.query(
+      `SELECT id, name, polygon_coords FROM driver_custom_zones
+       WHERE driver_id = $1 AND status = 'active' AND zone_type IN ('polygon', 'zip')
+       AND polygon_coords IS NOT NULL`,
+      [driverId]
+    );
+
+    const circleRows = circleResult.rows;
+    const polyZones = polyZonesResult.rows;
+
+    if (polyZones.length === 0) return circleRows;
+
+    // Fetch all approved locations with coordinates for polygon checking
+    const allPropsResult = await this.query(
+      `SELECT p.id, p.address, p.service_type, p.collection_day, p.collection_frequency,
+              p.latitude, p.longitude, p.zone_id,
+              u.first_name || ' ' || u.last_name AS customer_name,
+              sz.name AS zone_name, sz.color AS zone_color,
+              lc.driver_id AS claimed_by_driver_id,
+              dp.name AS claimed_by_driver_name,
+              lc.status AS claim_status
+       FROM locations p
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN service_zones sz ON p.zone_id = sz.id
+       LEFT JOIN location_claims lc ON lc.location_id = p.id AND lc.status = 'active'
+       LEFT JOIN driver_profiles dp ON lc.driver_id = dp.id
+       WHERE p.service_status = 'approved'
+         AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`
+    );
+
+    // Check each property against each polygon zone
+    const polyMatched: any[] = [];
+    const circleIds = new Set(circleRows.map((r: any) => r.id));
+
+    for (const prop of allPropsResult.rows) {
+      if (circleIds.has(prop.id)) continue; // already matched by circle
+      const pt = point([Number(prop.longitude), Number(prop.latitude)]);
+      for (const zone of polyZones) {
+        const coords: [number, number][] = zone.polygon_coords;
+        if (!coords || coords.length < 3) continue;
+        // Convert [lat,lng] stored format to [lng,lat] GeoJSON format
+        const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+        ring.push(ring[0]); // close the ring
+        const poly = turfPolygon([ring]);
+        if (booleanPointInPolygon(pt, poly)) {
+          polyMatched.push({ ...prop, matching_zone_name: zone.name, distance_miles: 0 });
+          break;
+        }
+      }
+    }
+
+    // Merge circle and polygon results
+    return [...circleRows, ...polyMatched];
   }
 
   async createLocationClaim(propertyId: string, driverId: string, notes?: string) {
     const result = await this.query(
-      `INSERT INTO location_claims (property_id, driver_id, notes)
+      `INSERT INTO location_claims (location_id, driver_id, notes)
        VALUES ($1, $2, $3) RETURNING *`,
       [propertyId, driverId, notes || null]
     );
     return result.rows[0];
   }
 
-  async getActiveClaimForProperty(propertyId: string) {
+  async getActiveClaimForLocation(propertyId: string) {
     const result = await this.query(
       `SELECT lc.*, dp.name AS driver_name, dp.rating AS driver_rating
        FROM location_claims lc
        JOIN driver_profiles dp ON lc.driver_id = dp.id
-       WHERE lc.property_id = $1 AND lc.status = 'active'`,
+       WHERE lc.location_id = $1 AND lc.status = 'active'`,
       [propertyId]
     );
     return result.rows[0] || null;
@@ -1906,12 +2016,12 @@ export class Storage {
 
   async getDriverClaims(driverId: string) {
     const result = await this.query(
-      `SELECT lc.*, p.address, p.service_type, p.pickup_day, p.pickup_frequency,
+      `SELECT lc.*, p.address, p.service_type, p.collection_day, p.collection_frequency,
               p.latitude, p.longitude, p.zone_id,
               u.first_name || ' ' || u.last_name AS customer_name,
               sz.name AS zone_name, sz.color AS zone_color
        FROM location_claims lc
-       JOIN properties p ON lc.property_id = p.id
+       JOIN locations p ON lc.location_id = p.id
        JOIN users u ON p.user_id = u.id
        LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE lc.driver_id = $1 AND lc.status = 'active'
@@ -1925,7 +2035,7 @@ export class Storage {
     const result = await this.query(
       `UPDATE location_claims
        SET status = 'released', revoked_at = NOW(), updated_at = NOW()
-       WHERE property_id = $1 AND driver_id = $2 AND status = 'active'
+       WHERE location_id = $1 AND driver_id = $2 AND status = 'active'
        RETURNING *`,
       [propertyId, driverId]
     );
@@ -1944,12 +2054,12 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async revokeLocationClaimByProperty(propertyId: string, notes?: string) {
+  async revokeLocationClaimByLocation(propertyId: string, notes?: string) {
     const result = await this.query(
       `UPDATE location_claims
        SET status = 'revoked', revoked_at = NOW(),
            notes = COALESCE($2, notes), updated_at = NOW()
-       WHERE property_id = $1 AND status = 'active'
+       WHERE location_id = $1 AND status = 'active'
        RETURNING *`,
       [propertyId, notes || null]
     );
@@ -1961,7 +2071,7 @@ export class Storage {
       `UPDATE location_claims
        SET status = 'revoked', revoked_at = NOW(), revoked_by = $2,
            notes = 'Admin reassigned', updated_at = NOW()
-       WHERE property_id = $1 AND status = 'active'`,
+       WHERE location_id = $1 AND status = 'active'`,
       [propertyId, adminUserId]
     );
     return this.createLocationClaim(propertyId, driverId, 'Admin assigned');
@@ -1996,19 +2106,19 @@ export class Storage {
     const countResult = await this.query(
       `SELECT COUNT(*)::int AS total
        FROM location_claims lc
-       JOIN properties p ON lc.property_id = p.id
+       JOIN locations p ON lc.location_id = p.id
        ${where}`,
       params
     );
 
     const dataParams = [...params, limit, offset];
     const result = await this.query(
-      `SELECT lc.*, p.address, p.service_type, p.zone_id, p.pickup_day,
+      `SELECT lc.*, p.address, p.service_type, p.zone_id, p.collection_day,
               u.first_name || ' ' || u.last_name AS customer_name,
               dp.name AS driver_name, dp.rating AS driver_rating,
               sz.name AS zone_name, sz.color AS zone_color
        FROM location_claims lc
-       JOIN properties p ON lc.property_id = p.id
+       JOIN locations p ON lc.location_id = p.id
        JOIN users u ON p.user_id = u.id
        JOIN driver_profiles dp ON lc.driver_id = dp.id
        LEFT JOIN service_zones sz ON p.zone_id = sz.id
@@ -2026,15 +2136,15 @@ export class Storage {
       .toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const result = await this.query(
       `SELECT lc.driver_id, dp.name AS driver_name,
-              p.id AS property_id, p.address, p.zone_id,
+              p.id AS location_id, p.address, p.zone_id,
               sz.name AS zone_name
        FROM location_claims lc
-       JOIN properties p ON lc.property_id = p.id
+       JOIN locations p ON lc.location_id = p.id
        JOIN driver_profiles dp ON lc.driver_id = dp.id
        LEFT JOIN service_zones sz ON p.zone_id = sz.id
        WHERE lc.status = 'active'
          AND p.service_status = 'approved'
-         AND LOWER(p.pickup_day) = $1
+         AND LOWER(p.collection_day) = $1
        ORDER BY lc.driver_id, p.address`,
       [dayOfWeek]
     );
@@ -2043,11 +2153,15 @@ export class Storage {
 
   async getRoutesInDriverCoverage(driverId: string, filters?: { startDate?: string; endDate?: string }): Promise<any[]> {
     const zonesResult = await this.query(
-      `SELECT center_lat, center_lng, radius_miles FROM driver_custom_zones WHERE driver_id = $1 AND status = 'active'`,
+      `SELECT center_lat, center_lng, radius_miles, zone_type, polygon_coords
+       FROM driver_custom_zones WHERE driver_id = $1 AND status = 'active'`,
       [driverId]
     );
     const zones = zonesResult.rows;
     if (zones.length === 0) return [];
+
+    const circleZones = zones.filter((z: any) => z.center_lat != null && z.radius_miles != null);
+    const polyZones = zones.filter((z: any) => (z.zone_type === 'polygon' || z.zone_type === 'zip') && z.polygon_coords);
 
     const conditions: string[] = [`r.status IN ('open', 'bidding')`];
     const params: any[] = [];
@@ -2060,8 +2174,9 @@ export class Storage {
       conditions.push(`r.scheduled_date <= $${idx}`); params.push(filters.endDate); idx++;
     }
 
+    // Build circle zone SQL clauses
     const zoneClauses: string[] = [];
-    for (const zone of zones) {
+    for (const zone of circleZones) {
       const lat = Number(zone.center_lat);
       const lng = Number(zone.center_lng);
       const radiusMiles = Number(zone.radius_miles);
@@ -2083,38 +2198,105 @@ export class Storage {
       idx += 7;
     }
 
-    conditions.push(`EXISTS (
-      SELECT 1 FROM route_stops rs
-      JOIN properties p ON rs.property_id = p.id
-      WHERE rs.route_id = r.id
-        AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-        AND (${zoneClauses.join(' OR ')})
-    )`);
+    // If we have circle zones, use SQL-based matching
+    if (zoneClauses.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM route_stops rs
+        JOIN locations p ON rs.location_id = p.id
+        WHERE rs.route_id = r.id
+          AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+          AND (${zoneClauses.join(' OR ')})
+      )`);
+    }
 
-    const sql = `
-      SELECT DISTINCT r.*
-      FROM routes r
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY r.scheduled_date ASC, r.start_time ASC
-    `;
+    let circleMatchedRoutes: any[] = [];
+    if (zoneClauses.length > 0) {
+      const sql = `
+        SELECT DISTINCT r.*
+        FROM routes r
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY r.scheduled_date ASC, r.start_time ASC
+      `;
+      const result = await this.query(sql, params);
+      circleMatchedRoutes = result.rows;
+    }
 
-    const result = await this.query(sql, params);
-    return result.rows;
+    // If no polygon zones, return circle results
+    if (polyZones.length === 0) return circleMatchedRoutes;
+
+    // Polygon zone matching: fetch routes with stops, check via Turf.js
+    const dateConditions: string[] = [`r.status IN ('open', 'bidding')`];
+    const dateParams: any[] = [];
+    let dIdx = 1;
+    if (filters?.startDate) {
+      dateConditions.push(`r.scheduled_date >= $${dIdx}`); dateParams.push(filters.startDate); dIdx++;
+    }
+    if (filters?.endDate) {
+      dateConditions.push(`r.scheduled_date <= $${dIdx}`); dateParams.push(filters.endDate); dIdx++;
+    }
+
+    const routeStopsResult = await this.query(
+      `SELECT DISTINCT r.*, p.latitude AS stop_lat, p.longitude AS stop_lng
+       FROM routes r
+       JOIN route_stops rs ON rs.route_id = r.id
+       JOIN locations p ON rs.location_id = p.id
+       WHERE ${dateConditions.join(' AND ')}
+         AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`,
+      dateParams
+    );
+
+    const circleRouteIds = new Set(circleMatchedRoutes.map((r: any) => r.id));
+    const polyMatchedRouteIds = new Set<string>();
+
+    for (const row of routeStopsResult.rows) {
+      if (circleRouteIds.has(row.id) || polyMatchedRouteIds.has(row.id)) continue;
+      const pt = point([Number(row.stop_lng), Number(row.stop_lat)]);
+      for (const zone of polyZones) {
+        const coords: [number, number][] = zone.polygon_coords;
+        if (!coords || coords.length < 3) continue;
+        const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+        ring.push(ring[0]);
+        const poly = turfPolygon([ring]);
+        if (booleanPointInPolygon(pt, poly)) {
+          polyMatchedRouteIds.add(row.id);
+          break;
+        }
+      }
+    }
+
+    // Get full route objects for polygon-matched routes
+    if (polyMatchedRouteIds.size === 0) return circleMatchedRoutes;
+
+    const polyRouteIds = Array.from(polyMatchedRouteIds);
+    const placeholders = polyRouteIds.map((_, i) => `$${i + 1}`).join(',');
+    const polyRoutesResult = await this.query(
+      `SELECT * FROM routes WHERE id IN (${placeholders}) ORDER BY scheduled_date ASC, start_time ASC`,
+      polyRouteIds
+    );
+
+    // Merge and deduplicate
+    const merged = new Map<string, any>();
+    for (const r of [...circleMatchedRoutes, ...polyRoutesResult.rows]) {
+      if (!merged.has(r.id)) merged.set(r.id, r);
+    }
+    return Array.from(merged.values()).sort((a, b) =>
+      (a.scheduled_date + (a.start_time || '')).localeCompare(b.scheduled_date + (b.start_time || ''))
+    );
   }
 
   // ── Route Stops ──
 
-  async addRouteStops(routeId: string, stops: Array<{ property_id?: string | null; order_type?: string; special_pickup_id?: string; address?: string; location_name?: string; optimo_order_no?: string; stop_number?: number; scheduled_at?: string }>) {
+  async addRouteStops(routeId: string, stops: Array<{ location_id?: string | null; order_type?: string; on_demand_request_id?: string; address?: string; location_name?: string; optimo_order_no?: string; stop_number?: number; scheduled_at?: string }>) {
     if (stops.length === 0) return [];
     const values: any[] = [];
     const placeholders: string[] = [];
     let idx = 1;
     for (const s of stops) {
       placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
-      values.push(routeId, s.property_id ?? null, s.order_type ?? 'recurring', s.special_pickup_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null);
+      values.push(routeId, s.location_id ?? null, s.order_type ?? 'recurring', s.on_demand_request_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null);
     }
     const result = await this.query(
-      `INSERT INTO route_stops (route_id, property_id, order_type, special_pickup_id, address, location_name, optimo_order_no, stop_number)
+      `INSERT INTO route_stops (route_id, location_id, order_type, on_demand_request_id, address, location_name, optimo_order_no, stop_number)
        VALUES ${placeholders.join(', ')}
        ON CONFLICT DO NOTHING
        RETURNING *`,
@@ -2129,7 +2311,7 @@ export class Storage {
               p.latitude, p.longitude,
               CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
        FROM route_stops rs
-       LEFT JOIN properties p ON rs.property_id = p.id
+       LEFT JOIN locations p ON rs.location_id = p.id
        LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.route_id = $1
        ORDER BY rs.stop_number NULLS LAST, rs.created_at`,
@@ -2175,7 +2357,7 @@ export class Storage {
       `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
               CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
        FROM route_stops rs
-       LEFT JOIN properties p ON rs.property_id = p.id
+       LEFT JOIN locations p ON rs.location_id = p.id
        LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.optimo_order_no IN (${placeholders})`,
       orderNos
@@ -2185,14 +2367,14 @@ export class Storage {
 
   // ── Planning Queries ──
 
-  async getPropertiesDueOnDate(date: string) {
+  async getLocationsDueOnDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const result = await this.query(
       `SELECT p.*, u.first_name || ' ' || u.last_name AS customer_name, u.email AS customer_email
-       FROM properties p
+       FROM locations p
        JOIN users u ON p.user_id = u.id
        WHERE p.service_status = 'approved'
-         AND p.pickup_day = $1
+         AND p.collection_day = $1
        ORDER BY p.address`,
       [dayOfWeek]
     );
@@ -2211,38 +2393,38 @@ export class Storage {
       [fromDate, toDate]
     );
 
-    // Get pending special pickups
-    const specialsResult = await this.query(
-      `SELECT spr.pickup_date, COUNT(*)::int AS special_count
-       FROM special_pickup_requests spr
-       WHERE spr.pickup_date >= $1 AND spr.pickup_date <= $2
+    // Get pending on-demand requests
+    const onDemandResult = await this.query(
+      `SELECT spr.requested_date, COUNT(*)::int AS on_demand_count
+       FROM on_demand_requests spr
+       WHERE spr.requested_date >= $1 AND spr.requested_date <= $2
          AND spr.status IN ('pending', 'scheduled')
-       GROUP BY spr.pickup_date`,
+       GROUP BY spr.requested_date`,
       [fromDate, toDate]
     );
 
-    // Get property counts by pickup day
-    const propertyCountsResult = await this.query(
-      `SELECT p.pickup_day, COUNT(*)::int AS property_count
-       FROM properties p
-       WHERE p.service_status = 'approved' AND p.pickup_day IS NOT NULL
-       GROUP BY p.pickup_day`
+    // Get location counts by collection day
+    const locationCountsResult = await this.query(
+      `SELECT p.collection_day, COUNT(*)::int AS location_count
+       FROM locations p
+       WHERE p.service_status = 'approved' AND p.collection_day IS NOT NULL
+       GROUP BY p.collection_day`
     );
 
     return {
       routes: routesResult.rows,
-      specials: specialsResult.rows,
-      propertyCounts: propertyCountsResult.rows,
+      onDemand: onDemandResult.rows,
+      locationCounts: locationCountsResult.rows,
     };
   }
 
-  async getSpecialPickupsForDate(date: string) {
+  async getOnDemandRequestsForDate(date: string) {
     const result = await this.query(
       `SELECT spr.*, p.address, u.first_name || ' ' || u.last_name AS customer_name
-       FROM special_pickup_requests spr
-       JOIN properties p ON spr.property_id = p.id
+       FROM on_demand_requests spr
+       JOIN locations p ON spr.location_id = p.id
        JOIN users u ON spr.user_id = u.id
-       WHERE spr.pickup_date = $1 AND spr.status IN ('pending', 'scheduled')
+       WHERE spr.requested_date = $1 AND spr.status IN ('pending', 'scheduled')
        ORDER BY spr.service_price DESC`,
       [date]
     );
@@ -2297,16 +2479,16 @@ export class Storage {
   async getMissingClientsForDate(date: string) {
     const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const result = await this.query(
-      `SELECT p.id, p.address, p.service_type, p.pickup_frequency,
+      `SELECT p.id, p.address, p.service_type, p.collection_frequency,
               u.first_name || ' ' || u.last_name AS customer_name
-       FROM properties p
+       FROM locations p
        JOIN users u ON p.user_id = u.id
        WHERE p.service_status = 'approved'
-         AND p.pickup_day = $1
+         AND p.collection_day = $1
          AND NOT EXISTS (
            SELECT 1 FROM route_stops rs
            JOIN routes r ON rs.route_id = r.id
-           WHERE rs.property_id = p.id
+           WHERE rs.location_id = p.id
              AND r.scheduled_date = $2
              AND r.status != 'cancelled'
          )
@@ -2316,15 +2498,15 @@ export class Storage {
     return result.rows;
   }
 
-  async getCancelledPickupsForWeek(fromDate: string, toDate: string) {
+  async getCancelledCollectionsForWeek(fromDate: string, toDate: string) {
     const result = await this.query(
-      `SELECT rs.id AS stop_id, rs.route_id, rs.property_id,
+      `SELECT rs.id AS stop_id, rs.route_id, rs.location_id,
               p.address, p.service_status,
               u.first_name || ' ' || u.last_name AS customer_name,
               r.scheduled_date, r.title AS route_title
        FROM route_stops rs
        JOIN routes r ON rs.route_id = r.id
-       JOIN properties p ON rs.property_id = p.id
+       JOIN locations p ON rs.location_id = p.id
        JOIN users u ON p.user_id = u.id
        WHERE r.scheduled_date >= $1 AND r.scheduled_date <= $2
          AND r.status != 'cancelled'
@@ -2361,13 +2543,13 @@ export class Storage {
         status: 'draft',
       });
 
-      // Copy only recurring stops (skip one-time specials)
+      // Copy only recurring stops (skip one-time on-demand)
       const sourceStops = await this.getRouteStops(route.id);
-      const recurringStops = sourceStops.filter((s: any) => s.order_type !== 'special');
+      const recurringStops = sourceStops.filter((s: any) => s.order_type !== 'on_demand');
       if (recurringStops.length > 0) {
         await this.addRouteStops(
           newRoute.id,
-          recurringStops.map((s: any) => ({ property_id: s.property_id, order_type: s.order_type }))
+          recurringStops.map((s: any) => ({ location_id: s.location_id, order_type: s.order_type }))
         );
       }
 
