@@ -2722,6 +2722,9 @@ export function registerAdminRoutes(app: Express) {
     AUTO_FIX_ERRORS:            { category: 'app', isSecret: false, label: 'Auto-Fix Errors (Claude)',     displayType: 'toggle' },
     // Slack
     SLACK_WEBHOOK_URL:          { category: 'slack', isSecret: true,  label: 'Webhook URL',                  displayType: 'secret' },
+    // Weather
+    OPENWEATHERMAP_API_KEY:     { category: 'weather', isSecret: true,  label: 'API Key',                    displayType: 'secret' },
+    WEATHER_LOCATION:           { category: 'weather', isSecret: false, label: 'Location (lat,lon)',          displayType: 'text' },
   };
 
   app.get('/api/admin/settings', requireAdmin, async (req: Request, res: Response) => {

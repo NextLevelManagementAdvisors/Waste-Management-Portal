@@ -20,7 +20,7 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
     const hasMultipleLocations = locations.length > 1;
 
     useEffect(() => {
-        if (!selectedLocation || (!isPending && !isWaitlist)) {
+        if (!selectedLocation || (!isPending && !isWaitlist && !isDenied)) {
             setSelectionsLoaded(true);
             return;
         }
@@ -34,7 +34,7 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
             setPendingServiceNames(names);
             setSelectionsLoaded(true);
         }).catch(() => setSelectionsLoaded(true));
-    }, [selectedLocation, isPending, isWaitlist]);
+    }, [selectedLocation, isPending, isWaitlist, isDenied]);
 
     if (!selectedLocation) return null;
 
@@ -169,20 +169,20 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
             )}
 
             {/* Pending services */}
-            {(isPending || isWaitlist) && !isOrphaned && pendingServiceNames.length > 0 && (
-                <Card className={`!p-6 ${isWaitlist ? 'bg-blue-50 border-blue-100' : 'bg-yellow-50 border-yellow-100'}`}>
-                    <p className={`text-[10px] font-black uppercase tracking-widest mb-2 ${isWaitlist ? 'text-blue-600' : 'text-yellow-600'}`}>
-                        {isWaitlist ? 'Saved Services' : 'Pending Services'}
+            {(isPending || isWaitlist || isDenied) && !isOrphaned && pendingServiceNames.length > 0 && (
+                <Card className={`!p-6 ${isWaitlist ? 'bg-blue-50 border-blue-100' : isDenied ? 'bg-red-50 border-red-100' : 'bg-yellow-50 border-yellow-100'}`}>
+                    <p className={`text-[10px] font-black uppercase tracking-widest mb-2 ${isWaitlist ? 'text-blue-600' : isDenied ? 'text-red-500' : 'text-yellow-600'}`}>
+                        {isDenied ? 'Saved Services' : isWaitlist ? 'Saved Services' : 'Pending Services'}
                     </p>
                     <ul className="space-y-1">
                         {pendingServiceNames.map(name => (
                             <li key={name} className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                                <div className={`w-1.5 h-1.5 rounded-full ${isWaitlist ? 'bg-blue-400' : 'bg-yellow-400'}`} />
+                                <div className={`w-1.5 h-1.5 rounded-full ${isWaitlist ? 'bg-blue-400' : isDenied ? 'bg-red-400' : 'bg-yellow-400'}`} />
                                 {name}
                             </li>
                         ))}
                     </ul>
-                    <p className="text-[10px] text-gray-400 mt-3">Billing begins only after your address is approved.</p>
+                    <p className="text-[10px] text-gray-400 mt-3">{isDenied ? 'Your selections are saved. If approved later, billing will begin automatically.' : 'Billing begins only after your address is approved.'}</p>
                 </Card>
             )}
 

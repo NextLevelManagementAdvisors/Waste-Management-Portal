@@ -25,6 +25,8 @@ const SECTIONS: SectionConfig[] = [
   // Infrastructure
   { category: 'optimoroute',  title: 'OptimoRoute',            description: 'Route optimization and driver scheduling',           renderMode: 'custom' },
   { category: 'app',          title: 'App Config',             description: 'Domain and CORS settings',                           renderMode: 'standard' },
+  // Weather
+  { category: 'weather',      title: 'OpenWeatherMap',          description: 'Weather forecasts on planning calendars',            renderMode: 'standard' },
   // Operations automation
   { category: 'operations',   title: 'Operations',             description: 'Zone approval and waitlist automation settings',     renderMode: 'standard' },
 ];

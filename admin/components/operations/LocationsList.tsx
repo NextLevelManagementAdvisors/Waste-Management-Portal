@@ -83,7 +83,7 @@ const LocationsList: React.FC = () => {
 
   // ── Action handlers ──
 
-  const handleDecision = async (locationId: string, decision: 'approved' | 'waitlist') => {
+  const handleDecision = async (locationId: string, decision: 'approved' | 'denied' | 'waitlist') => {
     setSaving(locationId);
     try {
       const res = await fetch(`/api/admin/address-reviews/${locationId}/decision`, {
@@ -235,10 +235,10 @@ const LocationsList: React.FC = () => {
                         <td colSpan={COL_SPAN} className="px-4 py-4">
                           <div className="flex flex-wrap items-end gap-6">
                             {/* Status actions */}
-                            {loc.serviceStatus === 'denied' ? (
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Status</span>
-                                <div className="flex gap-2">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Status</span>
+                              <div className="flex gap-2">
+                                {loc.serviceStatus !== 'approved' && (
                                   <button
                                     onClick={() => handleDecision(loc.id, 'approved')}
                                     disabled={saving !== null}
@@ -246,6 +246,8 @@ const LocationsList: React.FC = () => {
                                   >
                                     {saving === loc.id ? 'Saving...' : 'Approve'}
                                   </button>
+                                )}
+                                {loc.serviceStatus !== 'waitlist' && (
                                   <button
                                     onClick={() => handleDecision(loc.id, 'waitlist')}
                                     disabled={saving !== null}
@@ -253,31 +255,18 @@ const LocationsList: React.FC = () => {
                                   >
                                     Waitlist
                                   </button>
-                                </div>
-                              </div>
-                            ) : loc.serviceStatus !== 'approved' && (
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Status</span>
-                                <div className="flex gap-2">
+                                )}
+                                {loc.serviceStatus !== 'denied' && (
                                   <button
-                                    onClick={() => handleDecision(loc.id, 'approved')}
+                                    onClick={() => handleDecision(loc.id, 'denied')}
                                     disabled={saving !== null}
-                                    className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                    className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                                   >
-                                    {saving === loc.id ? 'Saving...' : 'Approve'}
+                                    Deny
                                   </button>
-                                  {loc.serviceStatus !== 'waitlist' && (
-                                    <button
-                                      onClick={() => handleDecision(loc.id, 'waitlist')}
-                                      disabled={saving !== null}
-                                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                                    >
-                                      Waitlist
-                                    </button>
-                                  )}
-                                </div>
+                                )}
                               </div>
-                            )}
+                            </div>
 
                             {/* Assign zone */}
                             <div className="flex flex-col gap-1">

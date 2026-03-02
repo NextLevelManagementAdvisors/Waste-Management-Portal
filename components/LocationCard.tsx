@@ -43,9 +43,9 @@ const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (lo
         });
     }, [location.address, isReviewBlocked]);
 
-    // Load pending service selections for pending_review and waitlist locations
+    // Load pending service selections for pending_review, waitlist, and denied locations
     useEffect(() => {
-        if (!isPending && !isWaitlist) return;
+        if (!isPending && !isWaitlist && !isDenied) return;
         Promise.all([getPendingSelections(location.id), getServices()]).then(([selections, services]) => {
             const names = selections
                 .map(sel => {
@@ -56,7 +56,7 @@ const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (lo
             setPendingServiceNames(names);
             setSelectionsLoaded(true);
         }).catch(() => { setSelectionsLoaded(true); });
-    }, [isPending, isWaitlist, location.id]);
+    }, [isPending, isWaitlist, isDenied, location.id]);
 
     const config = statusConfig[location.status];
 
@@ -91,10 +91,10 @@ const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (lo
                             </p>
                         </div>
                     )}
-                    {(isPending || isWaitlist) && pendingServiceNames.length > 0 && (
-                        <div className={`p-3 ${isWaitlist ? 'bg-blue-50 border-blue-100' : 'bg-yellow-50 border-yellow-100'} rounded-lg border mb-6`}>
-                            <p className={`text-[10px] font-black ${isWaitlist ? 'text-blue-600' : 'text-yellow-600'} uppercase tracking-widest mb-1`}>
-                                {isWaitlist ? 'Saved Services' : 'Pending Services'}
+                    {(isPending || isWaitlist || isDenied) && pendingServiceNames.length > 0 && (
+                        <div className={`p-3 ${isWaitlist ? 'bg-blue-50 border-blue-100' : isDenied ? 'bg-red-50 border-red-100' : 'bg-yellow-50 border-yellow-100'} rounded-lg border mb-6`}>
+                            <p className={`text-[10px] font-black ${isWaitlist ? 'text-blue-600' : isDenied ? 'text-red-500' : 'text-yellow-600'} uppercase tracking-widest mb-1`}>
+                                {isDenied ? 'Saved Services' : isWaitlist ? 'Saved Services' : 'Pending Services'}
                             </p>
                             <p className="text-xs text-gray-600 font-medium">{pendingServiceNames.join(', ')}</p>
                             <p className="text-[10px] text-gray-400 mt-1">Billing starts after approval</p>

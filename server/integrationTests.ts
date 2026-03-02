@@ -200,6 +200,31 @@ async function testGoogleSso(): Promise<IntegrationTestResult> {
   });
 }
 
+// ── OpenWeatherMap ──
+
+async function testWeather(): Promise<IntegrationTestResult> {
+  return timed(async () => {
+    const apiKey = process.env.OPENWEATHERMAP_API_KEY;
+    if (!apiKey) {
+      return { status: 'not_configured', message: 'Missing OPENWEATHERMAP_API_KEY' };
+    }
+    const location = process.env.WEATHER_LOCATION;
+    if (!location) {
+      return { status: 'not_configured', message: 'Missing WEATHER_LOCATION (format: lat,lon)' };
+    }
+    const [lat, lon] = location.split(',').map(s => s.trim());
+    const res = await fetch(
+      `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&appid=${encodeURIComponent(apiKey)}&units=imperial`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.status.toString());
+      return { status: 'error', message: `OWM API returned ${res.status}: ${text.slice(0, 80)}` };
+    }
+    const data = await res.json();
+    return { status: 'connected', message: `${data.name || location}: ${Math.round(data.main?.temp ?? 0)}°F, ${data.weather?.[0]?.description ?? 'OK'}` };
+  });
+}
+
 // ── Orchestrator ──
 
 const TEST_MAP: Record<string, () => Promise<IntegrationTestResult>> = {
@@ -212,6 +237,7 @@ const TEST_MAP: Record<string, () => Promise<IntegrationTestResult>> = {
   optimoroute: testOptimoRoute,
   gemini: testGemini,
   app: testAppConfig,
+  weather: testWeather,
 };
 
 export async function testSingleIntegration(category: string, options?: Record<string, string>): Promise<IntegrationTestResult> {

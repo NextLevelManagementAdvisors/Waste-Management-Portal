@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import type { Route, RouteStop } from '../../../shared/types/index.ts';
+import { getWeatherIcon } from '../../../components/Icons.tsx';
 import EditRouteModal from './EditRouteModal.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import OptimoStatusBanner from './OptimoStatusBanner.tsx';
@@ -34,6 +35,16 @@ interface CalendarDay {
   locationCount: number;
   onDemandCount: number;
   routesByStatus: Record<string, number>;
+}
+
+interface WeatherDay {
+  date: string;
+  tempHigh: number;
+  tempLow: number;
+  conditionMain: string;
+  conditionDesc: string;
+  precipChance: number;
+  icon: string;
 }
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -132,6 +143,10 @@ const PlanningCalendar: React.FC = () => {
   const [importingFromOptimo, setImportingFromOptimo] = useState(false);
   const [importResult, setImportResult] = useState<{ routesImported: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
 
+  // Weather state
+  const [weatherByDate, setWeatherByDate] = useState<Map<string, WeatherDay>>(new Map());
+  const [weatherError, setWeatherError] = useState<'not_configured' | 'api_error' | null>(null);
+
   const handleLiveStatusUpdate = useCallback((_driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => {
     setLiveStopStatuses(stopStatuses);
   }, []);
@@ -207,6 +222,30 @@ const PlanningCalendar: React.FC = () => {
     setCalendarDays(days);
   }, [currentYear, currentMonth]);
 
+  const fetchWeather = useCallback(async (from: string, to: string) => {
+    try {
+      const res = await fetch(`/api/admin/weather?from=${from}&to=${to}`, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.error === 'not_configured' || data.error === 'no_location') {
+        setWeatherError('not_configured');
+        return;
+      }
+      if (data.error) {
+        setWeatherError('api_error');
+        return;
+      }
+      setWeatherError(null);
+      const map = new Map<string, WeatherDay>();
+      for (const day of data.days ?? []) {
+        map.set(day.date, day);
+      }
+      setWeatherByDate(map);
+    } catch {
+      // silent — weather is non-critical
+    }
+  }, []);
+
   const fetchCalendarData = useCallback(async () => {
     setLoading(true);
     try {
@@ -216,6 +255,9 @@ const PlanningCalendar: React.FC = () => {
 
       // Load local data first so calendar renders fast
       await loadCalendarDays(from, to);
+
+      // Fetch weather in background (non-blocking)
+      fetchWeather(from, to);
 
       // Then sync from OptimoRoute in background and refresh
       fetch('/api/admin/optimoroute/import-routes', {
@@ -443,7 +485,9 @@ const PlanningCalendar: React.FC = () => {
           <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 font-bold">&gt;</button>
           <button onClick={goToday} className="px-3 py-1.5 text-sm font-bold text-teal-700 hover:bg-teal-50 rounded-lg">Today</button>
         </div>
-
+        {weatherError === 'not_configured' && (
+          <div className="text-[11px] text-gray-400 italic">Weather unavailable — configure OpenWeatherMap in Settings</div>
+        )}
       </div>
 
       <div className="flex gap-6">
@@ -476,6 +520,21 @@ const PlanningCalendar: React.FC = () => {
                     }`}>
                       {new Date(day.date + 'T12:00:00').getDate()}
                     </div>
+
+                    {day.isCurrentMonth && (() => {
+                      const wx = weatherByDate.get(day.date);
+                      if (!wx) return null;
+                      const WxIcon = getWeatherIcon(wx.conditionMain);
+                      return (
+                        <div className="flex items-center gap-1 mb-0.5" title={`${wx.conditionDesc} | High: ${Math.round(wx.tempHigh)}°F Low: ${Math.round(wx.tempLow)}°F${wx.precipChance > 10 ? ` | ${wx.precipChance}% precip` : ''}`}>
+                          <WxIcon className="w-3 h-3 text-sky-500 flex-shrink-0" />
+                          <span className="text-[10px] text-sky-600 font-semibold">{Math.round(wx.tempHigh)}°</span>
+                          {wx.precipChance >= 20 && (
+                            <span className="text-[10px] text-blue-400">{wx.precipChance}%</span>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {day.isCurrentMonth && (
                       <div className="space-y-0.5">
@@ -524,6 +583,28 @@ const PlanningCalendar: React.FC = () => {
                 <LoadingSpinner />
               ) : (
                 <div className="space-y-4">
+                  {/* Weather */}
+                  {(() => {
+                    const wx = weatherByDate.get(selectedDate!);
+                    if (!wx) return null;
+                    const WxIcon = getWeatherIcon(wx.conditionMain);
+                    return (
+                      <div className="bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 flex items-center gap-3">
+                        <WxIcon className="w-8 h-8 text-sky-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-lg font-bold text-gray-900">{Math.round(wx.tempHigh)}°F</span>
+                            <span className="text-sm text-gray-500">/ {Math.round(wx.tempLow)}°F</span>
+                          </div>
+                          <div className="text-xs text-gray-600 capitalize">{wx.conditionDesc}</div>
+                          {wx.precipChance > 0 && (
+                            <div className="text-xs text-blue-600">{wx.precipChance}% chance of precipitation</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Summary */}
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-gray-50 rounded-lg p-2">

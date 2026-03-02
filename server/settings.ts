@@ -3,6 +3,7 @@ import { pool } from './db';
 // Keys for which cached service clients need to be reset after updates
 const TWILIO_KEYS = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'];
 const STRIPE_KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'];
+const WEATHER_KEYS = ['OPENWEATHERMAP_API_KEY', 'WEATHER_LOCATION'];
 
 /**
  * Load all DB-stored settings into process.env (overrides .env values).
@@ -60,6 +61,10 @@ export async function saveSetting(
   if (STRIPE_KEYS.includes(key)) {
     const { resetStripeSyncCache } = await import('./stripeClient');
     resetStripeSyncCache();
+  }
+  if (WEATHER_KEYS.includes(key)) {
+    const { resetWeatherCache } = await import('./weatherRoutes');
+    resetWeatherCache();
   }
 }
 

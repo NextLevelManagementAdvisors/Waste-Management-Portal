@@ -154,6 +154,19 @@ export const appConfigGuide = (
   </ul>
 );
 
+export const weatherGuide = (
+  <div className="space-y-2">
+    <p><strong>OpenWeatherMap Free Tier</strong> provides 5-day forecasts. Weather appears on the planning calendar and team portal.</p>
+    <ol className="list-decimal list-inside space-y-1">
+      <li>Register at <ExtLink href="https://openweathermap.org/api">openweathermap.org/api</ExtLink></li>
+      <li>Your API key appears in "My API keys" after email confirmation</li>
+      <li>Set <strong>Location</strong> as decimal <code className="bg-gray-100 px-1 rounded text-xs">lat,lon</code> e.g. <code className="bg-gray-100 px-1 rounded text-xs">38.2527,-85.7585</code></li>
+      <li>Free tier allows 1,000 calls/day — server-side caching keeps usage well under this</li>
+    </ol>
+    <p className="text-gray-500">Weather shows for dates within the 5-day forecast window. Past and far-future dates show no weather (expected).</p>
+  </div>
+);
+
 export const GUIDES: Record<string, React.ReactNode> = {
   twilio: twilioGuide,
   stripe: stripeGuide,
@@ -163,4 +176,5 @@ export const GUIDES: Record<string, React.ReactNode> = {
   optimoroute: optimoRouteGuide,
   gemini: geminiGuide,
   app: appConfigGuide,
+  weather: weatherGuide,
 };
