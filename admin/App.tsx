@@ -47,6 +47,7 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   locations: '/admin/operations/locations',
   zones: '/admin/operations/zones',
   claims: '/admin/operations/claims',
+  'zone-approvals': '/admin/operations/zone-approvals',
   issues: '/admin/operations/issues',
   actions: '/admin/operations/issues',
   'address-review': '/admin/operations/issues',
@@ -58,6 +59,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations/locations': 'locations',
   '/admin/operations/zones': 'zones',
   '/admin/operations/claims': 'claims',
+  '/admin/operations/zone-approvals': 'zone-approvals',
   '/admin/operations/issues': 'issues',
   // Backward compat: old tab paths
   '/admin/operations/actions': 'issues',
@@ -616,7 +618,9 @@ const AdminApp: React.FC = () => {
           const mpCount = badgeCounts.missedCollections || 0;
           const arCount = badgeCounts.addressReviews || 0;
           const pdCount = badgeCounts.locationsNeedingCollectionDay || 0;
-          if (mpCount === 0 && arCount === 0 && pdCount === 0) return null;
+          const pzCount = badgeCounts.pendingZones || 0;
+          const fwCount = badgeCounts.flaggedWaitlist || 0;
+          if (mpCount === 0 && arCount === 0 && pdCount === 0 && pzCount === 0 && fwCount === 0) return null;
           if (actionBarDismissed) return null;
           const worstHours = Math.max(badgeCounts.oldestMissedCollectionHours || 0, badgeCounts.oldestAddressReviewHours || 0);
           const barBg = worstHours >= 72 ? 'bg-red-50 border-red-200' : worstHours >= 24 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200';
@@ -676,6 +680,34 @@ const AdminApp: React.FC = () => {
                   </span>
                 </button>
               )}
+              {pzCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigateTo('operations', { tab: 'zone-approvals' })}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-blue-200 hover:bg-blue-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                  </svg>
+                  <span className="text-xs font-bold text-blue-700">
+                    {pzCount} Zone{pzCount !== 1 ? 's' : ''} Pending Approval
+                  </span>
+                </button>
+              )}
+              {fwCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigateTo('dashboard')}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-emerald-200 hover:bg-emerald-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                  </svg>
+                  <span className="text-xs font-bold text-emerald-700">
+                    {fwCount} Waitlisted Ready to Activate
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setActionBarDismissed(true); setDismissedCounts({ mp: mpCount, ar: arCount }); }}
@@ -694,7 +726,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} onActionResolved={refreshBadgeCounts} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} pendingZonesCount={badgeCounts.pendingZones || 0} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>

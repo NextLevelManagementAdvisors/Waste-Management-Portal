@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS missed_collection_reports (
   location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
   collection_date DATE NOT NULL,
   notes TEXT,
+  photos JSONB DEFAULT '[]'::jsonb,
   status VARCHAR(50) DEFAULT 'pending',
   resolution_notes TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
@@ -535,6 +536,11 @@ ALTER TABLE locations ADD COLUMN IF NOT EXISTS zone_id UUID REFERENCES service_z
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7);
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7);
 CREATE INDEX IF NOT EXISTS idx_locations_zone ON locations(zone_id);
+
+-- Waitlist auto-flagging: tracks when a waitlisted location gains driver coverage
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_at TIMESTAMPTZ;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_by_zone UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_locations_coverage_flagged ON locations(coverage_flagged_at) WHERE coverage_flagged_at IS NOT NULL;
 
 -- Track how users signed up (local registration vs Google OAuth)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'local';

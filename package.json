@@ -16,7 +16,8 @@
     "restart": "npm run stop && npm run start",
     "deploy": "bash deploy.sh",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "fix-errors": "tsx scripts/fix-errors.ts"
   },
   "dependencies": {
     "@geoman-io/leaflet-geoman-free": "^2.19.2",

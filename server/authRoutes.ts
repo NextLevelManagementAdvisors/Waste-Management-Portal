@@ -16,7 +16,7 @@ import { activatePendingSelections } from './activateSelections';
 import { runFeasibilityAndApprove } from './feasibilityCheck';
 import { geocodeAddress, findNearestZone } from './routeSuggestionService';
 import { notifyNewAddressReview } from './slackNotifier';
-import { onDemandUpload } from './uploadMiddleware';
+import { onDemandUpload, missedCollectionUpload } from './uploadMiddleware';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 
@@ -1286,15 +1286,32 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
     }
   });
 
+  // Photo upload for missed collection reports
+  app.post('/api/upload/missed-collection', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    missedCollectionUpload.array('photos', 3)(req, res, (err: any) => {
+      if (err) {
+        const message = err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' :
+          err.code === 'LIMIT_FILE_COUNT' ? 'Too many files (max 3)' : err.message;
+        return res.status(400).json({ error: message });
+      }
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+      const urls = files.map(f => `/uploads/missed-collection/${f.filename}`);
+      res.json({ urls });
+    });
+  });
+
   app.post('/api/missed-collection', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { locationId, date, notes } = req.body;
+      const { locationId, date, notes, photos } = req.body;
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
       }
-      const report = await storage.createMissedCollectionReport({ userId, locationId, collectionDate: date, notes: notes || '' });
+      const report = await storage.createMissedCollectionReport({ userId, locationId, collectionDate: date, notes: notes || '', photos: photos || [] });
       sendMissedCollectionConfirmation(userId, location.address, date).catch(e => console.error('Missed collection confirmation email failed:', e));
       res.json({ data: report, success: true });
     } catch (error: any) {

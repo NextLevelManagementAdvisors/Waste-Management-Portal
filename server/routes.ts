@@ -178,11 +178,13 @@ export function registerRoutes(app: Express) {
       const stripe = await getUncachableStripeClient();
       const customerId = paramStr(req.params.customerId);
       if (!(await verifyCustomerOwnership(req, res, customerId))) return;
-      const [cards, bankAccounts] = await Promise.all([
+      const [cards, bankAccounts, customer] = await Promise.all([
         stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
         stripe.paymentMethods.list({ customer: customerId, type: 'us_bank_account' }),
+        stripe.customers.retrieve(customerId),
       ]);
-      res.json({ data: [...cards.data, ...bankAccounts.data] });
+      const defaultPmId = !customer.deleted ? customer.invoice_settings?.default_payment_method : null;
+      res.json({ data: [...cards.data, ...bankAccounts.data], defaultPaymentMethodId: defaultPmId });
     } catch (error: any) {
       if (error?.code === 'resource_missing') {
         return res.json({ data: [] });
@@ -408,8 +410,13 @@ export function registerRoutes(app: Express) {
     try {
       const stripe = await getUncachableStripeClient();
       const subId = paramStr(req.params.subscriptionId);
+      const resumesAt = req.body?.resumesAt;
+      const pauseConfig: any = { behavior: 'void' };
+      if (resumesAt) {
+        pauseConfig.resumes_at = Math.floor(new Date(resumesAt).getTime() / 1000);
+      }
       const subscription = await stripe.subscriptions.update(subId, {
-        pause_collection: { behavior: 'void' },
+        pause_collection: pauseConfig,
       });
 
       // Clean up future OptimoRoute orders while paused

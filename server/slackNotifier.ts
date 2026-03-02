@@ -48,3 +48,17 @@ export async function notifyAddressDecision(address: string, decision: string, a
     `${emoji} *Address ${decision}:* ${address}${adminName ? `\nBy ${adminName}` : ''}`
   );
 }
+
+export async function notifyZoneDecision(zoneName: string, driverName: string, decision: string, adminName?: string): Promise<void> {
+  const emoji = decision === 'approved' ? '✅' : '❌';
+  await sendSlackMessage(
+    `${emoji} *Driver zone ${decision}:* ${zoneName} (${driverName})${adminName ? `\nBy ${adminName}` : ''}`
+  );
+}
+
+export async function notifyWaitlistFlagged(count: number, zoneName: string, driverName: string): Promise<void> {
+  if (count === 0) return;
+  await sendSlackMessage(
+    `🏠 *${count} waitlisted location${count === 1 ? '' : 's'}* now ${count === 1 ? 'has' : 'have'} driver coverage (zone: ${zoneName} by ${driverName})`
+  );
+}

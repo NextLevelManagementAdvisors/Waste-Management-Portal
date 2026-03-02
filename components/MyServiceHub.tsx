@@ -5,6 +5,7 @@ import Notifications from './Notifications.tsx';
 import ServiceStatusOverview from './ServiceStatusOverview.tsx';
 import LocationManagement from './LocationManagement.tsx';
 import StartService from './StartService.tsx';
+import ServiceReviewStatus from './ServiceReviewStatus.tsx';
 import { useLocation } from '../LocationContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
 import { Subscription, NewLocationInfo } from '../types.ts';
@@ -35,7 +36,7 @@ function getTabFromUrl(): string {
 }
 
 const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
-    const { locations, selectedLocation, postNavAction, setCurrentView, refreshUser } = useLocation();
+    const { locations, selectedLocation, setSelectedLocationId, postNavAction, setCurrentView, refreshUser } = useLocation();
     const [activeTab, setActiveTabRaw] = useState(getTabFromUrl);
 
     const setActiveTab = useCallback((tab: string) => {
@@ -178,7 +179,23 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
             </div>
         );
     }
-    
+
+    const isReviewBlocked = selectedLocation.serviceStatus === 'pending_review'
+        || selectedLocation.serviceStatus === 'waitlist'
+        || selectedLocation.serviceStatus === 'denied';
+
+    if (isReviewBlocked) {
+        return (
+            <div className="animate-in fade-in duration-500">
+                <ServiceReviewStatus
+                    onBack={() => setSelectedLocationId('all')}
+                    onResumeSetup={() => setShowSetupWizard(true)}
+                    onLocationRemoved={() => refreshUser()}
+                />
+            </div>
+        );
+    }
+
     if (loadingSubs) {
          return <div className="flex justify-center items-center h-96"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>
     }

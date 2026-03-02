@@ -615,10 +615,12 @@ const ZoneMapView: React.FC = () => {
           {/* Saved zones (hidden in edit mode — GeomanEdit creates editable layers) */}
           {!editMode && customZones.map(zone => {
             const isPaused = zone.status === 'paused';
+            const isPending = zone.status === 'pending_approval';
+            const isInactive = isPaused || isPending;
             const pathOpts = {
               color: zone.color, fillColor: zone.color,
-              fillOpacity: isPaused ? 0.15 : 0.35, weight: 2,
-              dashArray: isPaused ? '8 4' : undefined,
+              fillOpacity: isInactive ? 0.15 : 0.35, weight: 2,
+              dashArray: isInactive ? '8 4' : undefined,
             };
 
             if (zone.zone_type === 'circle' && zone.center_lat && zone.center_lng && zone.radius_miles) {
@@ -755,6 +757,12 @@ const ZoneMapView: React.FC = () => {
                     }`}>{zone.zone_type || 'circle'}</span>
                     {zone.status === 'paused' && (
                       <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Paused</span>
+                    )}
+                    {zone.status === 'pending_approval' && (
+                      <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">Pending Approval</span>
+                    )}
+                    {zone.status === 'rejected' && (
+                      <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-100 text-red-700">Rejected</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">

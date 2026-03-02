@@ -7,11 +7,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const UPLOADS_DIR = path.resolve(__dirname, '..', 'uploads', 'on-demand');
-
-// Ensure directory exists
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
 const ALLOWED_MIMES = new Set([
   'image/jpeg',
   'image/png',
@@ -23,26 +18,30 @@ const ALLOWED_MIMES = new Set([
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILES = 5;
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    const uniqueName = `${crypto.randomUUID()}${ext}`;
-    cb(null, uniqueName);
-  },
-});
+function createUpload(subdir: string) {
+  const dir = path.resolve(__dirname, '..', 'uploads', subdir);
+  fs.mkdirSync(dir, { recursive: true });
 
-export const onDemandUpload = multer({
-  storage,
-  limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
-  fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIMES.has(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} not allowed. Use JPEG, PNG, or WebP.`));
-    }
-  },
-});
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, dir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  });
 
+  return multer({
+    storage,
+    limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+    fileFilter: (_req, file, cb) => {
+      if (ALLOWED_MIMES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type ${file.mimetype} not allowed. Use JPEG, PNG, or WebP.`));
+      }
+    },
+  });
+}
+
+export const onDemandUpload = createUpload('on-demand');
+export const missedCollectionUpload = createUpload('missed-collection');

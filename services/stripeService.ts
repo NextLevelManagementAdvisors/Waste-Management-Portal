@@ -6,6 +6,7 @@ async function apiRequest(method: string, path: string, body?: any) {
   const options: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   };
   if (body) {
     options.body = JSON.stringify(body);
@@ -38,6 +39,11 @@ export const listProducts = async () => {
 export const listPaymentMethods = async (): Promise<PaymentMethod[]> => {
   if (!_customerId) return [];
   const res = await apiRequest('GET', `/customers/${_customerId}/payment-methods`);
+  const defaultPmId = typeof res.defaultPaymentMethodId === 'string'
+    ? res.defaultPaymentMethodId
+    : typeof res.defaultPaymentMethodId === 'object' && res.defaultPaymentMethodId?.id
+      ? res.defaultPaymentMethodId.id
+      : null;
   return (res.data || []).map((pm: any) => ({
     id: pm.id,
     type: pm.type === 'card' ? 'Card' : 'Bank Account',
@@ -45,7 +51,7 @@ export const listPaymentMethods = async (): Promise<PaymentMethod[]> => {
     brand: pm.card?.brand ? (pm.card.brand.charAt(0).toUpperCase() + pm.card.brand.slice(1)) as PaymentMethod['brand'] : undefined,
     expiryMonth: pm.card?.exp_month,
     expiryYear: pm.card?.exp_year,
-    isPrimary: false,
+    isPrimary: pm.id === defaultPmId,
   }));
 };
 
@@ -230,14 +236,26 @@ export const restartAllSubscriptionsForLocation = async (locationId: string) => 
   return { success: true };
 };
 
-export const pauseSubscriptionsForLocation = async (locationId: string, _until: string) => {
+export const pauseSubscriptionsForLocation = async (locationId: string, until: string) => {
   if (!_customerId) throw new Error('No customer ID set');
   const subs = await listSubscriptions();
   const active = subs.filter((s: Subscription) =>
     s.locationId === locationId && s.status === 'active'
   );
   for (const sub of active) {
-    await apiRequest('POST', `/subscriptions/${sub.id}/pause`);
+    await apiRequest('POST', `/subscriptions/${sub.id}/pause`, { resumesAt: until });
+  }
+  return { success: true };
+};
+
+export const modifyHoldForLocation = async (locationId: string, newUntil: string) => {
+  if (!_customerId) throw new Error('No customer ID set');
+  const subs = await listSubscriptions();
+  const paused = subs.filter((s: Subscription) =>
+    s.locationId === locationId && s.status === 'paused'
+  );
+  for (const sub of paused) {
+    await apiRequest('POST', `/subscriptions/${sub.id}/pause`, { resumesAt: newUntil });
   }
   return { success: true };
 };

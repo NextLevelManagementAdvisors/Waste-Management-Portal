@@ -17,6 +17,7 @@ import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
+import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 
 declare module 'express-session' {
   interface SessionData {
@@ -111,27 +112,33 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay] = await Promise.all([
+      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay, pendingZonesResult, flaggedWaitlistResult] = await Promise.all([
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM missed_collection_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
         storage.query(`SELECT MIN(created_at) as oldest FROM missed_collection_reports WHERE status = 'pending'`),
         storage.query(`SELECT MIN(created_at) as oldest FROM locations WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'approved' AND collection_day IS NULL`),
+        storage.query(`SELECT COUNT(*) as count FROM driver_custom_zones WHERE status = 'pending_approval'`),
+        storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'waitlist' AND coverage_flagged_at IS NOT NULL`),
       ]);
       const missedCollections = parseInt(pendingMissedCollections.rows[0]?.count || '0');
       const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
       const locationsNeedingCollectionDay = parseInt(noCollectionDay.rows[0]?.count || '0');
+      const pendingZones = parseInt(pendingZonesResult.rows[0]?.count || '0');
+      const flaggedWaitlist = parseInt(flaggedWaitlistResult.rows[0]?.count || '0');
       const oldestMcDate = oldestMissedCollection.rows[0]?.oldest;
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
       res.json({
-        operations: missedCollections,
-        dashboard: addressReviews,
+        operations: missedCollections + pendingZones,
+        dashboard: addressReviews + flaggedWaitlist,
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
         missedCollections,
         addressReviews,
         locationsNeedingCollectionDay,
+        pendingZones,
+        flaggedWaitlist,
         oldestMissedCollectionHours: hoursAgo(oldestMcDate),
         oldestAddressReviewHours: hoursAgo(oldestArDate),
       });
@@ -883,6 +890,64 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to fetch driver zones:', error);
       res.status(500).json({ error: 'Failed to fetch driver zones' });
+    }
+  });
+
+  // ── Zone Approval ──
+
+  app.get('/api/admin/pending-zones', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const zones = await storage.getPendingApprovalZones();
+      res.json({ zones });
+    } catch (error) {
+      console.error('Failed to fetch pending zones:', error);
+      res.status(500).json({ error: 'Failed to fetch pending zones' });
+    }
+  });
+
+  app.put('/api/admin/zones/:id/decision', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { decision, notes } = req.body;
+      if (!decision || !['approved', 'rejected'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be "approved" or "rejected"' });
+      }
+
+      const zone = await storage.getZoneById(id);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+      if (zone.status !== 'pending_approval') {
+        return res.status(400).json({ error: `Zone is already ${zone.status}` });
+      }
+
+      const newStatus = decision === 'approved' ? 'active' : 'rejected';
+      await storage.updateZoneStatus(id, newStatus);
+      await audit(req, `zone_${decision}`, 'driver_custom_zones', id, { zone_name: zone.name, driver_name: zone.driver_name, notes });
+
+      // Notify via Slack
+      const adminUser = await storage.getUserById(getAdminId(req));
+      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : undefined;
+      notifyZoneDecision(zone.name, zone.driver_name, decision, adminName).catch(() => {});
+
+      // Auto-flag waitlisted locations on approval
+      if (decision === 'approved' && process.env.WAITLIST_AUTO_FLAG_ENABLED !== 'false') {
+        try {
+          const matched = await storage.getWaitlistedLocationsInZone(zone);
+          if (matched.length > 0) {
+            const ids = matched.map((m: any) => m.id);
+            await storage.flagWaitlistedLocations(ids, zone.id);
+            notifyWaitlistFlagged(matched.length, zone.name, zone.driver_name).catch(() => {});
+          }
+          res.json({ success: true, decision, flaggedLocations: matched.length });
+        } catch (flagErr) {
+          console.error('[AutoFlag] Error during zone approval flagging:', flagErr);
+          res.json({ success: true, decision, flaggedLocations: 0 });
+        }
+      } else {
+        res.json({ success: true, decision });
+      }
+    } catch (error) {
+      console.error('Zone decision error:', error);
+      res.status(500).json({ error: 'Failed to process zone decision' });
     }
   });
 
@@ -2294,6 +2359,8 @@ export function registerAdminRoutes(app: Express) {
           inHoa: p.in_hoa,
           communityName: p.community_name,
           hasGateCode: p.has_gate_code,
+          coverageFlaggedAt: p.coverage_flagged_at,
+          coverageZoneName: p.coverage_zone_name,
         })),
       });
     } catch (error) {
@@ -2574,6 +2641,9 @@ export function registerAdminRoutes(app: Express) {
     PICKUP_AUTO_APPROVE_MAX_MILES:   { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Distance (miles)', displayType: 'text' },
     PICKUP_AUTO_APPROVE_MAX_MINUTES: { category: 'optimoroute', isSecret: false, label: 'Auto-Approve Max Time (minutes)', displayType: 'text' },
     PICKUP_AUTO_APPROVE_USE_FEASIBILITY: { category: 'optimoroute', isSecret: false, label: 'Use Route Feasibility Check', displayType: 'toggle' },
+    // Operations
+    ZONE_APPROVAL_REQUIRED:     { category: 'operations', isSecret: false, label: 'Require Admin Approval for Driver Zones', displayType: 'toggle' },
+    WAITLIST_AUTO_FLAG_ENABLED: { category: 'operations', isSecret: false, label: 'Auto-Flag Waitlisted Locations on Zone Approval', displayType: 'toggle' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },

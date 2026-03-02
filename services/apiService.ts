@@ -629,23 +629,57 @@ export const pauseSubscriptionsForLocation = async (locationId: string, until: s
 };
 export const pauseSubscriptionsForProperty = pauseSubscriptionsForLocation;
 
+export const modifyHoldForLocation = async (locationId: string, newUntil: string) => {
+    return stripeService.modifyHoldForLocation(locationId, newUntil);
+};
+
 export const resumeSubscriptionsForLocation = async (locationId: string) => {
     return stripeService.resumeSubscriptionsForLocation(locationId);
 };
 export const resumeSubscriptionsForProperty = resumeSubscriptionsForLocation;
 
-export const reportMissedCollection = async (locationId: string, date: string, notes: string) => {
+export const uploadMissedCollectionPhotos = async (files: File[]): Promise<string[]> => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('photos', f));
+    const res = await fetch('/api/upload/missed-collection', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+    });
+    const json = await safeJson(res, 'Failed to upload photos');
+    if (!res.ok) throw new Error(json.error || 'Upload failed');
+    return json.urls;
+};
+
+export const reportMissedCollection = async (locationId: string, date: string, notes: string, photos?: string[]) => {
     const res = await fetch('/api/missed-collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ locationId, date, notes }),
+        body: JSON.stringify({ locationId, date, notes, photos }),
     });
     const json = await safeJson(res, 'Failed to report missed collection');
     if (!res.ok) throw new Error(json.error || 'Failed to report missed collection');
     return json;
 };
 export const reportMissedPickup = reportMissedCollection;
+
+export const getMissedCollections = async () => {
+    const res = await fetch('/api/missed-collections', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to fetch reports');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch reports');
+    return json.data as Array<{
+        id: string;
+        location_id: string;
+        collection_date: string;
+        notes: string;
+        photos: string[];
+        status: string;
+        resolution_notes: string | null;
+        created_at: string;
+        address?: string;
+    }>;
+};
 
 export const transferLocationOwnership = async (locationId: string, newOwner: { firstName: string, lastName: string, email: string }) => {
     const res = await fetch('/api/account-transfer', {

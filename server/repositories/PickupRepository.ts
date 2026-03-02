@@ -9,11 +9,11 @@ export class PickupRepository extends BaseRepository {
   }
 
   // Missed collections
-  async createMissedCollectionReport(data: { userId: string; locationId: string; collectionDate: string; notes: string }) {
+  async createMissedCollectionReport(data: { userId: string; locationId: string; collectionDate: string; notes: string; photos?: string[] }) {
     const result = await this.query(
-      `INSERT INTO missed_collection_reports (user_id, location_id, collection_date, notes)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [data.userId, data.locationId, data.collectionDate, data.notes]
+      `INSERT INTO missed_collection_reports (user_id, location_id, collection_date, notes, photos)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.userId, data.locationId, data.collectionDate, data.notes, JSON.stringify(data.photos || [])]
     );
     return result.rows[0];
   }

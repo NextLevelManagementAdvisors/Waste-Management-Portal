@@ -6,6 +6,7 @@ export interface MissedCollectionReport {
   address: string;
   collectionDate: string;
   notes: string;
+  photos?: string[];
   status: string;
   resolutionNotes: string | null;
   createdAt: string;

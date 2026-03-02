@@ -356,18 +356,20 @@ export class Storage {
     return result.rows;
   }
 
-  async createMissedCollectionReport(data: { userId: string; locationId: string; collectionDate: string; notes: string }) {
+  async createMissedCollectionReport(data: { userId: string; locationId: string; collectionDate: string; notes: string; photos?: string[] }) {
     const result = await this.query(
-      `INSERT INTO missed_collection_reports (user_id, location_id, collection_date, notes)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [data.userId, data.locationId, data.collectionDate, data.notes]
+      `INSERT INTO missed_collection_reports (user_id, location_id, collection_date, notes, photos)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.userId, data.locationId, data.collectionDate, data.notes, JSON.stringify(data.photos || [])]
     );
     return result.rows[0];
   }
 
   async getMissedCollectionReports(userId: string) {
     const result = await this.query(
-      'SELECT * FROM missed_collection_reports WHERE user_id = $1 ORDER BY created_at DESC',
+      `SELECT m.*, l.address FROM missed_collection_reports m
+       JOIN locations l ON m.location_id = l.id
+       WHERE m.user_id = $1 ORDER BY m.created_at DESC`,
       [userId]
     );
     return result.rows;
@@ -813,12 +815,17 @@ export class Storage {
     return result.rows;
   }
 
-  async getPendingReviewLocations(): Promise<(DbLocation & { first_name: string; last_name: string; email: string; phone: string })[]> {
+  async getPendingReviewLocations(): Promise<(DbLocation & { first_name: string; last_name: string; email: string; phone: string; coverage_flagged_at: string | null; coverage_zone_name: string | null })[]> {
     const result = await this.query(
-      `SELECT p.*, u.first_name, u.last_name, u.email, u.phone
-       FROM locations p JOIN users u ON p.user_id = u.id
+      `SELECT p.*, u.first_name, u.last_name, u.email, u.phone,
+              dcz.name AS coverage_zone_name
+       FROM locations p
+       JOIN users u ON p.user_id = u.id
+       LEFT JOIN driver_custom_zones dcz ON p.coverage_flagged_by_zone = dcz.id
        WHERE p.service_status IN ('pending_review', 'waitlist')
-       ORDER BY p.created_at ASC`
+       ORDER BY
+         CASE WHEN p.service_status = 'waitlist' AND p.coverage_flagged_at IS NOT NULL THEN 0 ELSE 1 END,
+         p.created_at ASC`
     );
     return result.rows;
   }
@@ -1797,17 +1804,20 @@ export class Storage {
     polygon_coords?: [number, number][];
     zip_codes?: string[];
     color?: string;
+    status?: string;
   }) {
     const zoneType = data.zone_type || 'circle';
+    const status = data.status || 'active';
     const result = await this.query(
-      `INSERT INTO driver_custom_zones (driver_id, name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO driver_custom_zones (driver_id, name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         driverId, data.name, zoneType,
         data.center_lat ?? null, data.center_lng ?? null, data.radius_miles ?? null,
         data.polygon_coords ? JSON.stringify(data.polygon_coords) : null,
         data.zip_codes ?? null,
         data.color || '#3B82F6',
+        status,
       ]
     );
     return result.rows[0];
@@ -1880,6 +1890,111 @@ export class Storage {
        ORDER BY dp.name, dcz.name`
     );
     return result.rows;
+  }
+
+  // ── Zone Approval ──
+
+  async getPendingApprovalZones() {
+    const result = await this.query(
+      `SELECT dcz.*, dp.name AS driver_name, dp.rating AS driver_rating, u.email AS driver_email
+       FROM driver_custom_zones dcz
+       JOIN driver_profiles dp ON dcz.driver_id = dp.id
+       LEFT JOIN users u ON dp.user_id = u.id
+       WHERE dcz.status = 'pending_approval'
+       ORDER BY dcz.created_at ASC`
+    );
+    return result.rows;
+  }
+
+  async updateZoneStatus(zoneId: string, status: string) {
+    const result = await this.query(
+      `UPDATE driver_custom_zones SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [status, zoneId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getZoneById(zoneId: string) {
+    const result = await this.query(
+      `SELECT dcz.*, dp.name AS driver_name
+       FROM driver_custom_zones dcz
+       JOIN driver_profiles dp ON dcz.driver_id = dp.id
+       WHERE dcz.id = $1`,
+      [zoneId]
+    );
+    return result.rows[0] || null;
+  }
+
+  // ── Waitlist Auto-Flagging ──
+
+  /**
+   * Find all waitlisted locations that fall within a specific zone's geometry.
+   * Reuses the same Haversine / Turf.js spatial logic as getAvailableLocationsForDriver.
+   */
+  async getWaitlistedLocationsInZone(zone: {
+    id: string;
+    zone_type: string;
+    center_lat?: number;
+    center_lng?: number;
+    radius_miles?: number;
+    polygon_coords?: [number, number][];
+  }): Promise<{ id: string; address: string; customer_name: string }[]> {
+    if (zone.zone_type === 'circle' && zone.center_lat != null && zone.center_lng != null && zone.radius_miles != null) {
+      // Haversine circle matching for waitlisted locations
+      const result = await this.query(
+        `SELECT p.id, p.address,
+                u.first_name || ' ' || u.last_name AS customer_name
+         FROM locations p
+         JOIN users u ON p.user_id = u.id
+         WHERE p.service_status = 'waitlist'
+           AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+           AND (3958.8 * 2 * ASIN(SQRT(
+             POWER(SIN(RADIANS(CAST(p.latitude AS float) - $1) / 2), 2) +
+             COS(RADIANS($1)) * COS(RADIANS(CAST(p.latitude AS float))) *
+             POWER(SIN(RADIANS(CAST(p.longitude AS float) - $2) / 2), 2)
+           ))) <= $3`,
+        [zone.center_lat, zone.center_lng, zone.radius_miles]
+      );
+      return result.rows;
+    }
+
+    if ((zone.zone_type === 'polygon' || zone.zone_type === 'zip') && zone.polygon_coords && zone.polygon_coords.length >= 3) {
+      // Turf.js polygon matching for waitlisted locations
+      const allWaitlisted = await this.query(
+        `SELECT p.id, p.address, p.latitude, p.longitude,
+                u.first_name || ' ' || u.last_name AS customer_name
+         FROM locations p
+         JOIN users u ON p.user_id = u.id
+         WHERE p.service_status = 'waitlist'
+           AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`
+      );
+
+      const coords = zone.polygon_coords;
+      const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+      ring.push(ring[0]); // close the ring
+      const poly = turfPolygon([ring]);
+
+      return allWaitlisted.rows.filter((loc: any) => {
+        const pt = point([Number(loc.longitude), Number(loc.latitude)]);
+        return booleanPointInPolygon(pt, poly);
+      }).map((loc: any) => ({ id: loc.id, address: loc.address, customer_name: loc.customer_name }));
+    }
+
+    return [];
+  }
+
+  /**
+   * Flag waitlisted locations as having driver coverage.
+   */
+  async flagWaitlistedLocations(locationIds: string[], zoneId: string) {
+    if (locationIds.length === 0) return 0;
+    const result = await this.query(
+      `UPDATE locations
+       SET coverage_flagged_at = NOW(), coverage_flagged_by_zone = $1
+       WHERE id = ANY($2) AND service_status = 'waitlist'`,
+      [zoneId, locationIds]
+    );
+    return result.rowCount || 0;
   }
 
   // ── Location Claims ──

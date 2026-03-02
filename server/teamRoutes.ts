@@ -5,6 +5,22 @@ import { storage } from './storage';
 import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
+import { notifyWaitlistFlagged } from './slackNotifier';
+
+/** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
+async function triggerWaitlistAutoFlag(zone: any) {
+  if (process.env.WAITLIST_AUTO_FLAG_ENABLED === 'false') return;
+  try {
+    const matched = await storage.getWaitlistedLocationsInZone(zone);
+    if (matched.length === 0) return;
+    const ids = matched.map((m: any) => m.id);
+    await storage.flagWaitlistedLocations(ids, zone.id);
+    const driverName = zone.driver_name || 'Unknown';
+    notifyWaitlistFlagged(matched.length, zone.name, driverName).catch(() => {});
+  } catch (err) {
+    console.error('[AutoFlag] Failed to flag waitlisted locations for zone', zone.id, err);
+  }
+}
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -814,6 +830,7 @@ export function registerTeamRoutes(app: Express) {
       } else {
         return res.status(400).json({ error: 'zone_type must be circle, polygon, or zip' });
       }
+      const approvalRequired = process.env.ZONE_APPROVAL_REQUIRED !== 'false';
       const zone = await storage.createDriverCustomZone(driverId, {
         name,
         zone_type: type,
@@ -823,7 +840,13 @@ export function registerTeamRoutes(app: Express) {
         polygon_coords,
         zip_codes,
         color,
+        status: approvalRequired ? 'pending_approval' : 'active',
       });
+      // If auto-approved, trigger waitlist flagging
+      if (!approvalRequired) {
+        const fullZone = await storage.getZoneById(zone.id);
+        if (fullZone) triggerWaitlistAutoFlag(fullZone);
+      }
       res.json({ data: zone });
     } catch (error) {
       console.error('Create custom zone error:', error);
@@ -835,8 +858,24 @@ export function registerTeamRoutes(app: Express) {
     try {
       const driverId = res.locals.driverProfile.id;
       const { id } = req.params;
-      const zone = await storage.updateDriverCustomZone(id, driverId, req.body);
+      const approvalRequired = process.env.ZONE_APPROVAL_REQUIRED !== 'false';
+      const geometryFields = ['center_lat', 'center_lng', 'radius_miles', 'polygon_coords', 'zip_codes'];
+      const hasGeometryChange = geometryFields.some(f => req.body[f] !== undefined);
+
+      // If geometry changed and approval is required, reset to pending_approval
+      const updates = { ...req.body };
+      if (approvalRequired && hasGeometryChange) {
+        updates.status = 'pending_approval';
+      }
+
+      const zone = await storage.updateDriverCustomZone(id, driverId, updates);
       if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+      // If auto-approved geometry change, trigger waitlist flagging
+      if (!approvalRequired && hasGeometryChange) {
+        const fullZone = await storage.getZoneById(zone.id);
+        if (fullZone) triggerWaitlistAutoFlag(fullZone);
+      }
       res.json({ data: zone });
     } catch (error) {
       console.error('Update custom zone error:', error);

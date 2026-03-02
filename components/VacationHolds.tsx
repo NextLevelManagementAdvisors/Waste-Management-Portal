@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from '../LocationContext.tsx';
-import { getSubscriptions, pauseSubscriptionsForLocation, resumeSubscriptionsForLocation } from '../services/apiService.ts';
+import { getSubscriptions, pauseSubscriptionsForLocation, resumeSubscriptionsForLocation, modifyHoldForLocation } from '../services/apiService.ts';
 import { Subscription, Location } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import Modal from './Modal.tsx';
-import { PauseCircleIcon, PlayCircleIcon, ArrowRightIcon, CheckCircleIcon } from './Icons.tsx';
+import { PauseCircleIcon, PlayCircleIcon } from './Icons.tsx';
 
 const PortfolioHoldCard: React.FC<{
     location: Location;
@@ -32,8 +32,8 @@ const PortfolioHoldCard: React.FC<{
 
             <div className="flex items-end justify-end mt-4">
                 <Button
-                    onClick={() => onSelect(location.id)} 
-                    variant="primary" 
+                    onClick={() => onSelect(location.id)}
+                    variant="primary"
                     className="rounded-lg px-4 py-3 font-black uppercase text-[10px] tracking-widest"
                 >
                     Manage Holds
@@ -49,6 +49,7 @@ const VacationHolds: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalMode, setModalMode] = useState<'new' | 'modify'>('new');
     const [resumeDate, setResumeDate] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -82,6 +83,13 @@ const VacationHolds: React.FC = () => {
         const today = new Date();
         today.setDate(today.getDate() + 7);
         setResumeDate(today.toISOString().split('T')[0]);
+        setModalMode('new');
+        setIsModalOpen(true);
+    };
+
+    const handleModifyHoldClick = () => {
+        setResumeDate(locationHoldStatus?.pausedUntil || '');
+        setModalMode('modify');
         setIsModalOpen(true);
     };
 
@@ -100,7 +108,23 @@ const VacationHolds: React.FC = () => {
             setIsUpdating(false);
         }
     };
-    
+
+    const handleConfirmModify = async () => {
+        if (!selectedLocation || !resumeDate) return;
+
+        setIsUpdating(true);
+        try {
+            await modifyHoldForLocation(selectedLocation.id, resumeDate);
+            await fetchData();
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error("Failed to modify hold:", error);
+            alert("Modifying hold failed. Please try again.");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
     const handleResumeAll = async () => {
         if (!selectedLocation) return;
         setIsUpdating(true);
@@ -114,7 +138,7 @@ const VacationHolds: React.FC = () => {
             setIsUpdating(false);
         }
     };
-    
+
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div></div>;
     }
@@ -175,12 +199,23 @@ const VacationHolds: React.FC = () => {
                                 </div>
                                 <div>
                                     <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Service is On Hold</h2>
-                                    <p className="text-gray-500 font-medium mt-2">All collections for this address are suspended until <span className="text-orange-600 font-black">{locationHoldStatus.pausedUntil}</span>.</p>
+                                    <p className="text-gray-500 font-medium mt-2">
+                                        All collections for this address are suspended
+                                        {locationHoldStatus.pausedUntil
+                                            ? <> until <span className="text-orange-600 font-black">{new Date(locationHoldStatus.pausedUntil + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span></>
+                                            : <> indefinitely</>
+                                        }.
+                                    </p>
                                 </div>
                             </div>
-                            <Button variant="primary" onClick={handleResumeAll} disabled={isUpdating} className="w-full md:w-auto h-16 px-12 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20">
-                                {isUpdating ? 'Resuming...' : 'Resume Collections Now'}
-                            </Button>
+                            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                                <Button variant="secondary" onClick={handleModifyHoldClick} disabled={isUpdating} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs">
+                                    Modify Hold
+                                </Button>
+                                <Button variant="primary" onClick={handleResumeAll} disabled={isUpdating} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">
+                                    {isUpdating ? 'Resuming...' : 'Resume Now'}
+                                </Button>
+                            </div>
                         </>
                     ) : (
                          <>
@@ -201,18 +236,21 @@ const VacationHolds: React.FC = () => {
                 </div>
             </Card>
 
-            <Modal 
+            <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title="Set Vacation Hold"
+                title={modalMode === 'modify' ? 'Modify Vacation Hold' : 'Set Vacation Hold'}
             >
                 <div className="space-y-6">
                     <p className="text-gray-500 font-medium text-sm leading-relaxed">
-                        Suspending service pauses all weekly collections and recurring charges. Select the date your household will return and we will resume collection that same week.
+                        {modalMode === 'modify'
+                            ? 'Change the resume date for your current hold. Collections will automatically restart on the new date.'
+                            : 'Suspending service pauses all weekly collections and recurring charges. Select the date your household will return and we will resume collection that same week.'
+                        }
                     </p>
                     <div>
                         <label htmlFor="resumeDate" className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Resume Service Date</label>
-                        <input 
+                        <input
                             type="date"
                             id="resumeDate"
                             value={resumeDate}
@@ -224,8 +262,12 @@ const VacationHolds: React.FC = () => {
                     </div>
                     <div className="flex gap-3 pt-4">
                         <Button variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isUpdating} className="flex-1 rounded-xl uppercase tracking-widest text-xs font-black h-14">Cancel</Button>
-                        <Button onClick={handleConfirmPause} disabled={isUpdating || !resumeDate} className="flex-1 rounded-xl uppercase tracking-widest text-xs font-black h-14 shadow-lg shadow-primary/20">
-                            {isUpdating ? 'Processing...' : 'Confirm Hold'}
+                        <Button
+                            onClick={modalMode === 'modify' ? handleConfirmModify : handleConfirmPause}
+                            disabled={isUpdating || !resumeDate}
+                            className="flex-1 rounded-xl uppercase tracking-widest text-xs font-black h-14 shadow-lg shadow-primary/20"
+                        >
+                            {isUpdating ? 'Processing...' : modalMode === 'modify' ? 'Update Hold' : 'Confirm Hold'}
                         </Button>
                     </div>
                 </div>

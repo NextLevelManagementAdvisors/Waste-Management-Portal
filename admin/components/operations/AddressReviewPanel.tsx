@@ -15,6 +15,8 @@ interface PendingProperty {
   inHoa: boolean;
   communityName: string | null;
   hasGateCode: boolean;
+  coverageFlaggedAt: string | null;
+  coverageZoneName: string | null;
 }
 
 interface FeasibilityResult {
@@ -24,8 +26,8 @@ interface FeasibilityResult {
 
 interface RouteSuggestion {
   zone_name: string;
-  driverName?: string;
-  collectionDay: string;
+  driver_name?: string;
+  collection_day: string;
   confidence: number;
   distance_miles: number;
 }
@@ -65,6 +67,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [routeSuggestions, setRouteSuggestions] = useState<Record<string, RouteSuggestion | null>>({});
   const [suggestingIds, setSuggestingIds] = useState<Set<string>>(new Set());
+  const [filterCoverage, setFilterCoverage] = useState(false);
 
   const fetchRouteSuggestion = async (locationId: string) => {
     setSuggestingIds(prev => new Set(prev).add(locationId));
@@ -219,6 +222,9 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
     );
   }
 
+  const flaggedCount = locations.filter(p => p.coverageFlaggedAt).length;
+  const displayed = filterCoverage ? locations.filter(p => p.coverageFlaggedAt) : locations;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -226,6 +232,18 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
         <p className="text-sm text-gray-500">
           {locations.length} address{locations.length !== 1 ? 'es' : ''} pending review
         </p>
+        {flaggedCount > 0 && (
+          <button
+            onClick={() => setFilterCoverage(!filterCoverage)}
+            className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-colors ${
+              filterCoverage
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'
+            }`}
+          >
+            Coverage Available ({flaggedCount})
+          </button>
+        )}
         {selected.size > 0 && (
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-sm font-bold text-teal-700">{selected.size} selected</span>
@@ -277,7 +295,7 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
             </tr>
           </thead>
           <tbody>
-            {locations.map(prop => {
+            {displayed.map(prop => {
               const result = feasibilityResults[prop.id];
               const isChecking = checkingId === prop.id;
               const isDenying = denyingId === prop.id;
@@ -300,11 +318,18 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                       {prop.notes && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[250px]">{prop.notes}</p>}
                     </td>
                     <td className="px-4 py-3">
-                      {prop.serviceStatus === 'waitlist' ? (
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Waitlisted</span>
-                      ) : (
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {prop.serviceStatus === 'waitlist' ? (
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 w-fit">Waitlisted</span>
+                        ) : (
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 w-fit">Pending</span>
+                        )}
+                        {prop.coverageFlaggedAt && (
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit" title={`Zone: ${prop.coverageZoneName || 'Unknown'}`}>
+                            Coverage Available
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-bold text-gray-900">{prop.customerName}</p>
@@ -338,9 +363,9 @@ const AddressReviewPanel: React.FC<{ onActionResolved?: () => void }> = ({ onAct
                           <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
                             {routeSuggestions[prop.id]!.zone_name}
                           </span>
-                          {routeSuggestions[prop.id]!.collectionDay !== 'unknown' && (
+                          {routeSuggestions[prop.id]!.collection_day && routeSuggestions[prop.id]!.collection_day !== 'unknown' && (
                             <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded capitalize">
-                              {routeSuggestions[prop.id]!.collectionDay.slice(0, 3)}
+                              {routeSuggestions[prop.id]!.collection_day.slice(0, 3)}
                             </span>
                           )}
                         </div>
