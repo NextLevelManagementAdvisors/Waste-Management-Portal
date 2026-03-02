@@ -147,7 +147,7 @@ const ZoneApprovalPanel: React.FC<{ onActionResolved?: () => void }> = ({ onActi
                         <p className="font-bold text-gray-900">{zone.driver_name}</p>
                         <p className="text-xs text-gray-400">{zone.driver_email}</p>
                         {zone.driver_rating != null && (
-                          <p className="text-xs text-yellow-600">{zone.driver_rating.toFixed(1)} rating</p>
+                          <p className="text-xs text-yellow-600">{Number(zone.driver_rating).toFixed(1)} rating</p>
                         )}
                       </td>
                       <td className="px-4 py-3">
