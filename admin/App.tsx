@@ -74,6 +74,7 @@ const SETTINGS_TAB_TO_PATH: Record<SettingsTabType, string> = {
   sync: '/admin/settings/sync',
   audit: '/admin/settings/audit',
   errors: '/admin/settings/errors',
+  'auto-fixes': '/admin/settings/auto-fixes',
 };
 const SETTINGS_PATH_TO_TAB: Record<string, SettingsTabType> = Object.fromEntries(
   Object.entries(SETTINGS_TAB_TO_PATH).map(([tab, path]) => [path, tab as SettingsTabType])

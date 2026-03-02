@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
-import { startFix, isFixRunning, getFixProgress, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories } from './errorFixService';
+import { startFix, isFixRunning, getFixProgress, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories, notifyNewError } from './errorFixService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +37,7 @@ export function registerLogRoutes(
       userAgent: userAgent?.slice(0, 500),
       spa: spa?.slice(0, 20),
     });
+    notifyNewError();
     res.json({ received: true });
   });
 
@@ -129,18 +130,51 @@ export function registerLogRoutes(
     res.json(getFixProgress());
   });
 
-  // Admin: auto-fix commit history from git
-  app.get('/api/admin/fix-history', requireAdmin, (_req: Request, res: Response) => {
+  // Admin: auto-fix commit history from git (with full details)
+  app.get('/api/admin/fix-history', requireAdmin, (req: Request, res: Response) => {
     try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+      const detailed = req.query.detailed === 'true';
+
       const raw = execSync(
-        'git log --all --grep="Auto-fix:" --format="%h||%ai||%s" -20',
+        `git log --all --grep="Auto-fix:" --format="%h||%ai||%s||%b||END_ENTRY" -${limit}`,
         { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 5000 },
       ).trim();
       if (!raw) return res.json({ commits: [] });
-      const commits = raw.split('\n').filter(Boolean).map(line => {
-        const [hash, date, ...msgParts] = line.split('||');
-        return { hash, date, message: msgParts.join('||') };
-      });
+
+      const commits = raw.split('||END_ENTRY').filter(Boolean).map(entry => {
+        const parts = entry.trim().split('||');
+        const hash = parts[0]?.trim();
+        const date = parts[1]?.trim();
+        const subject = parts[2]?.trim();
+        const body = parts.slice(3).join('||').trim();
+
+        // Extract error summaries from commit body
+        const errorLines = body
+          .split('\n')
+          .filter(line => line.startsWith('- '))
+          .map(line => line.replace(/^- /, ''));
+
+        const commit: any = { hash, date, message: subject, errors: errorLines };
+
+        if (detailed && hash) {
+          try {
+            const filesRaw = execSync(
+              `git diff-tree --no-commit-id --name-status -r ${hash}`,
+              { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 3000 },
+            ).trim();
+            commit.files = filesRaw.split('\n').filter(Boolean).map(line => {
+              const [status, ...fileParts] = line.split('\t');
+              return { status: status === 'M' ? 'modified' : status === 'A' ? 'added' : status === 'D' ? 'deleted' : status, path: fileParts.join('\t') };
+            });
+          } catch {
+            commit.files = [];
+          }
+        }
+
+        return commit;
+      }).filter(c => c.hash);
+
       res.json({ commits });
     } catch {
       res.json({ commits: [] });

@@ -605,51 +605,83 @@ export async function runFix(options: {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-mode scheduler
+// Auto-mode scheduler (event-driven + periodic fallback)
 // ---------------------------------------------------------------------------
 
 let autoFixInterval: ReturnType<typeof setInterval> | null = null;
-let lastAutoFixTime: string | null = null;
+let lastAutoFixRunAt = 0; // epoch ms of last fix attempt
+let debouncedFixTimer: ReturnType<typeof setTimeout> | null = null;
+
+const AUTO_FIX_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between runs
+const AUTO_FIX_DEBOUNCE_MS = 2 * 60 * 1000;  // 2 min debounce after new error
+const AUTO_FIX_PERIODIC_MS = 60 * 60 * 1000;  // 1 hour periodic check
+
+async function autoFixTick(): Promise<void> {
+  // Cooldown: skip if we ran recently
+  if (Date.now() - lastAutoFixRunAt < AUTO_FIX_COOLDOWN_MS) return;
+
+  const today = new Date().toISOString().split('T')[0];
+  const entries = readErrorLog(today);
+  if (entries.length === 0) return;
+
+  // Deduplicate to check if there are actually unfixed errors
+  const unfixed = deduplicateErrors(entries, 20, today);
+  if (unfixed.length === 0) return;
+
+  logger.info(`Auto-fix: ${unfixed.length} unfixed error(s) detected, starting fix`);
+  lastAutoFixRunAt = Date.now();
+
+  const result = await runFix({
+    date: today,
+    includeUserStories: true,
+    autoCommit: true,
+  });
+
+  logger.info(`Auto-fix result: ${result.message}`);
+}
+
+/**
+ * Called when a new error is logged. If auto-fix is enabled, schedules a
+ * debounced fix attempt so rapid-fire errors are batched together.
+ */
+export function notifyNewError(): void {
+  if (!autoFixInterval) return; // auto-fix not enabled
+  if (fixInProgress) return;    // already running
+
+  // Debounce: reset the timer on each new error
+  if (debouncedFixTimer) clearTimeout(debouncedFixTimer);
+  debouncedFixTimer = setTimeout(() => {
+    debouncedFixTimer = null;
+    autoFixTick().catch(err => logger.error('Auto-fix debounced tick failed', err));
+  }, AUTO_FIX_DEBOUNCE_MS);
+}
 
 export function startAutoFix(): void {
   if (autoFixInterval) return;
 
-  logger.info('Auto-fix: automatic mode enabled (checking every 60 minutes)');
+  logger.info('Auto-fix: enabled (event-driven + hourly fallback)');
 
-  const tick = async () => {
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
+  // Periodic fallback check
+  autoFixInterval = setInterval(() => {
+    autoFixTick().catch(err => logger.error('Auto-fix periodic tick failed', err));
+  }, AUTO_FIX_PERIODIC_MS);
 
-    // Skip if we already ran for this hour
-    const hourKey = `${today}T${now.getHours()}`;
-    if (lastAutoFixTime === hourKey) return;
-
-    const entries = readErrorLog(today);
-    if (entries.length === 0) return;
-
-    logger.info(`Auto-fix: found ${entries.length} errors, starting automatic fix`);
-    lastAutoFixTime = hourKey;
-
-    const result = await runFix({
-      date: today,
-      includeUserStories: true,
-      autoCommit: true,
-    });
-
-    logger.info(`Auto-fix result: ${result.message}`);
-  };
-
-  // Run first check after 5 seconds, then every 60 minutes
-  setTimeout(tick, 5000);
-  autoFixInterval = setInterval(tick, 60 * 60 * 1000);
+  // Initial check after 5 seconds
+  setTimeout(() => {
+    autoFixTick().catch(err => logger.error('Auto-fix initial tick failed', err));
+  }, 5000);
 }
 
 export function stopAutoFix(): void {
   if (autoFixInterval) {
     clearInterval(autoFixInterval);
     autoFixInterval = null;
-    logger.info('Auto-fix: automatic mode disabled');
   }
+  if (debouncedFixTimer) {
+    clearTimeout(debouncedFixTimer);
+    debouncedFixTimer = null;
+  }
+  logger.info('Auto-fix: disabled');
 }
 
 export function isAutoFixEnabled(): boolean {

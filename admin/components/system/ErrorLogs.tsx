@@ -430,22 +430,11 @@ const ErrorLogs: React.FC = () => {
       )}
 
       {fixHistory.length > 0 && (
-        <Card className="p-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-            <h3 className="text-xs font-black uppercase tracking-widest text-gray-600">Auto-Fix History</h3>
-          </div>
-          <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-            {fixHistory.map(commit => (
-              <div key={commit.hash} className="px-4 py-3 flex items-start gap-3">
-                <code className="text-xs font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{commit.hash}</code>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 whitespace-pre-line">{commit.message}</p>
-                  <p className="text-xs text-gray-400 mt-1">{commit.date}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <div className="text-center py-2">
+          <span className="text-xs text-gray-400">
+            {fixHistory.length} auto-fix commit{fixHistory.length !== 1 ? 's' : ''} — see the <strong>Auto-Fixes</strong> tab for full history
+          </span>
+        </div>
       )}
 
       <FixContextModal

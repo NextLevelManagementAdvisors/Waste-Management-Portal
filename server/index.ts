@@ -13,6 +13,7 @@ import { registerAuthRoutes } from './authRoutes';
 import { pool } from './db';
 import crypto from 'crypto';
 import { loadSettingsIntoEnv } from './settings';
+import { notifyNewError } from './errorFixService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -207,6 +208,9 @@ registerTeamRoutes(app);
 const { registerAdminOptimoRoutes } = await import('./adminOptimoRoutes');
 registerAdminOptimoRoutes(app);
 
+const { registerWeatherRoutes } = await import('./weatherRoutes');
+registerWeatherRoutes(app);
+
 const { registerInvitationRoutes } = await import('./invitationRoutes');
 registerInvitationRoutes(app);
 
@@ -245,6 +249,7 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
     url: req.originalUrl,
     stack: err.stack,
   });
+  notifyNewError();
   if (!res.headersSent) {
     res.status(500).json({ error: 'Internal server error' });
   }

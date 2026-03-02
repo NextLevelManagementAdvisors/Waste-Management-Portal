@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import AuditLog from './AuditLog.tsx';
 import AdminRoles from './AdminRoles.tsx';
 import ErrorLogs from './ErrorLogs.tsx';
+import AutoFixHistory from './AutoFixHistory.tsx';
 import IntegrationsPanel from './IntegrationsPanel.tsx';
 import SyncAutomationPanel from './SyncAutomationPanel.tsx';
 
-export type SettingsTabType = 'integrations' | 'roles' | 'sync' | 'audit' | 'errors';
+export type SettingsTabType = 'integrations' | 'roles' | 'sync' | 'audit' | 'errors' | 'auto-fixes';
 
 interface SettingsViewProps {
   activeTab?: SettingsTabType;
@@ -30,6 +31,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ activeTab: controlledTab, o
     { key: 'sync', label: 'Sync & Automation' },
     { key: 'audit', label: 'Audit Log' },
     { key: 'errors', label: 'Error Logs' },
+    { key: 'auto-fixes', label: 'Auto-Fixes' },
   ];
 
   return (
@@ -37,6 +39,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ activeTab: controlledTab, o
       <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {tabs.map(tab => (
           <button
+            type="button"
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-3 sm:px-5 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${
@@ -55,6 +58,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ activeTab: controlledTab, o
       {activeTab === 'sync' && <SyncAutomationPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'errors' && <ErrorLogs />}
+      {activeTab === 'auto-fixes' && <AutoFixHistory />}
     </div>
   );
 };
