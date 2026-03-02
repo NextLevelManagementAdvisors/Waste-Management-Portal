@@ -176,22 +176,23 @@ const PlanningCalendar: React.FC = () => {
     if (calRes.ok) {
       const data = await calRes.json();
 
+      // API returns snake_case column names directly from PostgreSQL
       const onDemandByDate = new Map<string, number>();
       for (const s of data.onDemand ?? []) {
-        onDemandByDate.set(s.collectionDate, s.onDemandCount);
+        onDemandByDate.set(s.requested_date, s.on_demand_count);
       }
 
       const countsByDay = new Map<string, number>();
       for (const pc of data.locationCounts ?? []) {
-        countsByDay.set(pc.collectionDay, (countsByDay.get(pc.collectionDay) || 0) + Number(pc.locationCount));
+        countsByDay.set(pc.collection_day, (countsByDay.get(pc.collection_day) || 0) + Number(pc.location_count));
       }
 
       const routesByDate = new Map<string, Record<string, number>>();
       for (const j of data.routes ?? []) {
-        const key = j.scheduledDate.split('T')[0];
+        const key = j.scheduled_date.split('T')[0];
         if (!routesByDate.has(key)) routesByDate.set(key, {});
         const m = routesByDate.get(key)!;
-        m[j.status] = (m[j.status] || 0) + j.routeCount;
+        m[j.status] = (m[j.status] || 0) + j.route_count;
       }
 
       for (const day of days) {
