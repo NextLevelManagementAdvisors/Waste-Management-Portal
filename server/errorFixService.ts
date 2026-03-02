@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync, spawnSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
 
@@ -48,13 +48,30 @@ export interface FixResult {
 }
 
 // ---------------------------------------------------------------------------
-// Concurrency lock
+// Concurrency lock & progress tracking
 // ---------------------------------------------------------------------------
 
 let fixInProgress = false;
+let fixProgressMessages: string[] = [];
+let fixStatus: 'idle' | 'running' | 'done' | 'error' = 'idle';
+let fixResultStore: FixResult | null = null;
 
 export function isFixRunning(): boolean {
   return fixInProgress;
+}
+
+export function getFixProgress(): { status: typeof fixStatus; messages: string[]; result: FixResult | null } {
+  return { status: fixStatus, messages: [...fixProgressMessages], result: fixResultStore };
+}
+
+function addProgress(msg: string): void {
+  fixProgressMessages.push(msg);
+}
+
+function resetProgress(): void {
+  fixProgressMessages = [];
+  fixStatus = 'running';
+  fixResultStore = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,30 +277,77 @@ function findClaudeBinary(): string | null {
   return null;
 }
 
-function invokeClaude(claudeBin: string, prompt: string): void {
-  // Strip CLAUDECODE env var to avoid "nested session" block when running
-  // inside VS Code Claude Code extension or another Claude session
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
+function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Strip CLAUDECODE env var to avoid "nested session" block when running
+    // inside VS Code Claude Code extension or another Claude session
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
 
-  // Pipe prompt via stdin to avoid Windows ENAMETOOLONG on large prompts
-  // shell: true so Windows can resolve claude.cmd via PATH
-  const result = spawnSync(claudeBin, ['-p', '--verbose'], {
-    input: prompt,
-    cwd: PROJECT_ROOT,
-    timeout: 5 * 60 * 1000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: true,
-    env,
+    // Pipe prompt via stdin to avoid Windows ENAMETOOLONG on large prompts
+    // shell: true so Windows can resolve claude.cmd via PATH
+    const child = spawn(claudeBin, ['-p', '--verbose'], {
+      cwd: PROJECT_ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: true,
+      env,
+    });
+
+    let stderrBuf = '';
+    let lineBuffer = '';
+
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error('Claude CLI timed out after 5 minutes'));
+    }, 5 * 60 * 1000);
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      lineBuffer += chunk.toString('utf8');
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          addProgress(trimmed);
+        }
+      }
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      stderrBuf += text;
+      // stderr from --verbose has progress info too
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          addProgress(trimmed);
+        }
+      }
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      // Flush remaining buffer
+      if (lineBuffer.trim()) {
+        addProgress(lineBuffer.trim());
+      }
+      if (code !== 0) {
+        reject(new Error(`Claude CLI exited with code ${code}${stderrBuf ? ': ' + stderrBuf.slice(0, 500) : ''}`));
+      } else {
+        resolve();
+      }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    // Write prompt via stdin, then close
+    child.stdin?.write(prompt);
+    child.stdin?.end();
   });
-
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const stderr = result.stderr?.slice(0, 500) || '';
-    throw new Error(`Claude CLI exited with code ${result.status}${stderr ? ': ' + stderr : ''}`);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +378,102 @@ function gitCommitFixes(date: string, summaries: string[]): string | null {
 // Main fix runner
 // ---------------------------------------------------------------------------
 
+export function startFix(options: {
+  date?: string;
+  source?: string;
+  limit?: number;
+  includeUserStories?: boolean;
+  autoCommit?: boolean;
+  adminNotes?: string;
+  flaggedStories?: string[];
+}): { started: boolean; message: string } {
+  if (fixInProgress) {
+    return { started: false, message: 'A fix is already in progress' };
+  }
+
+  const date = options.date || new Date().toISOString().split('T')[0];
+  const limit = options.limit || 20;
+
+  // Find Claude CLI synchronously before going async
+  const claudeBin = findClaudeBinary();
+  if (!claudeBin) {
+    return { started: false, message: 'Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code' };
+  }
+
+  // Read and deduplicate errors
+  const entries = readErrorLog(date, options.source);
+  if (entries.length === 0) {
+    return { started: false, message: 'No errors found for this date' };
+  }
+
+  const groups = deduplicateErrors(entries, limit);
+  const summaries = groups.map(g => {
+    const e = g.mostRecent;
+    const spaTag = e.data?.spa ? ` [${e.data.spa}]` : '';
+    return `${g.count}x ${e.source}${spaTag}: ${e.message.slice(0, 120)}`;
+  });
+
+  // Mark as running and reset progress
+  fixInProgress = true;
+  resetProgress();
+  addProgress(`Found ${entries.length} error entries, deduplicated to ${groups.length} unique error(s)`);
+  for (const s of summaries) {
+    addProgress(`  ${s}`);
+  }
+  addProgress('Building prompt and invoking Claude CLI...');
+
+  // Run async — fire and forget
+  const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false, options.adminNotes, options.flaggedStories);
+
+  (async () => {
+    try {
+      logger.info(`Auto-fix: processing ${groups.length} unique errors from ${entries.length} entries for ${date}`);
+
+      await invokeClaude(claudeBin, prompt);
+
+      addProgress('Claude finished analyzing and fixing errors');
+
+      // Auto-commit if requested
+      let committed = false;
+      let commitHash: string | undefined;
+      if (options.autoCommit !== false) {
+        addProgress('Checking for changes to commit...');
+        const hash = gitCommitFixes(date, summaries);
+        if (hash) {
+          committed = true;
+          commitHash = hash;
+          addProgress(`Committed fixes as ${hash}`);
+          logger.info(`Auto-fix committed: ${hash}`);
+        } else {
+          addProgress('No file changes detected — nothing to commit');
+        }
+      }
+
+      fixStatus = 'done';
+      fixResultStore = {
+        success: true,
+        errorsFound: entries.length,
+        uniqueErrors: groups.length,
+        committed,
+        commitHash,
+        message: `Fixed ${groups.length} unique error(s)${committed ? `, committed as ${commitHash}` : ''}`,
+        errorSummaries: summaries,
+      };
+    } catch (err: any) {
+      const msg = err.killed ? 'Claude CLI timed out after 5 minutes' : (err.message || 'Unknown error');
+      logger.error('Auto-fix failed', err);
+      addProgress(`Error: ${msg}`);
+      fixStatus = 'error';
+      fixResultStore = { success: false, errorsFound: entries.length, uniqueErrors: groups.length, committed: false, message: msg, errorSummaries: summaries };
+    } finally {
+      fixInProgress = false;
+    }
+  })();
+
+  return { started: true, message: `Processing ${groups.length} unique error(s)...` };
+}
+
+// Kept for auto-fix scheduler (awaits completion)
 export async function runFix(options: {
   date?: string;
   source?: string;
@@ -323,69 +483,23 @@ export async function runFix(options: {
   adminNotes?: string;
   flaggedStories?: string[];
 }): Promise<FixResult> {
-  if (fixInProgress) {
-    return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'A fix is already in progress', errorSummaries: [] };
+  const start = startFix(options);
+  if (!start.started) {
+    return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: start.message, errorSummaries: [] };
   }
 
-  fixInProgress = true;
-
-  try {
-    const date = options.date || new Date().toISOString().split('T')[0];
-    const limit = options.limit || 20;
-
-    // Find Claude CLI
-    const claudeBin = findClaudeBinary();
-    if (!claudeBin) {
-      return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code', errorSummaries: [] };
-    }
-
-    // Read and deduplicate errors
-    const entries = readErrorLog(date, options.source);
-    if (entries.length === 0) {
-      return { success: true, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'No errors found', errorSummaries: [] };
-    }
-
-    const groups = deduplicateErrors(entries, limit);
-    const summaries = groups.map(g => {
-      const e = g.mostRecent;
-      const spaTag = e.data?.spa ? ` [${e.data.spa}]` : '';
-      return `${g.count}x ${e.source}${spaTag}: ${e.message.slice(0, 120)}`;
-    });
-
-    logger.info(`Auto-fix: processing ${groups.length} unique errors from ${entries.length} entries for ${date}`);
-
-    // Build prompt and invoke Claude
-    const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false, options.adminNotes, options.flaggedStories);
-    invokeClaude(claudeBin, prompt);
-
-    // Auto-commit if requested
-    let committed = false;
-    let commitHash: string | undefined;
-    if (options.autoCommit !== false) {
-      const hash = gitCommitFixes(date, summaries);
-      if (hash) {
-        committed = true;
-        commitHash = hash;
-        logger.info(`Auto-fix committed: ${hash}`);
+  // Poll until done
+  return new Promise((resolve) => {
+    const check = () => {
+      const progress = getFixProgress();
+      if (progress.status === 'done' || progress.status === 'error') {
+        resolve(progress.result!);
+      } else {
+        setTimeout(check, 1000);
       }
-    }
-
-    return {
-      success: true,
-      errorsFound: entries.length,
-      uniqueErrors: groups.length,
-      committed,
-      commitHash,
-      message: `Fixed ${groups.length} unique error(s)${committed ? `, committed as ${commitHash}` : ''}`,
-      errorSummaries: summaries,
     };
-  } catch (err: any) {
-    const msg = err.killed ? 'Claude CLI timed out after 5 minutes' : (err.message || 'Unknown error');
-    logger.error('Auto-fix failed', err);
-    return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: msg, errorSummaries: [] };
-  } finally {
-    fixInProgress = false;
-  }
+    setTimeout(check, 1000);
+  });
 }
 
 // ---------------------------------------------------------------------------

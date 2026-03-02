@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
@@ -27,6 +27,12 @@ interface FixHistoryEntry {
   hash: string;
   date: string;
   message: string;
+}
+
+interface FixProgress {
+  status: 'idle' | 'running' | 'done' | 'error';
+  messages: string[];
+  result: FixResult | null;
 }
 
 const formatTime = (ts: string) => {
@@ -62,10 +68,12 @@ const ErrorLogs: React.FC = () => {
   // Fix state
   const [fixing, setFixing] = useState(false);
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
+  const [fixMessages, setFixMessages] = useState<string[]>([]);
   const [autoFixEnabled, setAutoFixEnabled] = useState(false);
   const [togglingAutoFix, setTogglingAutoFix] = useState(false);
   const [showFixModal, setShowFixModal] = useState(false);
   const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>([]);
+  const progressRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     fetch('/api/admin/logs/dates', { credentials: 'include' })
@@ -121,6 +129,7 @@ const ErrorLogs: React.FC = () => {
     setShowFixModal(false);
     setFixing(true);
     setFixResult(null);
+    setFixMessages([]);
     try {
       const res = await fetch('/api/admin/fix-errors', {
         method: 'POST',
@@ -134,21 +143,51 @@ const ErrorLogs: React.FC = () => {
         }),
       });
       const data = await res.json();
-      setFixResult(data);
-      if (data.success) {
-        fetchEntries();
-        // Refresh fix history
-        fetch('/api/admin/fix-history', { credentials: 'include' })
-          .then(r => r.ok ? r.json() : { commits: [] })
-          .then(d => setFixHistory(d.commits ?? []))
-          .catch(() => {});
+      if (!data.started) {
+        setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: data.error || data.message || 'Failed to start fix' });
+        setFixing(false);
+        return;
       }
+
+      // Poll for progress
+      const poll = async () => {
+        try {
+          const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+          if (!r.ok) return;
+          const progress: FixProgress = await r.json();
+          setFixMessages(progress.messages);
+
+          if (progress.status === 'done' || progress.status === 'error') {
+            setFixResult(progress.result);
+            setFixing(false);
+            if (progress.result?.success) {
+              fetchEntries();
+              fetch('/api/admin/fix-history', { credentials: 'include' })
+                .then(r2 => r2.ok ? r2.json() : { commits: [] })
+                .then(d => setFixHistory(d.commits ?? []))
+                .catch(() => {});
+            }
+            return;
+          }
+
+          setTimeout(poll, 2000);
+        } catch {
+          setTimeout(poll, 3000);
+        }
+      };
+      setTimeout(poll, 1000);
     } catch {
       setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
-    } finally {
       setFixing(false);
     }
   };
+
+  // Auto-scroll progress log
+  useEffect(() => {
+    if (progressRef.current) {
+      progressRef.current.scrollTop = progressRef.current.scrollHeight;
+    }
+  }, [fixMessages]);
 
   const handleToggleAutoFix = async () => {
     setTogglingAutoFix(true);
@@ -223,6 +262,35 @@ const ErrorLogs: React.FC = () => {
           </button>
         </div>
       </FilterBar>
+
+      {(fixing || fixMessages.length > 0) && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-900 flex items-center gap-2">
+            {fixing && <span className="inline-block w-3 h-3 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />}
+            <h3 className="text-xs font-black uppercase tracking-widest text-gray-300">
+              {fixing ? 'Fixing Errors...' : 'Fix Complete'}
+            </h3>
+            {!fixing && (
+              <button
+                type="button"
+                onClick={() => setFixMessages([])}
+                className="ml-auto text-gray-500 hover:text-gray-300 text-xs font-bold"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <pre
+            ref={progressRef}
+            className="px-4 py-3 bg-gray-950 text-gray-300 text-xs font-mono leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap"
+          >
+            {fixMessages.map((msg, i) => (
+              <div key={i} className="py-0.5">{msg}</div>
+            ))}
+            {fixing && <span className="inline-block w-1.5 h-3.5 bg-teal-400 animate-pulse ml-0.5" />}
+          </pre>
+        </Card>
+      )}
 
       {fixResult && (
         <div className={`rounded-lg text-sm border ${

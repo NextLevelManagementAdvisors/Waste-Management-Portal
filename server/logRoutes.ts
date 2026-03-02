@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
-import { runFix, isFixRunning, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories } from './errorFixService';
+import { startFix, isFixRunning, getFixProgress, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories } from './errorFixService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,15 +96,15 @@ export function registerLogRoutes(
     res.json({ stories: parseUserStories() });
   });
 
-  // Admin: trigger error auto-fix via Claude
-  app.post('/api/admin/fix-errors', requireAdmin, async (req: Request, res: Response) => {
+  // Admin: trigger error auto-fix via Claude (starts async, poll /fix-progress)
+  app.post('/api/admin/fix-errors', requireAdmin, (req: Request, res: Response) => {
     try {
       if (isFixRunning()) {
         return res.status(409).json({ error: 'A fix is already in progress' });
       }
 
       const { date, source, adminNotes, flaggedStories } = req.body;
-      const result = await runFix({
+      const result = startFix({
         date,
         source,
         includeUserStories: true,
@@ -113,11 +113,20 @@ export function registerLogRoutes(
         flaggedStories: Array.isArray(flaggedStories) ? flaggedStories.slice(0, 50) : undefined,
       });
 
-      res.json(result);
+      if (!result.started) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      res.json({ started: true, message: result.message });
     } catch (error) {
       logger.error('Fix errors endpoint failed', error);
       res.status(500).json({ error: 'Fix failed' });
     }
+  });
+
+  // Admin: poll fix progress
+  app.get('/api/admin/fix-progress', requireAdmin, (_req: Request, res: Response) => {
+    res.json(getFixProgress());
   });
 
   // Admin: auto-fix commit history from git
