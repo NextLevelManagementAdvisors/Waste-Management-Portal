@@ -277,6 +277,25 @@ function findClaudeBinary(): string | null {
   return null;
 }
 
+function describeToolUse(name: string, input: any): string | null {
+  switch (name) {
+    case 'Read':
+      return `Reading ${input?.file_path ? path.relative(PROJECT_ROOT, input.file_path) : 'file'}`;
+    case 'Edit':
+      return `Editing ${input?.file_path ? path.relative(PROJECT_ROOT, input.file_path) : 'file'}`;
+    case 'Write':
+      return `Writing ${input?.file_path ? path.relative(PROJECT_ROOT, input.file_path) : 'file'}`;
+    case 'Glob':
+      return `Searching for ${input?.pattern || 'files'}`;
+    case 'Grep':
+      return `Searching for "${input?.pattern || '...'}"${input?.path ? ' in ' + path.relative(PROJECT_ROOT, input.path) : ''}`;
+    case 'Bash':
+      return `Running command`;
+    default:
+      return `Using ${name}`;
+  }
+}
+
 function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
   return new Promise((resolve, reject) => {
     // Strip CLAUDECODE env var to avoid "nested session" block when running
@@ -286,7 +305,8 @@ function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
 
     // Pipe prompt via stdin to avoid Windows ENAMETOOLONG on large prompts
     // shell: true so Windows can resolve claude.cmd via PATH
-    const child = spawn(claudeBin, ['-p', '--verbose'], {
+    // Use stream-json to get structured tool-use events for progress display
+    const child = spawn(claudeBin, ['-p', '--output-format', 'stream-json'], {
       cwd: PROJECT_ROOT,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -308,29 +328,49 @@ function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
       lineBuffer = lines.pop() || '';
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed) {
-          addProgress(trimmed);
+        if (!trimmed) continue;
+        try {
+          const event = JSON.parse(trimmed);
+          // Extract tool-use events for human-readable progress
+          if (event.type === 'assistant' && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === 'tool_use') {
+                const desc = describeToolUse(block.name, block.input);
+                if (desc) addProgress(desc);
+              } else if (block.type === 'text' && block.text?.trim()) {
+                // Show Claude's reasoning text (first 200 chars)
+                const text = block.text.trim();
+                if (text.length > 200) {
+                  addProgress(text.slice(0, 200) + '...');
+                } else {
+                  addProgress(text);
+                }
+              }
+            }
+          } else if (event.type === 'result') {
+            // Final result — just note completion
+            addProgress('Analysis complete');
+          }
+        } catch {
+          // Not JSON — show raw line (fallback)
+          if (trimmed) addProgress(trimmed);
         }
       }
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
-      stderrBuf += text;
-      // stderr from --verbose has progress info too
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          addProgress(trimmed);
-        }
-      }
+      stderrBuf += chunk.toString('utf8');
     });
 
     child.on('close', (code) => {
       clearTimeout(timeout);
-      // Flush remaining buffer
       if (lineBuffer.trim()) {
-        addProgress(lineBuffer.trim());
+        try {
+          const event = JSON.parse(lineBuffer.trim());
+          if (event.type === 'result') addProgress('Analysis complete');
+        } catch {
+          addProgress(lineBuffer.trim());
+        }
       }
       if (code !== 0) {
         reject(new Error(`Claude CLI exited with code ${code}${stderrBuf ? ': ' + stderrBuf.slice(0, 500) : ''}`));

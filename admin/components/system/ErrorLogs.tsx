@@ -284,9 +284,19 @@ const ErrorLogs: React.FC = () => {
             ref={progressRef}
             className="px-4 py-3 bg-gray-950 text-gray-300 text-xs font-mono leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap"
           >
-            {fixMessages.map((msg, i) => (
-              <div key={i} className="py-0.5">{msg}</div>
-            ))}
+            {fixMessages.map((msg, i) => {
+              const isToolAction = /^(Reading|Editing|Writing|Searching|Running|Using) /.test(msg);
+              const isError = /^\d+x /.test(msg);
+              return (
+                <div key={i} className={`py-0.5 ${isToolAction ? 'text-teal-400' : isError ? 'text-yellow-400' : ''}`}>
+                  {isToolAction && <span className="text-gray-600 mr-1">&gt;</span>}
+                  {msg}
+                </div>
+              );
+            })}
+            {fixing && fixMessages.length === 0 && (
+              <div className="text-gray-500 py-0.5">Starting...</div>
+            )}
             {fixing && <span className="inline-block w-1.5 h-3.5 bg-teal-400 animate-pulse ml-0.5" />}
           </pre>
         </Card>
