@@ -125,7 +125,43 @@ export function deduplicateErrors(entries: LogEntry[], limit: number = 20): Erro
 // Prompt Construction
 // ---------------------------------------------------------------------------
 
-export function buildFixPrompt(date: string, groups: ErrorGroup[], includeUserStories: boolean = false): string {
+export interface UserStory {
+  id: string;
+  section: string;
+  text: string;
+}
+
+export function parseUserStories(): UserStory[] {
+  try {
+    const content = fs.readFileSync(USER_STORIES_PATH, 'utf8');
+    const stories: UserStory[] = [];
+    let currentSection = '';
+
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.replace(/\r$/, '');
+      const sectionMatch = line.match(/^###\s+\d+\.\d+\s+(.+)/);
+      if (sectionMatch) {
+        currentSection = sectionMatch[1].trim();
+        continue;
+      }
+      const storyMatch = line.match(/^\|\s*([CATS]-\d+)\s*\|(?:\s*\w+\s*\|)?\s*(.+?)\s*\|$/);
+      if (storyMatch) {
+        stories.push({ id: storyMatch[1], section: currentSection, text: storyMatch[2].trim() });
+      }
+    }
+    return stories;
+  } catch {
+    return [];
+  }
+}
+
+export function buildFixPrompt(
+  date: string,
+  groups: ErrorGroup[],
+  includeUserStories: boolean = false,
+  adminNotes?: string,
+  flaggedStories?: string[],
+): string {
   const totalOccurrences = groups.reduce((sum, g) => sum + g.count, 0);
 
   const errorBlocks = groups.map((g, i) => {
@@ -181,7 +217,17 @@ INSTRUCTIONS:
 4. For client errors with minified stacks, use the SPA name, URL path, and error message to locate the component
 5. Fix the root causes directly in the source files
 6. If an error cannot be fixed without more context (e.g., database schema issues, missing env vars), add a TODO comment explaining what is needed
-7. Do NOT modify log files, test files, or build output${userStoriesBlock}`;
+7. Do NOT modify log files, test files, or build output${userStoriesBlock}${adminNotes ? `\n\nADMIN CONTEXT:\n${adminNotes}` : ''}${flaggedStories?.length ? buildFlaggedStoriesBlock(flaggedStories) : ''}`;
+}
+
+function buildFlaggedStoriesBlock(storyIds: string[]): string {
+  const allStories = parseUserStories();
+  const matched = storyIds
+    .map(id => allStories.find(s => s.id === id))
+    .filter((s): s is UserStory => s !== null && s !== undefined);
+  if (matched.length === 0) return '';
+  const bullets = matched.map(s => `- ${s.id}: ${s.text}`).join('\n');
+  return `\n\nFLAGGED USER STORIES — these are NOT being followed correctly. Prioritize fixing:\n${bullets}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +320,8 @@ export async function runFix(options: {
   limit?: number;
   includeUserStories?: boolean;
   autoCommit?: boolean;
+  adminNotes?: string;
+  flaggedStories?: string[];
 }): Promise<FixResult> {
   if (fixInProgress) {
     return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'A fix is already in progress', errorSummaries: [] };
@@ -307,7 +355,7 @@ export async function runFix(options: {
     logger.info(`Auto-fix: processing ${groups.length} unique errors from ${entries.length} entries for ${date}`);
 
     // Build prompt and invoke Claude
-    const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false);
+    const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false, options.adminNotes, options.flaggedStories);
     invokeClaude(claudeBin, prompt);
 
     // Auto-commit if requested

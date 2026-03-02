@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
+import FixContextModal from './FixContextModal.tsx';
 
 interface ErrorLogEntry {
   timestamp: string;
@@ -18,6 +19,13 @@ interface FixResult {
   uniqueErrors: number;
   committed: boolean;
   commitHash?: string;
+  message: string;
+  errorSummaries?: string[];
+}
+
+interface FixHistoryEntry {
+  hash: string;
+  date: string;
   message: string;
 }
 
@@ -56,6 +64,8 @@ const ErrorLogs: React.FC = () => {
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
   const [autoFixEnabled, setAutoFixEnabled] = useState(false);
   const [togglingAutoFix, setTogglingAutoFix] = useState(false);
+  const [showFixModal, setShowFixModal] = useState(false);
+  const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>([]);
 
   useEffect(() => {
     fetch('/api/admin/logs/dates', { credentials: 'include' })
@@ -73,6 +83,12 @@ const ErrorLogs: React.FC = () => {
     fetch('/api/admin/auto-fix/status', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setAutoFixEnabled(data.enabled); })
+      .catch(() => {});
+
+    // Load fix history
+    fetch('/api/admin/fix-history', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { commits: [] })
+      .then(data => setFixHistory(data.commits ?? []))
       .catch(() => {});
   }, []);
 
@@ -101,7 +117,8 @@ const ErrorLogs: React.FC = () => {
     fetchEntries();
   }, [fetchEntries]);
 
-  const handleFixErrors = async () => {
+  const handleFixErrors = async (adminNotes: string, flaggedStories: string[]) => {
+    setShowFixModal(false);
     setFixing(true);
     setFixResult(null);
     try {
@@ -109,11 +126,23 @@ const ErrorLogs: React.FC = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: dateFilter, source: sourceFilter || undefined }),
+        body: JSON.stringify({
+          date: dateFilter,
+          source: sourceFilter || undefined,
+          adminNotes: adminNotes || undefined,
+          flaggedStories: flaggedStories.length > 0 ? flaggedStories : undefined,
+        }),
       });
       const data = await res.json();
       setFixResult(data);
-      if (data.success) fetchEntries();
+      if (data.success) {
+        fetchEntries();
+        // Refresh fix history
+        fetch('/api/admin/fix-history', { credentials: 'include' })
+          .then(r => r.ok ? r.json() : { commits: [] })
+          .then(d => setFixHistory(d.commits ?? []))
+          .catch(() => {});
+      }
     } catch {
       setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
     } finally {
@@ -168,7 +197,7 @@ const ErrorLogs: React.FC = () => {
           <Button
             variant="primary"
             size="sm"
-            onClick={handleFixErrors}
+            onClick={() => setShowFixModal(true)}
             disabled={fixing || total === 0}
             className="whitespace-nowrap"
           >
@@ -196,11 +225,23 @@ const ErrorLogs: React.FC = () => {
       </FilterBar>
 
       {fixResult && (
-        <div className={`p-4 rounded-lg text-sm flex items-center justify-between ${
-          fixResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
+        <div className={`rounded-lg text-sm border ${
+          fixResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
         }`}>
-          <span>{fixResult.message}</span>
-          <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
+          <div className="flex items-center justify-between p-4">
+            <span className="font-bold">{fixResult.message}</span>
+            <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
+          </div>
+          {fixResult.errorSummaries && fixResult.errorSummaries.length > 0 && (
+            <div className="px-4 pb-4">
+              <div className="text-xs font-bold opacity-60 mb-1">Errors addressed:</div>
+              <ul className="space-y-0.5">
+                {fixResult.errorSummaries.map((s, i) => (
+                  <li key={i} className="text-xs opacity-80">&bull; {s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -277,6 +318,32 @@ const ErrorLogs: React.FC = () => {
           </div>
         </Card>
       )}
+
+      {fixHistory.length > 0 && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-xs font-black uppercase tracking-widest text-gray-600">Auto-Fix History</h3>
+          </div>
+          <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+            {fixHistory.map(commit => (
+              <div key={commit.hash} className="px-4 py-3 flex items-start gap-3">
+                <code className="text-xs font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{commit.hash}</code>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-900 whitespace-pre-line">{commit.message}</p>
+                  <p className="text-xs text-gray-400 mt-1">{commit.date}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <FixContextModal
+        isOpen={showFixModal}
+        onClose={() => setShowFixModal(false)}
+        onSubmit={handleFixErrors}
+        fixing={fixing}
+      />
     </div>
   );
 };

@@ -1,9 +1,15 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import { rateLimit } from 'express-rate-limit';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
-import { runFix, isFixRunning, startAutoFix, stopAutoFix, isAutoFixEnabled } from './errorFixService';
+import { runFix, isFixRunning, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories } from './errorFixService';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const clientErrorRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -85,6 +91,11 @@ export function registerLogRoutes(
     }
   });
 
+  // Admin: list user stories for fix context modal
+  app.get('/api/admin/user-stories', requireAdmin, (_req: Request, res: Response) => {
+    res.json({ stories: parseUserStories() });
+  });
+
   // Admin: trigger error auto-fix via Claude
   app.post('/api/admin/fix-errors', requireAdmin, async (req: Request, res: Response) => {
     try {
@@ -92,18 +103,38 @@ export function registerLogRoutes(
         return res.status(409).json({ error: 'A fix is already in progress' });
       }
 
-      const { date, source } = req.body;
+      const { date, source, adminNotes, flaggedStories } = req.body;
       const result = await runFix({
         date,
         source,
         includeUserStories: true,
         autoCommit: true,
+        adminNotes: typeof adminNotes === 'string' ? adminNotes.slice(0, 5000) : undefined,
+        flaggedStories: Array.isArray(flaggedStories) ? flaggedStories.slice(0, 50) : undefined,
       });
 
       res.json(result);
     } catch (error) {
       logger.error('Fix errors endpoint failed', error);
       res.status(500).json({ error: 'Fix failed' });
+    }
+  });
+
+  // Admin: auto-fix commit history from git
+  app.get('/api/admin/fix-history', requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const raw = execSync(
+        'git log --all --grep="Auto-fix:" --format="%h||%ai||%s" -20',
+        { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 5000 },
+      ).trim();
+      if (!raw) return res.json({ commits: [] });
+      const commits = raw.split('\n').filter(Boolean).map(line => {
+        const [hash, date, ...msgParts] = line.split('||');
+        return { hash, date, message: msgParts.join('||') };
+      });
+      res.json({ commits });
+    } catch {
+      res.json({ commits: [] });
     }
   });
 
