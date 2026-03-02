@@ -311,7 +311,7 @@ function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
     // Pipe prompt via stdin to avoid Windows ENAMETOOLONG on large prompts
     // shell: true so Windows can resolve claude.cmd via PATH
     // Use stream-json to get structured tool-use events for progress display
-    const child = spawn(claudeBin, ['-p', '--output-format', 'stream-json'], {
+    const child = spawn(claudeBin, ['-p', '--verbose', '--output-format', 'stream-json'], {
       cwd: PROJECT_ROOT,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
