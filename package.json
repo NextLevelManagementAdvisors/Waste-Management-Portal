@@ -20,6 +20,7 @@
     "fix-errors": "tsx scripts/fix-errors.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@geoman-io/leaflet-geoman-free": "^2.19.2",
     "@google/genai": "^1.29.0",
     "@googleapis/gmail": "^16.1.1",

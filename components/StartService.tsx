@@ -80,7 +80,8 @@ const NewPaymentForm: React.FC<{
                 const pmId = typeof setupIntent.payment_method === 'string'
                     ? setupIntent.payment_method
                     : setupIntent.payment_method.id;
-                await addPaymentMethod(pmId);
+                // SetupIntent with customer auto-attaches the PM; attach again only if needed
+                try { await addPaymentMethod(pmId); } catch { /* already attached by SetupIntent */ }
                 await onConfirmed(pmId);
             }
         } catch (error) {

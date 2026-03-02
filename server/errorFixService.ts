@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
 
@@ -188,21 +188,56 @@ INSTRUCTIONS:
 // Claude CLI
 // ---------------------------------------------------------------------------
 
-function checkClaudeCLI(): boolean {
+function findClaudeBinary(): string | null {
+  // Try bare command
   try {
     execSync('claude --version', { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
+    return 'claude';
+  } catch { /* not in PATH */ }
+
+  // Try common npm global locations on Windows
+  const candidates = [
+    path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'),
+    path.join(process.env.APPDATA || '', 'npm', 'claude'),
+    path.join(process.env.LOCALAPPDATA || '', 'npm', 'claude.cmd'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        execSync(`"${candidate}" --version`, { stdio: 'pipe' });
+        return candidate;
+      }
+    } catch { /* not valid */ }
   }
+
+  return null;
 }
 
-function invokeClaude(prompt: string): void {
-  execSync(`claude -p ${JSON.stringify(prompt)}`, {
+function invokeClaude(claudeBin: string, prompt: string): void {
+  // Strip CLAUDECODE env var to avoid "nested session" block when running
+  // inside VS Code Claude Code extension or another Claude session
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  // Pipe prompt via stdin to avoid Windows ENAMETOOLONG on large prompts
+  // shell: true so Windows can resolve claude.cmd via PATH
+  const result = spawnSync(claudeBin, ['-p', '--verbose'], {
+    input: prompt,
     cwd: PROJECT_ROOT,
-    stdio: 'pipe',
     timeout: 5 * 60 * 1000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    windowsHide: true,
+    shell: true,
+    env,
   });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const stderr = result.stderr?.slice(0, 500) || '';
+    throw new Error(`Claude CLI exited with code ${result.status}${stderr ? ': ' + stderr : ''}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +246,6 @@ function invokeClaude(prompt: string): void {
 
 function gitCommitFixes(date: string, summaries: string[]): string | null {
   try {
-    // Check if there are any changes to commit
     const status = execSync('git status --porcelain', { cwd: PROJECT_ROOT, encoding: 'utf8' }).trim();
     if (!status) return null;
 
@@ -251,9 +285,10 @@ export async function runFix(options: {
     const date = options.date || new Date().toISOString().split('T')[0];
     const limit = options.limit || 20;
 
-    // Check Claude CLI
-    if (!checkClaudeCLI()) {
-      return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Claude CLI not found on server', errorSummaries: [] };
+    // Find Claude CLI
+    const claudeBin = findClaudeBinary();
+    if (!claudeBin) {
+      return { success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code', errorSummaries: [] };
     }
 
     // Read and deduplicate errors
@@ -273,7 +308,7 @@ export async function runFix(options: {
 
     // Build prompt and invoke Claude
     const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false);
-    invokeClaude(prompt);
+    invokeClaude(claudeBin, prompt);
 
     // Auto-commit if requested
     let committed = false;

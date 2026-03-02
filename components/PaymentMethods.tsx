@@ -157,7 +157,8 @@ const PaymentElementForm: React.FC<{onAdd: (newMethod: PaymentMethod) => void, o
                     ? setupIntent.payment_method
                     : setupIntent.payment_method.id;
 
-                await addPaymentMethod(pmId);
+                // SetupIntent with customer auto-attaches the PM; attach again only if needed
+                try { await addPaymentMethod(pmId); } catch { /* already attached by SetupIntent */ }
 
                 const methods = await getPaymentMethods();
                 const added = methods.find((m: PaymentMethod) => m.id === pmId);
