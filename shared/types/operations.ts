@@ -198,6 +198,8 @@ export interface LocationDirectoryItem {
   collectionFrequency: string | null;
   latitude: string | null;
   longitude: string | null;
+  collectionDaySource: string | null;
+  coverageZoneId: string | null;
   createdAt: string;
 }
 

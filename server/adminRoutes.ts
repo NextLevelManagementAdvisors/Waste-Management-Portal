@@ -292,6 +292,8 @@ export function registerAdminRoutes(app: Express) {
           collectionFrequency: p.collection_frequency,
           latitude: p.latitude,
           longitude: p.longitude,
+          collectionDaySource: p.collection_day_source || null,
+          coverageZoneId: p.coverage_flagged_by_zone || null,
           createdAt: p.created_at,
         })),
         total,
@@ -301,6 +303,59 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Admin locations error:', error);
       res.status(500).json({ error: 'Failed to fetch locations' });
+    }
+  });
+
+  // ── Location Admin Overrides ──
+
+  app.put('/api/admin/locations/:locationId/assign-zone', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { locationId } = req.params;
+      const { zoneId } = req.body;
+      if (!zoneId) return res.status(400).json({ error: 'zoneId is required' });
+
+      const locResult = await storage.query('SELECT id FROM locations WHERE id = $1', [locationId]);
+      if (locResult.rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+
+      const zone = await storage.getZoneById(zoneId);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+      await storage.query(
+        `UPDATE locations SET coverage_flagged_by_zone = $1, coverage_flagged_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [zoneId, locationId]
+      );
+
+      await audit(req, 'admin_assign_zone', 'location', locationId, { zoneId, zoneName: zone.name, driverName: zone.driver_name });
+      res.json({ success: true, zoneId, zoneName: zone.name, driverName: zone.driver_name });
+    } catch (error) {
+      console.error('Assign zone error:', error);
+      res.status(500).json({ error: 'Failed to assign zone' });
+    }
+  });
+
+  app.put('/api/admin/locations/:locationId/collection-day', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { locationId } = req.params;
+      const { collectionDay } = req.body;
+      const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      if (!collectionDay || !validDays.includes(collectionDay)) {
+        return res.status(400).json({ error: 'collectionDay must be a valid weekday' });
+      }
+
+      const locResult = await storage.query('SELECT id, collection_day FROM locations WHERE id = $1', [locationId]);
+      if (locResult.rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+
+      const previousDay = locResult.rows[0].collection_day;
+      await storage.query(
+        `UPDATE locations SET collection_day = $1, collection_day_source = 'admin_override', collection_day_detected_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [collectionDay, locationId]
+      );
+
+      await audit(req, 'admin_override_collection_day', 'location', locationId, { previousDay, newDay: collectionDay });
+      res.json({ success: true, collectionDay });
+    } catch (error) {
+      console.error('Collection day override error:', error);
+      res.status(500).json({ error: 'Failed to update collection day' });
     }
   });
 
