@@ -123,11 +123,53 @@ function normalizeErrorKey(entry: LogEntry): string {
   return `${entry.source}::${msg}`;
 }
 
-export function deduplicateErrors(entries: LogEntry[], limit: number = 20): ErrorGroup[] {
+// ---------------------------------------------------------------------------
+// Fixed-error ledger — prevents re-processing already-fixed errors
+// ---------------------------------------------------------------------------
+
+function fixedLedgerPath(date: string): string {
+  return path.join(LOGS_DIR_PATH, `fixed-${date}.json`);
+}
+
+interface FixedEntry {
+  key: string;
+  commitHash: string;
+  fixedAt: string;
+}
+
+function readFixedLedger(date: string): FixedEntry[] {
+  try {
+    const content = fs.readFileSync(fixedLedgerPath(date), 'utf8');
+    const arr = JSON.parse(content);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function readFixedKeys(date: string): Set<string> {
+  return new Set(readFixedLedger(date).map(e => e.key));
+}
+
+function markKeysAsFixed(date: string, keys: string[], commitHash: string): void {
+  const existing = readFixedLedger(date);
+  const existingKeys = new Set(existing.map(e => e.key));
+  const now = new Date().toISOString();
+  for (const k of keys) {
+    if (!existingKeys.has(k)) {
+      existing.push({ key: k, commitHash, fixedAt: now });
+    }
+  }
+  fs.writeFileSync(fixedLedgerPath(date), JSON.stringify(existing, null, 2));
+}
+
+export function deduplicateErrors(entries: LogEntry[], limit: number = 20, date?: string): ErrorGroup[] {
+  const fixedKeys = date ? readFixedKeys(date) : new Set<string>();
   const groups = new Map<string, ErrorGroup>();
 
   for (const entry of entries) {
     const key = normalizeErrorKey(entry);
+    if (fixedKeys.has(key)) continue; // skip already-fixed errors
     const existing = groups.get(key);
 
     if (existing) {
@@ -460,7 +502,10 @@ export function startFix(options: {
     return { started: false, message: 'No errors found for this date' };
   }
 
-  const groups = deduplicateErrors(entries, limit);
+  const groups = deduplicateErrors(entries, limit, date);
+  if (groups.length === 0) {
+    return { started: false, message: 'All errors for this date have already been fixed' };
+  }
   const summaries = groups.map(g => {
     const e = g.mostRecent;
     const spaTag = e.data?.spa ? ` [${e.data.spa}]` : '';
@@ -496,8 +541,11 @@ export function startFix(options: {
         if (hash) {
           committed = true;
           commitHash = hash;
-          addProgress(`Committed fixes as ${hash}`);
-          logger.info(`Auto-fix committed: ${hash}`);
+          // Tag these errors as fixed so they won't be picked up again
+          const fixedKeys = groups.map(g => g.key);
+          markKeysAsFixed(date, fixedKeys, hash);
+          addProgress(`Committed fixes as ${hash} — ${fixedKeys.length} error(s) tagged as fixed`);
+          logger.info(`Auto-fix committed: ${hash}, tagged ${fixedKeys.length} errors as fixed`);
         } else {
           addProgress('No file changes detected — nothing to commit');
         }
