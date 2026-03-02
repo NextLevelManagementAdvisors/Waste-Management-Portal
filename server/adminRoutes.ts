@@ -2449,10 +2449,11 @@ export function registerAdminRoutes(app: Express) {
             results.push({ id: locationId, success: false, error: 'Not found' });
             continue;
           }
-          const terminalStatuses = ['approved', 'denied'];
-          if (terminalStatuses.includes(location.service_status)) {
+          // Prevent re-processing approved locations (would double-create subscriptions).
+          // Denied locations CAN be reversed.
+          if (location.service_status === 'approved') {
             await client.query('ROLLBACK');
-            results.push({ id: locationId, success: false, error: `Already ${location.service_status}` });
+            results.push({ id: locationId, success: false, error: 'Already approved' });
             continue;
           }
 
@@ -2580,11 +2581,11 @@ export function registerAdminRoutes(app: Express) {
         notifyUserId = location.user_id;
         notifyAddress = location.address;
 
-        // Prevent re-processing if already decided (allow waitlist → approved transition)
-        const terminalStatuses = ['approved', 'denied'];
-        if (terminalStatuses.includes(location.service_status)) {
+        // Prevent re-processing approved locations (would double-create subscriptions).
+        // Denied locations CAN be reversed (moved back to pending_review/waitlist).
+        if (location.service_status === 'approved') {
           await client.query('ROLLBACK');
-          return res.status(409).json({ error: `Location already ${location.service_status}` });
+          return res.status(409).json({ error: 'Location already approved' });
         }
 
         await client.query(

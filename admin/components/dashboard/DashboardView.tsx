@@ -321,11 +321,11 @@ const DashboardView: React.FC<{
                 <div
                   key={idx}
                   className="flex-1 flex flex-col items-center gap-2 group"
-                  title={`${item.month}: $${item.revenue.toFixed(2)}`}
+                  title={`${item.month}: $${Number(item.revenue || 0).toFixed(2)}`}
                 >
                   <div className="w-full flex flex-col items-center">
                     <div className="text-xs font-semibold text-gray-700 group-hover:text-teal-600 transition-colors mb-2">
-                      ${item.revenue > 0 ? item.revenue.toFixed(0) : '0'}
+                      ${item.revenue > 0 ? Number(item.revenue).toFixed(0) : '0'}
                     </div>
                     <div
                       className={`w-full rounded-t transition-all ${
@@ -445,7 +445,7 @@ const DashboardView: React.FC<{
             <StatCard label="Total Customers" value={stats.totalUsers} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('contacts')} />
             <StatCard label="Total Locations" value={stats.totalLocations} icon={<BuildingOffice2Icon className="w-8 h-8" />} onClick={() => onNavigate('operations', { tab: 'locations' })} />
             <StatCard label="New (30 Days)" value={stats.recentUsers} icon={<UsersIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('contacts', { sort: 'newest' })} />
-            <StatCard label="30-Day Revenue" value={`$${stats.revenue.toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('accounting', { tab: 'income' })} />
+            <StatCard label="30-Day Revenue" value={`$${Number(stats.revenue || 0).toFixed(2)}`} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-green-600" onClick={() => onNavigate('accounting', { tab: 'income' })} />
             <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} icon={<ChartPieIcon className="w-8 h-8" />} onClick={() => onNavigate('accounting', { tab: 'subscriptions' })} />
             <StatCard label="Open Invoices" value={stats.openInvoices} icon={<ChartPieIcon className="w-8 h-8" />} accent="text-orange-500" onClick={() => onNavigate('accounting', { tab: 'income' })} />
           </div>

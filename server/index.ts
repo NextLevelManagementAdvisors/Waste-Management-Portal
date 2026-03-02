@@ -221,12 +221,19 @@ if (isProduction) {
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: 'Not found' });
     }
+    const sendSpa = (file: string) => {
+      res.sendFile(file, (err) => {
+        if (err && !res.headersSent) {
+          res.status(404).send('App not built yet. Run: npm run build');
+        }
+      });
+    };
     if (req.path.startsWith('/admin')) {
-      res.sendFile(path.join(distPath, 'admin', 'index.html'));
+      sendSpa(path.join(distPath, 'admin', 'index.html'));
     } else if (req.path.startsWith('/team')) {
-      res.sendFile(path.join(distPath, 'team', 'index.html'));
+      sendSpa(path.join(distPath, 'team', 'index.html'));
     } else {
-      res.sendFile(path.join(distPath, 'index.html'));
+      sendSpa(path.join(distPath, 'index.html'));
     }
   });
 }

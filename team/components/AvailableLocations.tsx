@@ -196,7 +196,7 @@ const AvailableLocations: React.FC = () => {
                           {loc.serviceType} &bull; {loc.collectionDay || 'No day'} &bull; {loc.collectionFrequency || 'weekly'}
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">
-                          {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi away
+                          {loc.matchingZoneName} &bull; {Number(loc.distanceMiles || 0).toFixed(1)} mi away
                         </div>
                         {loc.claimedByDriverId && !loc.isMine && (
                           <div className="text-xs text-orange-600 font-medium mt-1">
@@ -261,7 +261,7 @@ const AvailableLocations: React.FC = () => {
                       <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
                     </div>
                     <div className="text-xs text-gray-400 ml-4 mt-0.5">
-                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi
+                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {Number(loc.distanceMiles || 0).toFixed(1)} mi
                     </div>
                     {loc.claimedByDriverId && !loc.isMine && (
                       <div className="text-xs text-orange-500 ml-4 mt-0.5">

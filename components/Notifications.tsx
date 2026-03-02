@@ -18,8 +18,12 @@ const Notifications: React.FC = () => {
 
     useEffect(() => {
         if (selectedLocation) {
-            // Deep copy to prevent direct mutation of context state
-            setPrefs(JSON.parse(JSON.stringify(selectedLocation.notificationPreferences)));
+            const np = selectedLocation.notificationPreferences || {};
+            setPrefs({
+                collectionReminders: { email: np.collectionReminders?.email !== false, sms: np.collectionReminders?.sms === true },
+                scheduleChanges: { email: np.scheduleChanges?.email !== false, sms: np.scheduleChanges?.sms === true },
+                driverUpdates: { email: np.driverUpdates?.email !== false, sms: np.driverUpdates?.sms === true },
+            });
             setHasChanges(false);
         } else {
             setPrefs(null);

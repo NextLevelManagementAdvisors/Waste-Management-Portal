@@ -55,14 +55,14 @@ const formatDateTime = (dateStr: string) => {
 };
 
 const BidRow: React.FC<{ bid: RouteBid; basePay?: number; onAccept: () => void; canAccept: boolean }> = ({ bid, basePay, onAccept, canAccept }) => {
-  const delta = basePay != null ? bid.bidAmount - basePay : null;
+  const delta = basePay != null ? Number(bid.bidAmount) - basePay : null;
 
   return (
     <tr className="bg-gray-50/80">
       <td className="px-4 py-2 pl-10" colSpan={2}>
         <div className="text-sm font-medium text-gray-900">{bid.driverName}</div>
         {bid.driverRating != null && (
-          <div className="text-xs text-gray-400">Current rating: {bid.driverRating.toFixed(1)}</div>
+          <div className="text-xs text-gray-400">Current rating: {Number(bid.driverRating).toFixed(1)}</div>
         )}
       </td>
       <td className="px-4 py-2">
@@ -70,14 +70,14 @@ const BidRow: React.FC<{ bid: RouteBid; basePay?: number; onAccept: () => void; 
       </td>
       <td className="px-4 py-2">
         {bid.driverRatingAtBid != null && (
-          <div className="text-sm text-gray-600">{bid.driverRatingAtBid.toFixed(1)}</div>
+          <div className="text-sm text-gray-600">{Number(bid.driverRatingAtBid).toFixed(1)}</div>
         )}
       </td>
       <td className="px-4 py-2">
-        <div className="text-sm font-semibold text-teal-700">${bid.bidAmount.toFixed(2)}</div>
+        <div className="text-sm font-semibold text-teal-700">${Number(bid.bidAmount || 0).toFixed(2)}</div>
         {delta != null && delta !== 0 && (
           <div className={`text-xs ${delta > 0 ? 'text-red-500' : 'text-green-600'}`}>
-            {delta > 0 ? '+' : ''}${delta.toFixed(2)}
+            {delta > 0 ? '+' : ''}${Number(delta).toFixed(2)}
           </div>
         )}
       </td>

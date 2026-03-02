@@ -68,8 +68,9 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     };
 
     const handleDismissTipPrompt = () => {
-        if (!lastCollectionState || !data?.states[0].location.id) return;
-        dismissTipPrompt(data.states[0].location.id, lastCollectionState.date);
+        const locationId = data?.states?.[0]?.location?.id;
+        if (!lastCollectionState || !locationId) return;
+        dismissTipPrompt(locationId, lastCollectionState.date);
         setIsTipPromptOpen(false);
     };
     

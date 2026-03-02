@@ -96,7 +96,7 @@ const OnDemandPickups: React.FC = () => {
           <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${STATUS_COLORS[request.status] || STATUS_COLORS.pending}`}>
             {request.status}
           </span>
-          <span className="text-lg font-black text-gray-900">${request.servicePrice.toFixed(2)}</span>
+          <span className="text-lg font-black text-gray-900">${Number(request.servicePrice || 0).toFixed(2)}</span>
         </div>
       </div>
 

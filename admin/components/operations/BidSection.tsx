@@ -72,14 +72,14 @@ const BidSection: React.FC<BidSectionProps> = ({ routeId, basePay, canAcceptBids
       </div>
       <div className="divide-y divide-gray-100">
         {bids.map(bid => {
-          const delta = basePay != null ? bid.bidAmount - basePay : null;
+          const delta = basePay != null ? Number(bid.bidAmount) - basePay : null;
           return (
             <div key={bid.id} className="px-3 py-2 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-gray-900">{bid.driverName}</span>
                   {bid.driverRating != null && (
-                    <span className="text-xs text-gray-400">{bid.driverRating.toFixed(1)}</span>
+                    <span className="text-xs text-gray-400">{Number(bid.driverRating).toFixed(1)}</span>
                   )}
                 </div>
                 <div className="text-xs text-gray-500">{formatDateTime(bid.createdAt)}</div>
@@ -88,10 +88,10 @@ const BidSection: React.FC<BidSectionProps> = ({ routeId, basePay, canAcceptBids
                 )}
               </div>
               <div className="text-right flex-shrink-0">
-                <div className="text-sm font-semibold text-teal-700">${bid.bidAmount.toFixed(2)}</div>
+                <div className="text-sm font-semibold text-teal-700">${Number(bid.bidAmount || 0).toFixed(2)}</div>
                 {delta != null && delta !== 0 && (
                   <div className={`text-xs ${delta > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {delta > 0 ? '+' : ''}${delta.toFixed(2)}
+                    {delta > 0 ? '+' : ''}${Number(delta).toFixed(2)}
                   </div>
                 )}
               </div>
