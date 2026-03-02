@@ -7,13 +7,16 @@ import { getPendingSelections, getServices, deleteOrphanedLocation } from '../se
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { ArrowRightIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, CalendarDaysIcon, ClockIcon } from './Icons.tsx';
-import { LocationWithStatus } from './LocationManagement.tsx';
+import { LocationWithStatus, UnifiedLocationStatus } from './LocationManagement.tsx';
 
 
-const statusConfig = {
+const statusConfig: Record<UnifiedLocationStatus, { icon: React.ReactNode; text: string; color: string; bg: string }> = {
     active: { icon: <CheckCircleIcon className="w-4 h-4" />, text: 'Active', color: 'text-primary', bg: 'bg-primary/5' },
     paused: { icon: <PauseCircleIcon className="w-4 h-4" />, text: 'On Hold', color: 'text-orange-500', bg: 'bg-orange-50' },
-    canceled: { icon: <XCircleIcon className="w-4 h-4" />, text: 'Canceled', color: 'text-red-500', bg: 'bg-red-50' },
+    inactive: { icon: <XCircleIcon className="w-4 h-4" />, text: 'No Services', color: 'text-gray-500', bg: 'bg-gray-100' },
+    pending_review: { icon: <ClockIcon className="w-4 h-4" />, text: 'Under Review', color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    waitlist: { icon: <ClockIcon className="w-4 h-4" />, text: 'Waiting List', color: 'text-blue-600', bg: 'bg-blue-50' },
+    denied: { icon: <XCircleIcon className="w-4 h-4" />, text: 'Not Serviceable', color: 'text-red-500', bg: 'bg-red-50' },
 };
 
 const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (locationId: string) => void; onLocationRemoved?: () => void }> = ({ location, onResumeSetup, onLocationRemoved }) => {
@@ -23,9 +26,9 @@ const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (lo
     const [pendingServiceNames, setPendingServiceNames] = useState<string[]>([]);
     const [selectionsLoaded, setSelectionsLoaded] = useState(false);
 
-    const isPending = location.serviceStatus === 'pending_review';
-    const isDenied = location.serviceStatus === 'denied';
-    const isWaitlist = location.serviceStatus === 'waitlist';
+    const isPending = location.status === 'pending_review';
+    const isDenied = location.status === 'denied';
+    const isWaitlist = location.status === 'waitlist';
     const isReviewBlocked = isPending || isDenied || isWaitlist;
 
     useEffect(() => {
@@ -63,27 +66,10 @@ const LocationCard: React.FC<{ location: LocationWithStatus; onResumeSetup?: (lo
                 <div className="flex-1">
                     <h3 className="text-xl font-black text-gray-900 group-hover:text-primary transition-colors pr-4">{location.address}</h3>
                 </div>
-                {isPending ? (
-                    <div className="px-3 py-1 bg-yellow-50 text-yellow-600 rounded-full flex items-center gap-2 shrink-0">
-                        <ClockIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Under Review</span>
-                    </div>
-                ) : isWaitlist ? (
-                    <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full flex items-center gap-2 shrink-0">
-                        <ClockIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Waiting List</span>
-                    </div>
-                ) : isDenied ? (
-                    <div className="px-3 py-1 bg-red-50 text-red-500 rounded-full flex items-center gap-2 shrink-0">
-                        <XCircleIcon className="w-4 h-4" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Not Serviceable</span>
-                    </div>
-                ) : (
-                    <div className={`px-3 py-1 ${config.bg} ${config.color} rounded-full flex items-center gap-2 shrink-0`}>
-                        {config.icon}
-                        <span className="text-[10px] font-black uppercase tracking-widest">{config.text}</span>
-                    </div>
-                )}
+                <div className={`px-3 py-1 ${config.bg} ${config.color} rounded-full flex items-center gap-2 shrink-0`}>
+                    {config.icon}
+                    <span className="text-[10px] font-black uppercase tracking-widest">{config.text}</span>
+                </div>
             </div>
 
             {isReviewBlocked ? (

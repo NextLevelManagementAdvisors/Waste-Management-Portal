@@ -10,7 +10,7 @@ import { useLocation } from '../LocationContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
 import { Subscription, NewLocationInfo } from '../types.ts';
 import {
-    ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon
+    ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon, InformationCircleIcon
 } from './Icons.tsx';
 import TabBar from './TabBar.tsx';
 import AccountTransfer from './AccountTransfer.tsx';
@@ -248,6 +248,23 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                                 ? 'One of your subscriptions has a payment issue.'
                                 : `${pastDueSubs.length} subscriptions have payment issues.`}
                             {' '}Please update your payment method to avoid service interruption.
+                        </p>
+                    </div>
+                </div>
+            )}
+            {selectedLocation && allSubscriptions.filter(
+                s => s.locationId === selectedLocation.id && (s.status === 'active' || s.status === 'paused')
+            ).length === 0 && (
+                <div className="mb-4 rounded-xl bg-gray-100 border border-gray-200 px-5 py-4 flex items-start gap-3">
+                    <InformationCircleIcon className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <p className="font-bold text-gray-700 text-sm">No Active Services</p>
+                        <p className="text-gray-500 text-sm mt-0.5">
+                            This location has no active subscriptions. Visit the{' '}
+                            <button onClick={() => setActiveTab('services')} className="font-bold text-primary hover:underline">
+                                Services
+                            </button>{' '}
+                            tab to add a plan.
                         </p>
                     </div>
                 </div>

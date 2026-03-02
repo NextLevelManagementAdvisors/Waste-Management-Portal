@@ -4,13 +4,17 @@ import { useLocation } from '../LocationContext.tsx';
 import { getSubscriptions } from '../services/apiService.ts';
 import { Location, Subscription } from '../types.ts';
 import LocationCard from './LocationCard.tsx';
-import { ListBulletIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, PlusCircleIcon } from './Icons.tsx';
+import { ListBulletIcon, CheckCircleIcon, PauseCircleIcon, XCircleIcon, PlusCircleIcon, ClockIcon } from './Icons.tsx';
 import { Card } from './Card.tsx';
 
-type FilterStatus = 'all' | 'active' | 'paused' | 'canceled';
+export type UnifiedLocationStatus =
+    | 'pending_review' | 'waitlist' | 'denied'
+    | 'active' | 'paused' | 'inactive';
+
+type FilterStatus = 'all' | UnifiedLocationStatus;
 
 export interface LocationWithStatus extends Location {
-    status: 'active' | 'paused' | 'canceled';
+    status: UnifiedLocationStatus;
     monthlyTotal: number;
     activeServicesCount: number;
 }
@@ -69,12 +73,23 @@ const LocationManagement: React.FC<LocationManagementProps> = ({ onAddLocation, 
 
     const locationsWithStatus = useMemo((): LocationWithStatus[] => {
         return locations.map(loc => {
-            const locSubs = allSubscriptions.filter(s => s.propertyId === loc.id);
-            let status: 'active' | 'paused' | 'canceled' = 'canceled';
-            if (locSubs.some(s => s.status === 'active')) {
+            const locSubs = allSubscriptions.filter(s => s.locationId === loc.id);
+
+            // Priority cascade: review states take precedence over subscription states
+            let status: UnifiedLocationStatus;
+            const svcStatus = loc.serviceStatus;
+            if (svcStatus === 'pending_review') {
+                status = 'pending_review';
+            } else if (svcStatus === 'waitlist') {
+                status = 'waitlist';
+            } else if (svcStatus === 'denied') {
+                status = 'denied';
+            } else if (locSubs.some(s => s.status === 'active')) {
                 status = 'active';
             } else if (locSubs.some(s => s.status === 'paused')) {
                 status = 'paused';
+            } else {
+                status = 'inactive';
             }
 
             const activeSubs = locSubs.filter(s => s.status === 'active' || s.status === 'paused');
@@ -96,7 +111,10 @@ const LocationManagement: React.FC<LocationManagementProps> = ({ onAddLocation, 
         all: locationsWithStatus.length,
         active: locationsWithStatus.filter(l => l.status === 'active').length,
         paused: locationsWithStatus.filter(l => l.status === 'paused').length,
-        canceled: locationsWithStatus.filter(l => l.status === 'canceled').length,
+        inactive: locationsWithStatus.filter(l => l.status === 'inactive').length,
+        pending_review: locationsWithStatus.filter(l => l.status === 'pending_review').length,
+        waitlist: locationsWithStatus.filter(l => l.status === 'waitlist').length,
+        denied: locationsWithStatus.filter(l => l.status === 'denied').length,
     }), [locationsWithStatus]);
 
     if (loading) {
@@ -137,7 +155,16 @@ const LocationManagement: React.FC<LocationManagementProps> = ({ onAddLocation, 
                     <FilterButton label="All" count={filterCounts.all} icon={<ListBulletIcon className="w-5 h-5" />} isActive={activeFilter === 'all'} onClick={() => setActiveFilter('all')} />
                     <FilterButton label="Active" count={filterCounts.active} icon={<CheckCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'active'} onClick={() => setActiveFilter('active')} />
                     <FilterButton label="On Hold" count={filterCounts.paused} icon={<PauseCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'paused'} onClick={() => setActiveFilter('paused')} />
-                    <FilterButton label="Canceled" count={filterCounts.canceled} icon={<XCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'canceled'} onClick={() => setActiveFilter('canceled')} />
+                    <FilterButton label="No Services" count={filterCounts.inactive} icon={<XCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'inactive'} onClick={() => setActiveFilter('inactive')} />
+                    {filterCounts.pending_review > 0 && (
+                        <FilterButton label="Under Review" count={filterCounts.pending_review} icon={<ClockIcon className="w-5 h-5" />} isActive={activeFilter === 'pending_review'} onClick={() => setActiveFilter('pending_review')} />
+                    )}
+                    {filterCounts.waitlist > 0 && (
+                        <FilterButton label="Waiting List" count={filterCounts.waitlist} icon={<ClockIcon className="w-5 h-5" />} isActive={activeFilter === 'waitlist'} onClick={() => setActiveFilter('waitlist')} />
+                    )}
+                    {filterCounts.denied > 0 && (
+                        <FilterButton label="Denied" count={filterCounts.denied} icon={<XCircleIcon className="w-5 h-5" />} isActive={activeFilter === 'denied'} onClick={() => setActiveFilter('denied')} />
+                    )}
                 </div>
             )}
 
