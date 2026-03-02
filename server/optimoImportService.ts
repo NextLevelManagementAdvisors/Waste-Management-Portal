@@ -74,7 +74,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
 
     // Build stop records with property matching
     const stopData: Array<{
-      property_id?: string | null;
+      location_id?: string | null;
       address?: string;
       location_name?: string;
       optimo_order_no?: string;
@@ -86,11 +86,11 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       const stopAddress = stop.address || stop.location?.address || '';
       const stopLocationName = stop.locationName || stop.location?.locationName || '';
 
-      let propertyId: string | null = null;
+      let locationId: string | null = null;
       if (stopAddress) {
         const matched = await storage.findLocationByAddress(stopAddress);
         if (matched) {
-          propertyId = matched.id;
+          locationId = matched.id;
           result.stopsMatched++;
         } else {
           result.stopsUnmatched++;
@@ -100,7 +100,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       }
 
       stopData.push({
-        property_id: propertyId,
+        location_id: locationId,
         address: stopAddress || undefined,
         location_name: stopLocationName || undefined,
         optimo_order_no: stop.orderNo || undefined,
