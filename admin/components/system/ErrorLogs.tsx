@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
-import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
-import FixContextModal from './FixContextModal.tsx';
 
 interface ErrorLogEntry {
   timestamp: string;
@@ -11,28 +9,6 @@ interface ErrorLogEntry {
   message: string;
   data?: any;
   stack?: string;
-}
-
-interface FixResult {
-  success: boolean;
-  errorsFound: number;
-  uniqueErrors: number;
-  committed: boolean;
-  commitHash?: string;
-  message: string;
-  errorSummaries?: string[];
-}
-
-interface FixHistoryEntry {
-  hash: string;
-  date: string;
-  message: string;
-}
-
-interface FixProgress {
-  status: 'idle' | 'running' | 'done' | 'error';
-  messages: string[];
-  result: FixResult | null;
 }
 
 const formatTime = (ts: string) => {
@@ -64,16 +40,7 @@ const ErrorLogs: React.FC = () => {
   const [dateFilter, setDateFilter] = useState(() => new Date().toISOString().split('T')[0]);
   const [dates, setDates] = useState<string[]>([]);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-
-  // Fix state
-  const [fixing, setFixing] = useState(false);
-  const [fixResult, setFixResult] = useState<FixResult | null>(null);
-  const [fixMessages, setFixMessages] = useState<string[]>([]);
-  const [autoFixEnabled, setAutoFixEnabled] = useState(false);
-  const [togglingAutoFix, setTogglingAutoFix] = useState(false);
-  const [showFixModal, setShowFixModal] = useState(false);
-  const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>([]);
-  const progressRef = useRef<HTMLPreElement>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     fetch('/api/admin/logs/dates', { credentials: 'include' })
@@ -86,56 +53,13 @@ const ErrorLogs: React.FC = () => {
         }
       })
       .catch(() => {});
-
-    // Load auto-fix status
-    fetch('/api/admin/auto-fix/status', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setAutoFixEnabled(data.enabled); })
-      .catch(() => {});
-
-    // Restore fix progress if a fix is running or just finished
-    fetch('/api/admin/fix-progress', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then((progress: FixProgress | null) => {
-        if (!progress || progress.status === 'idle') return;
-        setFixMessages(progress.messages);
-        if (progress.status === 'running') {
-          setFixing(true);
-          // Resume polling
-          const poll = async () => {
-            try {
-              const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
-              if (!r.ok) return;
-              const p: FixProgress = await r.json();
-              setFixMessages(p.messages);
-              if (p.status === 'done' || p.status === 'error') {
-                setFixResult(p.result);
-                setFixing(false);
-                return;
-              }
-              setTimeout(poll, 2000);
-            } catch {
-              setTimeout(poll, 3000);
-            }
-          };
-          setTimeout(poll, 2000);
-        } else {
-          setFixResult(progress.result);
-        }
-      })
-      .catch(() => {});
-
-    // Load fix history
-    fetch('/api/admin/fix-history', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : { commits: [] })
-      .then(data => setFixHistory(data.commits ?? []))
-      .catch(() => {});
   }, []);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     setError(null);
     setExpandedIndex(null);
+    setSelected(new Set());
     try {
       const params = new URLSearchParams({ date: dateFilter, limit: '200' });
       if (sourceFilter) params.append('source', sourceFilter);
@@ -157,84 +81,34 @@ const ErrorLogs: React.FC = () => {
     fetchEntries();
   }, [fetchEntries]);
 
-  const handleFixErrors = async (adminNotes: string, flaggedStories: string[]) => {
-    setShowFixModal(false);
-    setFixing(true);
-    setFixResult(null);
-    setFixMessages([]);
-    try {
-      const res = await fetch('/api/admin/fix-errors', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: dateFilter,
-          source: sourceFilter || undefined,
-          adminNotes: adminNotes || undefined,
-          flaggedStories: flaggedStories.length > 0 ? flaggedStories : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!data.started) {
-        setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: data.error || data.message || 'Failed to start fix' });
-        setFixing(false);
-        return;
-      }
+  const toggleSelect = (index: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
 
-      // Poll for progress
-      const poll = async () => {
-        try {
-          const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
-          if (!r.ok) return;
-          const progress: FixProgress = await r.json();
-          setFixMessages(progress.messages);
-
-          if (progress.status === 'done' || progress.status === 'error') {
-            setFixResult(progress.result);
-            setFixing(false);
-            if (progress.result?.success) {
-              fetchEntries();
-              fetch('/api/admin/fix-history', { credentials: 'include' })
-                .then(r2 => r2.ok ? r2.json() : { commits: [] })
-                .then(d => setFixHistory(d.commits ?? []))
-                .catch(() => {});
-            }
-            return;
-          }
-
-          setTimeout(poll, 2000);
-        } catch {
-          setTimeout(poll, 3000);
-        }
-      };
-      setTimeout(poll, 1000);
-    } catch {
-      setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
-      setFixing(false);
+  const toggleSelectAll = () => {
+    if (selected.size === entries.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(entries.map((_, i) => i)));
     }
   };
 
-  // Auto-scroll progress log
-  useEffect(() => {
-    if (progressRef.current) {
-      progressRef.current.scrollTop = progressRef.current.scrollHeight;
-    }
-  }, [fixMessages]);
+  const selectedEntries = Array.from(selected).map(i => entries[i]).filter(Boolean);
 
-  const handleToggleAutoFix = async () => {
-    setTogglingAutoFix(true);
-    try {
-      const res = await fetch('/api/admin/auto-fix/toggle', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !autoFixEnabled }),
-      });
-      const data = await res.json();
-      setAutoFixEnabled(data.enabled);
-    } catch { /* ignore */ } finally {
-      setTogglingAutoFix(false);
-    }
+  const handleCopySelected = () => {
+    const text = selectedEntries.map(e => {
+      let line = `[${e.source}] ${e.message}`;
+      if (e.data?.url) line += `\n  URL: ${e.data.url}`;
+      if (e.data?.spa) line += `\n  SPA: ${e.data.spa}`;
+      if (e.stack) line += `\n  Stack: ${e.stack.split('\n').slice(0, 3).join('\n    ')}`;
+      return line;
+    }).join('\n\n');
+    navigator.clipboard.writeText(text).catch(() => {});
   };
 
   return (
@@ -264,96 +138,26 @@ const ErrorLogs: React.FC = () => {
         <div className="flex items-end">
           <span className="text-xs text-gray-500 pb-2">{total} error{total !== 1 ? 's' : ''} on this date</span>
         </div>
-        <div className="flex items-end gap-2 ml-auto">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setShowFixModal(true)}
-            disabled={fixing || total === 0}
-            className="whitespace-nowrap"
-          >
-            {fixing ? (
-              <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Fixing...</>
-            ) : (
-              'Fix Errors'
-            )}
-          </Button>
-          <button
-            type="button"
-            onClick={handleToggleAutoFix}
-            disabled={togglingAutoFix}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
-              autoFixEnabled
-                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-            }`}
-            title={autoFixEnabled ? 'Auto-fix is ON — errors are fixed automatically every hour' : 'Auto-fix is OFF — click to enable'}
-          >
-            <span className={`w-2 h-2 rounded-full ${autoFixEnabled ? 'bg-green-500' : 'bg-gray-300'}`} />
-            Auto
-          </button>
-        </div>
+        {selected.size > 0 && (
+          <div className="flex items-end gap-2 ml-auto">
+            <span className="text-xs font-bold text-teal-600 pb-2">{selected.size} selected</span>
+            <button
+              type="button"
+              onClick={handleCopySelected}
+              className="px-3 py-2 rounded-lg text-xs font-bold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-2 rounded-lg text-xs font-bold border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        )}
       </FilterBar>
-
-      {(fixing || fixMessages.length > 0) && (
-        <Card className="p-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gray-900 flex items-center gap-2">
-            {fixing && <span className="inline-block w-3 h-3 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />}
-            <h3 className="text-xs font-black uppercase tracking-widest text-gray-300">
-              {fixing ? 'Fixing Errors...' : 'Fix Complete'}
-            </h3>
-            {!fixing && (
-              <button
-                type="button"
-                onClick={() => setFixMessages([])}
-                className="ml-auto text-gray-500 hover:text-gray-300 text-xs font-bold"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <pre
-            ref={progressRef}
-            className="px-4 py-3 bg-gray-950 text-gray-300 text-xs font-mono leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap"
-          >
-            {fixMessages.map((msg, i) => {
-              const isToolAction = /^(Reading|Editing|Writing|Searching|Running|Using) /.test(msg);
-              const isError = /^\d+x /.test(msg);
-              return (
-                <div key={i} className={`py-0.5 ${isToolAction ? 'text-teal-400' : isError ? 'text-yellow-400' : ''}`}>
-                  {isToolAction && <span className="text-gray-600 mr-1">&gt;</span>}
-                  {msg}
-                </div>
-              );
-            })}
-            {fixing && fixMessages.length === 0 && (
-              <div className="text-gray-500 py-0.5">Starting...</div>
-            )}
-            {fixing && <span className="inline-block w-1.5 h-3.5 bg-teal-400 animate-pulse ml-0.5" />}
-          </pre>
-        </Card>
-      )}
-
-      {fixResult && (
-        <div className={`rounded-lg text-sm border ${
-          fixResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
-          <div className="flex items-center justify-between p-4">
-            <span className="font-bold">{fixResult.message}</span>
-            <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
-          </div>
-          {fixResult.errorSummaries && fixResult.errorSummaries.length > 0 && (
-            <div className="px-4 pb-4">
-              <div className="text-xs font-bold opacity-60 mb-1">Errors addressed:</div>
-              <ul className="space-y-0.5">
-                {fixResult.errorSummaries.map((s, i) => (
-                  <li key={i} className="text-xs opacity-80">&bull; {s}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{error}</div>
@@ -369,6 +173,15 @@ const ErrorLogs: React.FC = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-3 py-3 w-10">
+                    <label className="sr-only">Select all</label>
+                    <input
+                      type="checkbox"
+                      checked={selected.size === entries.length && entries.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Time</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Source</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Message</th>
@@ -379,21 +192,32 @@ const ErrorLogs: React.FC = () => {
                 {entries.map((entry, i) => (
                   <React.Fragment key={i}>
                     <tr
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}
+                      className={`transition-colors cursor-pointer ${selected.has(i) ? 'bg-teal-50/50' : 'hover:bg-gray-50'}`}
                     >
-                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">{formatTime(entry.timestamp)}</td>
-                      <td className="px-4 py-3"><SourceBadge source={entry.source} /></td>
-                      <td className="px-4 py-3 text-sm text-gray-900 max-w-md truncate" title={entry.message}>
+                      <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(i)}
+                          onChange={() => toggleSelect(i)}
+                          className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
+                        {formatTime(entry.timestamp)}
+                      </td>
+                      <td className="px-4 py-3" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
+                        <SourceBadge source={entry.source} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 max-w-md truncate" title={entry.message} onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
                         {entry.message}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
+                      <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
                         {entry.data?.context || entry.data?.url || '—'}
                       </td>
                     </tr>
                     {expandedIndex === i && (
                       <tr>
-                        <td colSpan={4} className="px-4 py-4 bg-gray-50">
+                        <td colSpan={5} className="px-4 py-4 bg-gray-50">
                           <div className="space-y-3">
                             {entry.data && (
                               <div>
@@ -428,21 +252,6 @@ const ErrorLogs: React.FC = () => {
           </div>
         </Card>
       )}
-
-      {fixHistory.length > 0 && (
-        <div className="text-center py-2">
-          <span className="text-xs text-gray-400">
-            {fixHistory.length} auto-fix commit{fixHistory.length !== 1 ? 's' : ''} — see the <strong>Auto-Fixes</strong> tab for full history
-          </span>
-        </div>
-      )}
-
-      <FixContextModal
-        isOpen={showFixModal}
-        onClose={() => setShowFixModal(false)}
-        onSubmit={handleFixErrors}
-        fixing={fixing}
-      />
     </div>
   );
 };

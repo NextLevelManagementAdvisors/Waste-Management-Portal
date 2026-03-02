@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
+import FixContextModal from './FixContextModal.tsx';
 
 interface FileChange {
   status: string;
@@ -19,6 +20,22 @@ interface FixCommit {
 interface AutoFixStatus {
   enabled: boolean;
   running: boolean;
+}
+
+interface FixResult {
+  success: boolean;
+  errorsFound: number;
+  uniqueErrors: number;
+  committed: boolean;
+  commitHash?: string;
+  message: string;
+  errorSummaries?: string[];
+}
+
+interface FixProgress {
+  status: 'idle' | 'running' | 'done' | 'error';
+  messages: string[];
+  result: FixResult | null;
 }
 
 const formatDate = (dateStr: string) => {
@@ -52,6 +69,13 @@ const AutoFixHistory: React.FC = () => {
   const [status, setStatus] = useState<AutoFixStatus>({ enabled: false, running: false });
   const [togglingAutoFix, setTogglingAutoFix] = useState(false);
 
+  // Manual fix state
+  const [showFixModal, setShowFixModal] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<FixResult | null>(null);
+  const [fixMessages, setFixMessages] = useState<string[]>([]);
+  const progressRef = useRef<HTMLPreElement>(null);
+
   const fetchCommits = useCallback(async () => {
     setLoading(true);
     try {
@@ -78,7 +102,46 @@ const AutoFixHistory: React.FC = () => {
   useEffect(() => {
     fetchCommits();
     fetchStatus();
+
+    // Restore fix progress if a fix is running or just finished
+    fetch('/api/admin/fix-progress', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((progress: FixProgress | null) => {
+        if (!progress || progress.status === 'idle') return;
+        setFixMessages(progress.messages);
+        if (progress.status === 'running') {
+          setFixing(true);
+          const poll = async () => {
+            try {
+              const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+              if (!r.ok) return;
+              const p: FixProgress = await r.json();
+              setFixMessages(p.messages);
+              if (p.status === 'done' || p.status === 'error') {
+                setFixResult(p.result);
+                setFixing(false);
+                if (p.result?.success) fetchCommits();
+                return;
+              }
+              setTimeout(poll, 2000);
+            } catch {
+              setTimeout(poll, 3000);
+            }
+          };
+          setTimeout(poll, 2000);
+        } else {
+          setFixResult(progress.result);
+        }
+      })
+      .catch(() => {});
   }, [fetchCommits, fetchStatus]);
+
+  // Auto-scroll progress log
+  useEffect(() => {
+    if (progressRef.current) {
+      progressRef.current.scrollTop = progressRef.current.scrollHeight;
+    }
+  }, [fixMessages]);
 
   const handleToggle = async () => {
     setTogglingAutoFix(true);
@@ -98,6 +161,54 @@ const AutoFixHistory: React.FC = () => {
     }
   };
 
+  const handleFixErrors = async (adminNotes: string, flaggedStories: string[]) => {
+    setShowFixModal(false);
+    setFixing(true);
+    setFixResult(null);
+    setFixMessages([]);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const res = await fetch('/api/admin/fix-errors', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: today,
+          adminNotes: adminNotes || undefined,
+          flaggedStories: flaggedStories.length > 0 ? flaggedStories : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.started) {
+        setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: data.error || data.message || 'Failed to start fix' });
+        setFixing(false);
+        return;
+      }
+
+      const poll = async () => {
+        try {
+          const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+          if (!r.ok) return;
+          const progress: FixProgress = await r.json();
+          setFixMessages(progress.messages);
+          if (progress.status === 'done' || progress.status === 'error') {
+            setFixResult(progress.result);
+            setFixing(false);
+            if (progress.result?.success) fetchCommits();
+            return;
+          }
+          setTimeout(poll, 2000);
+        } catch {
+          setTimeout(poll, 3000);
+        }
+      };
+      setTimeout(poll, 1000);
+    } catch {
+      setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
+      setFixing(false);
+    }
+  };
+
   // Count stats
   const totalFixes = commits.length;
   const totalErrors = commits.reduce((sum, c) => sum + (c.errors?.length || 0), 0);
@@ -105,7 +216,7 @@ const AutoFixHistory: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Status bar */}
+      {/* Status + actions bar */}
       <Card className="p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
@@ -115,39 +226,114 @@ const AutoFixHistory: React.FC = () => {
                 Auto-Fix is {status.enabled ? 'Enabled' : 'Disabled'}
               </span>
             </div>
-            {status.running && (
+            {(status.running || fixing) && (
               <span className="flex items-center gap-1.5 text-xs text-teal-600 font-bold">
                 <span className="inline-block w-3 h-3 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />
                 Fix in progress...
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {totalFixes > 0 && (
               <div className="flex items-center gap-4 text-xs text-gray-500 mr-2">
-                <span><strong className="text-gray-700">{totalFixes}</strong> fix runs</span>
-                <span><strong className="text-gray-700">{totalErrors}</strong> errors addressed</span>
-                <span><strong className="text-gray-700">{totalFiles}</strong> files changed</span>
+                <span><strong className="text-gray-700">{totalFixes}</strong> runs</span>
+                <span><strong className="text-gray-700">{totalErrors}</strong> errors</span>
+                <span><strong className="text-gray-700">{totalFiles}</strong> files</span>
               </div>
             )}
             <Button
-              variant={status.enabled ? 'secondary' : 'primary'}
+              variant="primary"
+              size="sm"
+              onClick={() => setShowFixModal(true)}
+              disabled={fixing}
+              className="whitespace-nowrap"
+            >
+              {fixing ? (
+                <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Fixing...</>
+              ) : (
+                'Fix Errors Now'
+              )}
+            </Button>
+            <Button
+              variant={status.enabled ? 'secondary' : 'ghost'}
               size="sm"
               onClick={handleToggle}
               disabled={togglingAutoFix}
             >
-              {status.enabled ? 'Disable Auto-Fix' : 'Enable Auto-Fix'}
+              {status.enabled ? 'Disable Auto' : 'Enable Auto'}
             </Button>
           </div>
         </div>
         {status.enabled && (
           <p className="text-xs text-gray-400 mt-2">
-            Errors are automatically fixed when reported (2-min debounce, 15-min cooldown) with a 1-hour periodic fallback check.
+            Errors are automatically fixed when reported (2-min debounce, 15-min cooldown) with a 1-hour periodic fallback.
           </p>
         )}
       </Card>
 
-      {/* Commit list */}
+      {/* Fix progress console */}
+      {(fixing || fixMessages.length > 0) && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-900 flex items-center gap-2">
+            {fixing && <span className="inline-block w-3 h-3 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />}
+            <h3 className="text-xs font-black uppercase tracking-widest text-gray-300">
+              {fixing ? 'Fixing Errors...' : 'Fix Complete'}
+            </h3>
+            {!fixing && (
+              <button
+                type="button"
+                onClick={() => setFixMessages([])}
+                className="ml-auto text-gray-500 hover:text-gray-300 text-xs font-bold"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <pre
+            ref={progressRef}
+            className="px-4 py-3 bg-gray-950 text-gray-300 text-xs font-mono leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap"
+          >
+            {fixMessages.map((msg, i) => {
+              const isToolAction = /^(Reading|Editing|Writing|Searching|Running|Using) /.test(msg);
+              const isError = /^\d+x /.test(msg);
+              return (
+                <div key={i} className={`py-0.5 ${isToolAction ? 'text-teal-400' : isError ? 'text-yellow-400' : ''}`}>
+                  {isToolAction && <span className="text-gray-600 mr-1">&gt;</span>}
+                  {msg}
+                </div>
+              );
+            })}
+            {fixing && fixMessages.length === 0 && (
+              <div className="text-gray-500 py-0.5">Starting...</div>
+            )}
+            {fixing && <span className="inline-block w-1.5 h-3.5 bg-teal-400 animate-pulse ml-0.5" />}
+          </pre>
+        </Card>
+      )}
+
+      {/* Fix result banner */}
+      {fixResult && (
+        <div className={`rounded-lg text-sm border ${
+          fixResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center justify-between p-4">
+            <span className="font-bold">{fixResult.message}</span>
+            <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
+          </div>
+          {fixResult.errorSummaries && fixResult.errorSummaries.length > 0 && (
+            <div className="px-4 pb-4">
+              <div className="text-xs font-bold opacity-60 mb-1">Errors addressed:</div>
+              <ul className="space-y-0.5">
+                {fixResult.errorSummaries.map((s, i) => (
+                  <li key={i} className="text-xs opacity-80">&bull; {s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Commit history */}
       {loading ? (
         <LoadingSpinner />
       ) : commits.length === 0 ? (
@@ -194,7 +380,6 @@ const AutoFixHistory: React.FC = () => {
 
                 {isExpanded && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    {/* Errors fixed */}
                     {commit.errors?.length > 0 && (
                       <div className="px-4 py-3 border-b border-gray-100">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Errors Fixed</h4>
@@ -211,7 +396,6 @@ const AutoFixHistory: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Files changed */}
                     {commit.files && commit.files.length > 0 && (
                       <div className="px-4 py-3">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Files Changed</h4>
@@ -236,6 +420,13 @@ const AutoFixHistory: React.FC = () => {
           })}
         </div>
       )}
+
+      <FixContextModal
+        isOpen={showFixModal}
+        onClose={() => setShowFixModal(false)}
+        onSubmit={handleFixErrors}
+        fixing={fixing}
+      />
     </div>
   );
 };
