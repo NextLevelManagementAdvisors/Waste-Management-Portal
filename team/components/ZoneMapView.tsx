@@ -671,7 +671,7 @@ const ZoneMapView: React.FC = () => {
                   <div className="font-bold text-sm">{loc.address}</div>
                   <div className="text-xs text-gray-500 mt-1">{loc.customerName}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {loc.serviceType} &bull; {loc.collectionDay || 'No day'} &bull; {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi
+                    {loc.serviceType} &bull; {loc.collectionDay || 'No day'} &bull; {loc.matchingZoneName} &bull; {(Number(loc.distanceMiles) || 0).toFixed(1)} mi
                   </div>
                   {loc.claimedByDriverId && !loc.isMine && (
                     <div className="text-xs text-orange-600 font-medium mt-1">Claimed by {loc.claimedByDriverName}</div>
@@ -796,7 +796,7 @@ const ZoneMapView: React.FC = () => {
                       <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
                     </div>
                     <div className="text-xs text-gray-400 ml-4 mt-0.5">
-                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {loc.distanceMiles.toFixed(1)} mi
+                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {(Number(loc.distanceMiles) || 0).toFixed(1)} mi
                     </div>
                     {loc.claimedByDriverId && !loc.isMine && (
                       <div className="text-xs text-orange-500 ml-4 mt-0.5">Claimed by {loc.claimedByDriverName}</div>

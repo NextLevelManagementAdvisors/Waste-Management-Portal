@@ -928,7 +928,7 @@ export function registerTeamRoutes(app: Express) {
         is_mine: r.claimed_by_driver_id === driverId,
         latitude: parseFloat(r.latitude),
         longitude: parseFloat(r.longitude),
-        distance_miles: parseFloat(r.distance_miles),
+        distance_miles: parseFloat(r.distance_miles) || 0,
       }));
       res.json({ data: locations });
     } catch (error) {
@@ -1058,7 +1058,19 @@ export function registerTeamRoutes(app: Express) {
         storage.getRouteStops(routeId),
       ]);
 
-      res.json({ data: { ...route, bids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
+      const camelBids = bids.map((b: any) => ({
+        id: b.id,
+        routeId: b.route_id,
+        driverId: b.driver_id,
+        bidAmount: parseFloat(b.bid_amount) || 0,
+        message: b.message,
+        driverRatingAtBid: b.driver_rating_at_bid != null ? parseFloat(b.driver_rating_at_bid) : null,
+        driverName: b.driver_name,
+        driverRating: b.driver_rating != null ? parseFloat(b.driver_rating) : null,
+        createdAt: b.created_at,
+      }));
+
+      res.json({ data: { ...route, bids: camelBids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
     } catch (error: any) {
       console.error('Get route error:', error);
       res.status(500).json({ error: 'Failed to get route' });
