@@ -232,14 +232,31 @@ ${groups.length} unique error${groups.length > 1 ? 's' : ''} found (from ${total
 
 ${errorBlocks}
 
-INSTRUCTIONS:
-1. For each error, identify the root cause in the SOURCE code (not the built/minified output)
-2. For server errors showing HTTP 500s, find the route handler and trace why it fails
-3. For server errors with "/undefined" in the URL, the client is passing undefined as a parameter — find where the API is called
-4. For client errors with minified stacks, use the SPA name, URL path, and error message to locate the component
-5. Fix the root causes directly in the source files
-6. If an error cannot be fixed without more context (e.g., database schema issues, missing env vars), add a TODO comment explaining what is needed
-7. Do NOT modify log files, test files, or build output${userStoriesBlock}${adminNotes ? `\n\nADMIN CONTEXT:\n${adminNotes}` : ''}${flaggedStories?.length ? buildFlaggedStoriesBlock(flaggedStories) : ''}`;
+WORKFLOW — You MUST follow this two-phase approach:
+
+PHASE 1 — PLAN:
+Before making ANY code changes, analyze every error above and produce a numbered plan.
+For each error state:
+  - Root cause (which file and why it fails)
+  - Proposed fix (what you will change)
+  - Skip reason (if you cannot fix it, explain why)
+Output the plan as a numbered list so progress can be tracked.
+
+PHASE 2 — IMPLEMENT:
+Work through your plan ONE error at a time, in order:
+  1. State which error you are fixing (e.g. "Fixing error #1: ...")
+  2. Read the relevant source file(s)
+  3. Make the minimal fix
+  4. Move to the next error
+Do NOT batch multiple fixes into a single edit. Fix one, then the next.
+
+RULES:
+- For server errors showing HTTP 500s, find the route handler and trace why it fails
+- For server errors with "/undefined" in the URL, the client is passing undefined as a parameter — find where the API is called
+- For client errors with minified stacks, use the SPA name, URL path, and error message to locate the component
+- Fix root causes in SOURCE code (not built/minified output)
+- If an error cannot be fixed without more context (e.g., database schema issues, missing env vars), skip it and explain why
+- Do NOT modify log files, test files, or build output${userStoriesBlock}${adminNotes ? `\n\nADMIN CONTEXT:\n${adminNotes}` : ''}${flaggedStories?.length ? buildFlaggedStoriesBlock(flaggedStories) : ''}`;
 }
 
 function buildFlaggedStoriesBlock(storyIds: string[]): string {
@@ -324,8 +341,8 @@ function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
 
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error('Claude CLI timed out after 5 minutes'));
-    }, 5 * 60 * 1000);
+      reject(new Error('Claude CLI timed out after 15 minutes'));
+    }, 15 * 60 * 1000);
 
     child.stdout?.on('data', (chunk: Buffer) => {
       lineBuffer += chunk.toString('utf8');
@@ -457,9 +474,9 @@ export function startFix(options: {
   for (const s of summaries) {
     addProgress(`  ${s}`);
   }
-  addProgress('Building prompt and invoking Claude CLI...');
+  addProgress('Claude will plan fixes first, then implement one at a time...');
 
-  // Run async — fire and forget
+  // Single Claude invocation — prompt instructs plan-then-implement workflow
   const prompt = buildFixPrompt(date, groups, options.includeUserStories ?? false, options.adminNotes, options.flaggedStories);
 
   (async () => {
@@ -497,7 +514,7 @@ export function startFix(options: {
         errorSummaries: summaries,
       };
     } catch (err: any) {
-      const msg = err.killed ? 'Claude CLI timed out after 5 minutes' : (err.message || 'Unknown error');
+      const msg = err.killed ? 'Claude CLI timed out after 15 minutes' : (err.message || 'Unknown error');
       logger.error('Auto-fix failed', err);
       addProgress(`Error: ${msg}`);
       fixStatus = 'error';
