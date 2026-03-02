@@ -64,7 +64,12 @@ export function getFixProgress(): { status: typeof fixStatus; messages: string[]
   return { status: fixStatus, messages: [...fixProgressMessages], result: fixResultStore };
 }
 
+const MAX_PROGRESS_MESSAGES = 150;
+
 function addProgress(msg: string): void {
+  if (fixProgressMessages.length >= MAX_PROGRESS_MESSAGES) {
+    fixProgressMessages.splice(0, fixProgressMessages.length - MAX_PROGRESS_MESSAGES + 1);
+  }
   fixProgressMessages.push(msg);
 }
 
@@ -332,28 +337,20 @@ function invokeClaude(claudeBin: string, prompt: string): Promise<void> {
         try {
           const event = JSON.parse(trimmed);
           // Extract tool-use events for human-readable progress
+          // Only surface tool-use events and final result — skip text deltas
+          // to avoid flooding the progress buffer with thousands of token chunks
           if (event.type === 'assistant' && event.message?.content) {
             for (const block of event.message.content) {
               if (block.type === 'tool_use') {
                 const desc = describeToolUse(block.name, block.input);
                 if (desc) addProgress(desc);
-              } else if (block.type === 'text' && block.text?.trim()) {
-                // Show Claude's reasoning text (first 200 chars)
-                const text = block.text.trim();
-                if (text.length > 200) {
-                  addProgress(text.slice(0, 200) + '...');
-                } else {
-                  addProgress(text);
-                }
               }
             }
           } else if (event.type === 'result') {
-            // Final result — just note completion
             addProgress('Analysis complete');
           }
         } catch {
-          // Not JSON — show raw line (fallback)
-          if (trimmed) addProgress(trimmed);
+          // Not valid JSON — ignore (partial chunk or non-JSON stderr leak)
         }
       }
     });
