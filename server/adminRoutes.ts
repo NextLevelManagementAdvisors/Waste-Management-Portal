@@ -2647,6 +2647,7 @@ export function registerAdminRoutes(app: Express) {
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },
+    AUTO_FIX_ERRORS:            { category: 'app', isSecret: false, label: 'Auto-Fix Errors (Claude)',     displayType: 'toggle' },
     // Slack
     SLACK_WEBHOOK_URL:          { category: 'slack', isSecret: true,  label: 'Webhook URL',                  displayType: 'secret' },
   };

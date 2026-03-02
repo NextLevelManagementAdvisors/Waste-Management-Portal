@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
+import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
 
 interface ErrorLogEntry {
@@ -9,6 +10,15 @@ interface ErrorLogEntry {
   message: string;
   data?: any;
   stack?: string;
+}
+
+interface FixResult {
+  success: boolean;
+  errorsFound: number;
+  uniqueErrors: number;
+  committed: boolean;
+  commitHash?: string;
+  message: string;
 }
 
 const formatTime = (ts: string) => {
@@ -41,6 +51,12 @@ const ErrorLogs: React.FC = () => {
   const [dates, setDates] = useState<string[]>([]);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
+  // Fix state
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<FixResult | null>(null);
+  const [autoFixEnabled, setAutoFixEnabled] = useState(false);
+  const [togglingAutoFix, setTogglingAutoFix] = useState(false);
+
   useEffect(() => {
     fetch('/api/admin/logs/dates', { credentials: 'include' })
       .then(r => r.ok ? r.json() : { dates: [] })
@@ -51,6 +67,12 @@ const ErrorLogs: React.FC = () => {
           setDateFilter(d[0]);
         }
       })
+      .catch(() => {});
+
+    // Load auto-fix status
+    fetch('/api/admin/auto-fix/status', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setAutoFixEnabled(data.enabled); })
       .catch(() => {});
   }, []);
 
@@ -79,6 +101,42 @@ const ErrorLogs: React.FC = () => {
     fetchEntries();
   }, [fetchEntries]);
 
+  const handleFixErrors = async () => {
+    setFixing(true);
+    setFixResult(null);
+    try {
+      const res = await fetch('/api/admin/fix-errors', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateFilter, source: sourceFilter || undefined }),
+      });
+      const data = await res.json();
+      setFixResult(data);
+      if (data.success) fetchEntries();
+    } catch {
+      setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  const handleToggleAutoFix = async () => {
+    setTogglingAutoFix(true);
+    try {
+      const res = await fetch('/api/admin/auto-fix/toggle', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autoFixEnabled }),
+      });
+      const data = await res.json();
+      setAutoFixEnabled(data.enabled);
+    } catch { /* ignore */ } finally {
+      setTogglingAutoFix(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <FilterBar className="bg-white">
@@ -106,7 +164,45 @@ const ErrorLogs: React.FC = () => {
         <div className="flex items-end">
           <span className="text-xs text-gray-500 pb-2">{total} error{total !== 1 ? 's' : ''} on this date</span>
         </div>
+        <div className="flex items-end gap-2 ml-auto">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleFixErrors}
+            disabled={fixing || total === 0}
+            className="whitespace-nowrap"
+          >
+            {fixing ? (
+              <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Fixing...</>
+            ) : (
+              'Fix Errors'
+            )}
+          </Button>
+          <button
+            type="button"
+            onClick={handleToggleAutoFix}
+            disabled={togglingAutoFix}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+              autoFixEnabled
+                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+            }`}
+            title={autoFixEnabled ? 'Auto-fix is ON — errors are fixed automatically every hour' : 'Auto-fix is OFF — click to enable'}
+          >
+            <span className={`w-2 h-2 rounded-full ${autoFixEnabled ? 'bg-green-500' : 'bg-gray-300'}`} />
+            Auto
+          </button>
+        </div>
       </FilterBar>
+
+      {fixResult && (
+        <div className={`p-4 rounded-lg text-sm flex items-center justify-between ${
+          fixResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          <span>{fixResult.message}</span>
+          <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{error}</div>
