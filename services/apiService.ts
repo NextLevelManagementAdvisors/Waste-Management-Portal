@@ -296,6 +296,16 @@ export const deleteOrphanedLocation = async (locationId: string): Promise<void> 
 };
 export const deleteOrphanedProperty = deleteOrphanedLocation;
 
+export const requestLocationReview = async (locationId: string): Promise<void> => {
+    const res = await fetch(`/api/locations/${locationId}/request-review`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+    });
+    const json = await safeJson(res, 'Failed to request review');
+    if (!res.ok) throw new Error(json.error || 'Failed to request review');
+};
+
 export const getPendingSelections = async (locationId: string): Promise<{ serviceId: string; quantity: number; useSticker: boolean }[]> => {
     const res = await fetch(`/api/locations/${locationId}/pending-selections`, {
         credentials: 'include',
@@ -383,6 +393,24 @@ export const getServices = async (): Promise<Service[]> => {
 
 export const payInvoice = stripeService.payInvoice;
 export const payOutstandingBalance = (paymentMethodId: string, locationId?: string) => stripeService.payOutstandingBalance(paymentMethodId, locationId);
+
+export const submitBillingDispute = async (data: { invoiceId: string; invoiceNumber?: string; amount: number; reason: string; details?: string }): Promise<void> => {
+    const res = await fetch('/api/billing/disputes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+    });
+    const json = await safeJson(res, 'Failed to submit dispute');
+    if (!res.ok) throw new Error(json.error || 'Failed to submit dispute');
+};
+
+export const getBillingDisputes = async (): Promise<{ id: string; invoice_id: string; reason: string; status: string; created_at: string }[]> => {
+    const res = await fetch('/api/billing/disputes', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to fetch disputes');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch disputes');
+    return json;
+};
 
 export const subscribeToNewService = async (service: Service, locationId: string, quantity: number, useSticker: boolean) => {
     const location = cachedUser?.locations.find(p => p.id === locationId);

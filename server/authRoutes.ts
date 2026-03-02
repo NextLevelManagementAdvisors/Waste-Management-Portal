@@ -10,7 +10,7 @@ import { requireAuth } from './middleware';
 import { getUncachableStripeClient } from './stripeClient';
 import { sendEmail } from './gmailClient';
 import * as optimoRoute from './optimoRouteClient';
-import { sendMissedCollectionConfirmation, sendServiceUpdate } from './notificationService';
+import { sendMissedCollectionConfirmation, sendServiceUpdate, sendWelcomeEmail, sendVerificationEmail } from './notificationService';
 import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { runFeasibilityAndApprove } from './feasibilityCheck';
@@ -52,6 +52,7 @@ function formatUserForClient(user: DbUser, locations: DbLocation[]) {
     stripeCustomerId: user.stripe_customer_id,
     isAdmin: false, // Derived from roles in auth/me response
     authProvider: user.auth_provider || 'local',
+    emailVerified: user.email_verified ?? false,
     locations: locations.map(formatLocationForClient),
   };
 }
@@ -67,6 +68,7 @@ function formatLocationForClient(loc: DbLocation) {
     hasGateCode: loc.has_gate_code,
     gateCode: loc.gate_code || undefined,
     notes: loc.notes || undefined,
+    serviceStatusNotes: loc.service_status_notes || undefined,
     notificationPreferences: loc.notification_preferences,
     transferStatus: loc.transfer_status || undefined,
     pendingOwner: loc.pending_owner || undefined,
@@ -216,6 +218,17 @@ export function registerAuthRoutes(app: Express) {
 
       req.session.userId = user.id;
 
+      // Send welcome email (fire-and-forget)
+      sendWelcomeEmail(user.id).catch(err => console.error('Welcome email failed:', err));
+
+      // Send email verification (fire-and-forget)
+      const verifyToken = crypto.randomUUID();
+      storage.query(
+        `UPDATE users SET email_verification_token = $1, email_verification_sent_at = NOW() WHERE id = $2`,
+        [verifyToken, user.id]
+      ).then(() => sendVerificationEmail(user.id, verifyToken))
+       .catch(err => console.error('Verification email failed:', err));
+
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during registration:', err);
@@ -313,6 +326,104 @@ export function registerAuthRoutes(app: Express) {
       res.clearCookie('connect.sid');
       res.json({ success: true });
     });
+  });
+
+  // ── Account Deletion ──────────────────────────────────────────
+
+  app.post('/api/auth/delete-account', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUserById(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Cancel active Stripe subscriptions
+      if (user.stripe_customer_id) {
+        try {
+          const stripe = await getUncachableStripeClient();
+          const subs = await stripe.subscriptions.list({
+            customer: user.stripe_customer_id,
+            status: 'active',
+          });
+          for (const sub of subs.data) {
+            await stripe.subscriptions.cancel(sub.id);
+          }
+        } catch (stripeErr: any) {
+          console.error('Failed to cancel Stripe subscriptions during account deletion:', stripeErr.message);
+        }
+      }
+
+      // Schedule deletion for 30 days from now
+      await storage.query(
+        `UPDATE users SET deleted_at = NOW(), deletion_scheduled_for = NOW() + INTERVAL '30 days' WHERE id = $1`,
+        [userId]
+      );
+
+      // Send confirmation email (fire-and-forget)
+      const { sendAccountDeletionEmail } = await import('./notificationService');
+      sendAccountDeletionEmail(userId).catch(() => {});
+
+      // Destroy session
+      req.session.destroy((err) => {
+        if (err) console.error('Session destroy error during account deletion:', err);
+        res.clearCookie('connect.sid');
+        res.json({ success: true });
+      });
+    } catch (error: any) {
+      console.error('Account deletion error:', error);
+      res.status(500).json({ error: 'Failed to delete account' });
+    }
+  });
+
+  // ── Email Verification ──────────────────────────────────────────
+
+  app.get('/api/auth/verify-email', async (req: Request, res: Response) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) return res.status(400).send('Missing token');
+
+      const result = await storage.query(
+        `UPDATE users SET email_verified = TRUE, email_verification_token = NULL WHERE email_verification_token = $1 AND email_verified = FALSE RETURNING id`,
+        [token]
+      );
+
+      if (result.rows.length === 0) {
+        return res.redirect('/?verified=already');
+      }
+
+      res.redirect('/?verified=success');
+    } catch (error: any) {
+      console.error('Email verification error:', error);
+      res.status(500).send('Verification failed');
+    }
+  });
+
+  app.post('/api/auth/resend-verification', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUserById(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      if (user.email_verified) return res.json({ success: true, message: 'Already verified' });
+
+      // Rate limit: 1 per minute
+      if (user.email_verification_sent_at) {
+        const lastSent = new Date(user.email_verification_sent_at).getTime();
+        if (Date.now() - lastSent < 60_000) {
+          return res.status(429).json({ error: 'Please wait before requesting another verification email' });
+        }
+      }
+
+      const token = crypto.randomUUID();
+      await storage.query(
+        `UPDATE users SET email_verification_token = $1, email_verification_sent_at = NOW() WHERE id = $2`,
+        [token, userId]
+      );
+      await sendVerificationEmail(userId, token);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Resend verification error:', error);
+      res.status(500).json({ error: 'Failed to resend verification email' });
+    }
   });
 
   app.get('/api/auth/me', async (req: Request, res: Response) => {
@@ -539,6 +650,71 @@ export function registerAuthRoutes(app: Express) {
     } catch (error: any) {
       console.error('Delete location error:', error);
       res.status(500).json({ error: 'Failed to delete location' });
+    }
+  });
+
+  // ── Request Review (denied → waitlist with support conversation) ──
+
+  app.post('/api/locations/:id/request-review', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const locationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(404).json({ error: 'Location not found' });
+      }
+      if (location.service_status !== 'denied') {
+        return res.status(400).json({ error: 'Only denied locations can request review' });
+      }
+
+      // Move to waitlist
+      await storage.updateServiceStatus(locationId, 'waitlist', 'Customer requested re-review');
+
+      // Create admin notification
+      const user = await storage.getUserById(userId);
+      const userName = user ? `${user.first_name} ${user.last_name}`.trim() : 'A customer';
+      const admins = await storage.query(
+        `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.role = 'admin' LIMIT 1`
+      );
+
+      if (admins.rows.length > 0) {
+        // Notify admin in-app
+        await storage.createNotification(
+          admins.rows[0].id,
+          'review_request',
+          'Service Review Requested',
+          `${userName} is requesting a review for ${location.address}. The address was previously denied.`,
+          { locationId, userId, address: location.address }
+        );
+
+        // Create a support conversation so the customer and admin can discuss
+        const conversation = await storage.createConversation({
+          subject: `Review Request: ${location.address}`,
+          type: 'direct',
+          createdById: userId,
+          createdByType: 'user',
+          participants: [
+            { id: userId, type: 'user', role: 'customer' },
+            { id: admins.rows[0].id, type: 'admin', role: 'admin' },
+          ],
+        });
+
+        const previousNotes = location.service_status_notes
+          ? `\n\nPrevious reviewer notes: "${location.service_status_notes}"`
+          : '';
+
+        await storage.createMessage({
+          conversationId: conversation.id,
+          senderId: userId,
+          senderType: 'user',
+          body: `Hi, I'd like to request a review of my address at ${location.address}. It was previously marked as not serviceable and I'd like to understand if anything has changed.${previousNotes}`,
+        });
+      }
+
+      res.json({ success: true, status: 'waitlist' });
+    } catch (error: any) {
+      console.error('Request review error:', error);
+      res.status(500).json({ error: 'Failed to request review' });
     }
   });
 
@@ -1002,6 +1178,12 @@ export function registerAuthRoutes(app: Express) {
             console.error('Referral processing failed during Google signup (non-blocking):', refErr.message);
           }
         }
+
+        // Send welcome email for new Google OAuth signups (fire-and-forget)
+        sendWelcomeEmail(user.id).catch(err => console.error('Welcome email failed:', err));
+
+        // Auto-verify email for Google OAuth users
+        storage.query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [user.id]).catch(() => {});
       }
 
       const oauthRefCode = req.session.googleOAuthReferralCode;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from '../LocationContext.tsx';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
+import Modal from './Modal.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 import { UpdateProfileInfo, UpdatePasswordInfo, NotificationPreferences } from '../types.ts';
 import { updateNotificationPreferences } from '../services/apiService.ts';
@@ -388,6 +389,9 @@ const SecurityTab: React.FC = () => {
     confirmNew: '',
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPasswordData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -482,6 +486,79 @@ const SecurityTab: React.FC = () => {
           </div>
         </div>
       </Card>
+
+      <Card className="border-none ring-1 ring-red-200 shadow-xl bg-red-50/30">
+        <h2 className="text-xl font-black text-red-800 tracking-tight flex items-center gap-3 mb-2">
+          <ExclamationTriangleIcon className="w-6 h-6 text-red-500" />
+          Danger Zone
+        </h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Permanently delete your account and all associated data. Active subscriptions will be canceled. This action has a 30-day grace period before data is permanently removed.
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowDeleteModal(true)}
+          className="!text-red-600 !border-red-300 hover:!bg-red-100"
+        >
+          Delete Account
+        </Button>
+      </Card>
+
+      <Modal isOpen={showDeleteModal} onClose={() => { setShowDeleteModal(false); setDeleteConfirmation(''); }} title="Delete Account">
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <p className="text-sm text-red-800 font-bold">This action cannot be undone after 30 days.</p>
+            <ul className="text-sm text-red-700 mt-2 space-y-1 list-disc list-inside">
+              <li>All active subscriptions will be canceled</li>
+              <li>You will be logged out immediately</li>
+              <li>Your data will be permanently deleted after 30 days</li>
+              <li>You can contact support within 30 days to cancel the deletion</li>
+            </ul>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
+              Type DELETE to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmation}
+              onChange={e => setDeleteConfirmation(e.target.value)}
+              placeholder="DELETE"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(''); }} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setIsDeleting(true);
+                try {
+                  const res = await fetch('/api/auth/delete-account', {
+                    method: 'POST',
+                    credentials: 'include',
+                  });
+                  if (res.ok) {
+                    window.location.href = '/?deleted=true';
+                  } else {
+                    const data = await res.json();
+                    showToast('error', data.error || 'Failed to delete account');
+                  }
+                } catch {
+                  showToast('error', 'Failed to delete account');
+                }
+                setIsDeleting(false);
+              }}
+              disabled={deleteConfirmation !== 'DELETE' || isDeleting}
+              className="!bg-red-600 hover:!bg-red-700 !text-white"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete My Account'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

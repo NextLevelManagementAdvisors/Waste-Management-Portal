@@ -2,12 +2,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SupportMessage } from '../types.ts';
 import { Button } from './Button.tsx';
-import { PaperAirplaneIcon, SparklesIcon } from './Icons.tsx';
+import { PaperAirplaneIcon, SparklesIcon, UserIcon } from './Icons.tsx';
 import { getSupportResponseStream } from '../services/geminiService.ts';
 import { getSubscriptions, getInvoices } from '../services/apiService.ts';
 import { useLocation } from '../LocationContext.tsx';
 
-const Support: React.FC = () => {
+const ESCALATION_PHRASES = [
+    'unable to help', 'contact support', 'reach out to', 'human support',
+    'speak to a representative', 'contact us', 'support team', "can't assist",
+    'cannot assist', 'beyond my capabilities', 'outside my scope',
+];
+
+const containsEscalationPhrase = (text: string) => {
+    const lower = text.toLowerCase();
+    return ESCALATION_PHRASES.some(phrase => lower.includes(phrase));
+};
+
+const Support: React.FC<{ onEscalateToHuman?: (context: { subject: string; body: string }) => void }> = ({ onEscalateToHuman }) => {
     const { user, selectedLocation, locations } = useLocation();
     const [messages, setMessages] = useState<SupportMessage[]>([
         { sender: 'gemini', text: "Welcome to your AI Concierge. I can help you with account billing, scheduling, or searching for holiday delays. How can I assist you?" }
@@ -17,6 +28,16 @@ const Support: React.FC = () => {
     const [streamingText, setStreamingText] = useState('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const handleEscalate = () => {
+        if (!onEscalateToHuman) return;
+        const recent = messages.slice(-6);
+        const summary = recent.map(m => `${m.sender === 'user' ? 'Customer' : 'AI'}: ${m.text}`).join('\n');
+        onEscalateToHuman({
+            subject: 'AI Concierge Escalation',
+            body: `I was chatting with the AI Concierge and need human assistance. Here's a summary of our conversation:\n\n${summary}`,
+        });
+    };
 
     // Resolve the effective property: use selected, or auto-pick the first if only one exists
     const effectiveProperty = selectedLocation || (locations.length === 1 ? locations[0] : null);
@@ -93,15 +114,32 @@ const Support: React.FC = () => {
 
             <div className="flex-1 p-8 overflow-y-auto space-y-8 bg-white">
                 {messages.map((msg, index) => (
-                    <div key={index} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                        <div className={`max-w-[85%] px-6 py-4 rounded-[1.5rem] leading-relaxed font-medium shadow-sm border ${
-                            msg.sender === 'user'
-                                ? 'bg-primary text-white border-primary shadow-primary/10'
-                                : 'bg-gray-50 text-gray-700 border-gray-100'
-                        }`}>
-                            <p className="whitespace-pre-wrap text-sm">{msg.text}</p>
+                    <React.Fragment key={index}>
+                        <div className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                            <div className={`max-w-[85%] px-6 py-4 rounded-[1.5rem] leading-relaxed font-medium shadow-sm border ${
+                                msg.sender === 'user'
+                                    ? 'bg-primary text-white border-primary shadow-primary/10'
+                                    : 'bg-gray-50 text-gray-700 border-gray-100'
+                            }`}>
+                                <p className="whitespace-pre-wrap text-sm">{msg.text}</p>
+                            </div>
                         </div>
-                    </div>
+                        {msg.sender === 'gemini' && onEscalateToHuman && containsEscalationPhrase(msg.text) && (
+                            <div className="flex flex-col items-start">
+                                <button
+                                    type="button"
+                                    onClick={handleEscalate}
+                                    className="max-w-[85%] px-5 py-3 rounded-[1.25rem] bg-primary/5 border border-primary/20 hover:bg-primary/10 transition-colors flex items-center gap-3"
+                                >
+                                    <UserIcon className="w-5 h-5 text-primary flex-shrink-0" />
+                                    <div className="text-left">
+                                        <p className="text-sm font-bold text-primary">Talk to our support team</p>
+                                        <p className="text-xs text-gray-500">We'll carry over your conversation context</p>
+                                    </div>
+                                </button>
+                            </div>
+                        )}
+                    </React.Fragment>
                 ))}
 
                 {streamingText && (
@@ -156,6 +194,18 @@ const Support: React.FC = () => {
                         </button>
                     ))}
                 </div>
+                {onEscalateToHuman && (
+                    <div className="mt-3 text-center">
+                        <button
+                            type="button"
+                            onClick={handleEscalate}
+                            className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"
+                        >
+                            <UserIcon className="w-3.5 h-3.5" />
+                            Need human help? Talk to our support team
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from '../LocationContext.tsx';
-import { getPendingSelections, getServices, deleteOrphanedLocation } from '../services/apiService.ts';
+import { getPendingSelections, getServices, deleteOrphanedLocation, requestLocationReview } from '../services/apiService.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { CheckCircleIcon, ClockIcon, XCircleIcon } from './Icons.tsx';
@@ -10,6 +10,8 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
     const [pendingServiceNames, setPendingServiceNames] = useState<string[]>([]);
     const [selectionsLoaded, setSelectionsLoaded] = useState(false);
     const [removing, setRemoving] = useState(false);
+    const [requesting, setRequesting] = useState(false);
+    const [reviewRequested, setReviewRequested] = useState(false);
 
     const status = selectedLocation?.serviceStatus;
     const isPending = status === 'pending_review';
@@ -56,6 +58,16 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
             onLocationRemoved();
         } catch {
             setRemoving(false);
+        }
+    };
+
+    const handleRequestReview = async () => {
+        setRequesting(true);
+        try {
+            await requestLocationReview(selectedLocation.id);
+            setReviewRequested(true);
+        } catch {
+            setRequesting(false);
         }
     };
 
@@ -148,6 +160,14 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
                 </Card>
             )}
 
+            {/* Admin-provided denial notes */}
+            {isDenied && selectedLocation.serviceStatusNotes && (
+                <Card className="!p-6 bg-gray-50 border-gray-200">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Reviewer Notes</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{selectedLocation.serviceStatusNotes}</p>
+                </Card>
+            )}
+
             {/* Pending services */}
             {(isPending || isWaitlist) && !isOrphaned && pendingServiceNames.length > 0 && (
                 <Card className={`!p-6 ${isWaitlist ? 'bg-blue-50 border-blue-100' : 'bg-yellow-50 border-yellow-100'}`}>
@@ -169,15 +189,30 @@ const ServiceReviewStatus: React.FC<{ onBack: () => void; onResumeSetup: () => v
             {/* Denied actions */}
             {isDenied && (
                 <Card className="!p-6">
-                    <p className="text-sm text-gray-500 mb-4">You can remove this address and try a different one.</p>
-                    <div className="flex gap-3">
-                        <Button variant="secondary" size="sm" onClick={handleRemove} disabled={removing}>
-                            {removing ? 'Removing...' : 'Remove Address'}
-                        </Button>
-                        <Button variant="primary" size="sm" onClick={onResumeSetup}>
-                            Try Different Address
-                        </Button>
-                    </div>
+                    {reviewRequested ? (
+                        <div className="flex items-center gap-3">
+                            <CheckCircleIcon className="w-6 h-6 text-primary flex-shrink-0" />
+                            <div>
+                                <p className="font-bold text-gray-900">Review Requested</p>
+                                <p className="text-sm text-gray-500 mt-0.5">Your address has been moved to the waiting list and a support conversation has been created. We'll review it again and notify you of the outcome.</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <p className="text-sm text-gray-500 mb-4">You can request a new review, join the waitlist for future expansion, or try a different address.</p>
+                            <div className="flex flex-wrap gap-3">
+                                <Button variant="primary" size="sm" onClick={handleRequestReview} disabled={requesting}>
+                                    {requesting ? 'Requesting...' : 'Request Review'}
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={handleRemove} disabled={removing}>
+                                    {removing ? 'Removing...' : 'Remove Address'}
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={onResumeSetup}>
+                                    Try Different Address
+                                </Button>
+                            </div>
+                        </>
+                    )}
                 </Card>
             )}
         </div>

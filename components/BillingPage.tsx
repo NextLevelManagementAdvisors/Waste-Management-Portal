@@ -11,7 +11,7 @@ import PaymentMethodsPanel from './PaymentMethods.tsx';
 import TabBar from './TabBar.tsx';
 import {
     ChartPieIcon, ClipboardDocumentIcon, BanknotesIcon, CreditCardIcon,
-    CheckCircleIcon, ArrowRightIcon, CalendarDaysIcon
+    CheckCircleIcon, ArrowRightIcon, CalendarDaysIcon, InformationCircleIcon
 } from './Icons.tsx';
 
 type BillingTab = 'overview' | 'invoices' | 'subscriptions' | 'payment-methods';
@@ -158,6 +158,33 @@ const BillingPage: React.FC = () => {
                             <div>
                                 <p className="font-black text-gray-900 text-lg">All Caught Up!</p>
                                 <p className="text-sm text-gray-500">You have no outstanding balance.</p>
+                            </div>
+                        </div>
+                    </Card>
+                )}
+
+                {/* Payment failure transparency — explain what happens next */}
+                {outstandingBalance > 0 && (
+                    <Card className="bg-blue-50 border-blue-200">
+                        <div className="flex items-start gap-4">
+                            <InformationCircleIcon className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="text-sm font-black text-blue-900">What Happens Next</p>
+                                <p className="text-sm text-blue-800 mt-2 leading-relaxed">
+                                    If your payment method was declined, Stripe will automatically retry up to 3 times over the next few weeks.
+                                    If all retries fail, your subscription may be paused.
+                                </p>
+                                <p className="text-sm text-blue-800 mt-2 font-bold">
+                                    Update your payment method now to avoid any service interruption.
+                                </p>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setActiveTab('payment-methods')}
+                                    className="mt-3 !text-blue-700 !border-blue-300 hover:!bg-blue-100"
+                                >
+                                    Update Payment Method
+                                </Button>
                             </div>
                         </div>
                     </Card>

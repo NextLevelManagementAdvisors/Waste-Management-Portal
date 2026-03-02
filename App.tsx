@@ -95,6 +95,8 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [postNavAction, setPostNavAction] = useState<PostNavAction | null>(null);
+  const [escalationContext, setEscalationContext] = useState<{ subject: string; body: string } | null>(null);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonatedBy, setImpersonatedBy] = useState<string | null>(null);
 
@@ -429,7 +431,7 @@ const App: React.FC = () => {
       case 'billing': return <BillingPage />;
       case 'requests': return <RequestsHub />;
       case 'referrals': return <ReferralsHub />;
-      case 'help': return <Support />;
+      case 'help': return <Support onEscalateToHuman={setEscalationContext} />;
       case 'profile-settings': return <SettingsHub />;
       default: return <Dashboard setCurrentView={setCurrentView} />;
     }
@@ -588,6 +590,25 @@ const App: React.FC = () => {
                 </div>
               )}
               <Header currentView={currentView} setCurrentView={setCurrentView} onAddLocationClick={startNewServiceFlow} onToggleSidebar={() => setIsSidebarOpen(o => !o)} />
+              {user && user.emailVerified === false && !user.impersonating && (
+                <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2.5 flex items-center justify-center gap-3 text-sm">
+                  <span className="text-yellow-800 font-medium">Please verify your email address. Check your inbox for a verification link.</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setResendingVerification(true);
+                      try {
+                        await fetch('/api/auth/resend-verification', { method: 'POST', credentials: 'include' });
+                      } catch {}
+                      setResendingVerification(false);
+                    }}
+                    disabled={resendingVerification}
+                    className="text-yellow-700 font-bold hover:text-yellow-900 underline transition-colors"
+                  >
+                    {resendingVerification ? 'Sending...' : 'Resend'}
+                  </button>
+                </div>
+              )}
               <main className="flex-1 overflow-x-hidden overflow-y-auto bg-base-100 p-4 sm:p-6 lg:p-8">
                 <div className="max-w-7xl mx-auto w-full">
                   {renderView()}
@@ -595,7 +616,7 @@ const App: React.FC = () => {
               </main>
             </div>
           </div>
-          {user && <ChatWidget userId={user.id} />}
+          {user && <ChatWidget userId={user.id} escalationContext={escalationContext} onEscalationHandled={() => setEscalationContext(null)} />}
         </LocationContext.Provider>
       </ToastProvider>
     </StripeProvider>

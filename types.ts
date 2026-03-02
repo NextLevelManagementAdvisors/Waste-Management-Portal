@@ -33,6 +33,7 @@ export interface Location {
   hasGateCode: boolean;
   gateCode?: string;
   notes?: string;
+  serviceStatusNotes?: string;
   notificationPreferences: NotificationPreferences;
   transferStatus?: 'pending' | 'completed' | null;
   pendingOwner?: {
@@ -56,6 +57,7 @@ export interface User {
   isAdmin?: boolean;
   impersonating?: boolean;
   authProvider?: string;
+  emailVerified?: boolean;
 }
 
 export interface Service {

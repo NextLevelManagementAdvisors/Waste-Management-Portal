@@ -357,6 +357,106 @@ export async function sendMessageNotificationEmail(
   }
 }
 
+export async function sendVerificationEmail(userId: string, token: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const appDomain = process.env.APP_DOMAIN || 'https://app.ruralwm.com';
+  const verifyUrl = `${appDomain}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+
+  const subject = 'Verify Your Email Address';
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Please verify your email address to ensure you receive important notifications about your service.</p>
+    <p style="color:#4b5563;line-height:1.6;">
+      <a href="${verifyUrl}" style="display:inline-block;background:#0d9488;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Verify Email</a>
+    </p>
+    <p style="color:#9ca3af;font-size:13px;margin-top:24px;">If you didn't create an account, you can safely ignore this email.</p>
+  `;
+  const name = `${user.first_name} ${user.last_name}`.trim();
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Verify Your Email', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Verification email', status: 'sent' }).catch(() => {});
+  } catch (e) {
+    console.error('Failed to send verification email:', e);
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Verification email', status: 'failed', errorMessage: (e as any)?.message }).catch(() => {});
+  }
+}
+
+export async function sendWelcomeEmail(userId: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const subject = 'Welcome to Rural Waste Management!';
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your account is ready. Here's what happens next:</p>
+    <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 8px;color:#0d9488;font-weight:700;">Getting Started</p>
+      <ol style="margin:0;padding:0 0 0 20px;color:#115e59;font-size:14px;line-height:1.8;">
+        <li><strong>Add your address</strong> &mdash; we'll verify it's in our service area</li>
+        <li><strong>Choose your services</strong> &mdash; pick the plan that fits your needs</li>
+        <li><strong>We handle the rest</strong> &mdash; sit back and let us take care of your waste</li>
+      </ol>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">
+      <a href="${process.env.APP_DOMAIN || 'https://app.ruralwm.com'}" style="display:inline-block;background:#0d9488;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Log In to Get Started</a>
+    </p>
+    <p style="color:#9ca3af;font-size:13px;margin-top:24px;">Questions? Use the AI Concierge in your dashboard or message our support team anytime.</p>
+  `;
+  const name = `${user.first_name} ${user.last_name}`.trim();
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Welcome!', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Welcome email', status: 'sent' }).catch(() => {});
+  } catch (e) {
+    console.error('Failed to send welcome email:', e);
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Welcome email', status: 'failed', errorMessage: (e as any)?.message }).catch(() => {});
+  }
+}
+
+export async function sendCollectionCompleteNotification(userId: string, address: string, date: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const name = `${user.first_name} ${user.last_name}`.trim();
+
+  // Always send in-app notification
+  await storage.createNotification(
+    userId,
+    'collection_complete',
+    'Collection Complete',
+    `Your waste collection at ${address} was completed on ${date}.`,
+    { address, date }
+  );
+
+  // Send email if collection reminders are enabled for this location
+  const locations = await storage.getLocationsByUserId(userId);
+  const loc = locations.find((l: any) => l.address === address);
+  const prefs = loc?.notification_preferences;
+  const emailEnabled = prefs?.collectionReminders?.email !== false;
+
+  if (emailEnabled) {
+    const subject = 'Collection Complete';
+    const body = `
+      <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+      <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+        <p style="margin:0 0 4px;color:#16a34a;font-weight:700;">Collection Completed</p>
+        <p style="margin:0;color:#166534;font-size:14px;">Your waste at <strong>${address}</strong> was picked up on <strong>${date}</strong>.</p>
+      </div>
+      <p style="color:#9ca3af;font-size:13px;margin-top:16px;">No action needed. See you next collection day!</p>
+    `;
+    try {
+      await sendEmail(user.email, subject, baseTemplate('Collection Complete', body));
+      logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Collection complete notification', status: 'sent' }).catch(() => {});
+    } catch (e) {
+      console.error('Failed to send collection complete email:', e);
+      logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Collection complete notification', status: 'failed', errorMessage: (e as any)?.message }).catch(() => {});
+    }
+  }
+}
+
 export async function sendCustomNotification(userId: string, message: string, channel: 'email' | 'sms' | 'both' = 'email'): Promise<{ email?: boolean; sms?: boolean }> {
   const user = await storage.getUserById(userId);
   if (!user) return {};
@@ -387,4 +487,29 @@ export async function sendCustomNotification(userId: string, message: string, ch
   }
 
   return result;
+}
+
+export async function sendAccountDeletionEmail(userId: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const subject = 'Account Deletion Scheduled';
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your account has been scheduled for deletion. All active subscriptions have been canceled.</p>
+    <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 4px;color:#dc2626;font-weight:700;">30-Day Grace Period</p>
+      <p style="margin:0;color:#991b1b;font-size:14px;">Your data will be permanently deleted after 30 days. If you change your mind, contact our support team before then to cancel the deletion.</p>
+    </div>
+    <p style="color:#9ca3af;font-size:13px;margin-top:16px;">We're sorry to see you go. Thank you for being a customer.</p>
+  `;
+  const name = `${user.first_name} ${user.last_name}`.trim();
+
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Account Deletion', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Account deletion email', status: 'sent' }).catch(() => {});
+  } catch (e) {
+    console.error('Failed to send account deletion email:', e);
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Account deletion email', status: 'failed', errorMessage: (e as any)?.message }).catch(() => {});
+  }
 }

@@ -17,10 +17,11 @@ const SubscriptionCard: React.FC<{
     onChangePayment: () => void;
     isProcessing: boolean;
 }> = ({ sub, service, paymentMethod, onCancel, onPause, onResume, onChangePayment, isProcessing }) => {
-    const statusColor = {
+    const statusColor: Record<string, string> = {
         active: 'bg-green-100 text-green-800',
         paused: 'bg-yellow-100 text-yellow-800',
         canceled: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200',
+        past_due: 'bg-orange-100 text-orange-800',
     };
 
     const isNew = (new Date().getTime() - new Date(sub.startDate).getTime()) < 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -48,6 +49,8 @@ const SubscriptionCard: React.FC<{
                             <div className="flex-1">
                                 {sub.status === 'paused' ? (
                                     <p className="text-sm font-bold text-yellow-700">Billing paused — no charges while paused</p>
+                                ) : sub.status === 'past_due' ? (
+                                    <p className="text-sm font-bold text-orange-700">Payment retry in progress — update your card to resolve</p>
                                 ) : (
                                     <p className="text-sm text-gray-500">Next charge on <span className="font-bold text-gray-900">{sub.nextBillingDate}</span></p>
                                 )}

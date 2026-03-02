@@ -21,7 +21,12 @@ interface Message {
   created_at: string;
 }
 
-const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
+interface EscalationContext {
+  subject: string;
+  body: string;
+}
+
+const ChatWidget: React.FC<{ userId: string; escalationContext?: EscalationContext | null; onEscalationHandled?: () => void }> = ({ userId, escalationContext, onEscalationHandled }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
@@ -58,6 +63,32 @@ const ChatWidget: React.FC<{ userId: string }> = ({ userId }) => {
     const interval = setInterval(loadUnread, 30000);
     return () => clearInterval(interval);
   }, [loadUnread]);
+
+  // Handle AI escalation → auto-open, create conversation, navigate into it
+  useEffect(() => {
+    if (!escalationContext) return;
+    const createEscalation = async () => {
+      try {
+        const res = await fetch('/api/conversations/new', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ subject: escalationContext.subject, body: escalationContext.body }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setIsOpen(true);
+          setShowNewForm(false);
+          loadConversations();
+          loadMessages(data.conversation.id);
+        }
+      } catch (e) {
+        console.error('Failed to create escalation conversation:', e);
+      }
+      onEscalationHandled?.();
+    };
+    createEscalation();
+  }, [escalationContext]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen) return;

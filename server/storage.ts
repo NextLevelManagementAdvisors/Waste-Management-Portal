@@ -20,6 +20,9 @@ export interface DbUser {
   updated_at: string;
   roles?: string[];
   auth_provider?: string;
+  email_verified?: boolean;
+  email_verification_token?: string;
+  email_verification_sent_at?: string;
 }
 
 export interface DbDriverProfile {
@@ -2710,6 +2713,32 @@ export class Storage {
       `UPDATE notifications SET read = TRUE WHERE user_id = $1 AND read = FALSE`,
       [userId]
     );
+  }
+
+  // ── Billing Disputes ──────────────────────────────────────────────
+
+  async createBillingDispute(data: { userId: string; invoiceId: string; invoiceNumber?: string; amount: number; reason: string; details?: string }) {
+    const result = await this.query(
+      `INSERT INTO billing_disputes (user_id, invoice_id, invoice_number, amount, reason, details) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [data.userId, data.invoiceId, data.invoiceNumber || null, data.amount, data.reason, data.details || null]
+    );
+    return result.rows[0];
+  }
+
+  async getDisputesForUser(userId: string) {
+    const result = await this.query(
+      `SELECT * FROM billing_disputes WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getDisputeByInvoiceId(invoiceId: string) {
+    const result = await this.query(
+      `SELECT * FROM billing_disputes WHERE invoice_id = $1 AND status != 'withdrawn' LIMIT 1`,
+      [invoiceId]
+    );
+    return result.rows[0] || null;
   }
 }
 

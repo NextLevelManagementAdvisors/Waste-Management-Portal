@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { getInvoices, getPaymentMethods, payInvoice } from '../services/apiService.ts';
+import { getInvoices, getPaymentMethods, payInvoice, submitBillingDispute, getBillingDisputes } from '../services/apiService.ts';
 import { Invoice, PaymentMethod } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
@@ -7,6 +7,87 @@ import Modal from './Modal.tsx';
 import PayBalanceModal from './PayBalanceModal.tsx';
 import { ArrowDownTrayIcon, CheckCircleIcon, CreditCardIcon, BanknotesIcon, BuildingOffice2Icon } from './Icons.tsx';
 import { useLocation } from '../LocationContext.tsx';
+
+const DISPUTE_REASONS = ['Incorrect charge', 'Duplicate charge', 'Service not received', 'Other'] as const;
+
+const DisputeModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSuccess: () => void;
+    invoice: Invoice;
+}> = ({ isOpen, onClose, onSuccess, invoice }) => {
+    const [reason, setReason] = useState<string>(DISPUTE_REASONS[0]);
+    const [details, setDetails] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSubmitting(true);
+        setError(null);
+        try {
+            await submitBillingDispute({
+                invoiceId: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                amount: invoice.amount,
+                reason,
+                details: details.trim() || undefined,
+            });
+            onSuccess();
+        } catch (err: any) {
+            setError(err.message || 'Failed to submit dispute');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Dispute Invoice">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <p className="text-sm text-gray-600">
+                        Invoice: <span className="font-bold">{invoice.invoiceNumber || invoice.id}</span> — <span className="font-black">${Number(invoice.amount).toFixed(2)}</span>
+                    </p>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Reason</label>
+                    <select
+                        value={reason}
+                        onChange={e => setReason(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    >
+                        {DISPUTE_REASONS.map(r => (
+                            <option key={r} value={r}>{r}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Details (optional)</label>
+                    <textarea
+                        value={details}
+                        onChange={e => setDetails(e.target.value)}
+                        placeholder="Please describe the issue..."
+                        rows={3}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none"
+                    />
+                </div>
+
+                {error && (
+                    <p className="text-sm text-red-600 font-bold">{error}</p>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                    <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
+                    <Button type="submit" disabled={submitting}>
+                        {submitting ? 'Submitting...' : 'Submit Dispute'}
+                    </Button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
 
 const PayInvoiceModal: React.FC<{
     isOpen: boolean;
@@ -91,20 +172,29 @@ const statusColor = {
 };
 
 // Mobile-first Invoice List component
-const InvoiceList: React.FC<{ 
+const InvoiceList: React.FC<{
     invoices: Invoice[];
     onPay: (invoice: Invoice) => void;
-}> = ({ invoices, onPay }) => {
+    onDispute?: (invoice: Invoice) => void;
+    disputedInvoiceIds?: Set<string>;
+}> = ({ invoices, onPay, onDispute, disputedInvoiceIds }) => {
     return (
         <div className="space-y-3">
-            {invoices.map(invoice => (
+            {invoices.map(invoice => {
+                const isDisputed = disputedInvoiceIds?.has(invoice.id);
+                return (
                 <div key={invoice.id} className="p-4 flex flex-col gap-4 rounded-xl bg-gray-50 border border-base-200">
                     <div className="flex justify-between items-start">
                         <div>
                             <p className="font-bold text-neutral text-sm">{invoice.description || 'Monthly Service'}</p>
                             <p className="text-xs text-gray-400 mt-0.5">{invoice.invoiceNumber ? `#${invoice.invoiceNumber}` : invoice.id}</p>
                         </div>
-                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                        <div className="flex items-center gap-2">
+                            {isDisputed && (
+                                <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full bg-orange-100 text-orange-800">Disputed</span>
+                            )}
+                            <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                        </div>
                     </div>
 
                     <div className="flex justify-between items-end">
@@ -118,33 +208,41 @@ const InvoiceList: React.FC<{
                         </div>
                     </div>
 
-                    {(invoice.status === 'Due' || invoice.status === 'Overdue' || invoice.status === 'Paid') && (
-                        <div className="border-t border-base-200 -mx-4 px-4 pt-3">
-                            {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
-                                <Button size="sm" onClick={() => onPay(invoice)} className="w-full rounded-lg">Pay Now</Button>
-                            ) : invoice.pdfUrl ? (
-                                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
-                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download PDF
-                                </a>
-                            ) : invoice.hostedUrl ? (
-                                <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
-                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View Invoice
-                                </a>
-                            ) : null}
-                        </div>
-                    )}
+                    <div className="border-t border-base-200 -mx-4 px-4 pt-3 flex items-center gap-2">
+                        {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
+                            <>
+                                <Button size="sm" onClick={() => onPay(invoice)} className="flex-1 rounded-lg">Pay Now</Button>
+                                {!isDisputed && onDispute && (
+                                    <button type="button" onClick={() => onDispute(invoice)} className="text-xs font-bold text-gray-400 hover:text-orange-600 transition-colors">
+                                        Dispute
+                                    </button>
+                                )}
+                            </>
+                        ) : invoice.pdfUrl ? (
+                            <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
+                                <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> Download PDF
+                            </a>
+                        ) : invoice.hostedUrl ? (
+                            <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-2 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-colors">
+                                <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View Invoice
+                            </a>
+                        ) : null}
+                    </div>
                 </div>
-            ))}
+                );
+            })}
         </div>
     );
 };
 
 
 // Reusable table component for displaying invoices
-const InvoiceTable: React.FC<{ 
+const InvoiceTable: React.FC<{
     invoices: Invoice[];
     onPay: (invoice: Invoice) => void;
-}> = ({ invoices, onPay }) => {
+    onDispute?: (invoice: Invoice) => void;
+    disputedInvoiceIds?: Set<string>;
+}> = ({ invoices, onPay, onDispute, disputedInvoiceIds }) => {
     return (
          <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -158,7 +256,9 @@ const InvoiceTable: React.FC<{
                     </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                    {invoices.map((invoice) => (
+                    {invoices.map((invoice) => {
+                        const isDisputed = disputedInvoiceIds?.has(invoice.id);
+                        return (
                         <tr key={invoice.id} className="hover:bg-gray-50/50 transition-colors group">
                             <td className="px-6 py-5 whitespace-nowrap max-w-sm">
                                 <p className="text-sm font-bold text-neutral truncate">{invoice.description || 'Monthly Service'}</p>
@@ -167,7 +267,12 @@ const InvoiceTable: React.FC<{
                             <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-600">{invoice.date}</td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm font-black text-neutral">${Number(invoice.amount).toFixed(2)}</td>
                             <td className="px-6 py-5 whitespace-nowrap text-sm">
-                                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor[invoice.status]}`}>{invoice.status}</span>
+                                    {isDisputed && (
+                                        <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full bg-orange-100 text-orange-800">Disputed</span>
+                                    )}
+                                </div>
                                 {invoice.status === 'Paid' && invoice.paymentDate && (
                                     <div className="text-[10px] text-green-600 font-bold mt-1.5 flex items-center uppercase tracking-tighter">
                                         <CheckCircleIcon className="w-3 h-3 mr-1" />
@@ -176,20 +281,28 @@ const InvoiceTable: React.FC<{
                                 )}
                             </td>
                             <td className="px-6 py-5 whitespace-nowrap text-right text-sm font-medium">
-                                {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
-                                    <Button size="sm" onClick={() => onPay(invoice)} className="shadow-sm">Pay Now</Button>
-                                ) : invoice.pdfUrl ? (
-                                    <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> PDF
-                                    </a>
-                                ) : invoice.hostedUrl ? (
-                                    <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-                                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View
-                                    </a>
-                                ) : null}
+                                <div className="flex items-center justify-end gap-3">
+                                    {(invoice.status === 'Due' || invoice.status === 'Overdue') && !isDisputed && onDispute && (
+                                        <button type="button" onClick={() => onDispute(invoice)} className="text-xs font-bold text-gray-400 hover:text-orange-600 transition-colors opacity-0 group-hover:opacity-100">
+                                            Dispute
+                                        </button>
+                                    )}
+                                    {invoice.status === 'Due' || invoice.status === 'Overdue' ? (
+                                        <Button size="sm" onClick={() => onPay(invoice)} className="shadow-sm">Pay Now</Button>
+                                    ) : invoice.pdfUrl ? (
+                                        <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                                            <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> PDF
+                                        </a>
+                                    ) : invoice.hostedUrl ? (
+                                        <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-sm font-bold text-primary hover:bg-gray-100 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                                            <ArrowDownTrayIcon className="w-4 h-4 mr-2" /> View
+                                        </a>
+                                    ) : null}
+                                </div>
                             </td>
                         </tr>
-                    ))}
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
@@ -204,22 +317,25 @@ const Billing: React.FC = () => {
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isPayBalanceModalOpen, setIsPayBalanceModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+    const [disputeInvoice, setDisputeInvoice] = useState<Invoice | null>(null);
+    const [disputedInvoiceIds, setDisputedInvoiceIds] = useState<Set<string>>(new Set());
 
     const isAllMode = !selectedLocation && locations.length > 0;
 
     const fetchAllData = async () => {
         setLoading(true);
         try {
-            const [invoicesData, methodsData] = await Promise.all([getInvoices(), getPaymentMethods()]);
+            const [invoicesData, methodsData, disputes] = await Promise.all([getInvoices(), getPaymentMethods(), getBillingDisputes()]);
             setAllInvoices(invoicesData);
             setPaymentMethods(methodsData);
+            setDisputedInvoiceIds(new Set(disputes.map(d => d.invoice_id)));
         } catch (error) {
             console.error("Failed to fetch billing data:", error);
         } finally {
             setLoading(false);
         }
     };
-    
+
     useEffect(() => {
         fetchAllData();
     }, []);
@@ -261,7 +377,12 @@ const Billing: React.FC = () => {
         setIsPaymentModalOpen(false);
         setIsPayBalanceModalOpen(false);
         setSelectedInvoice(null);
-        fetchAllData(); 
+        fetchAllData();
+    };
+
+    const handleDisputeSuccess = () => {
+        setDisputeInvoice(null);
+        fetchAllData();
     };
 
     if (loading) {
@@ -294,10 +415,10 @@ const Billing: React.FC = () => {
                                     <h3 className="text-lg font-bold text-gray-800 tracking-tight">{location.address}</h3>
                                 </div>
                                  <div className="hidden sm:block">
-                                    <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} />
+                                    <InvoiceTable invoices={invoices} onPay={handleOpenPayModal} onDispute={setDisputeInvoice} disputedInvoiceIds={disputedInvoiceIds} />
                                 </div>
                                 <div className="block sm:hidden p-4">
-                                    <InvoiceList invoices={invoices} onPay={handleOpenPayModal} />
+                                    <InvoiceList invoices={invoices} onPay={handleOpenPayModal} onDispute={setDisputeInvoice} disputedInvoiceIds={disputedInvoiceIds} />
                                 </div>
                             </Card>
                         ))
@@ -315,10 +436,10 @@ const Billing: React.FC = () => {
                     {singleLocationInvoices.length > 0 ? (
                         <>
                             <div className="hidden sm:block">
-                                <InvoiceTable invoices={singleLocationInvoices} onPay={handleOpenPayModal} />
+                                <InvoiceTable invoices={singleLocationInvoices} onPay={handleOpenPayModal} onDispute={setDisputeInvoice} disputedInvoiceIds={disputedInvoiceIds} />
                             </div>
                              <div className="block sm:hidden p-4">
-                                <InvoiceList invoices={singleLocationInvoices} onPay={handleOpenPayModal} />
+                                <InvoiceList invoices={singleLocationInvoices} onPay={handleOpenPayModal} onDispute={setDisputeInvoice} disputedInvoiceIds={disputedInvoiceIds} />
                             </div>
                         </>
                     ) : (
@@ -344,6 +465,15 @@ const Billing: React.FC = () => {
                 onClose={() => setIsPayBalanceModalOpen(false)}
                 onSuccess={handlePaymentSuccess}
             />
+
+            {disputeInvoice && (
+                <DisputeModal
+                    isOpen={!!disputeInvoice}
+                    onClose={() => setDisputeInvoice(null)}
+                    onSuccess={handleDisputeSuccess}
+                    invoice={disputeInvoice}
+                />
+            )}
         </div>
     );
 };

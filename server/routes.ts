@@ -718,4 +718,82 @@ export function registerRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to update preference' });
     }
   });
+
+  // ── Billing Disputes ────────────────────────────────────────────
+
+  const VALID_DISPUTE_REASONS = ['Incorrect charge', 'Duplicate charge', 'Service not received', 'Other'];
+
+  app.post('/api/billing/disputes', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { invoiceId, invoiceNumber, amount, reason, details } = req.body;
+
+      if (!invoiceId || !amount || !reason) {
+        return res.status(400).json({ error: 'invoiceId, amount, and reason are required' });
+      }
+      if (!VALID_DISPUTE_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'Invalid dispute reason' });
+      }
+
+      const existing = await storage.getDisputeByInvoiceId(invoiceId);
+      if (existing) {
+        return res.status(409).json({ error: 'A dispute already exists for this invoice' });
+      }
+
+      const dispute = await storage.createBillingDispute({
+        userId, invoiceId, invoiceNumber, amount, reason, details,
+      });
+
+      // Notify admin
+      const user = await storage.getUserById(userId);
+      const userName = user ? `${user.first_name} ${user.last_name}`.trim() : 'A customer';
+      const admins = await storage.query(
+        `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.role = 'admin' LIMIT 1`
+      );
+
+      if (admins.rows.length > 0) {
+        await storage.createNotification(
+          admins.rows[0].id,
+          'billing_dispute',
+          'Billing Dispute Filed',
+          `${userName} disputed invoice ${invoiceNumber || invoiceId} ($${Number(amount).toFixed(2)}) — Reason: ${reason}`,
+          { disputeId: dispute.id, invoiceId, userId }
+        );
+
+        // Create support conversation
+        await storage.createConversation({
+          subject: `Billing Dispute: Invoice ${invoiceNumber || invoiceId}`,
+          type: 'direct',
+          createdById: userId,
+          createdByType: 'user',
+          participants: [
+            { id: userId, type: 'user', role: 'customer' },
+            { id: admins.rows[0].id, type: 'admin', role: 'admin' },
+          ],
+        }).then(async (conversation) => {
+          await storage.createMessage({
+            conversationId: conversation.id,
+            senderId: userId,
+            senderType: 'user',
+            body: `I'd like to dispute invoice ${invoiceNumber || invoiceId} ($${Number(amount).toFixed(2)}).\n\nReason: ${reason}${details ? `\nDetails: ${details}` : ''}`,
+          });
+        });
+      }
+
+      res.json({ success: true, dispute });
+    } catch (e: any) {
+      console.error('Failed to create dispute:', e);
+      res.status(500).json({ error: 'Failed to create dispute' });
+    }
+  });
+
+  app.get('/api/billing/disputes', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const disputes = await storage.getDisputesForUser(userId);
+      res.json(disputes);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to fetch disputes' });
+    }
+  });
 }

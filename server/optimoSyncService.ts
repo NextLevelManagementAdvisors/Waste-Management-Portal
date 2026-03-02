@@ -16,6 +16,7 @@ import { storage } from './storage';
 import * as optimo from './optimoRouteClient';
 import { detectAndStoreCollectionDays } from './collectionDayDetector';
 import { findOptimalCollectionDay } from './collectionDayOptimizer';
+import { sendCollectionCompleteNotification } from './notificationService';
 
 // ── Types ──
 
@@ -280,6 +281,41 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
 
     // Step 4: Clean up orphaned orders
     const cleanup = await cleanupOrphanedOrders();
+
+    // Step 5: Send collection-complete notifications for past orders not yet notified
+    try {
+      const unnotified = await storage.query(
+        `SELECT o.id, o.location_id, o.order_no, o.scheduled_date,
+                l.address, l.user_id
+         FROM optimo_sync_orders o
+         JOIN locations l ON l.id = o.location_id
+         WHERE o.status = 'active'
+           AND o.scheduled_date < CURRENT_DATE
+           AND (o.customer_notified = FALSE OR o.customer_notified IS NULL)
+         ORDER BY o.scheduled_date DESC
+         LIMIT 50`
+      );
+      for (const row of unnotified.rows) {
+        try {
+          await sendCollectionCompleteNotification(
+            row.user_id,
+            row.address,
+            new Date(row.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          );
+          await storage.query(
+            `UPDATE optimo_sync_orders SET customer_notified = TRUE WHERE id = $1`,
+            [row.id]
+          );
+        } catch (e: any) {
+          console.error(`[OptimoSync] Failed to notify for order ${row.order_no}:`, e.message);
+        }
+      }
+      if (unnotified.rows.length > 0) {
+        console.log(`[OptimoSync] Sent collection-complete notifications for ${unnotified.rows.length} orders`);
+      }
+    } catch (e: any) {
+      console.error('[OptimoSync] Collection notification step failed:', e.message);
+    }
 
     const result: SyncRunResult = {
       logId,

@@ -461,6 +461,7 @@ CREATE TABLE IF NOT EXISTS optimo_sync_orders (
   created_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
 );
+ALTER TABLE optimo_sync_orders ADD COLUMN IF NOT EXISTS customer_notified BOOLEAN DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_location ON optimo_sync_orders(location_id);
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_date ON optimo_sync_orders(scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_optimo_sync_orders_order_no ON optimo_sync_orders(order_no);
@@ -642,3 +643,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_active_location ON location_claims(loca
 CREATE INDEX IF NOT EXISTS idx_lc_driver ON location_claims(driver_id);
 CREATE INDEX IF NOT EXISTS idx_lc_status ON location_claims(status);
 CREATE INDEX IF NOT EXISTS idx_lc_driver_status ON location_claims(driver_id, status);
+
+-- Account deletion
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_for TIMESTAMP;
+
+-- Email verification
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP;
+
+-- Billing disputes
+CREATE TABLE IF NOT EXISTS billing_disputes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id),
+  invoice_id VARCHAR(255) NOT NULL,
+  invoice_number VARCHAR(255),
+  amount NUMERIC(10,2) NOT NULL,
+  reason VARCHAR(100) NOT NULL,
+  details TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  admin_notes TEXT,
+  resolved_at TIMESTAMP,
+  resolved_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_billing_disputes_user ON billing_disputes(user_id);
+CREATE INDEX IF NOT EXISTS idx_billing_disputes_invoice ON billing_disputes(invoice_id);
