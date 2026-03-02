@@ -93,6 +93,38 @@ const ErrorLogs: React.FC = () => {
       .then(data => { if (data) setAutoFixEnabled(data.enabled); })
       .catch(() => {});
 
+    // Restore fix progress if a fix is running or just finished
+    fetch('/api/admin/fix-progress', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((progress: FixProgress | null) => {
+        if (!progress || progress.status === 'idle') return;
+        setFixMessages(progress.messages);
+        if (progress.status === 'running') {
+          setFixing(true);
+          // Resume polling
+          const poll = async () => {
+            try {
+              const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+              if (!r.ok) return;
+              const p: FixProgress = await r.json();
+              setFixMessages(p.messages);
+              if (p.status === 'done' || p.status === 'error') {
+                setFixResult(p.result);
+                setFixing(false);
+                return;
+              }
+              setTimeout(poll, 2000);
+            } catch {
+              setTimeout(poll, 3000);
+            }
+          };
+          setTimeout(poll, 2000);
+        } else {
+          setFixResult(progress.result);
+        }
+      })
+      .catch(() => {});
+
     // Load fix history
     fetch('/api/admin/fix-history', { credentials: 'include' })
       .then(r => r.ok ? r.json() : { commits: [] })
