@@ -8,31 +8,35 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ## 1. CUSTOMER PORTAL
 
+> **Audit summary (2026-03-02):** 89 original stories + 15 new gap stories = 104 total.
+> Done: 80 | Partial: 3 (C-79, C-80, C-81) | Not started: 17 (C-82, C-87, C-90–C-104).
+> Full gap analysis: [`docs/GAP_ANALYSIS.md`](GAP_ANALYSIS.md) (if created) or see plan file.
+
 ### 1.1 Authentication & Account
 
-| # | User Story |
-|---|-----------|
-| C-1 | As a customer, I want to register with my email and password, so that I can create an account and start service. |
-| C-2 | As a customer, I want to sign up with Google SSO, so that I can register without creating a new password. |
-| C-3 | As a customer, I want to log in with my email and password, so that I can access my account. |
-| C-4 | As a customer, I want to log in with Google SSO, so that I can access my account quickly. |
-| C-5 | As a customer, I want to be locked out after 5 failed login attempts (15-min cooldown), so that my account is protected from brute-force attacks. |
-| C-6 | As a customer, I want to request a password reset email, so that I can regain access if I forget my password. |
-| C-7 | As a customer, I want to reset my password via a time-limited token (1 hour), so that the reset link can't be reused indefinitely. |
-| C-8 | As a customer, I want to log out and have my session destroyed, so that nobody else can access my account on a shared device. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-1 | Done | As a customer, I want to register with my email and password, so that I can create an account and start service. |
+| C-2 | Done | As a customer, I want to sign up with Google SSO, so that I can register without creating a new password. |
+| C-3 | Done | As a customer, I want to log in with my email and password, so that I can access my account. |
+| C-4 | Done | As a customer, I want to log in with Google SSO, so that I can access my account quickly. |
+| C-5 | Done | As a customer, I want to be locked out after 5 failed login attempts (15-min cooldown), so that my account is protected from brute-force attacks. <!-- Note: lockout is in-memory only; resets on server restart --> |
+| C-6 | Done | As a customer, I want to request a password reset email, so that I can regain access if I forget my password. |
+| C-7 | Done | As a customer, I want to reset my password via a time-limited token (1 hour), so that the reset link can't be reused indefinitely. |
+| C-8 | Done | As a customer, I want to log out and have my session destroyed, so that nobody else can access my account on a shared device. |
 
 ### 1.2 Dashboard
 
-| # | User Story |
-|---|-----------|
-| C-9 | As a customer, I want to see a dashboard with quick actions (Start Service, Pay Balance, Extra Pickup, Report Issue, Manage Plan, Referral), so that I can navigate to common tasks in one click. |
-| C-10 | As a customer, I want to see my upcoming collection dates per location, so that I know when to put my bins out. |
-| C-11 | As a customer, I want to see my total monthly cost and outstanding balance at a glance, so that I stay informed about my billing. |
-| C-12 | As a customer, I want to see payment alerts for past-due subscriptions, so that I can pay before service is interrupted. |
-| C-13 | As a customer, I want to be prompted to tip my driver after a successful collection, so that I can show appreciation for good service. |
-| C-14 | As a customer, I want to dismiss the tip prompt and not see it again for that collection, so that I'm not nagged repeatedly. |
-| C-15 | As a customer, I want to see an AI Concierge card on my dashboard, so that I can quickly access support. |
-| C-16 | As a customer with multiple locations, I want to switch between locations or view "All" aggregated data, so that I can manage everything from one dashboard. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-9 | Done | As a customer, I want to see a dashboard with quick actions (Start Service, Pay Balance, Extra Pickup, Report Issue, Manage Plan, Referral), so that I can navigate to common tasks in one click. |
+| C-10 | Done | As a customer, I want to see my upcoming collection dates per location, so that I know when to put my bins out. |
+| C-11 | Done | As a customer, I want to see my total monthly cost and outstanding balance at a glance, so that I stay informed about my billing. |
+| C-12 | Done | As a customer, I want to see payment alerts for past-due subscriptions, so that I can pay before service is interrupted. |
+| C-13 | Done | As a customer, I want to be prompted to tip my driver after a successful collection, so that I can show appreciation for good service. |
+| C-14 | Done | As a customer, I want to dismiss the tip prompt and not see it again for that collection, so that I'm not nagged repeatedly. |
+| C-15 | Done | As a customer, I want to see an AI Concierge card on my dashboard, so that I can quickly access support. |
+| C-16 | Done | As a customer with multiple locations, I want to switch between locations or view "All" aggregated data, so that I can manage everything from one dashboard. |
 
 ### 1.3 Service Setup & Onboarding
 
@@ -50,23 +54,23 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ### 1.4 Service Management
 
-| # | User Story |
-|---|-----------|
-| C-26 | As a customer, I want to view an overview of my active and paused services per location, so that I can see what I'm subscribed to. |
-| C-27 | As a customer, I want to browse additional available services and subscribe mid-cycle, so that I can add services as my needs change. |
-| C-28 | As a customer, I want to view my collection history with dates, statuses, and driver names, so that I have a record of past service. |
-| C-29 | As a customer, I want to edit my location details (service type, HOA, gate code, notes), so that I can keep my information current. |
-| C-30 | As a customer, I want to manage notification preferences per location (collection reminders, schedule changes, driver updates, billing alerts), so that I control what communications I receive. |
-| C-31 | As a customer, I want to cancel all services for a location via a "Danger Zone" option, so that I can end service if I no longer need it. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-26 | Done | As a customer, I want to view an overview of my active and paused services per location, so that I can see what I'm subscribed to. |
+| C-27 | Done | As a customer, I want to browse additional available services and subscribe mid-cycle, so that I can add services as my needs change. |
+| C-28 | Done | As a customer, I want to view my collection history with dates, statuses, and driver names, so that I have a record of past service. |
+| C-29 | Done | As a customer, I want to edit my location details (service type, HOA, gate code, notes), so that I can keep my information current. |
+| C-30 | Done | As a customer, I want to manage notification preferences per location (collection reminders, schedule changes, driver updates, billing alerts), so that I control what communications I receive. |
+| C-31 | Done | As a customer, I want to cancel all services for a location via a "Danger Zone" option, so that I can end service if I no longer need it. |
 
 ### 1.5 Multi-Location Management
 
-| # | User Story |
-|---|-----------|
-| C-32 | As a customer, I want to add multiple locations to my account, so that I can manage service for all my locations in one place. |
-| C-33 | As a customer, I want to see location cards with status badges (Active, On Hold, Canceled), so that I can quickly see the state of each location. |
-| C-34 | As a customer, I want to filter my locations by status, so that I can focus on active or problem locations. |
-| C-35 | As a customer, I want to delete a location that has no active subscriptions, so that I can clean up locations I no longer manage. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-32 | Done | As a customer, I want to add multiple locations to my account, so that I can manage service for all my locations in one place. |
+| C-33 | Done | As a customer, I want to see location cards with status badges (Active, On Hold, Canceled), so that I can quickly see the state of each location. |
+| C-34 | Done | As a customer, I want to filter my locations by status, so that I can focus on active or problem locations. |
+| C-35 | Done | As a customer, I want to delete a location that has no active subscriptions, so that I can clean up locations I no longer manage. |
 
 ### 1.6 Requests (On-Demand, Holds, Issues)
 
@@ -84,113 +88,143 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ### 1.7 Billing & Payments
 
-| # | User Story |
-|---|-----------|
-| C-45 | As a customer, I want to see a billing overview with total monthly cost, outstanding balance, and next billing date, so that I understand my financial obligations. |
-| C-46 | As a customer, I want to view and filter my invoices (Paid, Due, Overdue), so that I can find specific billing records. |
-| C-47 | As a customer, I want to download PDF invoices from Stripe, so that I have receipts for my records. |
-| C-48 | As a customer, I want to pay a specific outstanding invoice immediately, so that I can settle my balance on demand. |
-| C-49 | As a customer, I want to view my active, paused, and cancelled subscriptions with service name, frequency, and price, so that I understand what I'm paying for. |
-| C-50 | As a customer, I want to pause, resume, or cancel individual subscriptions, so that I have control over each service. |
-| C-51 | As a customer, I want to update the payment method on a specific subscription, so that I can use different cards for different services. |
-| C-52 | As a customer, I want to add a new credit card or bank account as a payment method, so that I can pay with my preferred method. |
-| C-53 | As a customer, I want to set a default payment method, so that new charges go to my preferred card or bank. |
-| C-54 | As a customer, I want to remove a saved payment method, so that I can clean up expired or unused cards. |
-| C-55 | As a customer, I want to toggle autopay on or off, so that I can choose between automatic and manual payments. |
-| C-56 | As a customer, I want to pay my outstanding balance from the dashboard via a quick-pay modal, so that I can resolve balances without navigating to the billing page. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-45 | Done | As a customer, I want to see a billing overview with total monthly cost, outstanding balance, and next billing date, so that I understand my financial obligations. |
+| C-46 | Done | As a customer, I want to view and filter my invoices (Paid, Due, Overdue), so that I can find specific billing records. |
+| C-47 | Done | As a customer, I want to download PDF invoices from Stripe, so that I have receipts for my records. |
+| C-48 | Done | As a customer, I want to pay a specific outstanding invoice immediately, so that I can settle my balance on demand. |
+| C-49 | Done | As a customer, I want to view my active, paused, and cancelled subscriptions with service name, frequency, and price, so that I understand what I'm paying for. |
+| C-50 | Done | As a customer, I want to pause, resume, or cancel individual subscriptions, so that I have control over each service. |
+| C-51 | Done | As a customer, I want to update the payment method on a specific subscription, so that I can use different cards for different services. |
+| C-52 | Done | As a customer, I want to add a new credit card or bank account as a payment method, so that I can pay with my preferred method. |
+| C-53 | Done | As a customer, I want to set a default payment method, so that new charges go to my preferred card or bank. |
+| C-54 | Done | As a customer, I want to remove a saved payment method, so that I can clean up expired or unused cards. |
+| C-55 | Done | As a customer, I want to toggle autopay on or off, so that I can choose between automatic and manual payments. |
+| C-56 | Done | As a customer, I want to pay my outstanding balance from the dashboard via a quick-pay modal, so that I can resolve balances without navigating to the billing page. |
 
 ### 1.8 Account Settings
 
-| # | User Story |
-|---|-----------|
-| C-57 | As a customer, I want to edit my profile (name, email, phone), so that my contact information stays current. |
-| C-58 | As a customer, I want to change my password (current password required for email users; not required for Google OAuth users), so that I can maintain account security. |
-| C-59 | As a customer, I want to manage notification preferences with per-channel toggles (email, SMS) for each notification type, so that I only receive the communications I want. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-57 | Done | As a customer, I want to edit my profile (name, email, phone), so that my contact information stays current. |
+| C-58 | Done | As a customer, I want to change my password (current password required for email users; not required for Google OAuth users), so that I can maintain account security. |
+| C-59 | Done | As a customer, I want to manage notification preferences with per-channel toggles (email, SMS) for each notification type, so that I only receive the communications I want. |
 
 ### 1.9 Referrals & Rewards
 
-| # | User Story |
-|---|-----------|
-| C-60 | As a customer, I want to view my unique referral code and shareable link, so that I can invite neighbors to the service. |
-| C-61 | As a customer, I want to copy my referral code or link to clipboard, so that I can easily share it. |
-| C-62 | As a customer, I want to see my total rewards earned and referral statuses (Pending, Completed), so that I can track the value of my referrals. |
-| C-63 | As a customer signing up with a referral code, I want the code auto-applied and both parties credited ($10 each), so that the referral benefit is seamless. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-60 | Done | As a customer, I want to view my unique referral code and shareable link, so that I can invite neighbors to the service. |
+| C-61 | Done | As a customer, I want to copy my referral code or link to clipboard, so that I can easily share it. |
+| C-62 | Done | As a customer, I want to see my total rewards earned and referral statuses (Pending, Completed), so that I can track the value of my referrals. |
+| C-63 | Done | As a customer signing up with a referral code, I want the code auto-applied and both parties credited ($10 each), so that the referral benefit is seamless. |
 
 ### 1.10 Account Transfer
 
-| # | User Story |
-|---|-----------|
-| C-64 | As a customer, I want to initiate an account transfer by entering the new owner's name and email, so that I can hand off service when I move. |
-| C-65 | As a customer, I want to confirm the transfer by typing "TRANSFER", so that accidental transfers are prevented. |
-| C-66 | As a customer, I want to send a reminder or cancel a pending transfer, so that I can follow up or change my mind. |
-| C-67 | As a new owner, I want to accept a location transfer via an emailed token link, so that I can take over the account and subscriptions. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-64 | Done | As a customer, I want to initiate an account transfer by entering the new owner's name and email, so that I can hand off service when I move. |
+| C-65 | Done | As a customer, I want to confirm the transfer by typing "TRANSFER", so that accidental transfers are prevented. |
+| C-66 | Done | As a customer, I want to send a reminder or cancel a pending transfer, so that I can follow up or change my mind. |
+| C-67 | Done | As a new owner, I want to accept a location transfer via an emailed token link, so that I can take over the account and subscriptions. |
 
 ### 1.11 AI Support Concierge
 
-| # | User Story |
-|---|-----------|
-| C-68 | As a customer, I want to chat with an AI assistant that knows my account, subscriptions, and invoices, so that I can get instant answers to billing and scheduling questions. |
-| C-69 | As a customer, I want quick-prompt buttons (Holiday Schedule, Pay Balance, Missed Collection), so that I can get common answers in one click. |
-| C-70 | As a customer, I want streamed real-time AI responses, so that I don't wait for the full response to load. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-68 | Done | As a customer, I want to chat with an AI assistant that knows my account, subscriptions, and invoices, so that I can get instant answers to billing and scheduling questions. |
+| C-69 | Done | As a customer, I want quick-prompt buttons (Holiday Schedule, Pay Balance, Missed Collection), so that I can get common answers in one click. |
+| C-70 | Done | As a customer, I want streamed real-time AI responses, so that I don't wait for the full response to load. |
 
 ### 1.12 Collection Feedback & Tips
 
-| # | User Story |
-|---|-----------|
-| C-71 | As a customer, I want to rate my driver and leave comments after a collection, so that I can provide feedback on service quality. |
-| C-72 | As a customer, I want to leave a tip for my driver after a successful collection, so that I can reward great service. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-71 | Done | As a customer, I want to rate my driver and leave comments after a collection, so that I can provide feedback on service quality. |
+| C-72 | Done | As a customer, I want to leave a tip for my driver after a successful collection, so that I can reward great service. |
 
 ### 1.13 Collection Intent
 
-| # | User Story |
-|---|-----------|
-| C-73 | As a customer, I want to mark an upcoming collection as "skip" or "out", so that my driver knows not to stop at my location this week. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-73 | Done | As a customer, I want to mark an upcoming collection as "skip" or "out", so that my driver knows not to stop at my location this week. |
 
 ### 1.14 Collection Tracking
 
-| # | User Story |
-|---|-----------|
-| C-74 | As a customer, I want to see my next collection ETA via OptimoRoute integration, so that I know approximately when my driver will arrive. |
-| C-75 | As a customer, I want to see whether my collection is in-progress, so that I know the driver is on the way. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-74 | Done | As a customer, I want to see my next collection ETA via OptimoRoute integration, so that I know approximately when my driver will arrive. |
+| C-75 | Done | As a customer, I want to see whether my collection is in-progress, so that I know the driver is on the way. |
 
 ### 1.15 Notifications & Payment Lifecycle
 
-| # | User Story |
-|---|-----------|
-| C-76 | As a customer, I want to receive an email confirmation when my payment is processed, so that I have proof of payment. |
-| C-77 | As a customer, I want to be alerted when a subscription payment fails, so that I can update my payment method before service is interrupted. |
-| C-78 | As a Google OAuth customer, I want to set a password without needing to enter a "current password" (since I don't have one), so that I can also log in with email/password. |
-| C-79 | As a customer, I want the service signup wizard to save my progress so I can resume if I navigate away or reload, so that I don't lose my selections. |
-| C-80 | As a waitlisted customer, I want to be notified when a spot opens in my service area, so that I can activate service promptly. |
-| C-81 | As a customer, I want failed payments to be automatically retried before my service is suspended, so that a temporary card issue doesn't interrupt my collections. |
-| C-82 | As a customer, I want to schedule equipment delivery when starting service, so that I have the right bins before my first collection. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-76 | Done | As a customer, I want to receive an email confirmation when my payment is processed, so that I have proof of payment. |
+| C-77 | Done | As a customer, I want to be alerted when a subscription payment fails, so that I can update my payment method before service is interrupted. |
+| C-78 | Done | As a Google OAuth customer, I want to set a password without needing to enter a "current password" (since I don't have one), so that I can also log in with email/password. |
+| C-79 | Partial | As a customer, I want the service signup wizard to save my progress so I can resume if I navigate away or reload, so that I don't lose my selections. <!-- Service selections saved via pending_service_selections table, but full wizard state (address/location steps) does not persist across page reload --> |
+| C-80 | Partial | As a waitlisted customer, I want to be notified when a spot opens in my service area, so that I can activate service promptly. <!-- Zone approval flags locations and sends Slack alert to admins, but NO email/notification is sent to the customer. See S-15, A-93. --> |
+| C-81 | Partial | As a customer, I want failed payments to be automatically retried before my service is suspended, so that a temporary card issue doesn't interrupt my collections. <!-- Stripe Smart Retries handle this, but no custom retry logic or grace-period UX exists in our code --> |
+| C-82 | — | As a customer, I want to schedule equipment delivery when starting service, so that I have the right bins before my first collection. <!-- equipmentStatus field exists on locations but no scheduling UI implemented --> |
 
 ### 1.16 In-Portal Messaging
 
-| # | User Story |
-|---|-----------|
-| C-83 | As a customer, I want to message admin/dispatch via an in-portal chat widget with threaded conversations, so that I can get help without leaving the app. |
-| C-84 | As a customer, I want to see an unread message count badge on the chat widget, so that I know when I have new messages. |
-| C-85 | As a customer, I want to receive real-time messages via WebSocket, so that conversations feel instant. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-83 | Done | As a customer, I want to message admin/dispatch via an in-portal chat widget with threaded conversations, so that I can get help without leaving the app. |
+| C-84 | Done | As a customer, I want to see an unread message count badge on the chat widget, so that I know when I have new messages. |
+| C-85 | Done | As a customer, I want to receive real-time messages via WebSocket, so that conversations feel instant. |
 
 ### 1.17 Mid-Cycle Service Changes
 
-| # | User Story |
-|---|-----------|
-| C-86 | As a customer, I want to change service quantities (add/remove units) mid-cycle from my Services tab, so that I can scale up or down without canceling. |
-| C-87 | As a customer, I want to be prompted for equipment delivery/pickup when changing service quantities, so that I have the right bins for my updated plan. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-86 | Done | As a customer, I want to change service quantities (add/remove units) mid-cycle from my Services tab, so that I can scale up or down without canceling. |
+| C-87 | — | As a customer, I want to be prompted for equipment delivery/pickup when changing service quantities, so that I have the right bins for my updated plan. <!-- Quantity PATCH exists but no equipment logistics prompt in UI --> |
 
 ### 1.18 Location Lifecycle
 
-| # | User Story |
-|---|-----------|
-| C-88 | As a customer, I want orphaned location submissions (address submitted but no services selected) detected and surfaced with "Continue Setup" or "Remove" options, so that incomplete signups don't get stuck. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-88 | Done | As a customer, I want orphaned location submissions (address submitted but no services selected) detected and surfaced with "Continue Setup" or "Remove" options, so that incomplete signups don't get stuck. |
 
 ### 1.19 In-App Notifications
 
-| # | User Story |
-|---|-----------|
-| C-89 | As a customer, I want to see an in-app notification bell with unread count, so that I'm aware of system notifications without relying solely on email/SMS. |
+| # | Status | User Story |
+|---|--------|-----------|
+| C-89 | Done | As a customer, I want to see an in-app notification bell with unread count, so that I'm aware of system notifications without relying solely on email/SMS. |
+
+### 1.20 Process Gaps — Critical (trust-breaking or customer-blocking)
+
+| # | Status | User Story |
+|---|--------|-----------|
+| C-90 | — | As a customer, I want to verify my email address via a confirmation link after registration, so that my account is secured and I receive important notifications at the right address. <!-- S-12 exists as a system story but there is no customer-facing flow defined --> |
+| C-91 | — | As a customer, I want to escalate from the AI concierge to a human support agent when the AI can't resolve my issue, so that I'm never stuck without help. |
+| C-92 | — | As a denied customer, I want to understand why my address was denied and know my options (re-apply, appeal, or join waitlist), so that I'm not left at a dead end after submitting my address. |
+| C-93 | — | As a customer, I want to request deletion of my account and personal data, so that I can exercise my privacy rights. |
+| C-94 | — | As a customer, I want to understand what happens when my payment fails (retry schedule, grace period, service suspension timeline), so that I know how long I have to fix my payment method before service stops. |
+
+### 1.21 Process Gaps — High (experience-degrading)
+
+| # | Status | User Story |
+|---|--------|-----------|
+| C-95 | — | As a customer, I want to receive a notification when my collection is complete, so that I know my bin was serviced without checking manually. |
+| C-96 | — | As a customer, I want to view proof-of-service photos taken by my driver, so that I can verify the collection was done and resolve disputes. |
+| C-97 | — | As a customer, I want to dispute a charge or request a billing adjustment through the portal, so that I can resolve billing issues without calling support. |
+| C-98 | — | As a customer, I want to be proactively notified when my driver is running late or my route is delayed, so that I'm not left wondering where my service is. |
+| C-99 | — | As a customer, I want to see holiday-adjusted collection dates in advance, so that I know when to put my bins out during holiday weeks. |
+| C-100 | — | As a customer, I want to link or unlink Google SSO to my existing email/password account, so that I can choose my preferred login method without creating a new account. |
+
+### 1.22 Process Gaps — Medium (nice-to-have improvements)
+
+| # | Status | User Story |
+|---|--------|-----------|
+| C-101 | — | As a new customer, I want to receive a welcome email with onboarding steps after registration, so that I know what to do next. |
+| C-102 | — | As a customer, I want to switch my service frequency (e.g., weekly to bi-weekly) without canceling and re-subscribing, so that plan changes are seamless. |
+| C-103 | — | As a customer, I want to view an annual spending summary, so that I have a record for tax or budgeting purposes. |
+| C-104 | — | As a customer, I want to grant a secondary user (spouse, roommate) read/manage access to my locations, so that my household can manage service without sharing credentials. |
 
 ---
 
@@ -512,7 +546,7 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | S-9 | As the system, I want session persistence via PostgreSQL with explicit `session.save()`, so that sessions survive across async operations. |
 | S-10 | As the system, I want to send a payment confirmation email after each successful invoice payment, so that customers have a receipt. |
 | S-11 | As the system, I want to send an alert email when a subscription payment fails, so that customers can fix their payment method. |
-| S-12 | As the system, I want to verify email addresses on registration via a confirmation link, so that only valid emails are in the system. |
+| S-12 | As the system, I want to verify email addresses on registration via a confirmation link, so that only valid emails are in the system. <!-- Customer-facing story: C-90 --> |
 | S-13 | As the system, I want to log client-side errors (rate-limited) to NDJSON log files by date, so that frontend issues are captured for diagnosis. |
 | S-14 | As the system, I want to send Slack notifications on zone approval/rejection decisions and waitlist auto-flagging, so that admins are alerted to coverage changes. |
-| S-15 | As the system, I want zone approval to trigger automatic waitlist re-evaluation for customers in the approved area, so that waitlisted customers are activated as coverage expands. |
+| S-15 | As the system, I want zone approval to trigger automatic waitlist re-evaluation for customers in the approved area, so that waitlisted customers are activated as coverage expands. <!-- Flags locations + Slack alert to admins, but NO customer notification yet. See C-80. --> |
