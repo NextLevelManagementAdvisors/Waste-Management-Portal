@@ -3,6 +3,7 @@ import { rateLimit } from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
 import { logger, LOGS_DIR_PATH } from './logger';
+import { runFix, isFixRunning, startAutoFix, stopAutoFix, isAutoFixEnabled } from './errorFixService';
 
 const clientErrorRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -82,5 +83,42 @@ export function registerLogRoutes(
     } catch {
       res.status(500).json({ error: 'Failed to list log dates' });
     }
+  });
+
+  // Admin: trigger error auto-fix via Claude
+  app.post('/api/admin/fix-errors', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      if (isFixRunning()) {
+        return res.status(409).json({ error: 'A fix is already in progress' });
+      }
+
+      const { date, source } = req.body;
+      const result = await runFix({
+        date,
+        source,
+        includeUserStories: true,
+        autoCommit: true,
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.error('Fix errors endpoint failed', error);
+      res.status(500).json({ error: 'Fix failed' });
+    }
+  });
+
+  // Admin: get/set auto-fix mode
+  app.get('/api/admin/auto-fix/status', requireAdmin, (_req: Request, res: Response) => {
+    res.json({ enabled: isAutoFixEnabled(), running: isFixRunning() });
+  });
+
+  app.post('/api/admin/auto-fix/toggle', requireAdmin, (req: Request, res: Response) => {
+    const { enabled } = req.body;
+    if (enabled) {
+      startAutoFix();
+    } else {
+      stopAutoFix();
+    }
+    res.json({ enabled: isAutoFixEnabled() });
   });
 }
