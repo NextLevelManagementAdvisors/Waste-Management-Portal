@@ -1248,6 +1248,13 @@ const Schedule: React.FC = () => {
 
   const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
 
+  // Availability state
+  const [availability, setAvailability] = useState<{ days: string[]; start_time: string; end_time: string }>({
+    days: [], start_time: '08:00', end_time: '17:00'
+  });
+  const [avSaveLoading, setAvSaveLoading] = useState(false);
+  const [avSaveMsg, setAvSaveMsg] = useState('');
+
   const fetchSchedule = useCallback(async () => {
     setLoading(true);
     const start = new Date(year, month, 1);
@@ -1272,6 +1279,55 @@ const Schedule: React.FC = () => {
   }, [fetchSchedule]);
 
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
+
+  // Load availability from profile
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/team/profile', { credentials: 'include' });
+        if (res.ok) {
+          const j = await res.json();
+          const d = j.data;
+          if (d.availability) {
+            const av = typeof d.availability === 'string' ? JSON.parse(d.availability) : d.availability;
+            setAvailability({
+              days: Array.isArray(av.days) ? av.days : [],
+              start_time: av.start_time || '08:00',
+              end_time: av.end_time || '17:00',
+            });
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const toggleDay = (day: string) => {
+    setAvailability(prev => ({
+      ...prev,
+      days: prev.days.includes(day) ? prev.days.filter(d => d !== day) : [...prev.days, day],
+    }));
+  };
+
+  const handleSaveAvailability = async () => {
+    setAvSaveLoading(true);
+    setAvSaveMsg('');
+    try {
+      const res = await fetch('/api/team/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ availability }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Failed to save');
+      setAvSaveMsg('Availability saved!');
+      setTimeout(() => setAvSaveMsg(''), 3000);
+    } catch (err: any) {
+      setAvSaveMsg(err.message);
+    } finally {
+      setAvSaveLoading(false);
+    }
+  };
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
@@ -1303,6 +1359,47 @@ const Schedule: React.FC = () => {
 
   return (
     <div>
+      <Card className="p-6 mb-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Availability</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Available Days</label>
+            <div className="flex flex-wrap gap-2">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                <button
+                  type="button"
+                  key={day}
+                  onClick={() => toggleDay(day)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                    availability.days.includes(day)
+                      ? 'bg-teal-600 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Preferred Start Time</label>
+              <input type="time" title="Preferred start time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Preferred End Time</label>
+              <input type="time" title="Preferred end time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSaveAvailability} disabled={avSaveLoading} size="sm">
+              {avSaveLoading ? 'Saving...' : 'Save Availability'}
+            </Button>
+            {avSaveMsg && <span className="text-sm text-teal-600">{avSaveMsg}</span>}
+          </div>
+        </div>
+      </Card>
+
       <div className="flex items-center justify-between mb-6">
         <p className="text-gray-500">View your upcoming routes and schedule.</p>
         <div className="flex items-center gap-2">
@@ -1673,9 +1770,6 @@ const Profile: React.FC = () => {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [availability, setAvailability] = useState<{ days: string[]; start_time: string; end_time: string }>({
-    days: [], start_time: '08:00', end_time: '17:00'
-  });
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
@@ -1714,14 +1808,6 @@ const Profile: React.FC = () => {
           setProfile(d);
           setEditName(d.name || '');
           setEditPhone(d.phone || '');
-          if (d.availability) {
-            const av = typeof d.availability === 'string' ? JSON.parse(d.availability) : d.availability;
-            setAvailability({
-              days: Array.isArray(av.days) ? av.days : [],
-              start_time: av.start_time || '08:00',
-              end_time: av.end_time || '17:00',
-            });
-          }
         }
       } catch {}
       await loadBankInfo();
@@ -1781,7 +1867,7 @@ const Profile: React.FC = () => {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name: editName, phone: editPhone, availability }),
+        body: JSON.stringify({ name: editName, phone: editPhone }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'Failed to save');
@@ -1794,13 +1880,6 @@ const Profile: React.FC = () => {
     } finally {
       setSaveLoading(false);
     }
-  };
-
-  const toggleDay = (day: string) => {
-    setAvailability(prev => ({
-      ...prev,
-      days: prev.days.includes(day) ? prev.days.filter(d => d !== day) : [...prev.days, day],
-    }));
   };
 
   if (loading) {
@@ -1887,44 +1966,6 @@ const Profile: React.FC = () => {
                 </div>
               </div>
             )}
-          </Card>
-
-          <Card className="p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Availability</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Available Days</label>
-                <div className="flex flex-wrap gap-2">
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                    <button
-                      type="button"
-                      key={day}
-                      onClick={() => toggleDay(day)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
-                        availability.days.includes(day)
-                          ? 'bg-teal-600 text-white'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Preferred Start Time</label>
-                  <input type="time" title="Preferred start time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Preferred End Time</label>
-                  <input type="time" title="Preferred end time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                </div>
-              </div>
-              <Button onClick={handleSave} disabled={saveLoading} size="sm">
-                {saveLoading ? 'Saving...' : 'Save Availability'}
-              </Button>
-            </div>
           </Card>
         </div>
 
@@ -2241,7 +2282,6 @@ const DriverMessages: React.FC = () => {
       });
       if (res.ok) {
         const msg = await res.json();
-        setMessages(prev => [...prev, msg]);
         setNewMessage('');
         setConversations(prev => prev.map(c => c.id === selectedId
           ? { ...c, last_message: msg.body, last_message_at: msg.created_at }
