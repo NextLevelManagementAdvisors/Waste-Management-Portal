@@ -2451,7 +2451,7 @@ export function registerAdminRoutes(app: Express) {
           }
           // Prevent re-processing approved locations (would double-create subscriptions).
           // Denied locations CAN be reversed.
-          if (location.service_status === 'approved') {
+          if (location.service_status === 'approved' && decision === 'approved') {
             await client.query('ROLLBACK');
             results.push({ id: locationId, success: false, error: 'Already approved' });
             continue;
@@ -2462,9 +2462,17 @@ export function registerAdminRoutes(app: Express) {
             [decision, notes || null, locationId]
           );
 
-          // For waitlist: preserve pending selections; for approved/denied: claim and delete
+          // Clear stale collection day data on denial (may have been set by auto-assign before review)
+          if (decision === 'denied') {
+            await client.query(
+              `UPDATE locations SET collection_day = NULL, collection_day_source = NULL, collection_day_detected_at = NULL WHERE id = $1`,
+              [locationId]
+            );
+          }
+
+          // Only claim/delete pending selections on approval (they become Stripe subscriptions)
           let pendingSelections: DbPendingSelection[] = [];
-          if (decision !== 'waitlist') {
+          if (decision === 'approved') {
             const selResult = await client.query('SELECT * FROM pending_service_selections WHERE location_id = $1', [locationId]);
             pendingSelections = selResult.rows;
             await client.query('DELETE FROM pending_service_selections WHERE location_id = $1', [locationId]);
@@ -2583,7 +2591,7 @@ export function registerAdminRoutes(app: Express) {
 
         // Prevent re-processing approved locations (would double-create subscriptions).
         // Denied locations CAN be reversed (moved back to pending_review/waitlist).
-        if (location.service_status === 'approved') {
+        if (location.service_status === 'approved' && decision === 'approved') {
           await client.query('ROLLBACK');
           return res.status(409).json({ error: 'Location already approved' });
         }
@@ -2593,6 +2601,14 @@ export function registerAdminRoutes(app: Express) {
           [decision, notes || null, locationId]
         );
 
+        // Clear stale collection day data on denial (may have been set by auto-assign before review)
+        if (decision === 'denied') {
+          await client.query(
+            `UPDATE locations SET collection_day = NULL, collection_day_source = NULL, collection_day_detected_at = NULL WHERE id = $1`,
+            [locationId]
+          );
+        }
+
         // Auto-assign collection day from route insertion optimization
         if (optimizationResult) {
           await client.query(
@@ -2601,9 +2617,9 @@ export function registerAdminRoutes(app: Express) {
           );
         }
 
-        // For waitlist: preserve pending selections (customer stays on waiting list)
-        // For approved/denied: claim and delete pending selections
-        if (decision !== 'waitlist') {
+        // Only claim/delete pending selections on approval (they become Stripe subscriptions)
+        // For denied/waitlist: preserve so customer doesn't have to re-select
+        if (decision === 'approved') {
           const selResult = await client.query('SELECT * FROM pending_service_selections WHERE location_id = $1', [locationId]);
           pendingSelections = selResult.rows;
           await client.query('DELETE FROM pending_service_selections WHERE location_id = $1', [locationId]);

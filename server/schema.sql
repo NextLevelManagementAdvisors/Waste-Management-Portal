@@ -358,6 +358,7 @@ ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status VARCHAR(50) DEFAUL
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status_updated_at TIMESTAMP;
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_status_notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_locations_service_status ON locations(service_status);
+ALTER TABLE locations ALTER COLUMN service_status SET DEFAULT 'pending_review';
 
 -- Communication templates
 CREATE TABLE IF NOT EXISTS communication_templates (

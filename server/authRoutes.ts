@@ -491,11 +491,11 @@ export function registerAuthRoutes(app: Express) {
         return res.status(200).json({ data: formatLocationForClient(duplicate) });
       }
 
-      // Check for cross-user duplicate (another user already has active service at this address)
+      // Check for cross-user duplicate (another user already has active/pending/waitlisted service at this address)
       const crossUserDuplicate = await storage.findLocationByAddress(address, userId);
-      if (crossUserDuplicate && crossUserDuplicate.service_status === 'approved') {
+      if (crossUserDuplicate) {
         return res.status(409).json({
-          error: 'This address already has active service. If you recently moved here, please contact support to transfer the account.',
+          error: 'This address already has active service or a pending review. If you recently moved here, please contact support to transfer the account.',
         });
       }
 
