@@ -5,8 +5,9 @@ import ErrorLogs from './ErrorLogs.tsx';
 import AutoFixHistory from './AutoFixHistory.tsx';
 import IntegrationsPanel from './IntegrationsPanel.tsx';
 import SyncAutomationPanel from './SyncAutomationPanel.tsx';
+import CompensationRulesPanel from './CompensationRulesPanel.tsx';
 
-export type SettingsTabType = 'integrations' | 'roles' | 'sync' | 'audit' | 'errors' | 'auto-fixes';
+export type SettingsTabType = 'integrations' | 'roles' | 'sync' | 'compensation' | 'audit' | 'errors' | 'auto-fixes';
 
 interface SettingsViewProps {
   activeTab?: SettingsTabType;
@@ -29,6 +30,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ activeTab: controlledTab, o
     { key: 'integrations', label: 'Integrations' },
     { key: 'roles', label: 'Team & Roles' },
     { key: 'sync', label: 'Sync & Automation' },
+    { key: 'compensation', label: 'Compensation' },
     { key: 'audit', label: 'Audit Log' },
     { key: 'errors', label: 'Error Logs' },
     { key: 'auto-fixes', label: 'Auto-Fixes' },
@@ -56,6 +58,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ activeTab: controlledTab, o
       {activeTab === 'integrations' && <IntegrationsPanel />}
       {activeTab === 'roles' && <AdminRoles />}
       {activeTab === 'sync' && <SyncAutomationPanel />}
+      {activeTab === 'compensation' && <CompensationRulesPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'errors' && <ErrorLogs />}
       {activeTab === 'auto-fixes' && <AutoFixHistory />}

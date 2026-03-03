@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS locations (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_locations_user_id ON locations(user_id);
 
 -- Password reset tokens
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS missed_collection_reports (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_missed_reports_location_id ON missed_collection_reports(location_id);
 
 -- On-demand services catalog
 CREATE TABLE IF NOT EXISTS on_demand_services (
@@ -543,7 +545,6 @@ CREATE INDEX IF NOT EXISTS idx_locations_zone ON locations(zone_id);
 
 -- Waitlist auto-flagging: tracks when a waitlisted location gains driver coverage
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_at TIMESTAMPTZ;
-ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_by_zone UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_locations_coverage_flagged ON locations(coverage_flagged_at) WHERE coverage_flagged_at IS NOT NULL;
 
 -- Track how users signed up (local registration vs Google OAuth)
@@ -633,6 +634,9 @@ CREATE INDEX IF NOT EXISTS idx_dcz_driver ON driver_custom_zones(driver_id);
 CREATE INDEX IF NOT EXISTS idx_dcz_status ON driver_custom_zones(status);
 CREATE INDEX IF NOT EXISTS idx_dcz_type ON driver_custom_zones(zone_type);
 
+-- Waitlist auto-flagging FK (must come after driver_custom_zones table creation)
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_by_zone UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
+
 -- ── Location Claims (Dual Dispatch) ──
 CREATE TABLE IF NOT EXISTS location_claims (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -677,3 +681,218 @@ CREATE TABLE IF NOT EXISTS billing_disputes (
 );
 CREATE INDEX IF NOT EXISTS idx_billing_disputes_user ON billing_disputes(user_id);
 CREATE INDEX IF NOT EXISTS idx_billing_disputes_invoice ON billing_disputes(invoice_id);
+
+-- ============================================================
+-- Contract & Compensation Model (Phase 1 Foundation)
+-- ============================================================
+
+-- 1A. Driver Qualification Profile
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS equipment_types TEXT[] DEFAULT '{}';
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS certifications TEXT[] DEFAULT '{}';
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS max_stops_per_day INTEGER DEFAULT 50;
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS min_rating_for_assignment NUMERIC(3,2) DEFAULT 0;
+
+-- 1B. Location Compensation & Requirements
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(3,1) DEFAULT 1.0;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS custom_rate NUMERIC(10,2);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS required_equipment TEXT[] DEFAULT '{}';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS required_certifications TEXT[] DEFAULT '{}';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS min_driver_rating NUMERIC(3,2) DEFAULT 0;
+
+-- OPT4: Customer Day Change Policy
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS day_change_preference VARCHAR(20) DEFAULT 'flexible';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS last_day_changed_at TIMESTAMP;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_start_date DATE;
+
+-- 1C. Compensation Rules Engine
+CREATE TABLE IF NOT EXISTS compensation_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  rule_type VARCHAR(30) NOT NULL,
+  conditions JSONB DEFAULT '{}',
+  rate_amount NUMERIC(10,2),
+  rate_multiplier NUMERIC(4,2) DEFAULT 1.0,
+  priority INTEGER DEFAULT 0,
+  active BOOLEAN DEFAULT TRUE,
+  effective_from DATE,
+  effective_to DATE,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comp_rules_type ON compensation_rules(rule_type);
+CREATE INDEX IF NOT EXISTS idx_comp_rules_active ON compensation_rules(active, rule_type);
+
+-- 1D. Route Contracts
+CREATE TABLE IF NOT EXISTS route_contracts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  zone_id UUID NOT NULL REFERENCES service_zones(id),
+  day_of_week VARCHAR(10) NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status VARCHAR(20) DEFAULT 'active',
+  per_stop_rate NUMERIC(10,2),
+  terms_notes TEXT,
+  awarded_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE route_contracts ADD COLUMN IF NOT EXISTS expiry_warned_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_rc_driver ON route_contracts(driver_id);
+CREATE INDEX IF NOT EXISTS idx_rc_active ON route_contracts(status, end_date);
+CREATE INDEX IF NOT EXISTS idx_rc_zone_day ON route_contracts(zone_id, day_of_week);
+-- Partial unique: one active contract per zone+day
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rc_unique_active ON route_contracts(zone_id, day_of_week) WHERE status = 'active';
+
+-- 1E. Dynamic Route Valuation
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS computed_value NUMERIC(10,2);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS contract_id UUID REFERENCES route_contracts(id);
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS pay_mode VARCHAR(20) DEFAULT 'dynamic';
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS pay_premium NUMERIC(10,2) DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_routes_contract ON routes(contract_id);
+
+-- Route stop compensation
+ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS compensation NUMERIC(10,2);
+ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS pod_data JSONB;
+
+-- Route bid enhancements (price discovery)
+ALTER TABLE route_bids ADD COLUMN IF NOT EXISTS bid_type VARCHAR(20) DEFAULT 'route';
+ALTER TABLE route_bids ADD COLUMN IF NOT EXISTS per_stop_rate NUMERIC(10,2);
+ALTER TABLE route_bids ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+
+-- ============================================================
+-- Contract Lifecycle Tables (Phase 2+)
+-- ============================================================
+
+-- RC1: Contract Opportunities (for price discovery / awarding)
+CREATE TABLE IF NOT EXISTS contract_opportunities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_id UUID NOT NULL REFERENCES service_zones(id),
+  day_of_week VARCHAR(10) NOT NULL,
+  start_date DATE NOT NULL,
+  duration_months INTEGER NOT NULL,
+  proposed_per_stop_rate NUMERIC(10,2),
+  requirements JSONB DEFAULT '{}',
+  status VARCHAR(20) DEFAULT 'open',
+  awarded_contract_id UUID REFERENCES route_contracts(id),
+  discovery_route_id UUID REFERENCES routes(id),
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_co_status ON contract_opportunities(status);
+
+-- RC1: Contract Applications (driver bids on opportunities)
+CREATE TABLE IF NOT EXISTS contract_applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  opportunity_id UUID NOT NULL REFERENCES contract_opportunities(id),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  proposed_rate NUMERIC(10,2),
+  message TEXT,
+  driver_rating_at_application NUMERIC(3,2),
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(opportunity_id, driver_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ca_opportunity ON contract_applications(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_ca_driver ON contract_applications(driver_id);
+
+-- RC4: Coverage / Substitute Driver Requests
+CREATE TABLE IF NOT EXISTS coverage_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_id UUID NOT NULL REFERENCES route_contracts(id),
+  requesting_driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  coverage_date DATE NOT NULL,
+  reason VARCHAR(50),
+  reason_notes TEXT,
+  substitute_driver_id UUID REFERENCES driver_profiles(id),
+  substitute_pay NUMERIC(10,2),
+  status VARCHAR(20) DEFAULT 'pending',
+  reviewed_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cr_contract ON coverage_requests(contract_id);
+CREATE INDEX IF NOT EXISTS idx_cr_date ON coverage_requests(coverage_date);
+
+-- Auto-assignment activity log
+CREATE TABLE IF NOT EXISTS auto_assignment_log (
+  id SERIAL PRIMARY KEY,
+  location_id UUID REFERENCES locations(id),
+  contract_id UUID REFERENCES route_contracts(id),
+  route_id UUID REFERENCES routes(id),
+  assigned BOOLEAN NOT NULL DEFAULT FALSE,
+  reason TEXT,
+  details TEXT,
+  compensation NUMERIC(10,2),
+  capacity_warning BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_aal_created ON auto_assignment_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_aal_assigned ON auto_assignment_log(assigned);
+
+-- ============================================================
+-- Compensation Lifecycle Tables (Phase 5)
+-- ============================================================
+
+-- CO3: Pay Periods
+CREATE TABLE IF NOT EXISTS pay_periods (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status VARCHAR(20) DEFAULT 'open',
+  processed_at TIMESTAMP,
+  processed_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_status ON pay_periods(status);
+
+-- CO3: Pay Statements (per driver per period)
+CREATE TABLE IF NOT EXISTS pay_statements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pay_period_id UUID NOT NULL REFERENCES pay_periods(id),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  total_route_pay NUMERIC(10,2) DEFAULT 0,
+  total_adjustments NUMERIC(10,2) DEFAULT 0,
+  total_bonuses NUMERIC(10,2) DEFAULT 0,
+  total_penalties NUMERIC(10,2) DEFAULT 0,
+  net_pay NUMERIC(10,2) DEFAULT 0,
+  route_count INTEGER DEFAULT 0,
+  stop_count INTEGER DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ps_period ON pay_statements(pay_period_id);
+CREATE INDEX IF NOT EXISTS idx_ps_driver ON pay_statements(driver_id);
+
+-- CO4: Pay Adjustments (bonuses, penalties, credits)
+CREATE TABLE IF NOT EXISTS pay_adjustments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  pay_period_id UUID REFERENCES pay_periods(id),
+  route_id UUID REFERENCES routes(id),
+  type VARCHAR(30) NOT NULL,
+  amount NUMERIC(10,2) NOT NULL,
+  reason TEXT,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pa_driver ON pay_adjustments(driver_id);
+CREATE INDEX IF NOT EXISTS idx_pa_period ON pay_adjustments(pay_period_id);
+
+-- ============================================================
+-- Optimization Audit (Phase 6)
+-- ============================================================
+
+-- OPT6: Optimization Proposals
+CREATE TABLE IF NOT EXISTS optimization_proposals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_id UUID REFERENCES service_zones(id),
+  proposed_by UUID REFERENCES users(id),
+  status VARCHAR(20) DEFAULT 'pending',
+  proposal_data JSONB NOT NULL,
+  applied_changes JSONB DEFAULT '[]',
+  created_at TIMESTAMP DEFAULT NOW(),
+  applied_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_op_zone ON optimization_proposals(zone_id);
+CREATE INDEX IF NOT EXISTS idx_op_status ON optimization_proposals(status);

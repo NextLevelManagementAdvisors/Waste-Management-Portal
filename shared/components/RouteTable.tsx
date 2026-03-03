@@ -287,10 +287,25 @@ const RouteTable: React.FC<RouteTableProps> = ({
                       <td className="px-4 py-3">
                         <div className="text-sm font-semibold text-gray-900">
                           {route.actualPay != null ? `$${Number(route.actualPay).toFixed(2)}`
+                            : route.payMode === 'dynamic' && route.computedValue != null ? `$${Number(route.computedValue).toFixed(2)}`
+                            : route.payMode === 'dynamic_premium' && route.computedValue != null
+                              ? `$${(Number(route.computedValue) + (Number(route.payPremium) || 0)).toFixed(2)}`
                             : route.basePay != null ? `$${Number(route.basePay).toFixed(2)}` : '—'}
                         </div>
+                        {route.payMode === 'dynamic' && route.computedValue != null && !route.actualPay && (
+                          <div className="text-xs text-teal-600">dynamic</div>
+                        )}
+                        {route.payMode === 'dynamic_premium' && route.computedValue != null && !route.actualPay && (
+                          <div className="text-xs text-teal-600">+${Number(route.payPremium || 0).toFixed(2)} premium</div>
+                        )}
+                        {route.payMode === 'flat' && !route.actualPay && route.basePay != null && (
+                          <div className="text-xs text-gray-400">flat</div>
+                        )}
                         {route.actualPay != null && route.basePay != null && Number(route.actualPay) !== Number(route.basePay) && (
                           <div className="text-xs text-gray-400 line-through">${Number(route.basePay).toFixed(2)}</div>
+                        )}
+                        {route.contractId && (
+                          <div className="text-xs text-teal-700 font-semibold">contract</div>
                         )}
                       </td>
                     )}

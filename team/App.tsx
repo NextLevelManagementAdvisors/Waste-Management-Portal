@@ -18,6 +18,7 @@ import {
   XMarkIcon,
   ArchiveBoxIcon,
   MapPinIcon,
+  ClipboardDocumentIcon,
   getWeatherIcon,
 } from '../components/Icons.tsx';
 
@@ -66,7 +67,7 @@ interface WeatherDay {
   icon: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
@@ -74,6 +75,7 @@ const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   schedule: '/team/schedule',
   pickups: '/team/pickups',
   zones: '/team/zones',
+  contracts: '/team/contracts',
   messages: '/team/messages',
   profile: '/team/profile',
 };
@@ -2276,6 +2278,636 @@ const W9UpdateModal: React.FC<{ existingW9: any | null; onClose: () => void; onS
   );
 };
 
+// ── My Contracts View ──────────────────────────────────────────────
+
+interface DriverContract {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  dayOfWeek: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  perStopRate: number | null;
+  termsNotes: string | null;
+  routeCount: number;
+  stopCount: number;
+  totalEarnings: number;
+}
+
+interface DriverOpportunity {
+  id: string;
+  zoneName: string;
+  dayOfWeek: string;
+  startDate: string;
+  durationMonths: number;
+  proposedPerStopRate: number | null;
+  requirements: Record<string, any>;
+  applicationCount: number;
+  myApplicationId: string | null;
+  myApplicationStatus: string | null;
+}
+
+interface CoverageRequestData {
+  id: string;
+  contractId: string;
+  coverageDate: string;
+  reason: string;
+  reasonNotes: string | null;
+  status: string;
+  dayOfWeek: string;
+  zoneName: string;
+  substituteDriverName: string | null;
+  substitutePay: number | null;
+  createdAt: string;
+}
+
+const CONTRACT_STATUS_COLORS: Record<string, string> = {
+  active: 'bg-green-100 text-green-700',
+  pending: 'bg-yellow-100 text-yellow-700',
+  expired: 'bg-gray-100 text-gray-600',
+  terminated: 'bg-red-100 text-red-700',
+};
+
+const COVERAGE_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-blue-100 text-blue-700',
+  filled: 'bg-green-100 text-green-700',
+  denied: 'bg-red-100 text-red-700',
+};
+
+const MyContracts: React.FC = () => {
+  const [contracts, setContracts] = useState<DriverContract[]>([]);
+  const [opportunities, setOpportunities] = useState<DriverOpportunity[]>([]);
+  const [coverageRequests, setCoverageRequests] = useState<CoverageRequestData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [applyingTo, setApplyingTo] = useState<string | null>(null);
+  const [applyForm, setApplyForm] = useState<{ proposedRate: string; message: string }>({ proposedRate: '', message: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [coverageForm, setCoverageForm] = useState<{ contractId: string; date: string; reason: string; notes: string } | null>(null);
+  const [expandedRoutes, setExpandedRoutes] = useState<string | null>(null);
+  const [contractRoutes, setContractRoutes] = useState<Record<string, Array<{ id: string; scheduledDate: string; status: string; stopCount: number; computedValue: number | null; payMode: string }>>>({});
+  const [expandedValuation, setExpandedValuation] = useState<string | null>(null);
+  const [valuationData, setValuationData] = useState<Record<string, any>>({});
+  const [expandedForecast, setExpandedForecast] = useState<string | null>(null);
+  const [forecastData, setForecastData] = useState<Record<string, { earnedSoFar: number; completedRoutes: number; remainingRoutes: number; avgRouteValue: number; projectedTotal: number }>>({});
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [cRes, oRes, crRes] = await Promise.all([
+        fetch('/api/team/my-contracts', { credentials: 'include' }),
+        fetch('/api/team/contract-opportunities', { credentials: 'include' }),
+        fetch('/api/team/coverage-requests', { credentials: 'include' }),
+      ]);
+      if (cRes.ok) {
+        const cData = await cRes.json();
+        setContracts(cData.contracts || []);
+      }
+      if (oRes.ok) {
+        const oData = await oRes.json();
+        setOpportunities(oData.opportunities || []);
+      }
+      if (crRes.ok) {
+        const crData = await crRes.json();
+        setCoverageRequests(crData.data || []);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error loading data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleApply = async (oppId: string) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const body: any = {};
+      if (applyForm.proposedRate) body.proposedRate = parseFloat(applyForm.proposedRate);
+      if (applyForm.message) body.message = applyForm.message;
+      const res = await fetch(`/api/team/contract-opportunities/${oppId}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to apply');
+      }
+      setApplyingTo(null);
+      setApplyForm({ proposedRate: '', message: '' });
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error submitting application');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleWithdraw = async (oppId: string) => {
+    try {
+      const res = await fetch(`/api/team/contract-opportunities/${oppId}/apply`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to withdraw');
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error withdrawing application');
+    }
+  };
+
+  const handleCoverageSubmit = async () => {
+    if (!coverageForm) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/team/coverage-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          contractId: coverageForm.contractId,
+          coverageDate: coverageForm.date,
+          reason: coverageForm.reason,
+          reasonNotes: coverageForm.notes || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to submit');
+      }
+      setCoverageForm(null);
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error submitting coverage request');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCoverageWithdraw = async (id: string) => {
+    try {
+      const res = await fetch(`/api/team/coverage-requests/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to withdraw');
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error withdrawing coverage request');
+    }
+  };
+
+  const toggleForecast = async (contractId: string) => {
+    if (expandedForecast === contractId) { setExpandedForecast(null); return; }
+    setExpandedForecast(contractId);
+    if (forecastData[contractId]) return;
+    try {
+      const res = await fetch(`/api/team/contracts/${contractId}/forecast`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setForecastData(prev => ({ ...prev, [contractId]: data }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const toggleValuation = async (routeId: string) => {
+    if (expandedValuation === routeId) { setExpandedValuation(null); return; }
+    setExpandedValuation(routeId);
+    if (valuationData[routeId]) return;
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/valuation`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setValuationData(prev => ({ ...prev, [routeId]: data }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const toggleContractRoutes = async (contractId: string) => {
+    if (expandedRoutes === contractId) { setExpandedRoutes(null); return; }
+    setExpandedRoutes(contractId);
+    if (contractRoutes[contractId]) return;
+    try {
+      const res = await fetch(`/api/team/contracts/${contractId}/routes`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setContractRoutes(prev => ({ ...prev, [contractId]: data.routes || [] }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const daysUntilExpiry = (endDate: string) => {
+    const end = new Date(endDate);
+    const now = new Date();
+    return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return <div className="p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>;
+  }
+
+  const activeContracts = contracts.filter(c => c.status === 'active');
+  const otherContracts = contracts.filter(c => c.status !== 'active');
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">My Contracts</h2>
+        <p className="text-sm text-gray-500 mt-1">Your route contracts showing zone assignments, compensation rates, and earnings.</p>
+      </div>
+
+      {/* Open Opportunities */}
+      {opportunities.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Open Opportunities</h3>
+          {opportunities.map(opp => (
+            <Card key={opp.id}>
+              <div className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900">{opp.zoneName}</span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-sm text-gray-700 capitalize">{opp.dayOfWeek}</span>
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Open</span>
+                      <span className="text-xs text-gray-500">{opp.applicationCount} applicant{opp.applicationCount !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
+                      <span>Starts {formatDate(opp.startDate)}</span>
+                      <span>{opp.durationMonths} month{opp.durationMonths !== 1 ? 's' : ''}</span>
+                      {opp.proposedPerStopRate != null && <span>${opp.proposedPerStopRate.toFixed(2)}/stop proposed</span>}
+                      {opp.requirements?.minRating && <span>Min rating: {opp.requirements.minRating}</span>}
+                      {opp.requirements?.equipmentTypes?.length > 0 && (
+                        <span>Equipment: {opp.requirements.equipmentTypes.map((e: string) => e.replace(/_/g, ' ')).join(', ')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ml-3">
+                    {opp.myApplicationId ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Applied</span>
+                        {opp.myApplicationStatus === 'pending' && (
+                          <button onClick={() => handleWithdraw(opp.id)}
+                            className="text-xs text-gray-500 hover:text-red-600 underline">
+                            Withdraw
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setApplyingTo(applyingTo === opp.id ? null : opp.id); setApplyForm({ proposedRate: '', message: '' }); }}
+                        className="px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                        Apply
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {applyingTo === opp.id && (
+                  <div className="mt-3 bg-gray-50 rounded-lg p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Your proposed rate ($/stop)</label>
+                        <input type="number" step="0.01" min="0"
+                          value={applyForm.proposedRate}
+                          onChange={e => setApplyForm({ ...applyForm, proposedRate: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                          placeholder={opp.proposedPerStopRate ? `Suggested: $${opp.proposedPerStopRate.toFixed(2)}` : 'Optional'} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Message (optional)</label>
+                        <input type="text"
+                          value={applyForm.message}
+                          onChange={e => setApplyForm({ ...applyForm, message: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                          placeholder="Why you're a good fit..." />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleApply(opp.id)} disabled={submitting}
+                        className="px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+                        {submitting ? 'Submitting...' : 'Submit Application'}
+                      </button>
+                      <button onClick={() => setApplyingTo(null)}
+                        className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {contracts.length === 0 && opportunities.length === 0 ? (
+        <Card>
+          <div className="p-8 text-center">
+            <ClipboardDocumentIcon className="w-12 h-12 text-gray-300 mx-auto" />
+            <p className="mt-3 text-gray-500 text-sm">You don't have any route contracts yet. Check back for open opportunities.</p>
+          </div>
+        </Card>
+      ) : contracts.length > 0 ? (
+        <>
+          {activeContracts.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Active Contracts</h3>
+              {activeContracts.map(c => {
+                const expDays = daysUntilExpiry(c.endDate);
+                return (
+                  <Card key={c.id}>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-gray-900">{c.zoneName}</span>
+                            <span className="text-gray-400">|</span>
+                            <span className="text-sm text-gray-700 capitalize">{c.dayOfWeek}</span>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CONTRACT_STATUS_COLORS[c.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {c.status}
+                            </span>
+                            {expDays <= 30 && expDays > 0 && (
+                              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                                Expires in {expDays}d
+                              </span>
+                            )}
+                            {expDays <= 0 && (
+                              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                                Past due
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 text-xs text-gray-500 flex gap-4 flex-wrap">
+                            <span>{formatDate(c.startDate)} - {formatDate(c.endDate)}</span>
+                            {c.perStopRate != null && <span className="font-medium text-gray-700">${c.perStopRate.toFixed(2)}/stop</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        <div className="bg-gray-50 rounded-lg p-3 text-center">
+                          <p className="text-xs text-gray-500">Routes</p>
+                          <p className="text-lg font-bold text-gray-900">{c.routeCount}</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 text-center">
+                          <p className="text-xs text-gray-500">Stops</p>
+                          <p className="text-lg font-bold text-gray-900">{c.stopCount}</p>
+                        </div>
+                        <div className="bg-teal-50 rounded-lg p-3 text-center">
+                          <p className="text-xs text-teal-600">Earnings</p>
+                          <p className="text-lg font-bold text-teal-700">${c.totalEarnings.toFixed(2)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          onClick={() => toggleContractRoutes(c.id)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${expandedRoutes === c.id ? 'bg-teal-100 text-teal-700 border-teal-200' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+                          {expandedRoutes === c.id ? 'Hide Routes' : 'View Routes'}
+                        </button>
+                        <button
+                          onClick={() => toggleForecast(c.id)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${expandedForecast === c.id ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+                          {expandedForecast === c.id ? 'Hide Forecast' : 'Forecast'}
+                        </button>
+                        <button
+                          onClick={() => setCoverageForm(coverageForm?.contractId === c.id ? null : { contractId: c.id, date: '', reason: 'sick', notes: '' })}
+                          className="px-3 py-1.5 text-xs font-medium bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200">
+                          Request Coverage
+                        </button>
+                      </div>
+
+                      {expandedRoutes === c.id && (
+                        <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
+                          {!contractRoutes[c.id] ? (
+                            <div className="p-3 text-center text-xs text-gray-400">Loading routes...</div>
+                          ) : contractRoutes[c.id].length === 0 ? (
+                            <div className="p-3 text-center text-xs text-gray-400">No routes created for this contract yet.</div>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="text-left px-3 py-2 text-gray-500 font-medium">Date</th>
+                                  <th className="text-center px-3 py-2 text-gray-500 font-medium">Status</th>
+                                  <th className="text-center px-3 py-2 text-gray-500 font-medium">Stops</th>
+                                  <th className="text-right px-3 py-2 text-gray-500 font-medium">Earnings</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {contractRoutes[c.id].map((r: any) => (
+                                  <React.Fragment key={r.id}>
+                                    <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => toggleValuation(r.id)}>
+                                      <td className="px-3 py-2 text-gray-700">
+                                        <span className="text-gray-400 mr-1">{expandedValuation === r.id ? '\u25BC' : '\u25B6'}</span>
+                                        {formatDate(r.scheduledDate)}
+                                      </td>
+                                      <td className="px-3 py-2 text-center">
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                                          r.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                          r.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                          r.status === 'assigned' ? 'bg-yellow-100 text-yellow-700' :
+                                          'bg-gray-100 text-gray-600'
+                                        }`}>{r.status}</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-center text-gray-700">{r.stopCount}</td>
+                                      <td className="px-3 py-2 text-right text-gray-700">
+                                        {r.computedValue != null ? `$${Number(r.computedValue).toFixed(2)}` : '-'}
+                                      </td>
+                                    </tr>
+                                    {expandedValuation === r.id && valuationData[r.id] && (
+                                      <tr>
+                                        <td colSpan={4} className="px-3 py-2 bg-gray-50">
+                                          <div className="space-y-1">
+                                            <div className="flex items-center gap-3 text-[10px] text-gray-500 mb-1">
+                                              <span>Pay Mode: <strong className="text-gray-700">{valuationData[r.id].payMode || 'dynamic'}</strong></span>
+                                              {valuationData[r.id].payPremium > 0 && <span>Premium: <strong className="text-teal-600">+${valuationData[r.id].payPremium.toFixed(2)}</strong></span>}
+                                            </div>
+                                            {valuationData[r.id].stopBreakdowns?.map((sb: any, i: number) => (
+                                              <div key={i} className="flex items-center justify-between text-[10px] bg-white rounded px-2 py-1">
+                                                <span className="text-gray-600 truncate flex-1" title={sb.address}>{sb.address || `Stop ${i + 1}`}</span>
+                                                <span className="ml-2 text-gray-400">
+                                                  {sb.breakdown?.source === 'custom_rate' ? 'Custom Rate' :
+                                                   sb.breakdown?.source === 'contract_rate' ? 'Contract Rate' : 'Rules Engine'}
+                                                </span>
+                                                <span className="ml-2 font-medium text-gray-700">${Number(sb.compensation).toFixed(2)}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      )}
+
+                      {expandedForecast === c.id && forecastData[c.id] && (() => {
+                        const f = forecastData[c.id];
+                        const pct = f.projectedTotal > 0 ? Math.min(100, Math.round((f.earnedSoFar / f.projectedTotal) * 100)) : 0;
+                        return (
+                          <div className="mt-3 bg-indigo-50 rounded-lg p-3 border border-indigo-200">
+                            <div className="flex items-center justify-between text-xs mb-2">
+                              <span className="font-medium text-indigo-700">Earnings Forecast</span>
+                              <span className="text-indigo-500">{pct}% complete</span>
+                            </div>
+                            <div className="w-full bg-indigo-100 rounded-full h-2 mb-2">
+                              <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="text-gray-500">Earned: </span>
+                                <span className="font-bold text-gray-900">${f.earnedSoFar.toFixed(2)}</span>
+                                <span className="text-gray-400"> of ${f.projectedTotal.toFixed(2)}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Routes: </span>
+                                <span className="font-bold text-gray-900">{f.completedRoutes}</span>
+                                <span className="text-gray-400"> done, {f.remainingRoutes} remaining</span>
+                              </div>
+                            </div>
+                            {f.avgRouteValue > 0 && (
+                              <div className="text-[10px] text-gray-400 mt-1">Avg ${f.avgRouteValue.toFixed(2)}/route</div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {coverageForm?.contractId === c.id && (
+                        <div className="mt-3 bg-amber-50 rounded-lg p-3 space-y-2 border border-amber-200">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                              <input type="date" value={coverageForm.date}
+                                onChange={e => setCoverageForm({ ...coverageForm, date: e.target.value })}
+                                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+                              <select value={coverageForm.reason}
+                                onChange={e => setCoverageForm({ ...coverageForm, reason: e.target.value })}
+                                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs">
+                                <option value="sick">Sick</option>
+                                <option value="vacation">Vacation</option>
+                                <option value="emergency">Emergency</option>
+                                <option value="other">Other</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+                            <input type="text" value={coverageForm.notes}
+                              onChange={e => setCoverageForm({ ...coverageForm, notes: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                              placeholder="Additional details..." />
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={handleCoverageSubmit} disabled={submitting || !coverageForm.date}
+                              className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                              {submitting ? 'Submitting...' : 'Submit Request'}
+                            </button>
+                            <button onClick={() => setCoverageForm(null)}
+                              className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800">Cancel</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {c.termsNotes && (
+                        <div className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
+                          <span className="font-medium text-gray-600">Notes:</span> {c.termsNotes}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          {otherContracts.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Past Contracts</h3>
+              {otherContracts.map(c => (
+                <Card key={c.id}>
+                  <div className="p-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900">{c.zoneName}</span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-sm text-gray-700 capitalize">{c.dayOfWeek}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CONTRACT_STATUS_COLORS[c.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {c.status}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 flex gap-4 flex-wrap">
+                      <span>{formatDate(c.startDate)} - {formatDate(c.endDate)}</span>
+                      {c.perStopRate != null && <span>${c.perStopRate.toFixed(2)}/stop</span>}
+                      <span>{c.routeCount} routes</span>
+                      <span>{c.stopCount} stops</span>
+                      <span className="font-medium text-gray-700">${c.totalEarnings.toFixed(2)} earned</span>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {/* Coverage Requests */}
+      {coverageRequests.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Coverage Requests</h3>
+          {coverageRequests.map(cr => (
+            <Card key={cr.id}>
+              <div className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900">{cr.zoneName}</span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-sm text-gray-700 capitalize">{cr.dayOfWeek}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${COVERAGE_STATUS_COLORS[cr.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {cr.status}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
+                      <span>Date: {formatDate(cr.coverageDate)}</span>
+                      <span className="capitalize">Reason: {cr.reason}</span>
+                      {cr.reasonNotes && <span>{cr.reasonNotes}</span>}
+                      {cr.substituteDriverName && <span>Substitute: {cr.substituteDriverName}</span>}
+                      {cr.substitutePay != null && <span>Pay: ${cr.substitutePay.toFixed(2)}</span>}
+                    </div>
+                  </div>
+                  {cr.status === 'pending' && (
+                    <button type="button" onClick={() => handleCoverageWithdraw(cr.id)}
+                      className="text-xs text-gray-500 hover:text-red-600 underline ml-3">
+                      Withdraw
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -3240,6 +3872,7 @@ const TeamApp: React.FC = () => {
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
     { view: 'pickups', label: 'On-Demand', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
     { view: 'zones', label: 'Coverage', icon: <MapPinIcon className="w-5 h-5" /> },
+    { view: 'contracts', label: 'My Contracts', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
   ];
@@ -3340,6 +3973,7 @@ const TeamApp: React.FC = () => {
               <ZoneMapView />
             </React.Suspense>
           )}
+          {currentView === 'contracts' && <MyContracts />}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}
         </div>

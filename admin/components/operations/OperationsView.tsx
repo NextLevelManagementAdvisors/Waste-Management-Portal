@@ -7,9 +7,11 @@ import RoutesList from './RoutesList.tsx';
 import ZonesPanel from './ZonesPanel.tsx';
 import ClaimsPanel from './ClaimsPanel.tsx';
 import ZoneApprovalPanel from './ZoneApprovalPanel.tsx';
+import ContractsPanel from './ContractsPanel.tsx';
+import OpportunitiesPanel from './OpportunitiesPanel.tsx';
 
 // Kept for backward compat with App.tsx routing
-export type OpsTabType = 'operations' | 'routes' | 'locations' | 'zones' | 'claims' | 'zone-approvals' | 'issues' | 'actions' | 'address-review';
+export type OpsTabType = 'operations' | 'routes' | 'locations' | 'contracts' | 'opportunities' | 'zones' | 'claims' | 'zone-approvals' | 'issues' | 'actions' | 'address-review';
 
 interface OperationsViewProps {
   navFilter?: NavFilter | null;
@@ -18,6 +20,7 @@ interface OperationsViewProps {
   onTabChange?: (tab: OpsTabType) => void;
   missedCollectionsCount?: number;
   pendingZonesCount?: number;
+  contractAlertsCount?: number;
   onActionResolved?: () => void;
 }
 
@@ -25,13 +28,15 @@ const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'operations', label: 'Calendar' },
   { key: 'routes', label: 'Routes' },
   { key: 'locations', label: 'Locations' },
+  { key: 'contracts', label: 'Contracts' },
+  { key: 'opportunities', label: 'Opportunities' },
   { key: 'zones', label: 'Zones' },
   { key: 'claims', label: 'Claims' },
   { key: 'zone-approvals', label: 'Zone Approvals' },
   { key: 'issues', label: 'Issues' },
 ];
 
-const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterConsumed, activeTab = 'operations', onTabChange, missedCollectionsCount = 0, pendingZonesCount = 0, onActionResolved }) => {
+const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterConsumed, activeTab = 'operations', onTabChange, missedCollectionsCount = 0, pendingZonesCount = 0, contractAlertsCount = 0, onActionResolved }) => {
 
   useEffect(() => {
     if (navFilter?.tab) {
@@ -56,8 +61,9 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
           const badge =
             (tab.key === 'issues' && missedCollectionsCount > 0) ? missedCollectionsCount :
             (tab.key === 'zone-approvals' && pendingZonesCount > 0) ? pendingZonesCount :
+            (tab.key === 'contracts' && contractAlertsCount > 0) ? contractAlertsCount :
             null;
-          const badgeColor = tab.key === 'zone-approvals' ? 'bg-blue-500' : 'bg-red-500';
+          const badgeColor = tab.key === 'zone-approvals' ? 'bg-blue-500' : tab.key === 'contracts' ? 'bg-amber-500' : 'bg-red-500';
           return (
             <button
               key={tab.key}
@@ -84,6 +90,8 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {currentTab === 'operations' && <PlanningCalendar />}
       {currentTab === 'routes' && <RoutesList />}
       {currentTab === 'locations' && <LocationsList />}
+      {currentTab === 'contracts' && <ContractsPanel />}
+      {currentTab === 'opportunities' && <OpportunitiesPanel />}
       {currentTab === 'zones' && <ZonesPanel />}
       {currentTab === 'claims' && <ClaimsPanel />}
       {currentTab === 'zone-approvals' && <ZoneApprovalPanel onActionResolved={onActionResolved} />}

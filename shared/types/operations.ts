@@ -46,6 +46,8 @@ export type RouteType = 'daily_route' | 'bulk_collection' | 'on_demand';
 export type RouteStatus = 'draft' | 'open' | 'bidding' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'processing' | 'paid';
 
+export type PayMode = 'dynamic' | 'flat' | 'dynamic_premium';
+
 export interface Route {
   id: string;
   title: string;
@@ -77,7 +79,15 @@ export interface Route {
   optimoSynced?: boolean;
   optimoSyncedAt?: string;
   optimoRouteKey?: string;
+  // Contract & compensation
+  contractId?: string;
+  computedValue?: number;
+  payMode?: PayMode;
+  payPremium?: number;
 }
+
+export type BidType = 'route' | 'rate_discovery';
+export type BidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'expired';
 
 export interface RouteBid {
   id: string;
@@ -87,6 +97,9 @@ export interface RouteBid {
   bidAmount: number;
   message: string | null;
   driverRatingAtBid: number | null;
+  bidType: BidType;
+  perStopRate: number | null;
+  status: BidStatus;
   createdAt: string;
 }
 
@@ -114,6 +127,8 @@ export interface RouteStop {
   // POD data from OptimoRoute completion
   podData?: string;
   pod_data?: string; // snake_case alias from DB queries
+  // Compensation
+  compensation?: number;
 }
 
 export type ZoneType = 'circle' | 'polygon' | 'zip';
@@ -249,4 +264,160 @@ export interface AvailableLocation {
   isMine: boolean;
   distanceMiles: number;
   matchingZoneName: string;
+}
+
+// ============================================================
+// Contract & Compensation Types
+// ============================================================
+
+export type ContractStatus = 'active' | 'expired' | 'terminated' | 'pending';
+
+export interface RouteContract {
+  id: string;
+  driverId: string;
+  driverName?: string;
+  zoneId: string;
+  zoneName?: string;
+  dayOfWeek: string;
+  startDate: string;
+  endDate: string;
+  status: ContractStatus;
+  perStopRate: number | null;
+  termsNotes: string | null;
+  awardedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // Computed/joined
+  stopCount?: number;
+  routeCount?: number;
+  computedWeeklyValue?: number;
+}
+
+export type CompensationRuleType = 'base_rate' | 'service_type_modifier' | 'difficulty_modifier' | 'zone_modifier';
+
+export interface CompensationRule {
+  id: string;
+  name: string;
+  ruleType: CompensationRuleType;
+  conditions: Record<string, any>;
+  rateAmount: number | null;
+  rateMultiplier: number;
+  priority: number;
+  active: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompensationBreakdown {
+  baseRate: number;
+  modifiers: Array<{
+    ruleName: string;
+    ruleType: CompensationRuleType;
+    multiplier: number;
+  }>;
+  locationCustomRate: number | null;
+  contractPerStopRate: number | null;
+  finalRate: number;
+  source: 'custom_rate' | 'contract_rate' | 'rules_engine';
+}
+
+export interface RouteValuation {
+  computedValue: number;
+  stopBreakdowns: Array<{
+    stopId: string;
+    locationId: string;
+    address: string;
+    compensation: number;
+    breakdown: CompensationBreakdown;
+  }>;
+  payMode: PayMode;
+  basePay: number | null;
+  payPremium: number;
+  finalPay: number;
+}
+
+export type OpportunityStatus = 'open' | 'awarded' | 'cancelled';
+
+export interface ContractOpportunity {
+  id: string;
+  zoneId: string;
+  zoneName?: string;
+  dayOfWeek: string;
+  startDate: string;
+  durationMonths: number;
+  proposedPerStopRate: number | null;
+  requirements: Record<string, any>;
+  status: OpportunityStatus;
+  awardedContractId: string | null;
+  discoveryRouteId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  applicationCount?: number;
+}
+
+export type ApplicationStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface ContractApplication {
+  id: string;
+  opportunityId: string;
+  driverId: string;
+  driverName?: string;
+  driverRating?: number | null;
+  proposedRate: number | null;
+  message: string | null;
+  driverRatingAtApplication: number | null;
+  status: ApplicationStatus;
+  createdAt: string;
+}
+
+export type CoverageReason = 'sick' | 'vacation' | 'emergency' | 'other';
+export type CoverageStatus = 'pending' | 'approved' | 'filled' | 'denied';
+
+export interface CoverageRequest {
+  id: string;
+  contractId: string;
+  requestingDriverId: string;
+  requestingDriverName?: string;
+  coverageDate: string;
+  reason: CoverageReason;
+  reasonNotes: string | null;
+  substituteDriverId: string | null;
+  substituteDriverName?: string;
+  substitutePay: number | null;
+  status: CoverageStatus;
+  reviewedBy: string | null;
+  createdAt: string;
+}
+
+export interface ContractPerformance {
+  totalRoutes: number;
+  completedRoutes: number;
+  completionRate: number;
+  totalStops: number;
+  completedStops: number;
+  stopCompletionRate: number;
+  totalCompensation: number;
+  avgRouteValue: number;
+  coverageRequestCount: number;
+}
+
+// Driver qualification fields (added to driver_profiles)
+export interface DriverQualifications {
+  equipmentTypes: string[];
+  certifications: string[];
+  maxStopsPerDay: number;
+  minRatingForAssignment: number;
+}
+
+// Location compensation fields (added to locations)
+export interface LocationRequirements {
+  difficultyScore: number;
+  customRate: number | null;
+  requiredEquipment: string[];
+  requiredCertifications: string[];
+  minDriverRating: number;
+  dayChangePreference: 'flexible' | 'prefer_current' | 'do_not_change';
 }

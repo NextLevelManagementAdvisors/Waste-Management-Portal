@@ -2462,6 +2462,17 @@ export class Storage {
     const dateFilter = afterDate ? `AND r.scheduled_date >= $2` : '';
     const params: any[] = [locationId];
     if (afterDate) params.push(afterDate);
+
+    // Find affected routes before cancelling (for recalculation)
+    const affectedRoutes = await this.query(
+      `SELECT DISTINCT rs.route_id FROM route_stops rs
+       JOIN routes r ON rs.route_id = r.id
+       WHERE rs.location_id = $1
+         AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')
+         ${dateFilter}`,
+      params
+    );
+
     const result = await this.query(
       `UPDATE route_stops rs SET status = 'cancelled'
        FROM routes r
@@ -2471,7 +2482,21 @@ export class Storage {
          ${dateFilter}`,
       params
     );
-    return result.rowCount ?? 0;
+    const cancelledCount = result.rowCount ?? 0;
+
+    // Recalculate computed_value for affected routes
+    if (cancelledCount > 0 && affectedRoutes.rows.length > 0) {
+      try {
+        const { recalculateRouteValue } = await import('./compensationEngine');
+        for (const row of affectedRoutes.rows) {
+          await recalculateRouteValue(row.route_id);
+        }
+      } catch (err) {
+        console.error('[cancelFutureStopsForLocation] Error recalculating route values:', err);
+      }
+    }
+
+    return cancelledCount;
   }
 
   async bulkUpdateRouteStops(routeId: string, updates: Array<{ stop_id: string; stop_number?: number; scheduled_at?: string; status?: string }>) {

@@ -1086,10 +1086,43 @@ export function registerTeamRoutes(app: Express) {
         createdAt: b.created_at,
       }));
 
-      res.json({ data: { ...formatRouteForClient(route), bids: camelBids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
+      // Only expose customer PII (address, name) to the assigned driver or for open/bidding routes
+      const driverId = res.locals.driverProfile.id;
+      const canSeePII = route.assigned_driver_id === driverId || ['open', 'bidding'].includes(route.status);
+      const mappedStops = stops.map((p: any) => ({
+        ...(canSeePII ? { address: p.address, customer_name: p.customer_name } : {}),
+        pickup_type: p.pickup_type,
+        sequence_number: p.sequence_number,
+        status: p.status,
+      }));
+
+      res.json({ data: { ...formatRouteForClient(route), bids: camelBids, stops: mappedStops } });
     } catch (error: any) {
       console.error('Get route error:', error);
       res.status(500).json({ error: 'Failed to get route' });
+    }
+  });
+
+  // Compensation breakdown for a route (driver visibility)
+  app.get('/api/team/routes/:routeId/valuation', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.routeId;
+      const driverId = res.locals.driverProfile.id;
+
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+
+      // Only allow driver to see valuation for their own routes
+      if (route.assigned_driver_id !== driverId) {
+        return res.status(403).json({ error: 'Not your route' });
+      }
+
+      const { calculateRouteValuation } = await import('./compensationEngine');
+      const valuation = await calculateRouteValuation(routeId);
+      res.json({ data: valuation });
+    } catch (error: any) {
+      console.error('Route valuation error:', error);
+      res.status(500).json({ error: 'Failed to get route valuation' });
     }
   });
 
@@ -1463,6 +1496,7 @@ export function registerTeamRoutes(app: Express) {
         `SELECT rc.*,
                 sz.name AS zone_name,
                 (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
+                (SELECT COALESCE(SUM(r.stop_count), 0) FROM routes r WHERE r.contract_id = rc.id) AS stop_count,
                 (SELECT COALESCE(SUM(r.computed_value), 0) FROM routes r WHERE r.contract_id = rc.id AND r.status = 'completed') AS total_earned
          FROM route_contracts rc
          JOIN service_zones sz ON rc.zone_id = sz.id
@@ -1482,13 +1516,318 @@ export function registerTeamRoutes(app: Express) {
           perStopRate: c.per_stop_rate != null ? Number(c.per_stop_rate) : null,
           termsNotes: c.terms_notes,
           createdAt: c.created_at,
-          routeCount: parseInt(c.route_count),
-          totalEarned: Number(c.total_earned),
+          routeCount: parseInt(c.route_count) || 0,
+          stopCount: parseInt(c.stop_count) || 0,
+          totalEarnings: Number(c.total_earned),
         })),
       });
     } catch (err: any) {
       console.error('Error fetching driver contracts:', err);
       res.status(500).json({ error: 'Failed to fetch contracts' });
+    }
+  });
+
+  // ============================================================
+  // Contract Opportunities — driver views open opportunities and applies
+  // ============================================================
+
+  app.get('/api/team/contract-opportunities', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT co.*,
+                sz.name AS zone_name,
+                (SELECT COUNT(*) FROM contract_applications ca WHERE ca.opportunity_id = co.id) AS application_count,
+                (SELECT ca.id FROM contract_applications ca WHERE ca.opportunity_id = co.id AND ca.driver_id = $1) AS my_application_id,
+                (SELECT ca.status FROM contract_applications ca WHERE ca.opportunity_id = co.id AND ca.driver_id = $1) AS my_application_status
+         FROM contract_opportunities co
+         JOIN service_zones sz ON co.zone_id = sz.id
+         WHERE co.status = 'open'
+         ORDER BY co.created_at DESC`,
+        [driverId]
+      );
+      res.json({
+        opportunities: rows.map((o: any) => ({
+          id: o.id,
+          zoneId: o.zone_id,
+          zoneName: o.zone_name,
+          dayOfWeek: o.day_of_week,
+          startDate: o.start_date,
+          durationMonths: o.duration_months,
+          proposedPerStopRate: o.proposed_per_stop_rate != null ? Number(o.proposed_per_stop_rate) : null,
+          requirements: o.requirements || {},
+          applicationCount: parseInt(o.application_count) || 0,
+          myApplicationId: o.my_application_id || null,
+          myApplicationStatus: o.my_application_status || null,
+          createdAt: o.created_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching opportunities:', err);
+      res.status(500).json({ error: 'Failed to fetch opportunities' });
+    }
+  });
+
+  // Apply for an opportunity
+  app.post('/api/team/contract-opportunities/:id/apply', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { proposedRate, message } = req.body;
+
+      // Verify opportunity is open
+      const oppResult = await pool.query(`SELECT * FROM contract_opportunities WHERE id = $1 AND status = 'open'`, [req.params.id]);
+      if (oppResult.rows.length === 0) return res.status(404).json({ error: 'Opportunity not found or not open' });
+
+      // Get driver rating at time of application
+      const driverResult = await pool.query(`SELECT rating FROM driver_profiles WHERE id = $1`, [driverId]);
+      const driverRating = driverResult.rows[0]?.rating != null ? Number(driverResult.rows[0].rating) : null;
+
+      const { rows } = await pool.query(
+        `INSERT INTO contract_applications (opportunity_id, driver_id, proposed_rate, message, driver_rating_at_application)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (opportunity_id, driver_id) DO UPDATE SET
+           proposed_rate = EXCLUDED.proposed_rate,
+           message = EXCLUDED.message,
+           driver_rating_at_application = EXCLUDED.driver_rating_at_application,
+           status = 'pending'
+         RETURNING *`,
+        [req.params.id, driverId, proposedRate ?? null, message ?? null, driverRating]
+      );
+      const a = rows[0];
+      res.status(201).json({
+        application: {
+          id: a.id,
+          opportunityId: a.opportunity_id,
+          proposedRate: a.proposed_rate != null ? Number(a.proposed_rate) : null,
+          message: a.message,
+          status: a.status,
+          createdAt: a.created_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error applying for opportunity:', err);
+      res.status(500).json({ error: 'Failed to submit application' });
+    }
+  });
+
+  // Withdraw application
+  app.delete('/api/team/contract-opportunities/:id/apply', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rowCount } = await pool.query(
+        `DELETE FROM contract_applications WHERE opportunity_id = $1 AND driver_id = $2 AND status = 'pending'`,
+        [req.params.id, driverId]
+      );
+      if (rowCount === 0) return res.status(404).json({ error: 'No pending application found' });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error withdrawing application:', err);
+      res.status(500).json({ error: 'Failed to withdraw application' });
+    }
+  });
+
+  // ============================================================
+  // Coverage Requests (driver submits, views, withdraws)
+  // ============================================================
+
+  app.post('/api/team/coverage-requests', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { contractId, coverageDate, reason, reasonNotes } = req.body;
+
+      if (!contractId || !coverageDate || !reason) {
+        return res.status(400).json({ error: 'contractId, coverageDate, and reason are required' });
+      }
+      if (!['sick', 'vacation', 'emergency', 'other'].includes(reason)) {
+        return res.status(400).json({ error: 'reason must be sick, vacation, emergency, or other' });
+      }
+
+      // Verify driver owns this contract
+      const contract = await pool.query(
+        'SELECT id, driver_id FROM route_contracts WHERE id = $1', [contractId]
+      );
+      if (contract.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      if (contract.rows[0].driver_id !== driverId) return res.status(403).json({ error: 'Not your contract' });
+
+      // Check for duplicate
+      const existing = await pool.query(
+        'SELECT id FROM coverage_requests WHERE contract_id = $1 AND coverage_date = $2 AND status != $3',
+        [contractId, coverageDate, 'denied']
+      );
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'A coverage request already exists for this date' });
+      }
+
+      const { rows } = await pool.query(
+        `INSERT INTO coverage_requests (contract_id, requesting_driver_id, coverage_date, reason, reason_notes)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [contractId, driverId, coverageDate, reason, reasonNotes || null]
+      );
+      res.status(201).json({ data: rows[0] });
+    } catch (err: any) {
+      console.error('Error creating coverage request:', err);
+      res.status(500).json({ error: 'Failed to create coverage request' });
+    }
+  });
+
+  app.get('/api/team/coverage-requests', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT cr.*, rc.day_of_week, sz.name AS zone_name,
+                sub.name AS substitute_driver_name
+         FROM coverage_requests cr
+         JOIN route_contracts rc ON cr.contract_id = rc.id
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         LEFT JOIN driver_profiles sub ON cr.substitute_driver_id = sub.id
+         WHERE cr.requesting_driver_id = $1
+         ORDER BY cr.coverage_date DESC`,
+        [driverId]
+      );
+      res.json({
+        data: rows.map((r: any) => ({
+          id: r.id,
+          contractId: r.contract_id,
+          coverageDate: r.coverage_date,
+          reason: r.reason,
+          reasonNotes: r.reason_notes,
+          status: r.status,
+          dayOfWeek: r.day_of_week,
+          zoneName: r.zone_name,
+          substituteDriverName: r.substitute_driver_name,
+          substitutePay: r.substitute_pay != null ? Number(r.substitute_pay) : null,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching coverage requests:', err);
+      res.status(500).json({ error: 'Failed to fetch coverage requests' });
+    }
+  });
+
+  app.delete('/api/team/coverage-requests/:id', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `DELETE FROM coverage_requests WHERE id = $1 AND requesting_driver_id = $2 AND status = 'pending' RETURNING id`,
+        [req.params.id, driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Request not found or not withdrawable' });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error withdrawing coverage request:', err);
+      res.status(500).json({ error: 'Failed to withdraw coverage request' });
+    }
+  });
+
+  // ============================================================
+  // Contract Routes — driver views routes under a specific contract
+  // ============================================================
+
+  app.get('/api/team/contracts/:id/routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const contractId = req.params.id;
+
+      // Verify driver owns this contract
+      const contract = await pool.query(
+        `SELECT id FROM route_contracts WHERE id = $1 AND driver_id = $2`,
+        [contractId, driverId]
+      );
+      if (contract.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+
+      const { rows } = await pool.query(
+        `SELECT r.id, r.title, r.scheduled_date, r.status, r.stop_count,
+                r.computed_value, r.pay_mode, r.pay_premium, r.actual_pay
+         FROM routes r
+         WHERE r.contract_id = $1 AND r.assigned_driver_id = $2
+         ORDER BY r.scheduled_date DESC
+         LIMIT 50`,
+        [contractId, driverId]
+      );
+
+      const totalEarned = rows
+        .filter((r: any) => r.status === 'completed' && r.computed_value != null)
+        .reduce((sum: number, r: any) => sum + Number(r.computed_value), 0);
+
+      res.json({
+        routes: rows.map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          scheduledDate: r.scheduled_date,
+          status: r.status,
+          stopCount: r.stop_count || 0,
+          computedValue: r.computed_value != null ? Number(r.computed_value) : null,
+          payMode: r.pay_mode,
+          payPremium: r.pay_premium != null ? Number(r.pay_premium) : null,
+          actualPay: r.actual_pay != null ? Number(r.actual_pay) : null,
+        })),
+        total: rows.length,
+        totalEarned,
+      });
+    } catch (err: any) {
+      console.error('Error fetching contract routes:', err);
+      res.status(500).json({ error: 'Failed to fetch contract routes' });
+    }
+  });
+
+  // ============================================================
+  // Contract Earnings Forecast
+  // ============================================================
+
+  app.get('/api/team/contracts/:id/forecast', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const contractId = req.params.id;
+
+      // Load contract
+      const { rows: contractRows } = await pool.query(
+        `SELECT rc.id, rc.start_date, rc.end_date, rc.day_of_week, rc.per_stop_rate, rc.status
+         FROM route_contracts rc
+         WHERE rc.id = $1 AND rc.driver_id = $2`,
+        [contractId, driverId]
+      );
+      if (contractRows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = contractRows[0];
+
+      // Get completed route stats
+      const { rows: statsRows } = await pool.query(
+        `SELECT COUNT(*)::int AS completed_routes,
+                COALESCE(SUM(r.computed_value), 0) AS earned_so_far,
+                COALESCE(AVG(r.computed_value), 0) AS avg_route_value
+         FROM routes r
+         WHERE r.contract_id = $1 AND r.assigned_driver_id = $2 AND r.status = 'completed'`,
+        [contractId, driverId]
+      );
+      const stats = statsRows[0];
+      const completedRoutes = stats.completed_routes;
+      const earnedSoFar = Number(stats.earned_so_far);
+      const avgRouteValue = Number(stats.avg_route_value);
+
+      // Calculate remaining weeks from now to contract end
+      const now = new Date();
+      const endDate = new Date(contract.end_date);
+      let remainingRoutes = 0;
+      if (endDate > now) {
+        const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+        remainingRoutes = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / msPerWeek));
+      }
+
+      const projectedTotal = avgRouteValue > 0
+        ? earnedSoFar + (remainingRoutes * avgRouteValue)
+        : earnedSoFar;
+
+      res.json({
+        earnedSoFar: Math.round(earnedSoFar * 100) / 100,
+        completedRoutes,
+        remainingRoutes,
+        avgRouteValue: Math.round(avgRouteValue * 100) / 100,
+        projectedTotal: Math.round(projectedTotal * 100) / 100,
+        contractEndDate: contract.end_date,
+      });
+    } catch (err: any) {
+      console.error('Error fetching contract forecast:', err);
+      res.status(500).json({ error: 'Failed to fetch forecast' });
     }
   });
 }

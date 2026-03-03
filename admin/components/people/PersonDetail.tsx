@@ -5,6 +5,8 @@ import { StatusBadge } from '../ui/index.ts';
 import CustomerNotes from './CustomerNotes.tsx';
 import CustomerActivityTab from './CustomerActivityTab.tsx';
 import CustomerCommunicationsTab from './CustomerCommunicationsTab.tsx';
+import DriverQualificationsCard from './DriverQualificationsCard.tsx';
+import LocationRequirementsCard from './LocationRequirementsCard.tsx';
 
 const formatDate = (dateStr: string) => {
   try {
@@ -50,7 +52,7 @@ const LocationCollectionEditor: React.FC<{
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ collectionDay: day || null, collectionFrequency: freq }),
+        body: JSON.stringify({ collection_day: day || null, collection_frequency: freq }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -175,6 +177,7 @@ const LocationTabContent: React.FC<{
             property={p}
             onSaved={(updated) => handleCollectionSaved(p.id, updated)}
           />
+          <LocationRequirementsCard locationId={p.id} />
         </Card>
       ))}
     </div>
@@ -327,7 +330,7 @@ const PersonDetail: React.FC<{
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
-    ...(isCustomer ? [{ key: 'locations' as TabKey, label: `Locations (${(person.properties || []).length})` }] : []),
+    ...(isCustomer ? [{ key: 'locations' as TabKey, label: `Locations (${(person.locations || []).length})` }] : []),
     ...(isDriver ? [{ key: 'driver' as TabKey, label: 'Driver Profile' }] : []),
     { key: 'activity', label: 'Activity' },
     { key: 'communications', label: 'Messages' },
@@ -586,7 +589,7 @@ const PersonDetail: React.FC<{
       )}
 
       {activeTab === 'locations' && (
-        <LocationTabContent locations={person.properties || []} personId={person.id} onPersonUpdated={onPersonUpdated} />
+        <LocationTabContent locations={person.locations || []} personId={person.id} onPersonUpdated={onPersonUpdated} />
       )}
 
       {activeTab === 'driver' && person.driverProfile && (
@@ -635,6 +638,7 @@ const PersonDetail: React.FC<{
               ))}
             </div>
           </Card>
+          <DriverQualificationsCard driverId={person.driverProfile.id} />
         </div>
       )}
 

@@ -200,6 +200,66 @@ setInterval(processScheduledMessages, 60_000);
   setInterval(checkAndRunSync, SYNC_CHECK_INTERVAL);
 }
 
+// Contract expiry scheduler — checks every 6 hours, expires past-due contracts + warns expiring-soon
+{
+  const CONTRACT_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+  let contractExpiryRunning = false;
+
+  async function checkAndExpireContracts() {
+    if (process.env.AUTO_EXPIRE_CONTRACTS !== 'true' || contractExpiryRunning) return;
+    contractExpiryRunning = true;
+    try {
+      const { pool: dbPool } = await import('./db');
+      const { sendDriverNotification } = await import('./notificationService');
+
+      // 1. Expire past-due contracts
+      const expired = await dbPool.query(
+        `UPDATE route_contracts SET status = 'expired', updated_at = NOW()
+         WHERE status = 'active' AND end_date < CURRENT_DATE
+         RETURNING id, driver_id, day_of_week,
+           (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name,
+           end_date`
+      );
+      for (const c of expired.rows) {
+        console.log(`[ContractExpiry] Expired contract ${c.id} (${c.zone_name} ${c.day_of_week})`);
+        sendDriverNotification(c.driver_id,
+          'Contract Expired',
+          `<p>Your contract for <strong>${c.zone_name} - ${c.day_of_week}</strong> has expired as of ${c.end_date}.</p><p>Please contact your administrator about renewal.</p>`
+        ).catch(err => console.error('[ContractExpiry] Notification error:', err));
+      }
+      if (expired.rows.length > 0) {
+        console.log(`[ContractExpiry] Expired ${expired.rows.length} contract(s)`);
+      }
+
+      // 2. Warn about contracts expiring within 30 days (notify once)
+      const expiringSoon = await dbPool.query(
+        `SELECT id, driver_id, day_of_week, end_date,
+                (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name
+         FROM route_contracts
+         WHERE status = 'active'
+           AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+           AND expiry_warned_at IS NULL`
+      );
+      for (const c of expiringSoon.rows) {
+        await dbPool.query('UPDATE route_contracts SET expiry_warned_at = NOW() WHERE id = $1', [c.id]);
+        sendDriverNotification(c.driver_id,
+          'Contract Expiring Soon',
+          `<p>Your contract for <strong>${c.zone_name} - ${c.day_of_week}</strong> expires on <strong>${c.end_date}</strong>.</p><p>Please contact your administrator if you would like to renew.</p>`
+        ).catch(err => console.error('[ContractExpiry] Warning notification error:', err));
+      }
+      if (expiringSoon.rows.length > 0) {
+        console.log(`[ContractExpiry] Sent ${expiringSoon.rows.length} expiry warning(s)`);
+      }
+    } catch (error: any) {
+      console.error('[ContractExpiry] Scheduler error:', error.message);
+    } finally {
+      contractExpiryRunning = false;
+    }
+  }
+
+  setInterval(checkAndExpireContracts, CONTRACT_CHECK_INTERVAL);
+}
+
 app.use('/api/team/auth/login', authRateLimit);
 app.use('/api/team/auth/register', authRateLimit);
 const { registerTeamRoutes } = await import('./teamRoutes');

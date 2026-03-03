@@ -35,5 +35,9 @@ export function formatRouteForClient(row: any) {
     optimoRouteKey: row.optimo_route_key ?? row.optimoRouteKey,
     area: row.area,
     zoneId: row.zone_id ?? row.zoneId,
+    contractId: row.contract_id ?? row.contractId,
+    computedValue: row.computed_value != null ? Number(row.computed_value) : (row.computedValue != null ? Number(row.computedValue) : undefined),
+    payMode: row.pay_mode ?? row.payMode,
+    payPremium: row.pay_premium != null ? Number(row.pay_premium) : (row.payPremium != null ? Number(row.payPremium) : undefined),
   };
 }

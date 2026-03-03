@@ -19,7 +19,7 @@ import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
 import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
-import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation } from './compensationEngine';
+import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateStopCompensation } from './compensationEngine';
 
 declare module 'express-session' {
   interface SessionData {
@@ -114,7 +114,7 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay, pendingZonesResult, flaggedWaitlistResult] = await Promise.all([
+      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay, pendingZonesResult, flaggedWaitlistResult, contractAlerts] = await Promise.all([
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM missed_collection_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
@@ -123,12 +123,17 @@ export function registerAdminRoutes(app: Express) {
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'approved' AND collection_day IS NULL`),
         storage.query(`SELECT COUNT(*) as count FROM driver_custom_zones WHERE status = 'pending_approval'`),
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'waitlist' AND coverage_flagged_at IS NOT NULL`),
+        storage.query(`SELECT
+          COALESCE((SELECT COUNT(*) FROM route_contracts WHERE status = 'active' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'), 0) AS expiring,
+          COALESCE((SELECT COUNT(*) FROM coverage_requests WHERE status = 'pending'), 0) AS pending_coverage`),
       ]);
       const missedCollections = parseInt(pendingMissedCollections.rows[0]?.count || '0');
       const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
       const locationsNeedingCollectionDay = parseInt(noCollectionDay.rows[0]?.count || '0');
       const pendingZones = parseInt(pendingZonesResult.rows[0]?.count || '0');
       const flaggedWaitlist = parseInt(flaggedWaitlistResult.rows[0]?.count || '0');
+      const contractsExpiring = parseInt(contractAlerts.rows[0]?.expiring || '0');
+      const pendingCoverage = parseInt(contractAlerts.rows[0]?.pending_coverage || '0');
       const oldestMcDate = oldestMissedCollection.rows[0]?.oldest;
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
@@ -143,6 +148,8 @@ export function registerAdminRoutes(app: Express) {
         flaggedWaitlist,
         oldestMissedCollectionHours: hoursAgo(oldestMcDate),
         oldestAddressReviewHours: hoursAgo(oldestArDate),
+        contractsExpiring,
+        pendingCoverage,
       });
     } catch (error) {
       console.error('Badge counts error:', error);
@@ -589,7 +596,7 @@ export function registerAdminRoutes(app: Express) {
           customerName: `${r.first_name} ${r.last_name}`,
           customerEmail: r.email,
           address: r.address,
-          collectionDate: r.pickup_date,
+          collectionDate: r.collection_date,
           notes: r.notes,
           status: r.status,
           resolutionNotes: r.resolution_notes,
@@ -827,7 +834,9 @@ export function registerAdminRoutes(app: Express) {
       if (!existing) {
         return res.status(404).json({ error: 'Route not found' });
       }
-      const { title, description, scheduled_date, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, accepted_bid_id, actual_pay, payment_status } = req.body;
+      const { title: reqTitle, description, scheduled_date: reqDate, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, accepted_bid_id, actual_pay, payment_status } = req.body;
+      const title = reqTitle || existing.title;
+      const scheduled_date = reqDate || existing.scheduled_date;
       if (!title || !scheduled_date) {
         return res.status(400).json({ error: 'title and scheduled_date are required' });
       }
@@ -1030,6 +1039,17 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to assign route:', error);
       res.status(500).json({ error: 'Failed to assign route' });
+    }
+  });
+
+  // Service Zones (used by Contracts, Opportunities, Compensation panels)
+  app.get('/api/admin/service-zones', requireAdmin, requirePermission('operations'), async (_req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(`SELECT id, name FROM service_zones WHERE active = true ORDER BY name`);
+      res.json({ zones: rows });
+    } catch (error) {
+      console.error('Error fetching service zones:', error);
+      res.status(500).json({ error: 'Failed to fetch service zones' });
     }
   });
 
@@ -2613,7 +2633,7 @@ export function registerAdminRoutes(app: Express) {
       const { name, description, price, icon } = req.body;
       if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
       const result = await storage.query(
-        'INSERT INTO on_demand_services (name, description, price, icon) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO on_demand_services (name, description, price, icon_name) VALUES ($1, $2, $3, $4) RETURNING *',
         [name, description || '', Math.round(price * 100) / 100, icon || null]
       );
       await audit(req, 'create_on_demand_service', 'on_demand_service', result.rows[0].id, { name, price });
@@ -2628,7 +2648,7 @@ export function registerAdminRoutes(app: Express) {
       const { name, description, price, active, icon } = req.body;
       if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
       const result = await storage.query(
-        'UPDATE on_demand_services SET name=$1, description=$2, price=$3, active=$4, icon=$5 WHERE id=$6 RETURNING *',
+        'UPDATE on_demand_services SET name=$1, description=$2, price=$3, active=$4, icon_name=$5 WHERE id=$6 RETURNING *',
         [name, description || '', Math.round(price * 100) / 100, active !== false, icon || null, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
@@ -2786,6 +2806,20 @@ export function registerAdminRoutes(app: Express) {
 
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
+
+      // Auto-assign approved locations to contract drivers (fire-and-forget)
+      if (decision === 'approved') {
+        const approvedIds = results.filter(r => r.success).map(r => r.id);
+        if (approvedIds.length > 0) {
+          import('./autoAssignmentEngine').then(({ tryAutoAssignBatch }) => {
+            tryAutoAssignBatch(approvedIds).then(assignResults => {
+              const assigned = assignResults.filter(r => r.assigned).length;
+              if (assigned > 0) console.log(`[AutoAssign] Bulk: ${assigned}/${approvedIds.length} locations auto-assigned`);
+            }).catch(err => console.error('[AutoAssign] Bulk error:', err));
+          }).catch(err => console.error('[AutoAssign] Import error:', err));
+        }
+      }
+
       res.json({ results, succeeded, failed });
     } catch (error) {
       console.error('Bulk address review error:', error);
@@ -2944,6 +2978,19 @@ export function registerAdminRoutes(app: Express) {
         });
       }
 
+      // Auto-assign to contract driver's route (fire-and-forget)
+      if (decision === 'approved') {
+        import('./autoAssignmentEngine').then(({ tryAutoAssignLocation }) => {
+          tryAutoAssignLocation(locationId).then(result => {
+            if (result.assigned) {
+              console.log(`[AutoAssign] Location ${locationId} auto-assigned to route ${result.routeId}`);
+            } else {
+              console.log(`[AutoAssign] Location ${locationId} not assigned: ${result.reason}${result.details ? ' - ' + result.details : ''}`);
+            }
+          }).catch(err => console.error('[AutoAssign] Error:', err));
+        }).catch(err => console.error('[AutoAssign] Import error:', err));
+      }
+
       res.json({ success: true });
     } catch (error) {
       console.error('Address review decision error:', error);
@@ -2995,6 +3042,8 @@ export function registerAdminRoutes(app: Express) {
     // Operations
     ZONE_APPROVAL_REQUIRED:     { category: 'operations', isSecret: false, label: 'Require Admin Approval for Driver Zones', displayType: 'toggle' },
     WAITLIST_AUTO_FLAG_ENABLED: { category: 'operations', isSecret: false, label: 'Auto-Flag Waitlisted Locations on Zone Approval', displayType: 'toggle' },
+    AUTO_ASSIGN_NEW_LOCATIONS: { category: 'operations', isSecret: false, label: 'Auto-Assign New Locations to Contract Drivers', displayType: 'toggle' },
+    AUTO_EXPIRE_CONTRACTS:    { category: 'operations', isSecret: false, label: 'Auto-Expire Contracts Past End Date', displayType: 'toggle' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },
@@ -3174,7 +3223,7 @@ export function registerAdminRoutes(app: Express) {
   // Compensation Rules CRUD
   // ============================================================
 
-  app.get('/api/admin/compensation-rules', requireAdmin, async (_req, res) => {
+  app.get('/api/admin/compensation-rules', requireAdmin, requirePermission('operations'), async (_req, res) => {
     try {
       const { rows } = await pool.query(
         `SELECT * FROM compensation_rules ORDER BY rule_type, priority DESC, created_at DESC`
@@ -3202,7 +3251,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/compensation-rules', requireAdmin, async (req, res) => {
+  app.post('/api/admin/compensation-rules', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { name, ruleType, conditions, rateAmount, rateMultiplier, priority, active, effectiveFrom, effectiveTo } = req.body;
       if (!name || !ruleType) {
@@ -3212,12 +3261,16 @@ export function registerAdminRoutes(app: Express) {
       if (!validTypes.includes(ruleType)) {
         return res.status(400).json({ error: `ruleType must be one of: ${validTypes.join(', ')}` });
       }
+      if (effectiveFrom && effectiveTo && new Date(effectiveFrom) > new Date(effectiveTo)) {
+        return res.status(400).json({ error: 'effectiveFrom must be before effectiveTo' });
+      }
       const { rows } = await pool.query(
         `INSERT INTO compensation_rules (name, rule_type, conditions, rate_amount, rate_multiplier, priority, active, effective_from, effective_to, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
         [name, ruleType, JSON.stringify(conditions || {}), rateAmount ?? null, rateMultiplier ?? 1.0, priority ?? 0, active !== false, effectiveFrom ?? null, effectiveTo ?? null, req.session.userId]
       );
       const r = rows[0];
+      await audit(req, 'create_compensation_rule', 'compensation_rule', r.id, { name, ruleType });
       res.status(201).json({
         rule: {
           id: r.id, name: r.name, ruleType: r.rule_type, conditions: r.conditions,
@@ -3233,9 +3286,12 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/compensation-rules/:id', requireAdmin, async (req, res) => {
+  app.put('/api/admin/compensation-rules/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { name, ruleType, conditions, rateAmount, rateMultiplier, priority, active, effectiveFrom, effectiveTo } = req.body;
+      if (effectiveFrom && effectiveTo && new Date(effectiveFrom) > new Date(effectiveTo)) {
+        return res.status(400).json({ error: 'effectiveFrom must be before effectiveTo' });
+      }
       const { rows } = await pool.query(
         `UPDATE compensation_rules SET
            name = COALESCE($1, name),
@@ -3253,6 +3309,7 @@ export function registerAdminRoutes(app: Express) {
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Rule not found' });
       const r = rows[0];
+      await audit(req, 'update_compensation_rule', 'compensation_rule', r.id, { name: r.name });
       res.json({
         rule: {
           id: r.id, name: r.name, ruleType: r.rule_type, conditions: r.conditions,
@@ -3268,14 +3325,85 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/admin/compensation-rules/:id', requireAdmin, async (req, res) => {
+  app.delete('/api/admin/compensation-rules/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { rowCount } = await pool.query(`DELETE FROM compensation_rules WHERE id = $1`, [req.params.id]);
       if (rowCount === 0) return res.status(404).json({ error: 'Rule not found' });
+      await audit(req, 'delete_compensation_rule', 'compensation_rule', req.params.id, {});
       res.json({ success: true });
     } catch (err: any) {
       console.error('Error deleting compensation rule:', err);
       res.status(500).json({ error: 'Failed to delete compensation rule' });
+    }
+  });
+
+  // Compensation rules — preview impact across sample locations
+  app.get('/api/admin/compensation-rules/preview', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { zoneId, limit: lim = '20' } = req.query;
+      const limitNum = Math.min(parseInt(lim as string) || 20, 50);
+
+      const params: any[] = [limitNum];
+      const zoneFilter = zoneId ? `AND l.zone_id = $2` : '';
+      if (zoneId) params.push(zoneId);
+
+      const { rows: locations } = await pool.query(
+        `SELECT l.id, l.address, l.service_type, l.zone_id,
+                COALESCE(l.difficulty_score, 1.0) AS difficulty_score,
+                l.custom_rate,
+                sz.name AS zone_name
+         FROM locations l
+         LEFT JOIN service_zones sz ON l.zone_id = sz.id
+         WHERE l.service_status = 'approved' AND l.collection_day IS NOT NULL
+         ${zoneFilter}
+         ORDER BY l.created_at DESC
+         LIMIT $1`,
+        params
+      );
+
+      const rules = await getActiveRules();
+
+      const results = locations.map((loc: any) => {
+        const locCtx = {
+          id: loc.id,
+          address: loc.address || '',
+          service_type: loc.service_type || 'residential',
+          difficulty_score: parseFloat(loc.difficulty_score) || 1.0,
+          custom_rate: loc.custom_rate != null ? parseFloat(loc.custom_rate) : null,
+          zone_id: loc.zone_id,
+        };
+        const breakdown = calculateStopCompensation(locCtx, null, rules);
+        return {
+          id: loc.id,
+          address: loc.address,
+          serviceType: loc.service_type,
+          zoneId: loc.zone_id,
+          zoneName: loc.zone_name,
+          difficultyScore: parseFloat(loc.difficulty_score),
+          customRate: loc.custom_rate != null ? Number(loc.custom_rate) : null,
+          breakdown,
+        };
+      });
+
+      const rates = results.map((r: any) => r.breakdown.finalRate);
+      const totalLocationsResult = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM locations WHERE service_status = 'approved' AND collection_day IS NOT NULL ${zoneFilter}`,
+        zoneId ? [zoneId] : []
+      );
+
+      res.json({
+        locations: results,
+        summary: {
+          avgRate: rates.length > 0 ? Math.round((rates.reduce((a: number, b: number) => a + b, 0) / rates.length) * 100) / 100 : 0,
+          minRate: rates.length > 0 ? Math.min(...rates) : 0,
+          maxRate: rates.length > 0 ? Math.max(...rates) : 0,
+          sampledCount: results.length,
+          totalLocations: totalLocationsResult.rows[0].count,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error previewing compensation rules:', err);
+      res.status(500).json({ error: 'Failed to preview compensation rules' });
     }
   });
 
@@ -3318,7 +3446,7 @@ export function registerAdminRoutes(app: Express) {
   // Route Contracts CRUD
   // ============================================================
 
-  app.get('/api/admin/contracts', requireAdmin, async (req, res) => {
+  app.get('/api/admin/contracts', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const status = req.query.status as string | undefined;
       const zoneId = req.query.zoneId as string | undefined;
@@ -3335,7 +3463,8 @@ export function registerAdminRoutes(app: Express) {
                 dp.name AS driver_name,
                 sz.name AS zone_name,
                 (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
-                (SELECT COUNT(*) FROM route_stops rs JOIN routes r ON rs.route_id = r.id WHERE r.contract_id = rc.id) AS stop_count
+                (SELECT COUNT(*) FROM route_stops rs JOIN routes r ON rs.route_id = r.id WHERE r.contract_id = rc.id) AS stop_count,
+                (SELECT COALESCE(AVG(r2.computed_value), 0) FROM routes r2 WHERE r2.contract_id = rc.id AND r2.computed_value IS NOT NULL) AS avg_weekly_value
          FROM route_contracts rc
          JOIN driver_profiles dp ON rc.driver_id = dp.id
          JOIN service_zones sz ON rc.zone_id = sz.id
@@ -3360,8 +3489,9 @@ export function registerAdminRoutes(app: Express) {
           awardedBy: c.awarded_by,
           createdAt: c.created_at,
           updatedAt: c.updated_at,
-          routeCount: parseInt(c.route_count),
-          stopCount: parseInt(c.stop_count),
+          routeCount: parseInt(c.route_count) || 0,
+          stopCount: parseInt(c.stop_count) || 0,
+          computedWeeklyValue: c.avg_weekly_value != null ? Number(parseFloat(c.avg_weekly_value).toFixed(2)) : 0,
         })),
       });
     } catch (err: any) {
@@ -3370,7 +3500,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/contracts', requireAdmin, async (req, res) => {
+  app.post('/api/admin/contracts', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { driverId, zoneId, dayOfWeek, startDate, endDate, perStopRate, termsNotes, status } = req.body;
       if (!driverId || !zoneId || !dayOfWeek || !startDate || !endDate) {
@@ -3396,6 +3526,7 @@ export function registerAdminRoutes(app: Express) {
         [driverId, zoneId, dayOfWeek.toLowerCase(), startDate, endDate, perStopRate ?? null, termsNotes ?? null, status || 'active', req.session.userId]
       );
       const c = rows[0];
+      await audit(req, 'create_contract', 'route_contract', c.id, { driverId, zoneId, dayOfWeek, startDate, endDate });
       res.status(201).json({
         contract: {
           id: c.id, driverId: c.driver_id, zoneId: c.zone_id, dayOfWeek: c.day_of_week,
@@ -3411,7 +3542,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/contracts/:id', requireAdmin, async (req, res) => {
+  app.put('/api/admin/contracts/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { endDate, perStopRate, termsNotes, status } = req.body;
       const { rows } = await pool.query(
@@ -3426,6 +3557,7 @@ export function registerAdminRoutes(app: Express) {
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const c = rows[0];
+      await audit(req, 'update_contract', 'route_contract', c.id, { endDate, perStopRate, termsNotes, status });
       res.json({
         contract: {
           id: c.id, driverId: c.driver_id, zoneId: c.zone_id, dayOfWeek: c.day_of_week,
@@ -3441,18 +3573,804 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/admin/contracts/:id', requireAdmin, async (req, res) => {
+  app.delete('/api/admin/contracts/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       // Soft terminate — don't hard delete, set status to 'terminated'
       const { rows } = await pool.query(
-        `UPDATE route_contracts SET status = 'terminated', updated_at = NOW() WHERE id = $1 RETURNING *`,
+        `UPDATE route_contracts SET status = 'terminated', updated_at = NOW() WHERE id = $1
+         RETURNING *, (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name`,
         [req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
-      res.json({ success: true, contract: { id: rows[0].id, status: rows[0].status } });
+      const contract = rows[0];
+
+      // Unassign future routes linked to this contract
+      const futureRoutes = await pool.query(
+        `UPDATE routes SET status = 'open', assigned_driver_id = NULL, contract_id = NULL, updated_at = NOW()
+         WHERE contract_id = $1 AND scheduled_date > CURRENT_DATE AND status IN ('draft', 'assigned')
+         RETURNING id`,
+        [req.params.id]
+      );
+      const unassignedCount = futureRoutes.rows.length;
+
+      // Notify driver
+      sendDriverNotification(contract.driver_id,
+        'Contract Terminated',
+        `<p>Your contract for <strong>${contract.zone_name || 'Zone'} - ${contract.day_of_week}</strong> has been terminated.</p>
+         ${unassignedCount > 0 ? `<p>${unassignedCount} future route(s) have been unassigned.</p>` : ''}`
+      ).catch(err => console.error('[ContractTerminate] Notification error:', err));
+
+      await audit(req, 'terminate_contract', 'route_contract', contract.id, { unassignedRoutes: unassignedCount });
+      res.json({ success: true, contract: { id: contract.id, status: contract.status }, unassignedRoutes: unassignedCount });
     } catch (err: any) {
       console.error('Error terminating contract:', err);
       res.status(500).json({ error: 'Failed to terminate contract' });
+    }
+  });
+
+  // Renew a contract (extend end_date, optionally update rate/terms)
+  app.post('/api/admin/contracts/:id/renew', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { newEndDate, perStopRate, termsNotes } = req.body;
+      if (!newEndDate) return res.status(400).json({ error: 'newEndDate is required' });
+
+      const existing = await pool.query(
+        `SELECT rc.*, sz.name AS zone_name FROM route_contracts rc
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.id = $1`, [req.params.id]
+      );
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = existing.rows[0];
+
+      if (!['active', 'expired'].includes(contract.status)) {
+        return res.status(400).json({ error: `Cannot renew a ${contract.status} contract` });
+      }
+
+      const updates: string[] = [`end_date = $1`, `expiry_warned_at = NULL`, `updated_at = NOW()`];
+      const params: any[] = [newEndDate];
+      let idx = 2;
+
+      if (contract.status === 'expired') {
+        updates.push(`status = 'active'`);
+      }
+      if (perStopRate !== undefined) {
+        updates.push(`per_stop_rate = $${idx++}`);
+        params.push(perStopRate);
+      }
+      if (termsNotes !== undefined) {
+        updates.push(`terms_notes = $${idx++}`);
+        params.push(termsNotes);
+      }
+      params.push(req.params.id);
+
+      const { rows } = await pool.query(
+        `UPDATE route_contracts SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+        params
+      );
+
+      // Notify driver
+      sendDriverNotification(contract.driver_id,
+        'Contract Renewed',
+        `<p>Your contract for <strong>${contract.zone_name || 'Zone'} - ${contract.day_of_week}</strong> has been renewed until <strong>${newEndDate}</strong>.</p>`
+      ).catch(err => console.error('[ContractRenew] Notification error:', err));
+
+      await audit(req, 'renew_contract', 'route_contract', req.params.id, { newEndDate, perStopRate, termsNotes });
+      res.json({ success: true, contract: rows[0] });
+    } catch (err: any) {
+      console.error('Error renewing contract:', err);
+      res.status(500).json({ error: 'Failed to renew contract' });
+    }
+  });
+
+  // ============================================================
+  // Coverage Requests (admin management)
+  // ============================================================
+
+  app.get('/api/admin/coverage-requests', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const contractFilter = req.query.contractId as string | undefined;
+      const conditions: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+      if (statusFilter) { conditions.push(`cr.status = $${idx++}`); params.push(statusFilter); }
+      if (contractFilter) { conditions.push(`cr.contract_id = $${idx++}`); params.push(contractFilter); }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const { rows } = await pool.query(
+        `SELECT cr.*, rc.day_of_week, sz.name AS zone_name,
+                req_dp.name AS requesting_driver_name,
+                sub_dp.name AS substitute_driver_name
+         FROM coverage_requests cr
+         JOIN route_contracts rc ON cr.contract_id = rc.id
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         LEFT JOIN driver_profiles req_dp ON cr.requesting_driver_id = req_dp.id
+         LEFT JOIN driver_profiles sub_dp ON cr.substitute_driver_id = sub_dp.id
+         ${where}
+         ORDER BY cr.coverage_date DESC`,
+        params
+      );
+      res.json({
+        data: rows.map((r: any) => ({
+          id: r.id,
+          contractId: r.contract_id,
+          requestingDriverId: r.requesting_driver_id,
+          requestingDriverName: r.requesting_driver_name,
+          coverageDate: r.coverage_date,
+          reason: r.reason,
+          reasonNotes: r.reason_notes,
+          substituteDriverId: r.substitute_driver_id,
+          substituteDriverName: r.substitute_driver_name,
+          substitutePay: r.substitute_pay != null ? Number(r.substitute_pay) : null,
+          status: r.status,
+          dayOfWeek: r.day_of_week,
+          zoneName: r.zone_name,
+          reviewedBy: r.reviewed_by,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching coverage requests:', err);
+      res.status(500).json({ error: 'Failed to fetch coverage requests' });
+    }
+  });
+
+  app.put('/api/admin/coverage-requests/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { status, substituteDriverId, substitutePay } = req.body;
+      if (!status || !['approved', 'filled', 'denied'].includes(status)) {
+        return res.status(400).json({ error: 'status must be approved, filled, or denied' });
+      }
+
+      const existing = await pool.query(
+        `SELECT cr.*, rc.driver_id AS contract_driver_id, rc.day_of_week, rc.zone_id,
+                sz.name AS zone_name
+         FROM coverage_requests cr
+         JOIN route_contracts rc ON cr.contract_id = rc.id
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE cr.id = $1`,
+        [req.params.id]
+      );
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Coverage request not found' });
+      const request = existing.rows[0];
+
+      const updates: string[] = [`status = $1`, `reviewed_by = $2`];
+      const params: any[] = [status, (req.session as any).userId];
+      let idx = 3;
+
+      if (status === 'filled') {
+        if (!substituteDriverId) return res.status(400).json({ error: 'substituteDriverId required when filling' });
+        updates.push(`substitute_driver_id = $${idx++}`);
+        params.push(substituteDriverId);
+        if (substitutePay != null) {
+          updates.push(`substitute_pay = $${idx++}`);
+          params.push(substitutePay);
+        }
+      }
+      params.push(req.params.id);
+
+      const { rows } = await pool.query(
+        `UPDATE coverage_requests SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+        params
+      );
+
+      // Handle route reassignment when filling coverage
+      if (status === 'filled' && substituteDriverId) {
+        const routeResult = await pool.query(
+          `SELECT id FROM routes WHERE contract_id = $1 AND scheduled_date = $2 LIMIT 1`,
+          [request.contract_id, request.coverage_date]
+        );
+        if (routeResult.rows.length > 0) {
+          await pool.query(
+            `UPDATE routes SET assigned_driver_id = $1, updated_at = NOW() WHERE id = $2`,
+            [substituteDriverId, routeResult.rows[0].id]
+          );
+        }
+
+        // Notify substitute driver
+        sendDriverNotification(substituteDriverId,
+          'Coverage Assignment',
+          `<p>You have been assigned to cover <strong>${request.zone_name || 'a zone'} - ${request.day_of_week}</strong> on <strong>${request.coverage_date}</strong>.</p>
+           ${substitutePay ? `<p>Pay: $${Number(substitutePay).toFixed(2)}</p>` : ''}`
+        ).catch(err => console.error('[Coverage] Substitute notification error:', err));
+      }
+
+      // Notify requesting driver of decision
+      const statusMsg = status === 'approved' ? 'approved' : status === 'filled' ? 'filled with a substitute' : 'denied';
+      sendDriverNotification(request.requesting_driver_id,
+        `Coverage Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+        `<p>Your coverage request for <strong>${request.zone_name || 'Zone'} - ${request.day_of_week}</strong> on <strong>${request.coverage_date}</strong> has been <strong>${statusMsg}</strong>.</p>`
+      ).catch(err => console.error('[Coverage] Requester notification error:', err));
+
+      await audit(req, `coverage_${status}`, 'coverage_request', req.params.id, { substituteDriverId, substitutePay });
+      res.json({ success: true, data: rows[0] });
+    } catch (err: any) {
+      console.error('Error updating coverage request:', err);
+      res.status(500).json({ error: 'Failed to update coverage request' });
+    }
+  });
+
+  // ============================================================
+  // Contract Performance & Dashboard
+  // ============================================================
+
+  app.get('/api/admin/contracts/:id/performance', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const contractId = req.params.id;
+
+      const metrics = await pool.query(
+        `SELECT
+           COUNT(r.id)::int AS total_routes,
+           COUNT(r.id) FILTER (WHERE r.status = 'completed')::int AS completed_routes,
+           COALESCE(SUM(COALESCE(sc.stop_count, 0)), 0)::int AS total_stops,
+           COALESCE(SUM(COALESCE(dc.done_count, 0)), 0)::int AS completed_stops,
+           COALESCE(SUM(r.computed_value) FILTER (WHERE r.status = 'completed'), 0)::numeric AS total_compensation,
+           COALESCE(AVG(r.computed_value), 0)::numeric AS avg_route_value
+         FROM routes r
+         LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops WHERE status != 'cancelled' GROUP BY route_id) sc ON sc.route_id = r.id
+         LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_stops WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
+         WHERE r.contract_id = $1`,
+        [contractId]
+      );
+
+      const coverageCount = await pool.query(
+        'SELECT COUNT(*)::int AS count FROM coverage_requests WHERE contract_id = $1',
+        [contractId]
+      );
+
+      const m = metrics.rows[0];
+      const totalRoutes = m.total_routes || 0;
+      const completedRoutes = m.completed_routes || 0;
+
+      res.json({
+        data: {
+          totalRoutes,
+          completedRoutes,
+          completionRate: totalRoutes > 0 ? Number((completedRoutes / totalRoutes).toFixed(4)) : 0,
+          totalStops: m.total_stops,
+          completedStops: m.completed_stops,
+          stopCompletionRate: m.total_stops > 0 ? Number((m.completed_stops / m.total_stops).toFixed(4)) : 0,
+          totalCompensation: Number(parseFloat(m.total_compensation).toFixed(2)),
+          avgRouteValue: Number(parseFloat(m.avg_route_value).toFixed(2)),
+          coverageRequestCount: coverageCount.rows[0].count,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching contract performance:', err);
+      res.status(500).json({ error: 'Failed to fetch performance metrics' });
+    }
+  });
+
+  app.get('/api/admin/contracts/dashboard', requireAdmin, requirePermission('operations'), async (_req, res) => {
+    try {
+      const counts = await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'active')::int AS active_count,
+           COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+           COUNT(*) FILTER (WHERE status = 'expired')::int AS expired_count,
+           COUNT(*) FILTER (WHERE status = 'active' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days')::int AS expiring_count
+         FROM route_contracts`
+      );
+
+      const pendingCoverage = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM coverage_requests WHERE status = 'pending'`
+      );
+
+      const expiringContracts = await pool.query(
+        `SELECT rc.id, rc.driver_id, rc.day_of_week, rc.end_date, rc.per_stop_rate,
+                dp.name AS driver_name, sz.name AS zone_name
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON rc.driver_id = dp.id
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.status = 'active'
+           AND rc.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+         ORDER BY rc.end_date ASC`
+      );
+
+      const c = counts.rows[0];
+      res.json({
+        data: {
+          activeCount: c.active_count,
+          pendingCount: c.pending_count,
+          expiredCount: c.expired_count,
+          expiringCount: c.expiring_count,
+          pendingCoverageCount: pendingCoverage.rows[0].count,
+          expiringContracts: expiringContracts.rows.map((r: any) => ({
+            id: r.id,
+            driverName: r.driver_name,
+            zoneName: r.zone_name,
+            dayOfWeek: r.day_of_week,
+            endDate: r.end_date,
+            perStopRate: r.per_stop_rate != null ? Number(r.per_stop_rate) : null,
+          })),
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching contracts dashboard:', err);
+      res.status(500).json({ error: 'Failed to fetch dashboard' });
+    }
+  });
+
+  // ============================================================
+  // Auto-Assignment Activity Log
+  // ============================================================
+
+  app.get('/api/admin/auto-assignment-log', requireAdmin, async (req, res) => {
+    try {
+      const { assigned, reason, days = '7', limit: lim = '50', offset: off = '0' } = req.query;
+      const params: any[] = [];
+      const conditions: string[] = [];
+
+      // Date range filter
+      const daysNum = parseInt(days as string) || 7;
+      params.push(daysNum);
+      conditions.push(`aal.created_at >= NOW() - ($${params.length} || ' days')::interval`);
+
+      if (assigned === 'true') { conditions.push('aal.assigned = true'); }
+      else if (assigned === 'false') { conditions.push('aal.assigned = false'); }
+
+      if (reason) { params.push(reason); conditions.push(`aal.reason = $${params.length}`); }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const limitNum = Math.min(parseInt(lim as string) || 50, 100);
+      const offsetNum = parseInt(off as string) || 0;
+
+      params.push(limitNum, offsetNum);
+      const limitIdx = params.length - 1;
+      const offsetIdx = params.length;
+
+      const [dataResult, countResult] = await Promise.all([
+        pool.query(
+          `SELECT aal.*, l.address AS location_address,
+                  dp.name AS driver_name, sz.name AS zone_name
+           FROM auto_assignment_log aal
+           LEFT JOIN locations l ON aal.location_id = l.id
+           LEFT JOIN route_contracts rc ON aal.contract_id = rc.id
+           LEFT JOIN driver_profiles dp ON rc.driver_id = dp.id
+           LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+           ${where}
+           ORDER BY aal.created_at DESC
+           LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+          params
+        ),
+        pool.query(`SELECT COUNT(*)::int AS total FROM auto_assignment_log aal ${where}`, params.slice(0, -2)),
+      ]);
+
+      const total = countResult.rows[0].total;
+      const assignedCount = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM auto_assignment_log
+         WHERE created_at >= NOW() - ($1 || ' days')::interval AND assigned = true`,
+        [daysNum]
+      );
+
+      res.json({
+        data: dataResult.rows.map((r: any) => ({
+          id: r.id,
+          locationId: r.location_id,
+          locationAddress: r.location_address,
+          contractId: r.contract_id,
+          routeId: r.route_id,
+          assigned: r.assigned,
+          reason: r.reason,
+          details: r.details,
+          compensation: r.compensation != null ? Number(r.compensation) : null,
+          capacityWarning: r.capacity_warning,
+          driverName: r.driver_name,
+          zoneName: r.zone_name,
+          createdAt: r.created_at,
+        })),
+        total,
+        assignedCount: assignedCount.rows[0].count,
+      });
+    } catch (err: any) {
+      console.error('Error fetching auto-assignment log:', err);
+      res.status(500).json({ error: 'Failed to fetch assignment log' });
+    }
+  });
+
+  // ============================================================
+  // Contract Opportunities & Applications (RC1 — award workflow)
+  // ============================================================
+
+  // List opportunities (with application counts)
+  app.get('/api/admin/contract-opportunities', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const conditions = statusFilter ? `WHERE co.status = $1` : '';
+      const params = statusFilter ? [statusFilter] : [];
+      const { rows } = await pool.query(
+        `SELECT co.*,
+                sz.name AS zone_name,
+                (SELECT COUNT(*) FROM contract_applications ca WHERE ca.opportunity_id = co.id) AS application_count
+         FROM contract_opportunities co
+         JOIN service_zones sz ON co.zone_id = sz.id
+         ${conditions}
+         ORDER BY co.created_at DESC`,
+        params
+      );
+      res.json({
+        opportunities: rows.map((o: any) => ({
+          id: o.id,
+          zoneId: o.zone_id,
+          zoneName: o.zone_name,
+          dayOfWeek: o.day_of_week,
+          startDate: o.start_date,
+          durationMonths: o.duration_months,
+          proposedPerStopRate: o.proposed_per_stop_rate != null ? Number(o.proposed_per_stop_rate) : null,
+          requirements: o.requirements || {},
+          status: o.status,
+          awardedContractId: o.awarded_contract_id,
+          discoveryRouteId: o.discovery_route_id,
+          createdAt: o.created_at,
+          applicationCount: parseInt(o.application_count),
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching opportunities:', err);
+      res.status(500).json({ error: 'Failed to fetch opportunities' });
+    }
+  });
+
+  // Create opportunity
+  app.post('/api/admin/contract-opportunities', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { zoneId, dayOfWeek, startDate, durationMonths, proposedPerStopRate, requirements } = req.body;
+      if (!zoneId || !dayOfWeek || !startDate || !durationMonths) {
+        return res.status(400).json({ error: 'zoneId, dayOfWeek, startDate, and durationMonths are required' });
+      }
+      const userId = (req.session as any).userId;
+      const { rows } = await pool.query(
+        `INSERT INTO contract_opportunities (zone_id, day_of_week, start_date, duration_months, proposed_per_stop_rate, requirements, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [zoneId, dayOfWeek, startDate, durationMonths, proposedPerStopRate ?? null, JSON.stringify(requirements || {}), userId]
+      );
+      const o = rows[0];
+      await audit(req, 'create_contract_opportunity', 'contract_opportunity', o.id, { zoneId, dayOfWeek });
+      res.status(201).json({
+        opportunity: {
+          id: o.id,
+          zoneId: o.zone_id,
+          dayOfWeek: o.day_of_week,
+          startDate: o.start_date,
+          durationMonths: o.duration_months,
+          proposedPerStopRate: o.proposed_per_stop_rate != null ? Number(o.proposed_per_stop_rate) : null,
+          requirements: o.requirements || {},
+          status: o.status,
+          createdAt: o.created_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error creating opportunity:', err);
+      res.status(500).json({ error: 'Failed to create opportunity' });
+    }
+  });
+
+  // Update opportunity (e.g. cancel)
+  app.put('/api/admin/contract-opportunities/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { status, proposedPerStopRate, requirements } = req.body;
+      const updates: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+      if (status) { updates.push(`status = $${idx++}`); params.push(status); }
+      if (proposedPerStopRate !== undefined) { updates.push(`proposed_per_stop_rate = $${idx++}`); params.push(proposedPerStopRate); }
+      if (requirements !== undefined) { updates.push(`requirements = $${idx++}`); params.push(JSON.stringify(requirements)); }
+      if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+      params.push(req.params.id);
+      const { rows } = await pool.query(
+        `UPDATE contract_opportunities SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+        params
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Opportunity not found' });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error updating opportunity:', err);
+      res.status(500).json({ error: 'Failed to update opportunity' });
+    }
+  });
+
+  // List applications for an opportunity
+  app.get('/api/admin/contract-opportunities/:id/applications', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT ca.*, dp.name AS driver_name, dp.rating AS driver_rating
+         FROM contract_applications ca
+         JOIN driver_profiles dp ON ca.driver_id = dp.id
+         WHERE ca.opportunity_id = $1
+         ORDER BY ca.created_at ASC`,
+        [req.params.id]
+      );
+      res.json({
+        applications: rows.map((a: any) => ({
+          id: a.id,
+          opportunityId: a.opportunity_id,
+          driverId: a.driver_id,
+          driverName: a.driver_name,
+          driverRating: a.driver_rating != null ? Number(a.driver_rating) : null,
+          proposedRate: a.proposed_rate != null ? Number(a.proposed_rate) : null,
+          message: a.message,
+          driverRatingAtApplication: a.driver_rating_at_application != null ? Number(a.driver_rating_at_application) : null,
+          status: a.status,
+          createdAt: a.created_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching applications:', err);
+      res.status(500).json({ error: 'Failed to fetch applications' });
+    }
+  });
+
+  // Award opportunity to a driver → creates a route contract
+  app.post('/api/admin/contract-opportunities/:id/award', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { applicationId, perStopRate, termsNotes } = req.body;
+      if (!applicationId) return res.status(400).json({ error: 'applicationId is required' });
+
+      // Fetch opportunity
+      const oppResult = await pool.query(`SELECT * FROM contract_opportunities WHERE id = $1`, [req.params.id]);
+      if (oppResult.rows.length === 0) return res.status(404).json({ error: 'Opportunity not found' });
+      const opp = oppResult.rows[0];
+      if (opp.status !== 'open') return res.status(400).json({ error: 'Opportunity is not open' });
+
+      // Fetch application
+      const appResult = await pool.query(`SELECT * FROM contract_applications WHERE id = $1 AND opportunity_id = $2`, [applicationId, req.params.id]);
+      if (appResult.rows.length === 0) return res.status(404).json({ error: 'Application not found' });
+      const app_ = appResult.rows[0];
+
+      // Calculate end date from start_date + duration_months
+      const endDate = new Date(opp.start_date);
+      endDate.setMonth(endDate.getMonth() + opp.duration_months);
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      // Determine per-stop rate: explicit override > application proposed > opportunity proposed
+      const finalRate = perStopRate ?? (app_.proposed_rate != null ? Number(app_.proposed_rate) : (opp.proposed_per_stop_rate != null ? Number(opp.proposed_per_stop_rate) : null));
+
+      const userId = (req.session as any).userId;
+
+      // Create the route contract
+      const contractResult = await pool.query(
+        `INSERT INTO route_contracts (driver_id, zone_id, day_of_week, start_date, end_date, per_stop_rate, terms_notes, awarded_by, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active') RETURNING *`,
+        [app_.driver_id, opp.zone_id, opp.day_of_week, opp.start_date, endDateStr, finalRate, termsNotes || null, userId]
+      );
+      const contract = contractResult.rows[0];
+
+      // Update opportunity → awarded
+      await pool.query(
+        `UPDATE contract_opportunities SET status = 'awarded', awarded_contract_id = $1 WHERE id = $2`,
+        [contract.id, req.params.id]
+      );
+
+      // Accept the winning application, reject others
+      await pool.query(`UPDATE contract_applications SET status = 'accepted' WHERE id = $1`, [applicationId]);
+      await pool.query(
+        `UPDATE contract_applications SET status = 'rejected' WHERE opportunity_id = $1 AND id != $2 AND status = 'pending'`,
+        [req.params.id, applicationId]
+      );
+
+      await audit(req, 'award_contract_opportunity', 'contract_opportunity', req.params.id, {
+        applicationId, contractId: contract.id, driverId: app_.driver_id,
+      });
+
+      res.json({
+        contract: {
+          id: contract.id,
+          driverId: contract.driver_id,
+          zoneId: contract.zone_id,
+          dayOfWeek: contract.day_of_week,
+          startDate: contract.start_date,
+          endDate: contract.end_date,
+          status: contract.status,
+          perStopRate: contract.per_stop_rate != null ? Number(contract.per_stop_rate) : null,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error awarding opportunity:', err);
+      if (err.constraint === 'idx_rc_unique_active') {
+        return res.status(409).json({ error: 'An active contract already exists for this zone+day combination' });
+      }
+      res.status(500).json({ error: 'Failed to award opportunity' });
+    }
+  });
+
+  // ============================================================
+  // Contract-Based Route Creation
+  // ============================================================
+
+  // Create a route for a specific contract + date
+  app.post('/api/admin/contracts/:id/create-route', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { scheduledDate } = req.body;
+      if (!scheduledDate) return res.status(400).json({ error: 'scheduledDate is required' });
+
+      // Fetch contract with driver + zone info
+      const cResult = await pool.query(
+        `SELECT rc.*, dp.name AS driver_name, sz.name AS zone_name
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON rc.driver_id = dp.id
+         JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.id = $1`,
+        [req.params.id]
+      );
+      if (cResult.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = cResult.rows[0];
+      if (contract.status !== 'active') return res.status(400).json({ error: 'Contract is not active' });
+
+      // Check date falls on the contracted day of week
+      const dateObj = new Date(scheduledDate + 'T12:00:00');
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const actualDay = dayNames[dateObj.getDay()];
+      if (actualDay !== contract.day_of_week) {
+        return res.status(400).json({ error: `Date ${scheduledDate} is a ${actualDay}, but contract is for ${contract.day_of_week}` });
+      }
+
+      // Check no existing route for this contract+date
+      const existingRoute = await pool.query(
+        `SELECT id FROM routes WHERE contract_id = $1 AND scheduled_date = $2`,
+        [req.params.id, scheduledDate]
+      );
+      if (existingRoute.rows.length > 0) {
+        return res.status(409).json({ error: 'A route already exists for this contract on that date', routeId: existingRoute.rows[0].id });
+      }
+
+      // Create the route
+      const title = `${contract.zone_name} - ${contract.day_of_week.charAt(0).toUpperCase() + contract.day_of_week.slice(1)}`;
+      const route = await storage.createRoute({
+        title,
+        scheduled_date: scheduledDate,
+        assigned_driver_id: contract.driver_id,
+        route_type: 'daily_route',
+        zone_id: contract.zone_id,
+        source: 'contract',
+        status: 'assigned',
+      });
+
+      // Link route to contract and set pay_mode to dynamic
+      await pool.query(
+        `UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`,
+        [req.params.id, route.id]
+      );
+
+      // Auto-populate stops from locations in this zone with matching collection day
+      const locationsResult = await pool.query(
+        `SELECT l.id, l.address
+         FROM locations l
+         WHERE l.zone_id = $1
+           AND l.collection_day = $2
+           AND l.service_status = 'approved'
+         ORDER BY l.address`,
+        [contract.zone_id, contract.day_of_week]
+      );
+
+      let stopNumber = 1;
+      for (const loc of locationsResult.rows) {
+        await pool.query(
+          `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status)
+           VALUES ($1, $2, 'recurring', $3, 'pending')`,
+          [route.id, loc.id, stopNumber++]
+        );
+      }
+
+      // Recalculate route value if stops were added
+      let valuation = null;
+      if (locationsResult.rows.length > 0) {
+        const { recalculateRouteValue } = await import('./compensationEngine');
+        valuation = await recalculateRouteValue(route.id);
+      }
+
+      await audit(req, 'create_contract_route', 'route', route.id, { contractId: req.params.id, scheduledDate, stopsAdded: locationsResult.rows.length });
+
+      res.status(201).json({
+        route: {
+          id: route.id,
+          title,
+          scheduledDate,
+          status: 'assigned',
+          driverName: contract.driver_name,
+          stopCount: locationsResult.rows.length,
+          computedValue: valuation?.computedValue ?? 0,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error creating contract route:', err);
+      res.status(500).json({ error: 'Failed to create contract route' });
+    }
+  });
+
+  // Bulk-create routes for a contract over a date range
+  app.post('/api/admin/contracts/:id/create-routes-bulk', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate are required' });
+
+      // Fetch contract
+      const cResult = await pool.query(
+        `SELECT rc.*, dp.name AS driver_name, sz.name AS zone_name
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON rc.driver_id = dp.id
+         JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.id = $1`,
+        [req.params.id]
+      );
+      if (cResult.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = cResult.rows[0];
+      if (contract.status !== 'active') return res.status(400).json({ error: 'Contract is not active' });
+
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const targetDayIndex = dayNames.indexOf(contract.day_of_week);
+
+      // Find all matching days in the range
+      const dates: string[] = [];
+      const current = new Date(startDate + 'T12:00:00');
+      const end = new Date(endDate + 'T12:00:00');
+      while (current <= end) {
+        if (current.getDay() === targetDayIndex) {
+          dates.push(current.toISOString().split('T')[0]);
+        }
+        current.setDate(current.getDate() + 1);
+      }
+
+      // Check which dates already have routes
+      const existingResult = await pool.query(
+        `SELECT scheduled_date FROM routes WHERE contract_id = $1 AND scheduled_date = ANY($2)`,
+        [req.params.id, dates]
+      );
+      const existingDates = new Set(existingResult.rows.map((r: any) => {
+        const d = r.scheduled_date;
+        return typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0];
+      }));
+      const newDates = dates.filter(d => !existingDates.has(d));
+
+      // Fetch locations for this zone+day
+      const locationsResult = await pool.query(
+        `SELECT l.id FROM locations l
+         WHERE l.zone_id = $1 AND l.collection_day = $2 AND l.service_status = 'approved'
+         ORDER BY l.address`,
+        [contract.zone_id, contract.day_of_week]
+      );
+      const locationIds = locationsResult.rows.map((l: any) => l.id);
+
+      const created: Array<{ id: string; date: string; stopCount: number }> = [];
+      const { recalculateRouteValue } = await import('./compensationEngine');
+
+      for (const date of newDates) {
+        const title = `${contract.zone_name} - ${contract.day_of_week.charAt(0).toUpperCase() + contract.day_of_week.slice(1)}`;
+        const route = await storage.createRoute({
+          title,
+          scheduled_date: date,
+          assigned_driver_id: contract.driver_id,
+          route_type: 'daily_route',
+          zone_id: contract.zone_id,
+          source: 'contract',
+          status: 'assigned',
+        });
+        await pool.query(`UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`, [req.params.id, route.id]);
+
+        let stopNumber = 1;
+        for (const locId of locationIds) {
+          await pool.query(
+            `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
+            [route.id, locId, stopNumber++]
+          );
+        }
+
+        if (locationIds.length > 0) {
+          await recalculateRouteValue(route.id);
+        }
+
+        created.push({ id: route.id, date, stopCount: locationIds.length });
+      }
+
+      await audit(req, 'bulk_create_contract_routes', 'route_contract', req.params.id, { startDate, endDate, routesCreated: created.length, skipped: existingDates.size });
+
+      res.json({
+        routesCreated: created.length,
+        skippedDates: existingDates.size,
+        routes: created,
+      });
+    } catch (err: any) {
+      console.error('Error bulk creating contract routes:', err);
+      res.status(500).json({ error: 'Failed to create routes' });
     }
   });
 

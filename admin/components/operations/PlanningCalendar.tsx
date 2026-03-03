@@ -79,18 +79,6 @@ const DAY_NAME_MAP: Record<number, string> = {
   4: 'thursday', 5: 'friday', 6: 'saturday',
 };
 
-const ROUTE_TYPE_LABELS: Record<string, string> = {
-  daily_route: 'Route',
-  bulk_collection: 'Bulk',
-  on_demand: 'On-Demand',
-};
-
-const ROUTE_TYPE_COLORS: Record<string, string> = {
-  daily_route: 'bg-teal-100 text-teal-700',
-  bulk_collection: 'bg-orange-100 text-orange-700',
-  on_demand: 'bg-purple-100 text-purple-700',
-};
-
 const STATUS_TOOLTIPS: Record<string, string> = {
   draft: 'Draft \u2014 Route is being planned. Only visible to admins.',
   open: 'Open \u2014 Published and available for drivers to bid on.',
@@ -344,8 +332,8 @@ const PlanningCalendar: React.FC = () => {
       const res = await fetch(`/api/admin/planning/date/${date}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setDayLocations(data.properties ?? []);
-        setDayOnDemand(data.specials ?? []);
+        setDayLocations(data.locations ?? []);
+        setDayOnDemand(data.onDemandRequests ?? []);
         setDayRoutes(data.existingRoutes ?? []);
       }
     } catch (e) {
@@ -749,11 +737,19 @@ const PlanningCalendar: React.FC = () => {
                                   {route.bidCount} bid{(route.bidCount ?? 0) !== 1 ? 's' : ''}
                                 </button>
                               )}
+                              {route.contractId && (
+                                <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700"
+                                  title="Linked to a route contract">
+                                  Contract
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                               <span>{stopCount} stops</span>
                               <span>~{estimatedHours.toFixed(1)}h</span>
                               {route.basePay != null && <span>${Number(route.basePay).toFixed(0)}</span>}
+                              {route.computedValue != null && <span className="text-teal-600">${Number(route.computedValue).toFixed(0)} comp</span>}
+                              {route.payMode && <span className="text-purple-500">{route.payMode}</span>}
                               {route.driverName && <span>{route.driverName}</span>}
                             </div>
                             {route.notes?.includes('Declined by') && (

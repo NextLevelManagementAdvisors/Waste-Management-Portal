@@ -45,6 +45,8 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
   routes: '/admin/operations/routes',
   locations: '/admin/operations/locations',
+  contracts: '/admin/operations/contracts',
+  opportunities: '/admin/operations/opportunities',
   zones: '/admin/operations/zones',
   claims: '/admin/operations/claims',
   'zone-approvals': '/admin/operations/zone-approvals',
@@ -57,6 +59,8 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
   '/admin/operations/routes': 'routes',
   '/admin/operations/locations': 'locations',
+  '/admin/operations/contracts': 'contracts',
+  '/admin/operations/opportunities': 'opportunities',
   '/admin/operations/zones': 'zones',
   '/admin/operations/claims': 'claims',
   '/admin/operations/zone-approvals': 'zone-approvals',
@@ -71,6 +75,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
 const SETTINGS_TAB_TO_PATH: Record<SettingsTabType, string> = {
   integrations: '/admin/settings',
   roles: '/admin/settings/roles',
+  compensation: '/admin/settings/compensation',
   sync: '/admin/settings/sync',
   audit: '/admin/settings/audit',
   errors: '/admin/settings/errors',
@@ -214,7 +219,7 @@ const AdminApp: React.FC = () => {
   const [selectedPersonId, setSelectedPersonIdRaw] = useState<string | null>(initialParsed.personId);
   const [opsTab, setOpsTabRaw] = useState<OpsTabType>(initialParsed.opsTab || 'operations');
   const [settingsTab, setSettingsTabRaw] = useState<SettingsTabType>(initialParsed.settingsTab || 'integrations');
-  const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'conversations');
+  const [commsTab, setCommsTabRaw] = useState<CommsTabType>(initialParsed.commsTab || 'inbox');
   const [acctTab, setAcctTabRaw] = useState<AccountingTabType>(initialParsed.acctTab || 'overview');
   const [navFilter, setNavFilter] = useState<NavFilter | null>(() => {
     const nf: NavFilter = {};
@@ -265,7 +270,7 @@ const AdminApp: React.FC = () => {
       setOpsTabRaw(opsTab || 'operations');
     }
     if (view === 'settings') setSettingsTabRaw('integrations');
-    if (view === 'communications') setCommsTabRaw('conversations');
+    if (view === 'communications') setCommsTabRaw('inbox');
     // Resolve legacy accounting sub-tab names to parent tabs for URL
     const ACCT_LEGACY_MAP: Record<string, AccountingTabType> = {
       subscriptions: 'income', invoices: 'income', 'customer-billing': 'income', 'driver-pay': 'expenses',
@@ -320,7 +325,7 @@ const AdminApp: React.FC = () => {
       setSelectedPersonIdRaw(parsed.personId);
       if (parsed.view === 'operations') setOpsTabRaw(parsed.opsTab || 'operations');
       if (parsed.view === 'settings') setSettingsTabRaw(parsed.settingsTab || 'integrations');
-      if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'conversations');
+      if (parsed.view === 'communications') setCommsTabRaw(parsed.commsTab || 'inbox');
       if (parsed.view === 'accounting') setAcctTabRaw(parsed.acctTab || 'overview');
       const params = new URLSearchParams(window.location.search);
       const nf: NavFilter = {};
@@ -727,7 +732,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'dashboard' && <DashboardView onNavigate={navigateTo} navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
-          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} pendingZonesCount={badgeCounts.pendingZones || 0} onActionResolved={refreshBadgeCounts} />}
+          {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} pendingZonesCount={badgeCounts.pendingZones || 0} contractAlertsCount={(badgeCounts.contractsExpiring || 0) + (badgeCounts.pendingCoverage || 0)} onActionResolved={refreshBadgeCounts} />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>
