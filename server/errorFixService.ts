@@ -315,29 +315,53 @@ function buildFlaggedStoriesBlock(storyIds: string[]): string {
 // Claude CLI
 // ---------------------------------------------------------------------------
 
+let cachedClaudeBin: string | null | undefined; // undefined = not checked yet
+
 function findClaudeBinary(): string | null {
-  // Try bare command
+  if (cachedClaudeBin !== undefined) return cachedClaudeBin;
+
+  // Try bare command first
   try {
-    execSync('claude --version', { stdio: 'pipe' });
-    return 'claude';
+    execSync('claude --version', { stdio: 'pipe', timeout: 5000 });
+    cachedClaudeBin = 'claude';
+    return cachedClaudeBin;
   } catch { /* not in PATH */ }
 
-  // Try common npm global locations on Windows
-  const candidates = [
+  // Platform-specific candidate paths
+  const isWin = process.platform === 'win32';
+  const candidates: string[] = isWin ? [
     path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'),
     path.join(process.env.APPDATA || '', 'npm', 'claude'),
     path.join(process.env.LOCALAPPDATA || '', 'npm', 'claude.cmd'),
+    path.join(process.env.USERPROFILE || '', '.npm-global', 'claude.cmd'),
+  ] : [
+    '/usr/local/bin/claude',
+    path.join(process.env.HOME || '', '.npm-global', 'bin', 'claude'),
+    path.join(process.env.HOME || '', '.local', 'bin', 'claude'),
   ];
 
   for (const candidate of candidates) {
     try {
       if (fs.existsSync(candidate)) {
-        execSync(`"${candidate}" --version`, { stdio: 'pipe' });
-        return candidate;
+        execSync(`"${candidate}" --version`, { stdio: 'pipe', timeout: 5000 });
+        cachedClaudeBin = candidate;
+        return cachedClaudeBin;
       }
     } catch { /* not valid */ }
   }
 
+  // Try which/where as final fallback
+  try {
+    const whichCmd = isWin ? 'where claude' : 'which claude';
+    const result = execSync(whichCmd, { stdio: 'pipe', encoding: 'utf8', timeout: 5000 }).trim().split('\n')[0];
+    if (result) {
+      execSync(`"${result}" --version`, { stdio: 'pipe', timeout: 5000 });
+      cachedClaudeBin = result;
+      return cachedClaudeBin;
+    }
+  } catch { /* not found */ }
+
+  cachedClaudeBin = null;
   return null;
 }
 
@@ -482,6 +506,7 @@ export function startFix(options: {
   autoCommit?: boolean;
   adminNotes?: string;
   flaggedStories?: string[];
+  errorKeys?: string[];
 }): { started: boolean; message: string } {
   if (fixInProgress) {
     return { started: false, message: 'A fix is already in progress' };
@@ -502,9 +527,18 @@ export function startFix(options: {
     return { started: false, message: 'No errors found for this date' };
   }
 
-  const groups = deduplicateErrors(entries, limit, date);
+  let groups = deduplicateErrors(entries, limit, date);
   if (groups.length === 0) {
     return { started: false, message: 'All errors for this date have already been fixed' };
+  }
+
+  // Manual mode: filter to only the requested error keys
+  if (options.errorKeys && options.errorKeys.length > 0) {
+    const requestedKeys = new Set(options.errorKeys);
+    groups = groups.filter(g => requestedKeys.has(g.key));
+    if (groups.length === 0) {
+      return { started: false, message: 'None of the selected errors are still unfixed' };
+    }
   }
   const summaries = groups.map(g => {
     const e = g.mostRecent;

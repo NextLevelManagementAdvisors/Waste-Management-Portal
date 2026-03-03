@@ -118,7 +118,7 @@ export function registerLogRoutes(
         return res.status(409).json({ error: 'A fix is already in progress' });
       }
 
-      const { date, source, adminNotes, flaggedStories } = req.body;
+      const { date, source, adminNotes, flaggedStories, errorKeys } = req.body;
       const result = startFix({
         date,
         source,
@@ -126,6 +126,7 @@ export function registerLogRoutes(
         autoCommit: true,
         adminNotes: typeof adminNotes === 'string' ? adminNotes.slice(0, 5000) : undefined,
         flaggedStories: Array.isArray(flaggedStories) ? flaggedStories.slice(0, 50) : undefined,
+        errorKeys: Array.isArray(errorKeys) ? errorKeys.slice(0, 50) : undefined,
       });
 
       if (!result.started) {

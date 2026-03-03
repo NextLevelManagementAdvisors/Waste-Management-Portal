@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card } from '../../../components/Card.tsx';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
-import FixContextModal from './FixContextModal.tsx';
 
 interface FileChange {
   status: string;
@@ -69,8 +68,7 @@ const AutoFixHistory: React.FC = () => {
   const [status, setStatus] = useState<AutoFixStatus>({ enabled: false, running: false });
   const [togglingAutoFix, setTogglingAutoFix] = useState(false);
 
-  // Manual fix state
-  const [showFixModal, setShowFixModal] = useState(false);
+  // Fix progress state
   const [fixing, setFixing] = useState(false);
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
   const [fixMessages, setFixMessages] = useState<string[]>([]);
@@ -99,6 +97,27 @@ const AutoFixHistory: React.FC = () => {
     } catch { /* ignore */ }
   }, []);
 
+  const startPolling = useCallback(() => {
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+        if (!r.ok) return;
+        const p: FixProgress = await r.json();
+        setFixMessages(p.messages);
+        if (p.status === 'done' || p.status === 'error') {
+          setFixResult(p.result);
+          setFixing(false);
+          if (p.result?.success) fetchCommits();
+          return;
+        }
+        setTimeout(poll, 2000);
+      } catch {
+        setTimeout(poll, 3000);
+      }
+    };
+    setTimeout(poll, 1000);
+  }, [fetchCommits]);
+
   useEffect(() => {
     fetchCommits();
     fetchStatus();
@@ -111,30 +130,13 @@ const AutoFixHistory: React.FC = () => {
         setFixMessages(progress.messages);
         if (progress.status === 'running') {
           setFixing(true);
-          const poll = async () => {
-            try {
-              const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
-              if (!r.ok) return;
-              const p: FixProgress = await r.json();
-              setFixMessages(p.messages);
-              if (p.status === 'done' || p.status === 'error') {
-                setFixResult(p.result);
-                setFixing(false);
-                if (p.result?.success) fetchCommits();
-                return;
-              }
-              setTimeout(poll, 2000);
-            } catch {
-              setTimeout(poll, 3000);
-            }
-          };
-          setTimeout(poll, 2000);
+          startPolling();
         } else {
           setFixResult(progress.result);
         }
       })
       .catch(() => {});
-  }, [fetchCommits, fetchStatus]);
+  }, [fetchCommits, fetchStatus, startPolling]);
 
   // Auto-scroll progress log
   useEffect(() => {
@@ -161,8 +163,7 @@ const AutoFixHistory: React.FC = () => {
     }
   };
 
-  const handleFixErrors = async (adminNotes: string, flaggedStories: string[]) => {
-    setShowFixModal(false);
+  const handleRunNow = async () => {
     setFixing(true);
     setFixResult(null);
     setFixMessages([]);
@@ -172,11 +173,7 @@ const AutoFixHistory: React.FC = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: today,
-          adminNotes: adminNotes || undefined,
-          flaggedStories: flaggedStories.length > 0 ? flaggedStories : undefined,
-        }),
+        body: JSON.stringify({ date: today }),
       });
       const data = await res.json();
       if (!data.started) {
@@ -184,25 +181,7 @@ const AutoFixHistory: React.FC = () => {
         setFixing(false);
         return;
       }
-
-      const poll = async () => {
-        try {
-          const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
-          if (!r.ok) return;
-          const progress: FixProgress = await r.json();
-          setFixMessages(progress.messages);
-          if (progress.status === 'done' || progress.status === 'error') {
-            setFixResult(progress.result);
-            setFixing(false);
-            if (progress.result?.success) fetchCommits();
-            return;
-          }
-          setTimeout(poll, 2000);
-        } catch {
-          setTimeout(poll, 3000);
-        }
-      };
-      setTimeout(poll, 1000);
+      startPolling();
     } catch {
       setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
       setFixing(false);
@@ -244,14 +223,14 @@ const AutoFixHistory: React.FC = () => {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => setShowFixModal(true)}
+              onClick={handleRunNow}
               disabled={fixing}
               className="whitespace-nowrap"
             >
               {fixing ? (
                 <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Fixing...</>
               ) : (
-                'Fix Errors Now'
+                'Run Auto-Fix Now'
               )}
             </Button>
             <Button
@@ -264,11 +243,11 @@ const AutoFixHistory: React.FC = () => {
             </Button>
           </div>
         </div>
-        {status.enabled && (
-          <p className="text-xs text-gray-400 mt-2">
-            Errors are automatically fixed when reported (2-min debounce, 15-min cooldown) with a 1-hour periodic fallback.
-          </p>
-        )}
+        <p className="text-xs text-gray-400 mt-2">
+          {status.enabled
+            ? 'Errors are automatically fixed when reported (2-min debounce, 15-min cooldown) with a 1-hour periodic fallback.'
+            : 'Enable auto-fix to automatically detect and fix errors as they are reported. Use Error Logs tab to manually select and fix specific errors.'}
+        </p>
       </Card>
 
       {/* Fix progress console */}
@@ -357,7 +336,7 @@ const AutoFixHistory: React.FC = () => {
                       <p className="text-sm font-bold text-gray-900">{commit.message}</p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs text-gray-400">{formatDate(commit.date)}</span>
-                        {commit.errors?.length > 0 && (
+                        {commit.errors && commit.errors.length > 0 && (
                           <span className="text-xs text-gray-500">
                             {commit.errors.length} error{commit.errors.length !== 1 ? 's' : ''} fixed
                           </span>
@@ -380,7 +359,7 @@ const AutoFixHistory: React.FC = () => {
 
                 {isExpanded && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    {commit.errors?.length > 0 && (
+                    {commit.errors && commit.errors.length > 0 && (
                       <div className="px-4 py-3 border-b border-gray-100">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Errors Fixed</h4>
                         <ul className="space-y-1">
@@ -420,13 +399,6 @@ const AutoFixHistory: React.FC = () => {
           })}
         </div>
       )}
-
-      <FixContextModal
-        isOpen={showFixModal}
-        onClose={() => setShowFixModal(false)}
-        onSubmit={handleFixErrors}
-        fixing={fixing}
-      />
     </div>
   );
 };

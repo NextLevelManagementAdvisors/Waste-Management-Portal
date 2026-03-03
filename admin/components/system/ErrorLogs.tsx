@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card } from '../../../components/Card.tsx';
+import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
+import FixContextModal from './FixContextModal.tsx';
 
 interface ErrorLogEntry {
   timestamp: string;
@@ -10,6 +12,33 @@ interface ErrorLogEntry {
   data?: any;
   stack?: string;
   fixedBy?: string;
+}
+
+interface FixResult {
+  success: boolean;
+  errorsFound: number;
+  uniqueErrors: number;
+  committed: boolean;
+  commitHash?: string;
+  message: string;
+  errorSummaries?: string[];
+}
+
+interface FixProgress {
+  status: 'idle' | 'running' | 'done' | 'error';
+  messages: string[];
+  result: FixResult | null;
+}
+
+function normalizeErrorKey(source: string, message: string): string {
+  let msg = message;
+  if (source === 'server') {
+    msg = msg.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<UUID>');
+    msg = msg.replace(/\b(in|pi|pm|sub|cus|ch|cs|si|seti|price|prod)_[A-Za-z0-9]+/g, '<STRIPE_ID>');
+    msg = msg.replace(/\?[^ ]*/, '');
+    msg = msg.replace(/\s+\d+ms$/, '');
+  }
+  return `${source}::${msg}`;
 }
 
 const formatTime = (ts: string) => {
@@ -42,6 +71,13 @@ const ErrorLogs: React.FC = () => {
   const [dates, setDates] = useState<string[]>([]);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  // Fix state
+  const [showFixModal, setShowFixModal] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<FixResult | null>(null);
+  const [fixMessages, setFixMessages] = useState<string[]>([]);
+  const progressRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     fetch('/api/admin/logs/dates', { credentials: 'include' })
@@ -82,6 +118,51 @@ const ErrorLogs: React.FC = () => {
     fetchEntries();
   }, [fetchEntries]);
 
+  // Restore fix progress on mount
+  useEffect(() => {
+    fetch('/api/admin/fix-progress', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((progress: FixProgress | null) => {
+        if (!progress || progress.status === 'idle') return;
+        setFixMessages(progress.messages);
+        if (progress.status === 'running') {
+          setFixing(true);
+          startPolling();
+        } else {
+          setFixResult(progress.result);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Auto-scroll progress log
+  useEffect(() => {
+    if (progressRef.current) {
+      progressRef.current.scrollTop = progressRef.current.scrollHeight;
+    }
+  }, [fixMessages]);
+
+  const startPolling = useCallback(() => {
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/admin/fix-progress', { credentials: 'include' });
+        if (!r.ok) return;
+        const p: FixProgress = await r.json();
+        setFixMessages(p.messages);
+        if (p.status === 'done' || p.status === 'error') {
+          setFixResult(p.result);
+          setFixing(false);
+          if (p.result?.success) fetchEntries();
+          return;
+        }
+        setTimeout(poll, 2000);
+      } catch {
+        setTimeout(poll, 3000);
+      }
+    };
+    setTimeout(poll, 1000);
+  }, [fetchEntries]);
+
   const toggleSelect = (index: number) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -100,6 +181,7 @@ const ErrorLogs: React.FC = () => {
   };
 
   const selectedEntries = Array.from(selected).map(i => entries[i]).filter(Boolean);
+  const unfixedSelected = selectedEntries.filter(e => !e.fixedBy);
 
   const handleCopySelected = () => {
     const text = selectedEntries.map(e => {
@@ -110,6 +192,42 @@ const ErrorLogs: React.FC = () => {
       return line;
     }).join('\n\n');
     navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const handleFixSubmit = async (adminNotes: string, flaggedErrors: string[]) => {
+    setShowFixModal(false);
+    setFixing(true);
+    setFixResult(null);
+    setFixMessages([]);
+
+    // Compute unique error keys from selected entries
+    const errorKeys = [...new Set(
+      unfixedSelected.map(e => normalizeErrorKey(e.source, e.message))
+    )];
+
+    try {
+      const res = await fetch('/api/admin/fix-errors', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateFilter,
+          errorKeys,
+          adminNotes: adminNotes || undefined,
+          flaggedStories: flaggedErrors.length > 0 ? flaggedErrors : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.started) {
+        setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: data.error || data.message || 'Failed to start fix' });
+        setFixing(false);
+        return;
+      }
+      startPolling();
+    } catch {
+      setFixResult({ success: false, errorsFound: 0, uniqueErrors: 0, committed: false, message: 'Request failed' });
+      setFixing(false);
+    }
   };
 
   return (
@@ -152,6 +270,20 @@ const ErrorLogs: React.FC = () => {
         {selected.size > 0 && (
           <div className="flex items-end gap-2 ml-auto">
             <span className="text-xs font-bold text-teal-600 pb-2">{selected.size} selected</span>
+            {unfixedSelected.length > 0 && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowFixModal(true)}
+                disabled={fixing}
+              >
+                {fixing ? (
+                  <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Fixing...</>
+                ) : (
+                  `Fix ${unfixedSelected.length} Error${unfixedSelected.length !== 1 ? 's' : ''}`
+                )}
+              </Button>
+            )}
             <button
               type="button"
               onClick={handleCopySelected}
@@ -169,6 +301,68 @@ const ErrorLogs: React.FC = () => {
           </div>
         )}
       </FilterBar>
+
+      {/* Fix progress console */}
+      {(fixing || fixMessages.length > 0) && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-900 flex items-center gap-2">
+            {fixing && <span className="inline-block w-3 h-3 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />}
+            <h3 className="text-xs font-black uppercase tracking-widest text-gray-300">
+              {fixing ? 'Fixing Errors...' : 'Fix Complete'}
+            </h3>
+            {!fixing && (
+              <button
+                type="button"
+                onClick={() => setFixMessages([])}
+                className="ml-auto text-gray-500 hover:text-gray-300 text-xs font-bold"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <pre
+            ref={progressRef}
+            className="px-4 py-3 bg-gray-950 text-gray-300 text-xs font-mono leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap"
+          >
+            {fixMessages.map((msg, i) => {
+              const isToolAction = /^(Reading|Editing|Writing|Searching|Running|Using) /.test(msg);
+              const isError = /^\d+x /.test(msg);
+              return (
+                <div key={i} className={`py-0.5 ${isToolAction ? 'text-teal-400' : isError ? 'text-yellow-400' : ''}`}>
+                  {isToolAction && <span className="text-gray-600 mr-1">&gt;</span>}
+                  {msg}
+                </div>
+              );
+            })}
+            {fixing && fixMessages.length === 0 && (
+              <div className="text-gray-500 py-0.5">Starting...</div>
+            )}
+            {fixing && <span className="inline-block w-1.5 h-3.5 bg-teal-400 animate-pulse ml-0.5" />}
+          </pre>
+        </Card>
+      )}
+
+      {/* Fix result banner */}
+      {fixResult && (
+        <div className={`rounded-lg text-sm border ${
+          fixResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center justify-between p-4">
+            <span className="font-bold">{fixResult.message}</span>
+            <button type="button" onClick={() => setFixResult(null)} className="text-xs font-bold opacity-50 hover:opacity-100">&times;</button>
+          </div>
+          {fixResult.errorSummaries && fixResult.errorSummaries.length > 0 && (
+            <div className="px-4 pb-4">
+              <div className="text-xs font-bold opacity-60 mb-1">Errors addressed:</div>
+              <ul className="space-y-0.5">
+                {fixResult.errorSummaries.map((s, i) => (
+                  <li key={i} className="text-xs opacity-80">&bull; {s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{error}</div>
@@ -276,6 +470,14 @@ const ErrorLogs: React.FC = () => {
           </div>
         </Card>
       )}
+
+      <FixContextModal
+        isOpen={showFixModal}
+        onClose={() => setShowFixModal(false)}
+        onSubmit={handleFixSubmit}
+        fixing={fixing}
+        selectedErrors={unfixedSelected}
+      />
     </div>
   );
 };
