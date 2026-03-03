@@ -310,7 +310,19 @@ const OnDemandSchedule: React.FC = () => {
                           <div className="text-sm text-gray-700">{formatDate(request.pickupDate)}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={request.status} />
+                          <div className="flex items-center gap-1">
+                            <StatusBadge status={request.status} />
+                            {request.status === 'scheduled' && (() => {
+                              const created = new Date(request.createdAt);
+                              const now = new Date();
+                              const daysSince = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+                              return daysSince > 5 ? (
+                                <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={`Approved ${daysSince} days ago, not yet completed`}>
+                                  Overdue
+                                </span>
+                              ) : null;
+                            })()}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1.5 text-xs text-gray-400">

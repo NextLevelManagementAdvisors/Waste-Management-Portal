@@ -445,9 +445,31 @@ const DriverSyncPanel: React.FC = () => {
                         <td className="px-4 py-2 text-gray-900">{getDriverDisplayName(d)}</td>
                         <td className="px-4 py-2 text-gray-500 text-xs">{d.email || '—'}</td>
                         <td className="px-4 py-2">
-                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${d.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                            {d.status}
-                          </span>
+                          <select
+                            value={d.status || 'active'}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              if (!confirm(`Set ${getDriverDisplayName(d)} to "${newStatus}"?`)) return;
+                              try {
+                                await fetch(`/api/admin/drivers/${d.id}/status`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ status: newStatus }),
+                                });
+                                loadPreview();
+                              } catch {}
+                            }}
+                            className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border-0 cursor-pointer ${
+                              d.status === 'suspended' ? 'bg-red-100 text-red-700' :
+                              d.status === 'rejected' ? 'bg-gray-200 text-gray-700' :
+                              'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            <option value="active">Active</option>
+                            <option value="suspended">Suspended</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
                         </td>
                         <td className="px-4 py-2">
                           {preview.unmatchedOptimo.length > 0 ? (

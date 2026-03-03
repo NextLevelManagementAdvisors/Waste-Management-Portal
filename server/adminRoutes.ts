@@ -5,7 +5,7 @@ import { storage, DbPendingSelection } from './storage';
 import { pool } from './db';
 import { roleRepo } from './repositories/RoleRepository';
 import { getUncachableStripeClient } from './stripeClient';
-import { sendCollectionReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification } from './notificationService';
+import { sendCollectionReminder, sendBillingAlert, sendServiceUpdate, sendCustomNotification, sendDriverNotification, sendRouteCancelNotification, sendServiceStatusNotification, sendMissedCollectionResolution, sendOnDemandApproval } from './notificationService';
 import * as optimo from './optimoRouteClient';
 import { getAllSettings, saveSetting } from './settings';
 import { testAllIntegrations, testSingleIntegration } from './integrationTests';
@@ -602,10 +602,43 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/missed-collections/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const { status, resolutionNotes } = req.body;
+      const { status, resolutionNotes, scheduleRedo } = req.body;
       await storage.updateMissedCollectionStatus(req.params.id, status, resolutionNotes);
-      await audit(req, 'resolve_missed_collection', 'missed_collection', req.params.id, { status, resolutionNotes });
-      res.json({ success: true });
+      await audit(req, 'resolve_missed_collection', 'missed_collection', req.params.id, { status, resolutionNotes, scheduleRedo });
+
+      const report = await storage.query(
+        `SELECT mcr.location_id, mcr.address, mcr.collection_date, p.user_id FROM missed_collection_reports mcr LEFT JOIN locations p ON mcr.location_id = p.id WHERE mcr.id = $1`,
+        [req.params.id]
+      );
+      const row = report.rows[0];
+
+      // Schedule a redo stop on the next available route for this location
+      let redoDate: string | undefined;
+      if (status === 'resolved' && scheduleRedo && row?.location_id) {
+        // Find the next route for this location's scheduled date area
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const nextRoute = await storage.query(
+          `SELECT id, scheduled_date FROM routes WHERE scheduled_date >= $1 AND status IN ('draft', 'open', 'assigned') ORDER BY scheduled_date LIMIT 1`,
+          [tomorrow.toISOString().split('T')[0]]
+        );
+        if (nextRoute.rows.length > 0) {
+          const routeId = nextRoute.rows[0].id;
+          redoDate = nextRoute.rows[0].scheduled_date?.split('T')[0];
+          await storage.query(
+            `INSERT INTO route_stops (route_id, location_id, order_type, status, notes, address)
+             VALUES ($1, $2, 'missed_redo', 'pending', $3, $4)`,
+            [routeId, row.location_id, `Redo for missed collection on ${row.collection_date}`, row.address]
+          );
+        }
+      }
+
+      // Notify customer when resolved
+      if (status === 'resolved' && resolutionNotes && row?.user_id) {
+        sendMissedCollectionResolution(row.user_id, row.address || 'your location', resolutionNotes, redoDate).catch(() => {});
+      }
+
+      res.json({ success: true, redoScheduled: !!redoDate, redoDate });
     } catch (error) {
       res.status(500).json({ error: 'Failed to update missed collection' });
     }
@@ -804,8 +837,8 @@ export function registerAdminRoutes(app: Express) {
           open: ['assigned', 'cancelled'],
           bidding: ['assigned', 'cancelled'],
           assigned: ['in_progress', 'open', 'cancelled'],
-          in_progress: ['completed', 'assigned'],
-          completed: [],  // terminal state
+          in_progress: ['completed', 'assigned', 'cancelled'],
+          completed: ['assigned'],  // allow reopening
           cancelled: ['draft'],  // can reopen as draft
         };
         const allowed = VALID_TRANSITIONS[existing.status] || [];
@@ -816,12 +849,46 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
+      // Auto-detect out-of-sync: if route was synced to OptimoRoute and is now
+      // being edited, flag it as out of sync so the admin knows to re-sync.
+      const markOutOfSync = existing.optimo_synced && status !== 'cancelled';
+
       const updated = await storage.updateRoute(routeId, {
         title, description, scheduled_date, start_time, end_time,
         estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
         route_type, accepted_bid_id, actual_pay, payment_status,
+        ...(markOutOfSync ? { optimo_synced: false } : {}),
       });
       await audit(req, 'update_route', 'route', routeId, req.body);
+
+      // When a route is cancelled, cancel all non-terminal stops and notify affected customers
+      if (status === 'cancelled' && existing.status !== 'cancelled') {
+        try {
+          // Get affected stops before cancelling (to notify customers)
+          const affectedStops = await storage.query(
+            `SELECT rs.location_id, p.user_id, p.address, r.scheduled_date
+             FROM route_stops rs
+             JOIN locations p ON rs.location_id = p.id
+             JOIN routes r ON rs.route_id = r.id
+             WHERE rs.route_id = $1 AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
+            [routeId]
+          );
+          await storage.query(
+            `UPDATE route_stops SET status = 'cancelled' WHERE route_id = $1 AND status NOT IN ('completed', 'failed', 'skipped')`,
+            [routeId]
+          );
+          // Notify unique customers
+          const notified = new Set<string>();
+          for (const stop of affectedStops.rows) {
+            if (stop.user_id && !notified.has(stop.user_id)) {
+              notified.add(stop.user_id);
+              sendRouteCancelNotification(stop.user_id, stop.address, existing.scheduled_date?.split('T')[0] || '').catch(() => {});
+            }
+          }
+        } catch (e) {
+          console.error('Failed to cancel route stops:', e);
+        }
+      }
 
       // Auto-sync driver pay expense when route is marked completed
       if (status === 'completed' && existing.status !== 'completed' && base_pay && parseFloat(base_pay) > 0) {
@@ -930,6 +997,33 @@ export function registerAdminRoutes(app: Express) {
         actual_pay: actualPay || route.base_pay,
       });
       await audit(req, 'assign_route', 'route', routeId, { driverId, bidId, actualPay });
+
+      // Notify driver of assignment
+      const pay = actualPay || route.base_pay;
+      const stopCount = route.stop_count || route.estimated_stops || 0;
+      sendDriverNotification(driverId, `Route Assigned: ${route.title}`, `
+        <p style="color:#4b5563;line-height:1.6;">You have been assigned a new route:</p>
+        <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+          <p style="margin:0;color:#0d9488;font-weight:700;font-size:16px;">${route.title}</p>
+          <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Date: ${route.scheduled_date?.split('T')[0] || 'TBD'}</p>
+          ${stopCount ? `<p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Stops: ${stopCount}</p>` : ''}
+          ${pay ? `<p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Pay: $${Number(pay).toFixed(2)}</p>` : ''}
+        </div>
+        <p style="color:#4b5563;line-height:1.6;">Log in to the team portal to view details and start your route.</p>
+      `).catch(err => console.error('Failed to notify driver of assignment:', err));
+
+      // Notify losing bidders
+      storage.getRouteBids(routeId).then(bids => {
+        for (const bid of bids) {
+          if (bid.driver_id !== driverId) {
+            sendDriverNotification(bid.driver_id, `Bid Update: ${route.title}`, `
+              <p style="color:#4b5563;line-height:1.6;">Your bid on <strong>${route.title}</strong> was not selected. The route has been assigned to another driver.</p>
+              <p style="color:#4b5563;line-height:1.6;">Check the team portal for other available routes.</p>
+            `).catch(() => {});
+          }
+        }
+      }).catch(() => {});
+
       res.json({ route: updated });
     } catch (error) {
       console.error('Failed to assign route:', error);
@@ -1489,23 +1583,39 @@ export function registerAdminRoutes(app: Express) {
       const completionData = await optimo.getCompletionDetails(orderNos);
       const completionOrders = completionData?.orders || [];
 
-      // Build a map of orderNo -> status
-      const statusMap = new Map<string, string>();
+      // Build a map of orderNo -> completion data
+      const dataMap = new Map<string, any>();
       for (const order of completionOrders) {
-        if (order.orderNo && order.data?.status) {
-          statusMap.set(order.orderNo, order.data.status);
+        if (order.orderNo && order.data) {
+          dataMap.set(order.orderNo, order.data);
         }
       }
 
-      // Update portal stops with completion status
+      // Map OptimoRoute statuses to portal statuses
+      const OPTIMO_STATUS_MAP: Record<string, string> = {
+        success: 'completed',
+        failed: 'failed',
+        rejected: 'failed',
+        cancelled: 'cancelled',
+        on_route: 'in_progress',
+        servicing: 'in_progress',
+        scheduled: 'scheduled',
+        unscheduled: 'pending',
+      };
+
+      // Update portal stops with completion status and POD data
       let updated = 0;
       for (const stop of stops) {
         if (stop.optimo_order_no) {
-          const status = statusMap.get(stop.optimo_order_no);
-          if (status && status !== stop.status) {
-            const portalStatus = status === 'success' ? 'completed' : status === 'failed' ? 'failed' : status;
-            await storage.updateRouteStop(stop.id, { status: portalStatus });
-            updated++;
+          const data = dataMap.get(stop.optimo_order_no);
+          if (!data?.status) continue;
+          const portalStatus = OPTIMO_STATUS_MAP[data.status] ?? data.status;
+          const updateFields: any = {};
+          if (portalStatus !== stop.status) updateFields.status = portalStatus;
+          if (data.completionForm) updateFields.pod_data = JSON.stringify(data.completionForm);
+          if (Object.keys(updateFields).length > 0) {
+            await storage.updateRouteStop(stop.id, updateFields);
+            if (updateFields.status) updated++;
           }
         }
       }
@@ -1521,6 +1631,132 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to pull completion from OptimoRoute:', error);
       res.status(500).json({ error: 'Failed to pull completion from OptimoRoute' });
+    }
+  });
+
+  // Batch pull completion data from OptimoRoute for all routes on a given date.
+  // Called automatically when admin views a day in the calendar.
+  app.post('/api/admin/routes/pull-completion-for-date', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { date } = req.body as { date: string };
+      if (!date) return res.status(400).json({ error: 'date is required' });
+
+      // Find all non-completed, non-cancelled routes for this date
+      const routeResult = await storage.query(
+        `SELECT id, status FROM routes WHERE scheduled_date::text LIKE $1 AND status NOT IN ('completed', 'cancelled', 'draft')`,
+        [`${date}%`]
+      );
+      const routes = routeResult.rows;
+      if (routes.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
+
+      // Gather all order numbers across all routes
+      const allStopsResult = await storage.query(
+        `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status
+         FROM route_stops rs
+         WHERE rs.route_id = ANY($1) AND rs.optimo_order_no IS NOT NULL`,
+        [routes.map((r: any) => r.id)]
+      );
+      const allStops = allStopsResult.rows;
+      const orderNos = allStops.map((s: any) => s.optimo_order_no).filter(Boolean);
+      if (orderNos.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
+
+      // Fetch completion details from OptimoRoute in one batch
+      const completionData = await optimo.getCompletionDetails(orderNos);
+      const completionOrders = completionData?.orders || [];
+
+      const statusMap = new Map<string, any>();
+      for (const order of completionOrders) {
+        if (order.orderNo && order.data) {
+          statusMap.set(order.orderNo, order.data);
+        }
+      }
+
+      const OPTIMO_STATUS_MAP: Record<string, string> = {
+        success: 'completed', failed: 'failed', rejected: 'failed',
+        cancelled: 'cancelled', on_route: 'in_progress', servicing: 'in_progress',
+        scheduled: 'scheduled', unscheduled: 'pending',
+      };
+
+      let stopsUpdated = 0;
+      const routeIdsToCheck = new Set<string>();
+
+      for (const stop of allStops) {
+        const data = statusMap.get(stop.optimo_order_no);
+        if (!data?.status) continue;
+        const portalStatus = OPTIMO_STATUS_MAP[data.status] ?? data.status;
+        if (portalStatus !== stop.status) {
+          // Update stop status and store POD form data if present
+          const updateFields: any = { status: portalStatus };
+          if (data.completionForm) {
+            updateFields.pod_data = JSON.stringify(data.completionForm);
+          }
+          await storage.updateRouteStop(stop.id, updateFields);
+          stopsUpdated++;
+          routeIdsToCheck.add(stop.route_id);
+        } else if (data.completionForm) {
+          // Status unchanged but POD data available — store it
+          await storage.updateRouteStop(stop.id, { pod_data: JSON.stringify(data.completionForm) });
+        }
+      }
+
+      // Auto-complete routes where all stops are done
+      let routesUpdated = 0;
+      for (const routeId of routeIdsToCheck) {
+        const stopsResult = await storage.query(
+          `SELECT status FROM route_stops WHERE route_id = $1`,
+          [routeId]
+        );
+        const allCompleted = stopsResult.rows.length > 0 && stopsResult.rows.every((s: any) => s.status === 'completed');
+        if (allCompleted) {
+          await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
+          routesUpdated++;
+        }
+      }
+
+      res.json({ routesUpdated, stopsUpdated });
+    } catch (error) {
+      console.error('Failed to pull completion for date:', error);
+      res.status(500).json({ error: 'Failed to pull completion data' });
+    }
+  });
+
+  // Persist live stop statuses received from OptimoStatusBanner polling.
+  // Accepts a map of { orderNo: optimoStatus } and persists them to route_stops.
+  app.post('/api/admin/routes/sync-live-statuses', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { stopStatuses } = req.body as { stopStatuses: Record<string, string> };
+      if (!stopStatuses || typeof stopStatuses !== 'object') {
+        return res.status(400).json({ error: 'stopStatuses object is required' });
+      }
+
+      const OPTIMO_STATUS_MAP: Record<string, string> = {
+        success: 'completed',
+        failed: 'failed',
+        rejected: 'failed',
+        cancelled: 'cancelled',
+        on_route: 'in_progress',
+        servicing: 'in_progress',
+        scheduled: 'scheduled',
+        unscheduled: 'pending',
+      };
+
+      const orderNos = Object.keys(stopStatuses);
+      if (orderNos.length === 0) return res.json({ updated: 0 });
+
+      let updated = 0;
+      for (const [orderNo, rawStatus] of Object.entries(stopStatuses)) {
+        const portalStatus = OPTIMO_STATUS_MAP[rawStatus] ?? rawStatus;
+        const result = await storage.query(
+          `UPDATE route_stops SET status = $1 WHERE optimo_order_no = $2 AND status != $1`,
+          [portalStatus, orderNo]
+        );
+        if (result.rowCount && result.rowCount > 0) updated++;
+      }
+
+      res.json({ updated });
+    } catch (error) {
+      console.error('Failed to sync live statuses:', error);
+      res.status(500).json({ error: 'Failed to sync live statuses' });
     }
   });
 
@@ -2337,9 +2573,26 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/drivers', requireAdmin, async (_req: Request, res: Response) => {
     try {
       const drivers = await storage.getDrivers();
-      res.json(drivers.map((d: any) => ({ id: d.id, name: d.name, email: d.user_email })));
+      res.json(drivers.map((d: any) => ({ id: d.id, name: d.name, email: d.user_email, status: d.status || 'active', onboardingStatus: d.onboarding_status })));
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch drivers' });
+    }
+  });
+
+  // Update driver status (suspend, reject, activate)
+  app.put('/api/admin/drivers/:id/status', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { status } = req.body;
+      const validStatuses = ['active', 'suspended', 'rejected'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      }
+      await storage.updateDriver(req.params.id, { status });
+      await audit(req, 'update_driver_status', 'driver', req.params.id, { status });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to update driver status:', error);
+      res.status(500).json({ error: 'Failed to update driver status' });
     }
   });
 
@@ -2470,6 +2723,13 @@ export function registerAdminRoutes(app: Express) {
             );
           }
 
+          // Cancel future route stops for denied/paused/cancelled locations
+          if (['denied', 'paused', 'cancelled'].includes(decision)) {
+            storage.cancelFutureStopsForLocation(locationId, new Date().toISOString().split('T')[0])
+              .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for ${decision} location ${locationId}`); })
+              .catch(err => console.error(`[Cascade] Failed to cancel stops for location ${locationId}:`, err));
+          }
+
           // Only claim/delete pending selections on approval (they become Stripe subscriptions)
           let pendingSelections: DbPendingSelection[] = [];
           if (decision === 'approved') {
@@ -2480,6 +2740,11 @@ export function registerAdminRoutes(app: Express) {
           await client.query('COMMIT');
 
           await audit(req, `address_review_${decision}`, 'location', locationId, { notes, bulk: true });
+
+          // Notify customer of status change
+          if (location.user_id && ['approved', 'denied', 'paused', 'cancelled'].includes(decision)) {
+            sendServiceStatusNotification(location.user_id, location.address, decision).catch(() => {});
+          }
 
           // Activate subscriptions on approval
           if (decision === 'approved' && pendingSelections.length > 0) {
@@ -2609,6 +2874,13 @@ export function registerAdminRoutes(app: Express) {
           );
         }
 
+        // Cancel future route stops for denied/paused/cancelled locations
+        if (['denied', 'paused', 'cancelled'].includes(decision)) {
+          storage.cancelFutureStopsForLocation(locationId, new Date().toISOString().split('T')[0])
+            .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for ${decision} location ${locationId}`); })
+            .catch(err => console.error(`[Cascade] Failed to cancel stops for location ${locationId}:`, err));
+        }
+
         // Auto-assign collection day from route insertion optimization
         if (optimizationResult) {
           await client.query(
@@ -2627,6 +2899,11 @@ export function registerAdminRoutes(app: Express) {
         await client.query('COMMIT');
 
         await audit(req, `address_review_${decision}`, 'location', locationId, { notes });
+
+        // Notify customer of status change
+        if (notifyUserId && ['approved', 'denied', 'paused', 'cancelled'].includes(decision)) {
+          sendServiceStatusNotification(notifyUserId, notifyAddress, decision).catch(() => {});
+        }
 
         // Activate subscriptions on approval (outside transaction -- Stripe is external)
         if (decision === 'approved' && pendingSelections.length > 0) {

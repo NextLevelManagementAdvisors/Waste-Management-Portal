@@ -161,6 +161,16 @@ const StarRating: React.FC<{ rating: number; className?: string }> = ({ rating, 
   return <div className="flex items-center gap-0.5">{stars}</div>;
 };
 
+const STATUS_TOOLTIPS: Record<string, string> = {
+  draft: 'Draft \u2014 Route is being planned. Only visible to admins.',
+  open: 'Open \u2014 Published and available for drivers to bid on.',
+  bidding: 'Bidding \u2014 Drivers have submitted bids. Awaiting selection.',
+  assigned: 'Assigned \u2014 You have been assigned to this route.',
+  in_progress: 'In Progress \u2014 You are actively running this route.',
+  completed: 'Completed \u2014 All stops have been finished.',
+  cancelled: 'Cancelled \u2014 This route has been cancelled.',
+};
+
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const colors: Record<string, string> = {
     open: 'bg-green-100 text-green-700',
@@ -170,7 +180,8 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     completed: 'bg-green-100 text-green-700',
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${colors[status] || 'bg-gray-100 text-gray-600'}`}
+      title={STATUS_TOOLTIPS[status]}>
       {status.replace('_', ' ')}
     </span>
   );
@@ -1348,6 +1359,7 @@ const Schedule: React.FC = () => {
   const month = currentDate.getMonth();
 
   const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
+  const [startingRouteId, setStartingRouteId] = useState<string | null>(null);
 
   // Availability state
   const [availability, setAvailability] = useState<{ days: string[]; start_time: string; end_time: string }>({
@@ -1380,6 +1392,15 @@ const Schedule: React.FC = () => {
     setLoading(false);
   }, [year, month]);
 
+  const handleStartRoute = useCallback(async (routeId: string) => {
+    setStartingRouteId(routeId);
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/start`, { method: 'POST', credentials: 'include' });
+      if (res.ok) await fetchSchedule();
+    } catch {}
+    setStartingRouteId(null);
+  }, [fetchSchedule]);
+
   const handleCompleteRoute = useCallback(async (routeId: string) => {
     if (!window.confirm('Mark this route as complete?')) return;
     setCompletingRouteId(routeId);
@@ -1388,6 +1409,24 @@ const Schedule: React.FC = () => {
       if (res.ok) await fetchSchedule();
     } catch {}
     setCompletingRouteId(null);
+  }, [fetchSchedule]);
+
+  const [decliningRouteId, setDecliningRouteId] = useState<string | null>(null);
+
+  const handleDeclineRoute = useCallback(async (routeId: string) => {
+    const reason = window.prompt('Reason for declining (optional):');
+    if (reason === null) return; // cancelled prompt
+    setDecliningRouteId(routeId);
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ reason: reason || undefined }),
+      });
+      if (res.ok) await fetchSchedule();
+    } catch {}
+    setDecliningRouteId(null);
   }, [fetchSchedule]);
 
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
@@ -1636,16 +1675,37 @@ const Schedule: React.FC = () => {
                         {(route.startTime || route.endTime) && <p>Time: {route.startTime}–{route.endTime}</p>}
                         {route.estimatedStops != null && <p>Estimated stops: {route.estimatedStops}</p>}
                       </div>
-                      {(route.status === 'assigned' || route.status === 'in_progress') && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleCompleteRoute(route.id)}
-                          disabled={completingRouteId === route.id}
-                          className="mt-2"
-                        >
-                          {completingRouteId === route.id ? 'Completing...' : 'Mark Complete'}
-                        </Button>
-                      )}
+                      <div className="flex gap-2 mt-2">
+                        {route.status === 'assigned' && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => handleStartRoute(route.id)}
+                              disabled={startingRouteId === route.id}
+                              className="bg-teal-600 hover:bg-teal-700"
+                            >
+                              {startingRouteId === route.id ? 'Starting...' : 'Start Route'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handleDeclineRoute(route.id)}
+                              disabled={decliningRouteId === route.id}
+                              className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                            >
+                              {decliningRouteId === route.id ? 'Declining...' : 'Decline'}
+                            </Button>
+                          </>
+                        )}
+                        {(route.status === 'assigned' || route.status === 'in_progress') && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleCompleteRoute(route.id)}
+                            disabled={completingRouteId === route.id}
+                          >
+                            {completingRouteId === route.id ? 'Completing...' : 'Mark Complete'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1673,6 +1733,25 @@ const Schedule: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <StatusBadge status={route.status} />
+                    {route.status === 'assigned' && (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => handleStartRoute(route.id)}
+                          disabled={startingRouteId === route.id}
+                        >
+                          {startingRouteId === route.id ? 'Starting...' : 'Start'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleDeclineRoute(route.id)}
+                          disabled={decliningRouteId === route.id}
+                          className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                        >
+                          {decliningRouteId === route.id ? '...' : 'Decline'}
+                        </Button>
+                      </>
+                    )}
                     {(route.status === 'assigned' || route.status === 'in_progress') && (
                       <Button
                         size="sm"

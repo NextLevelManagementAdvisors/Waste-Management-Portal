@@ -4,7 +4,7 @@ import { storage } from './storage';
 import { pool } from './db';
 import { requireAuth } from './middleware';
 import { broadcastToParticipants } from './websocket';
-import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification } from './notificationService';
+import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification, sendDriverNotification } from './notificationService';
 import { requireAdmin } from './adminRoutes';
 
 async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
@@ -79,6 +79,20 @@ export function registerCommunicationRoutes(app: Express) {
         `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
         [userId]
       );
+
+      // Send welcome email if driver has a real email
+      if (email && !email.includes('@placeholder.local')) {
+        sendDriverNotification(driverProfile.id, 'Welcome to Rural Waste Management', `
+          <p style="color:#4b5563;line-height:1.6;">Hi ${name},</p>
+          <p style="color:#4b5563;line-height:1.6;">You have been added as a driver on the Rural Waste Management platform.</p>
+          <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+            <p style="margin:0;color:#0d9488;font-weight:700;">Next Steps</p>
+            <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">1. Log in to the team portal using your Google account</p>
+            <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">2. Complete your onboarding (W9, direct deposit)</p>
+            <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">3. Set up your service zones to start seeing available routes</p>
+          </div>
+        `).catch(err => console.error('Failed to send driver welcome email:', err));
+      }
 
       res.json({ ...driverProfile, user_id: userId });
     } catch (e) {

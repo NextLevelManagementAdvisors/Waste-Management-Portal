@@ -489,6 +489,21 @@ export async function sendCustomNotification(userId: string, message: string, ch
   return result;
 }
 
+/** Send an email notification to a driver (driver_profiles table, not users) */
+export async function sendDriverNotification(driverId: string, subject: string, htmlBody: string): Promise<boolean> {
+  const driver = await storage.getDriverById(driverId);
+  if (!driver?.email) return false;
+  try {
+    await sendEmail(driver.email, subject, baseTemplate(subject, htmlBody));
+    logCommunication({ recipientId: driverId, recipientType: 'driver', recipientName: driver.name, recipientContact: driver.email, channel: 'email', subject, body: subject, status: 'sent' }).catch(() => {});
+    return true;
+  } catch (e: any) {
+    console.error(`Failed to send driver notification to ${driver.email}:`, e);
+    logCommunication({ recipientId: driverId, recipientType: 'driver', recipientName: driver.name, recipientContact: driver.email, channel: 'email', subject, body: subject, status: 'failed', errorMessage: e?.message }).catch(() => {});
+    return false;
+  }
+}
+
 export async function sendAccountDeletionEmail(userId: string) {
   const user = await storage.getUserById(userId);
   if (!user) return;
@@ -511,5 +526,117 @@ export async function sendAccountDeletionEmail(userId: string) {
   } catch (e) {
     console.error('Failed to send account deletion email:', e);
     logCommunication({ recipientId: userId, recipientType: 'user', recipientName: name, recipientContact: user.email, channel: 'email', subject, body: 'Account deletion email', status: 'failed', errorMessage: (e as any)?.message }).catch(() => {});
+  }
+}
+
+/** Notify customer when their scheduled collection route is cancelled */
+export async function sendRouteCancelNotification(userId: string, address: string, scheduledDate: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+  const subject = 'Collection Cancelled';
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your scheduled collection has been cancelled:</p>
+    <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;color:#dc2626;font-weight:700;">${scheduledDate}</p>
+      <p style="margin:4px 0 0;color:#991b1b;font-size:14px;">${address}</p>
+    </div>
+    <p style="color:#4b5563;line-height:1.6;">Please contact us if you have questions.</p>
+  `;
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Collection Cancelled', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: 'Route cancel notification', status: 'sent' }).catch(() => {});
+  } catch (e: any) {
+    console.error('Failed to send route cancel notification:', e);
+  }
+}
+
+/** Notify customer when their service location status changes */
+export async function sendServiceStatusNotification(userId: string, address: string, newStatus: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+  const statusLabels: Record<string, string> = { approved: 'Approved', denied: 'Denied', paused: 'Paused', cancelled: 'Cancelled' };
+  const label = statusLabels[newStatus] || newStatus;
+  const color = newStatus === 'approved' ? '#0d9488' : newStatus === 'denied' ? '#dc2626' : '#d97706';
+  const subject = `Service ${label} - ${address}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your service status has been updated:</p>
+    <div style="background:#f9fafb;border-left:4px solid ${color};padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;color:${color};font-weight:700;font-size:16px;">Status: ${label}</p>
+      <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${address}</p>
+    </div>
+  `;
+  try {
+    await sendEmail(user.email, subject, baseTemplate(`Service ${label}`, body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: `Service status: ${newStatus}`, status: 'sent' }).catch(() => {});
+  } catch (e: any) {
+    console.error('Failed to send service status notification:', e);
+  }
+}
+
+/** Notify customer when subscription is paused or resumed */
+export async function sendPauseResumeConfirmation(userId: string, address: string, action: 'paused' | 'resumed') {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+  const isPause = action === 'paused';
+  const subject = `Service ${isPause ? 'Paused' : 'Resumed'}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your waste collection service at <strong>${address}</strong> has been ${action}.</p>
+    ${isPause
+      ? '<p style="color:#4b5563;line-height:1.6;">Collections are on hold until you resume your subscription.</p>'
+      : '<p style="color:#4b5563;line-height:1.6;">Collections will resume on your next scheduled day.</p>'}
+  `;
+  try {
+    await sendEmail(user.email, subject, baseTemplate(subject, body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: `Subscription ${action}`, status: 'sent' }).catch(() => {});
+  } catch (e: any) {
+    console.error(`Failed to send ${action} confirmation:`, e);
+  }
+}
+
+/** Notify customer when their missed collection report is resolved */
+export async function sendMissedCollectionResolution(userId: string, address: string, resolutionNotes: string, redoDate?: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+  const subject = 'Missed Collection Resolved';
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your missed collection report for <strong>${address}</strong> has been resolved.</p>
+    <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;color:#0d9488;font-weight:700;">Resolution</p>
+      <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${resolutionNotes}</p>
+      ${redoDate ? `<p style="margin:8px 0 0;color:#0d9488;font-size:14px;">Redo scheduled for: <strong>${redoDate}</strong></p>` : ''}
+    </div>
+  `;
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Missed Collection Resolved', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: `Missed collection resolved: ${resolutionNotes}`, status: 'sent' }).catch(() => {});
+  } catch (e: any) {
+    console.error('Failed to send missed collection resolution:', e);
+  }
+}
+
+/** Notify customer when their on-demand request is approved */
+export async function sendOnDemandApproval(userId: string, serviceName: string, scheduledDate?: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+  const subject = `On-Demand Request Approved: ${serviceName}`;
+  const body = `
+    <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+    <p style="color:#4b5563;line-height:1.6;">Your on-demand request for <strong>${serviceName}</strong> has been approved!</p>
+    ${scheduledDate ? `
+      <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+        <p style="margin:0;color:#0d9488;font-weight:700;">Scheduled Date</p>
+        <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">${scheduledDate}</p>
+      </div>
+    ` : '<p style="color:#4b5563;line-height:1.6;">We will contact you with scheduling details shortly.</p>'}
+  `;
+  try {
+    await sendEmail(user.email, subject, baseTemplate('Request Approved', body));
+    logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: `On-demand approved: ${serviceName}`, status: 'sent' }).catch(() => {});
+  } catch (e: any) {
+    console.error('Failed to send on-demand approval notification:', e);
   }
 }

@@ -2442,7 +2442,7 @@ export class Storage {
     await this.query('DELETE FROM route_stops WHERE id = $1', [stopId]);
   }
 
-  async updateRouteStop(stopId: string, data: Partial<{ optimo_order_no: string; stop_number: number; status: string; scheduled_at: string; duration: number; notes: string; location_name: string }>) {
+  async updateRouteStop(stopId: string, data: Partial<{ optimo_order_no: string; stop_number: number; status: string; scheduled_at: string; duration: number; notes: string; location_name: string; pod_data: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -2456,6 +2456,22 @@ export class Storage {
       values
     );
     return result.rows[0] || null;
+  }
+
+  async cancelFutureStopsForLocation(locationId: string, afterDate?: string): Promise<number> {
+    const dateFilter = afterDate ? `AND r.scheduled_date >= $2` : '';
+    const params: any[] = [locationId];
+    if (afterDate) params.push(afterDate);
+    const result = await this.query(
+      `UPDATE route_stops rs SET status = 'cancelled'
+       FROM routes r
+       WHERE rs.route_id = r.id
+         AND rs.location_id = $1
+         AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')
+         ${dateFilter}`,
+      params
+    );
+    return result.rowCount ?? 0;
   }
 
   async bulkUpdateRouteStops(routeId: string, updates: Array<{ stop_id: string; stop_number?: number; scheduled_at?: string; status?: string }>) {

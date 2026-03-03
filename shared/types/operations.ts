@@ -90,6 +90,8 @@ export interface RouteBid {
   createdAt: string;
 }
 
+export type RouteStopStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+
 export interface RouteStop {
   id: string;
   routeId: string;
@@ -97,8 +99,9 @@ export interface RouteStop {
   orderType: 'recurring' | 'on_demand' | 'missed_redo';
   onDemandRequestId?: string;
   optimoOrderNo?: string;
+  optimo_order_no?: string; // snake_case alias from DB queries
   stopNumber?: number;
-  status: string;
+  status: RouteStopStatus | string;
   scheduledAt?: string;
   duration?: number;
   notes?: string;
@@ -108,6 +111,9 @@ export interface RouteStop {
   address?: string;
   serviceType?: string;
   customerName?: string;
+  // POD data from OptimoRoute completion
+  podData?: string;
+  pod_data?: string; // snake_case alias from DB queries
 }
 
 export type ZoneType = 'circle' | 'polygon' | 'zip';

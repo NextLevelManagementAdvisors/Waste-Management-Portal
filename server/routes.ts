@@ -4,6 +4,7 @@ import { storage } from './storage';
 import { getUncachableStripeClient, getStripePublishableKey } from './stripeClient';
 import * as optimoRoute from './optimoRouteClient';
 import { requireAuth } from './middleware';
+import { sendPauseResumeConfirmation } from './notificationService';
 
 function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
@@ -391,6 +392,16 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders for this property
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
+        // Update location status and cancel future route stops
+        storage.query(
+          `UPDATE locations SET service_status = 'cancelled' WHERE id = $1`,
+          [propertyId]
+        ).catch(err => console.error(`[Cascade] Failed to update location status:`, err));
+
+        storage.cancelFutureStopsForLocation(propertyId, new Date().toISOString().split('T')[0])
+          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for location ${propertyId}`); })
+          .catch(err => console.error(`[Cascade] Failed to cancel future stops:`, err));
+
         import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
           cleanupFutureOrdersForLocation(propertyId).catch(err =>
             console.error(`[OptimoSync] Cancellation cleanup failed for property ${propertyId}:`, err)
@@ -422,11 +433,29 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders while paused
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
+        // Update location status and cancel future route stops
+        storage.query(
+          `UPDATE locations SET service_status = 'paused' WHERE id = $1 AND service_status = 'approved'`,
+          [propertyId]
+        ).catch(err => console.error(`[Cascade] Failed to pause location:`, err));
+
+        storage.cancelFutureStopsForLocation(propertyId, new Date().toISOString().split('T')[0])
+          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for paused location ${propertyId}`); })
+          .catch(err => console.error(`[Cascade] Failed to cancel future stops:`, err));
+
         import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
           cleanupFutureOrdersForLocation(propertyId).catch(err =>
             console.error(`[OptimoSync] Pause cleanup failed for property ${propertyId}:`, err)
           );
         });
+      }
+
+      // Notify customer of pause
+      if (propertyId) {
+        storage.query(`SELECT user_id, address FROM locations WHERE id = $1`, [propertyId]).then(r => {
+          const loc = r.rows[0];
+          if (loc?.user_id) sendPauseResumeConfirmation(loc.user_id, loc.address, 'paused').catch(() => {});
+        }).catch(() => {});
       }
 
       res.json({ data: subscription });
@@ -444,6 +473,22 @@ export function registerRoutes(app: Express) {
       const subscription = await stripe.subscriptions.update(subId, {
         pause_collection: '',
       } as any);
+
+      // Restore location status to approved
+      const propertyId = (subscription as any).metadata?.propertyId;
+      if (propertyId) {
+        storage.query(
+          `UPDATE locations SET service_status = 'approved' WHERE id = $1 AND service_status = 'paused'`,
+          [propertyId]
+        ).catch(err => console.error(`[Cascade] Failed to restore location status on resume:`, err));
+
+        // Notify customer of resume
+        storage.query(`SELECT user_id, address FROM locations WHERE id = $1`, [propertyId]).then(r => {
+          const loc = r.rows[0];
+          if (loc?.user_id) sendPauseResumeConfirmation(loc.user_id, loc.address, 'resumed').catch(() => {});
+        }).catch(() => {});
+      }
+
       res.json({ data: subscription });
     } catch (error: any) {
       console.error('Error resuming subscription:', error);

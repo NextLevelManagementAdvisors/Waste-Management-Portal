@@ -62,6 +62,13 @@ async function requireOnboarded(req: Request, res: Response, next: NextFunction)
     if (!driverProfile || driverProfile.onboarding_status !== 'completed') {
       return res.status(403).json({ error: 'Onboarding not completed' });
     }
+    // Block suspended or rejected drivers from all team operations
+    if (driverProfile.status === 'suspended') {
+      return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
+    }
+    if (driverProfile.status === 'rejected') {
+      return res.status(403).json({ error: 'Your application has been rejected.' });
+    }
     next();
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -1017,16 +1024,24 @@ export function registerTeamRoutes(app: Express) {
       const customZones = await storage.getDriverCustomZones(driverId);
       const hasZoneSelections = customZones.some((z: any) => z.status === 'active');
 
-      let enriched: any[] = [];
+      let routes: any[];
       if (hasZoneSelections) {
-        const routes = await storage.getRoutesInDriverCoverage(driverId, filters);
-        enriched = await Promise.all(routes.map(async (route: any) => {
-          try {
-            const stops = await storage.getRouteStops(route.id);
-            return { ...route, stop_count: stops.length };
-          } catch { return { ...route, stop_count: 0 }; }
-        }));
+        routes = await storage.getRoutesInDriverCoverage(driverId, filters);
+      } else {
+        // No zones set up — show all open/bidding routes + routes assigned to this driver
+        routes = await storage.getOpenRoutes(filters);
+        const assignedRoutes = await storage.getAllRoutes({ ...filters, status: 'assigned' } as any);
+        const myAssigned = assignedRoutes.filter((r: any) => r.assigned_driver_id === driverId);
+        const routeIds = new Set(routes.map((r: any) => r.id));
+        for (const r of myAssigned) { if (!routeIds.has(r.id)) routes.push(r); }
       }
+
+      const enriched = await Promise.all(routes.map(async (route: any) => {
+        try {
+          const stops = await storage.getRouteStops(route.id);
+          return { ...route, stop_count: stops.length };
+        } catch { return { ...route, stop_count: 0 }; }
+      }));
 
       res.json({ data: enriched, hasZoneSelections });
     } catch (error: any) {
@@ -1141,6 +1156,61 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // Driver starts an assigned route, transitioning it to in_progress.
+  app.post('/api/team/routes/:routeId/start', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.routeId;
+      const driverId = res.locals.driverProfile.id;
+
+      const route = await storage.getRouteById(routeId);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
+      }
+
+      if (route.assigned_driver_id !== driverId) {
+        return res.status(403).json({ error: 'You are not assigned to this route' });
+      }
+
+      if (route.status !== 'assigned') {
+        return res.status(400).json({ error: 'Only assigned routes can be started' });
+      }
+
+      await storage.updateRoute(routeId, { status: 'in_progress' });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Start route error:', error);
+      res.status(500).json({ error: 'Failed to start route' });
+    }
+  });
+
+  // Driver declines an assigned route. Sets route back to open and logs the reason.
+  app.post('/api/team/routes/:routeId/decline', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.routeId;
+      const driverId = res.locals.driverProfile.id;
+      const { reason } = req.body || {};
+
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (route.assigned_driver_id !== driverId) return res.status(403).json({ error: 'You are not assigned to this route' });
+      if (route.status !== 'assigned') return res.status(400).json({ error: 'Only assigned routes can be declined' });
+
+      const driverName = res.locals.driverProfile.name || 'Driver';
+      const declineNote = `Declined by ${driverName}${reason ? `: ${reason}` : ''}`;
+      await storage.updateRoute(routeId, {
+        status: 'open',
+        assigned_driver_id: null,
+        accepted_bid_id: null,
+        notes: route.notes ? `${route.notes}\n\n${declineNote}` : declineNote,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Decline route error:', error);
+      res.status(500).json({ error: 'Failed to decline route' });
+    }
+  });
+
   // Driver marks an assigned route as completed. Accepts optional notes and
   // auto-creates a driver_pay expense record so payroll stays in sync.
   app.post('/api/team/routes/:routeId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
@@ -1191,7 +1261,11 @@ export function registerTeamRoutes(app: Express) {
         }
       }
 
-      res.json({ success: true });
+      // Check for incomplete stops and include in response
+      const stops = await storage.getRouteStops(routeId);
+      const incompleteStops = stops.filter((s: any) => !['completed', 'failed', 'skipped', 'cancelled'].includes(s.status));
+
+      res.json({ success: true, incompleteStops: incompleteStops.length > 0 ? incompleteStops.map((s: any) => ({ id: s.id, address: s.address, status: s.status })) : [] });
     } catch (error: any) {
       console.error('Complete route error:', error);
       res.status(500).json({ error: 'Failed to complete route' });
