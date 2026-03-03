@@ -8,8 +8,8 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ## 1. CUSTOMER PORTAL
 
-> **Audit summary (2026-03-02):** 89 original stories + 15 new gap stories = 104 total.
-> Done: 80 | Partial: 3 (C-79, C-80, C-81) | Not started: 17 (C-82, C-87, C-90–C-104).
+> **Audit summary (2026-03-02):** 89 original stories + 20 new stories = 109 total.
+> Done: 85 | Partial: 3 (C-79, C-80, C-81) | Not started: 17 (C-82, C-87, C-90–C-104).
 > Full gap analysis: [`docs/GAP_ANALYSIS.md`](GAP_ANALYSIS.md) (if created) or see plan file.
 
 ### 1.1 Authentication & Account
@@ -226,6 +226,16 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | C-103 | — | As a customer, I want to view an annual spending summary, so that I have a record for tax or budgeting purposes. |
 | C-104 | — | As a customer, I want to grant a secondary user (spouse, roommate) read/manage access to my locations, so that my household can manage service without sharing credentials. |
 
+### 1.23 Lifecycle Notifications
+
+| # | Status | User Story |
+|---|--------|-----------|
+| C-105 | Done | As a customer, I want to be notified if my scheduled collection is cancelled, so that I know not to put my bins out. |
+| C-106 | Done | As a customer, I want to be notified when my service is approved, denied, paused, or resumed, so that I know my current service state. |
+| C-107 | Done | As a customer, I want confirmation when I pause or resume my subscription, so that I know the action was processed. |
+| C-108 | Done | As a customer, I want to know when my missed collection report has been resolved, so that I know when to expect service. |
+| C-109 | Done | As a customer, I want confirmation when my on-demand request is approved and assigned, so that I know it's being handled. |
+
 ---
 
 ## 2. ADMIN PORTAL
@@ -297,6 +307,12 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-41 | As an admin, I want to sync routes to OptimoRoute for driver app delivery, so that drivers see their assignments in the field app. |
 | A-42 | As an admin, I want to pull completion data from OptimoRoute after a route finishes, so that actual results are captured in the system. |
 | A-43 | As an admin, I want to mark a route's payment status (paid/unpaid), so that I can track driver compensation. |
+| A-101 | As an admin, I want routes completed in OptimoRoute to automatically show as completed in the portal when I select a date, so that I don't have to manually check OptimoRoute for status updates. |
+| A-102 | As an admin, I want a warning when a driver completes a route with unfinished stops, so that I can follow up on skipped or failed collections. |
+| A-103 | As an admin, I want to see proof-of-delivery data (photos, signatures, notes) from OptimoRoute on each completed stop, so that I can verify service was delivered. |
+| A-104 | As an admin, I want to be alerted when an assigned route passes its scheduled time without being started, so that I can intervene. |
+| A-105 | As an admin, I want drivers to be automatically notified when assigned a route, so that they don't miss new work. |
+| A-106 | As an admin, I want all losing bidders to be notified when a bid is accepted, so that they can bid on other routes. |
 
 ### 2.6 Operations — Issues & Address Reviews
 
@@ -309,6 +325,7 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-48 | As an admin, I want to get a route suggestion (zone/day) for a pending address, so that I know where to slot it into the schedule. |
 | A-49 | As an admin, I want to approve, deny, or waitlist an address review with the customer automatically notified, so that the onboarding process moves forward. |
 | A-50 | As an admin, I want to bulk approve or deny multiple address reviews at once, so that I can process backlogs efficiently. |
+| A-107 | As an admin, I want the option to auto-create a redo stop when resolving a missed collection, so that the customer gets their service without manual route editing. |
 
 ### 2.7 Operations — Zones & Services
 
@@ -401,6 +418,7 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-95 | As an admin, I want to manage on-demand collection requests (view, assign driver, set date, set price, update status), so that ad-hoc requests are fulfilled. |
 | A-96 | As an admin, I want a real-time driver events panel, so that I can monitor live field activity. |
 | A-97 | As an admin, I want to view route completion details (per-stop status, timing, photos), so that I can verify service quality. |
+| A-108 | As an admin, I want to see which approved on-demand requests haven't been fulfilled within 5 days, so that I can follow up. |
 
 ### 2.16 Operations — Automation & Optimization
 
@@ -409,6 +427,22 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | A-98 | As an admin, I want collection day optimization (algorithm-based optimal day assignment using route insertion cost), so that new locations are slotted efficiently. |
 | A-99 | As an admin, I want to configure auto-approve thresholds (distance/time) for address reviews, so that clearly feasible addresses are approved without manual review. |
 | A-100 | As an admin, I want to impersonate a driver (in addition to customers), so that I can troubleshoot team portal issues from their perspective. |
+
+### 2.17 Lifecycle Cascades
+
+| # | User Story |
+|---|-----------|
+| A-109 | As an admin, I want cancelling a subscription to automatically remove that location from future routes and update its status, so that the planning view stays accurate. |
+| A-110 | As an admin, I want pausing a subscription to hold that location's route stops, so that drivers don't visit paused addresses. Resume restores status. |
+| A-111 | As an admin, when I deny or pause a location, I want its future route stops automatically cancelled, so that I don't have to clean them up manually. |
+| A-112 | As an admin, I want a warning when a location has no collection day assigned, so that I can fix it before it silently fails to sync. |
+
+### 2.18 Driver Management
+
+| # | User Story |
+|---|-----------|
+| A-113 | As an admin, I want to suspend or reject a driver, so that non-compliant drivers can't access routes or bid on jobs. |
+| A-114 | As an admin, I want new drivers to receive an invitation email when I create their profile, so that they know how to access the portal. |
 
 ---
 
@@ -447,6 +481,10 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | T-17 | As a driver, I want to see my assigned routes (status: assigned, in_progress), so that I know what work I need to complete. |
 | T-18 | As a driver, I want to mark a route as completed with optional notes, so that the system records my work. |
 | T-19 | As a driver, I want my total jobs completed counter to update automatically on route completion, so that my profile stays accurate. |
+| T-56 | As a driver, I want to decline a route assignment with a reason, so that I'm not forced into jobs I can't fulfill. |
+| T-57 | As a driver, I want to know when my bid wasn't selected, so that I can bid on other routes. |
+| T-58 | As a driver, I want to be notified when assigned a route, so that I don't miss new work. |
+| T-59 | As a driver, I want to see available routes even if I haven't set up zones yet, so that I can start bidding immediately after onboarding. |
 
 ### 3.4 Schedule
 
@@ -549,4 +587,8 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 | S-12 | As the system, I want to verify email addresses on registration via a confirmation link, so that only valid emails are in the system. <!-- Customer-facing story: C-90 --> |
 | S-13 | As the system, I want to log client-side errors (rate-limited) to NDJSON log files by date, so that frontend issues are captured for diagnosis. |
 | S-14 | As the system, I want to send Slack notifications on zone approval/rejection decisions and waitlist auto-flagging, so that admins are alerted to coverage changes. |
+| S-15 | As the system, I want subscription cancel/pause to cascade to location status and future route stops, so that planning data stays clean automatically. |
+| S-16 | As the system, I want location status changes (denied/paused/cancelled) to cancel all future pending route stops for that location, so that drivers don't visit inactive addresses. |
+| S-17 | As the system, I want to block suspended and rejected drivers from all team portal endpoints, so that non-compliant drivers can't access routes or bid. |
+| S-18 | As the system, I want to send lifecycle notification emails (route cancel, status change, pause/resume, missed resolution, on-demand approval) to affected customers, so that they stay informed of service changes. |
 | S-15 | As the system, I want zone approval to trigger automatic waitlist re-evaluation for customers in the approved area, so that waitlisted customers are activated as coverage expands. <!-- Flags locations + Slack alert to admins, but NO customer notification yet. See C-80. --> |
