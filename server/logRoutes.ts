@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger, LOGS_DIR_PATH } from './logger';
-import { startFix, isFixRunning, getFixProgress, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories, notifyNewError } from './errorFixService';
+import { startFix, isFixRunning, getFixProgress, startAutoFix, stopAutoFix, isAutoFixEnabled, parseUserStories, notifyNewError, normalizeErrorKey, readFixedLedger } from './errorFixService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,11 +64,25 @@ export function registerLogRoutes(
         entries = entries.filter((e: any) => e.source === source);
       }
 
-      entries.reverse();
-      const total = entries.length;
-      entries = entries.slice(0, limit);
+      // Build fixed-error lookup: normalized key → commit hash
+      const fixedLedger = readFixedLedger(dateStr);
+      const fixedMap = new Map<string, string>();
+      for (const fe of fixedLedger) {
+        fixedMap.set(fe.key, fe.commitHash);
+      }
 
-      res.json({ entries, total });
+      // Annotate entries with fixedBy commit hash
+      const annotated = entries.map((e: any) => {
+        const key = normalizeErrorKey(e);
+        const commitHash = fixedMap.get(key);
+        return commitHash ? { ...e, fixedBy: commitHash } : e;
+      });
+
+      annotated.reverse();
+      const total = annotated.length;
+      const page = annotated.slice(0, limit);
+
+      res.json({ entries: page, total });
     } catch (error) {
       logger.error('Failed to read error logs', error);
       res.status(500).json({ error: 'Failed to read logs' });

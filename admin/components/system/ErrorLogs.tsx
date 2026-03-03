@@ -9,6 +9,7 @@ interface ErrorLogEntry {
   message: string;
   data?: any;
   stack?: string;
+  fixedBy?: string;
 }
 
 const formatTime = (ts: string) => {
@@ -135,8 +136,18 @@ const ErrorLogs: React.FC = () => {
             <option value="server">Server</option>
           </select>
         </div>
-        <div className="flex items-end">
+        <div className="flex items-end gap-3">
           <span className="text-xs text-gray-500 pb-2">{total} error{total !== 1 ? 's' : ''} on this date</span>
+          {entries.length > 0 && (() => {
+            const fixedCount = entries.filter(e => e.fixedBy).length;
+            const openCount = entries.length - fixedCount;
+            return (
+              <>
+                {fixedCount > 0 && <span className="text-xs font-bold text-green-600 pb-2">{fixedCount} fixed</span>}
+                {openCount > 0 && <span className="text-xs font-bold text-red-500 pb-2">{openCount} open</span>}
+              </>
+            );
+          })()}
         </div>
         {selected.size > 0 && (
           <div className="flex items-end gap-2 ml-auto">
@@ -184,6 +195,7 @@ const ErrorLogs: React.FC = () => {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Time</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Source</th>
+                  <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Message</th>
                   <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-600">Context</th>
                 </tr>
@@ -208,6 +220,18 @@ const ErrorLogs: React.FC = () => {
                       <td className="px-4 py-3" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
                         <SourceBadge source={entry.source} />
                       </td>
+                      <td className="px-4 py-3" onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
+                        {entry.fixedBy ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                            Fixed
+                            <span className="font-mono text-green-600">{entry.fixedBy}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-50 text-red-500">
+                            Open
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-900 max-w-md truncate" title={entry.message} onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}>
                         {entry.message}
                       </td>
@@ -217,7 +241,7 @@ const ErrorLogs: React.FC = () => {
                     </tr>
                     {expandedIndex === i && (
                       <tr>
-                        <td colSpan={5} className="px-4 py-4 bg-gray-50">
+                        <td colSpan={6} className="px-4 py-4 bg-gray-50">
                           <div className="space-y-3">
                             {entry.data && (
                               <div>

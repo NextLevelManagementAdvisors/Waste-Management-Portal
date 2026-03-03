@@ -110,7 +110,7 @@ export function readErrorLog(date: string, source?: string): LogEntry[] {
 // Deduplication
 // ---------------------------------------------------------------------------
 
-function normalizeErrorKey(entry: LogEntry): string {
+export function normalizeErrorKey(entry: LogEntry): string {
   let msg = entry.message;
 
   if (entry.source === 'server') {
@@ -131,13 +131,13 @@ function fixedLedgerPath(date: string): string {
   return path.join(LOGS_DIR_PATH, `fixed-${date}.json`);
 }
 
-interface FixedEntry {
+export interface FixedEntry {
   key: string;
   commitHash: string;
   fixedAt: string;
 }
 
-function readFixedLedger(date: string): FixedEntry[] {
+export function readFixedLedger(date: string): FixedEntry[] {
   try {
     const content = fs.readFileSync(fixedLedgerPath(date), 'utf8');
     const arr = JSON.parse(content);

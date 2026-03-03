@@ -1,55 +1,61 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '../../../components/Button.tsx';
 
-interface UserStory {
-  id: string;
-  section: string;
-  text: string;
+interface ErrorEntry {
+  timestamp: string;
+  source: 'server' | 'client';
+  message: string;
+  data?: any;
+  fixedBy?: string;
 }
 
 interface FixContextModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (adminNotes: string, flaggedStories: string[]) => void;
+  onSubmit: (adminNotes: string, flaggedErrors: string[]) => void;
   fixing: boolean;
 }
 
 const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSubmit, fixing }) => {
   const [notes, setNotes] = useState('');
-  const [stories, setStories] = useState<UserStory[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<ErrorEntry[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
-  const [loadingStories, setLoadingStories] = useState(false);
+  const [loadingErrors, setLoadingErrors] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setNotes('');
       setSelected(new Set());
       setSearch('');
-      setLoadingStories(true);
-      fetch('/api/admin/user-stories', { credentials: 'include' })
-        .then(r => r.ok ? r.json() : { stories: [] })
-        .then(data => setStories(data.stories ?? []))
+      setLoadingErrors(true);
+      const date = new Date().toISOString().split('T')[0];
+      fetch(`/api/admin/logs/errors?date=${date}&limit=200`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : { entries: [] })
+        .then(data => setErrors(data.entries ?? []))
         .catch(() => {})
-        .finally(() => setLoadingStories(false));
+        .finally(() => setLoadingErrors(false));
     }
   }, [isOpen]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return stories;
+    if (!search.trim()) return errors.map((e, i) => ({ ...e, _idx: i }));
     const q = search.toLowerCase();
-    return stories.filter(s =>
-      s.id.toLowerCase().includes(q) ||
-      s.text.toLowerCase().includes(q) ||
-      s.section.toLowerCase().includes(q)
-    );
-  }, [stories, search]);
+    return errors
+      .map((e, i) => ({ ...e, _idx: i }))
+      .filter(e =>
+        e.message.toLowerCase().includes(q) ||
+        e.source.toLowerCase().includes(q) ||
+        (e.data?.url || '').toLowerCase().includes(q) ||
+        (e.data?.spa || '').toLowerCase().includes(q)
+      );
+  }, [errors, search]);
 
-  const toggle = (id: string) => {
+  const toggle = (idx: number) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
       return next;
     });
   };
@@ -81,56 +87,69 @@ const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSu
 
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
-              Flag User Stories <span className="text-gray-400 normal-case tracking-normal">(optional — check stories the platform isn't following)</span>
+              Flag Errors <span className="text-gray-400 normal-case tracking-normal">(optional — check errors the platform is having)</span>
             </label>
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search stories by ID, text, or section..."
+              placeholder="Search errors by message, source, URL, or SPA..."
               className="w-full px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 mb-2"
             />
 
             {selected.size > 0 && (
               <div className="flex flex-wrap gap-1 mb-2">
-                {Array.from(selected).map(id => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => toggle(id)}
-                    className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg px-2 py-0.5 text-xs font-bold hover:bg-teal-100"
-                  >
-                    {id} <span className="text-teal-400">&times;</span>
-                  </button>
-                ))}
+                {Array.from(selected).map(idx => {
+                  const e = errors[idx];
+                  if (!e) return null;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => toggle(idx)}
+                      className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg px-2 py-0.5 text-xs font-bold hover:bg-teal-100 max-w-xs truncate"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.source === 'client' ? 'bg-orange-400' : 'bg-blue-400'}`} />
+                      <span className="truncate">{e.message.slice(0, 60)}</span>
+                      <span className="text-teal-400 flex-shrink-0">&times;</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
             <div className="border border-gray-200 rounded-xl max-h-56 overflow-y-auto divide-y divide-gray-100">
-              {loadingStories ? (
-                <div className="p-4 text-center text-sm text-gray-400">Loading stories...</div>
+              {loadingErrors ? (
+                <div className="p-4 text-center text-sm text-gray-400">Loading errors...</div>
               ) : filtered.length === 0 ? (
                 <div className="p-4 text-center text-sm text-gray-400">
-                  {search ? 'No stories match your search' : 'No user stories found'}
+                  {search ? 'No errors match your search' : 'No errors found for today'}
                 </div>
               ) : (
-                filtered.map(story => (
+                filtered.map(entry => (
                   <label
-                    key={story.id}
-                    className={`flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors ${selected.has(story.id) ? 'bg-teal-50/50' : ''}`}
+                    key={entry._idx}
+                    className={`flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors ${selected.has(entry._idx) ? 'bg-teal-50/50' : ''}`}
                   >
                     <input
                       type="checkbox"
-                      checked={selected.has(story.id)}
-                      onChange={() => toggle(story.id)}
+                      checked={selected.has(entry._idx)}
+                      onChange={() => toggle(entry._idx)}
                       className="mt-1 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-gray-500">{story.id}</span>
-                        <span className="text-xs text-gray-400">{story.section}</span>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          entry.source === 'client' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                        }`}>{entry.source}</span>
+                        {entry.fixedBy && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">
+                            Fixed <span className="font-mono">{entry.fixedBy}</span>
+                          </span>
+                        )}
+                        {entry.data?.spa && <span className="text-[10px] text-gray-400">{entry.data.spa}</span>}
                       </div>
-                      <p className="text-sm text-gray-700 leading-snug">{story.text}</p>
+                      <p className="text-sm text-gray-700 leading-snug truncate">{entry.message}</p>
                     </div>
                   </label>
                 ))
@@ -151,7 +170,17 @@ const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSu
           <Button
             variant="primary"
             size="sm"
-            onClick={() => onSubmit(notes.trim(), Array.from(selected))}
+            onClick={() => {
+              const flagged = Array.from(selected).map(idx => {
+                const e = errors[idx];
+                if (!e) return '';
+                let line = `[${e.source}] ${e.message}`;
+                if (e.data?.url) line += ` (URL: ${e.data.url})`;
+                if (e.data?.spa) line += ` (SPA: ${e.data.spa})`;
+                return line;
+              }).filter(Boolean);
+              onSubmit(notes.trim(), flagged);
+            }}
             disabled={fixing}
           >
             {fixing ? (
