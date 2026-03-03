@@ -1,142 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
 import type { Route, RouteBid, RouteStop } from '../../../shared/types/index.ts';
+import RouteTable from '../../../shared/components/RouteTable.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import EditRouteModal from './EditRouteModal.tsx';
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  open: 'bg-blue-100 text-blue-700',
-  bidding: 'bg-yellow-100 text-yellow-700',
-  assigned: 'bg-purple-100 text-purple-700',
-  in_progress: 'bg-orange-100 text-orange-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
-};
-
-const ROUTE_TYPE_COLORS: Record<string, string> = {
-  daily_route: 'bg-teal-100 text-teal-700',
-  bulk_collection: 'bg-orange-100 text-orange-700',
-  on_demand: 'bg-purple-100 text-purple-700',
-};
-
-const ROUTE_TYPE_LABELS: Record<string, string> = {
-  daily_route: 'Route',
-  bulk_collection: 'Bulk',
-  on_demand: 'On-Demand',
-};
-
-const StatusChip: React.FC<{ status: string }> = ({ status }) => (
-  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold capitalize ${STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-600'}`}>
-    {status.replace('_', ' ')}
-  </span>
-);
-
-const RouteTypeChip: React.FC<{ type: string }> = ({ type }) => (
-  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${ROUTE_TYPE_COLORS[type] ?? 'bg-gray-100 text-gray-600'}`}>
-    {ROUTE_TYPE_LABELS[type] ?? type}
-  </span>
-);
-
-const formatDate = (dateStr: string) => {
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-  } catch {
-    return dateStr;
-  }
-};
-
-const formatDateTime = (dateStr: string) => {
-  try {
-    return new Date(dateStr).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-  } catch {
-    return dateStr;
-  }
-};
-
-const BidRow: React.FC<{ bid: RouteBid; basePay?: number; onAccept: () => void; canAccept: boolean }> = ({ bid, basePay, onAccept, canAccept }) => {
-  const delta = basePay != null ? Number(bid.bidAmount) - basePay : null;
-
-  return (
-    <tr className="bg-gray-50/80">
-      <td className="px-4 py-2 pl-10" colSpan={2}>
-        <div className="text-sm font-medium text-gray-900">{bid.driverName}</div>
-        {bid.driverRating != null && (
-          <div className="text-xs text-gray-400">Current rating: {Number(bid.driverRating).toFixed(1)}</div>
-        )}
-      </td>
-      <td className="px-4 py-2">
-        <div className="text-xs text-gray-500">{formatDateTime(bid.createdAt)}</div>
-      </td>
-      <td className="px-4 py-2">
-        {bid.driverRatingAtBid != null && (
-          <div className="text-sm text-gray-600">{Number(bid.driverRatingAtBid).toFixed(1)}</div>
-        )}
-      </td>
-      <td className="px-4 py-2">
-        <div className="text-sm font-semibold text-teal-700">${Number(bid.bidAmount || 0).toFixed(2)}</div>
-        {delta != null && delta !== 0 && (
-          <div className={`text-xs ${delta > 0 ? 'text-red-500' : 'text-green-600'}`}>
-            {delta > 0 ? '+' : ''}${Number(delta).toFixed(2)}
-          </div>
-        )}
-      </td>
-      <td className="px-4 py-2" colSpan={2}>
-        {bid.message && (
-          <div className="text-sm text-gray-600 italic max-w-xs truncate" title={bid.message}>
-            "{bid.message}"
-          </div>
-        )}
-      </td>
-      <td className="px-4 py-2 text-right" colSpan={2}>
-        {canAccept && (
-          <button
-            type="button"
-            onClick={onAccept}
-            className="px-3 py-1 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-          >
-            Accept
-          </button>
-        )}
-      </td>
-    </tr>
-  );
-};
-
-const StopsExpansion: React.FC<{ stops: RouteStop[] }> = ({ stops }) => (
-  <>
-    <tr className="bg-blue-50/40">
-      <td colSpan={9} className="px-4 py-2 pl-10 text-xs font-black uppercase tracking-widest text-gray-400">
-        Stops ({stops.length})
-      </td>
-    </tr>
-    {stops.map(p => (
-      <tr key={p.id} className="bg-blue-50/20">
-        <td className="px-4 py-1.5 pl-10" colSpan={3}>
-          <div className="text-sm text-gray-700">{p.address}</div>
-          <div className="text-xs text-gray-400">{p.customerName}</div>
-        </td>
-        <td className="px-4 py-1.5">
-          <span className={`text-xs font-bold ${
-            p.orderType === 'special' ? 'text-purple-600' : p.orderType === 'missed_redo' ? 'text-red-600' : 'text-gray-500'
-          }`}>
-            {p.orderType}
-          </span>
-        </td>
-        <td className="px-4 py-1.5" colSpan={2}>
-          {p.stopNumber != null && <span className="text-xs text-gray-500">Stop #{p.stopNumber}</span>}
-        </td>
-        <td className="px-4 py-1.5" colSpan={3}>
-          <span className={`text-xs font-bold ${
-            p.status === 'completed' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-gray-400'
-          }`}>
-            {p.status}
-          </span>
-        </td>
-      </tr>
-    ))}
-  </>
-);
 
 const RoutesList: React.FC = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -147,11 +14,6 @@ const RoutesList: React.FC = () => {
   const [dateTo, setDateTo] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
-  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
-  const [expandMode, setExpandMode] = useState<'bids' | 'stops'>('bids');
-  const [bidsMap, setBidsMap] = useState<Record<string, RouteBid[]>>({});
-  const [stopsMap, setStopsMap] = useState<Record<string, RouteStop[]>>({});
-  const [loadingExpand, setLoadingExpand] = useState<string | null>(null);
 
   const loadRoutes = useCallback(async () => {
     setLoading(true);
@@ -175,36 +37,6 @@ const RoutesList: React.FC = () => {
 
   useEffect(() => { loadRoutes(); }, [loadRoutes]);
 
-  const toggleExpand = async (routeId: string, mode: 'bids' | 'stops') => {
-    if (expandedRouteId === routeId && expandMode === mode) {
-      setExpandedRouteId(null);
-      return;
-    }
-    setExpandedRouteId(routeId);
-    setExpandMode(mode);
-
-    const cache = mode === 'bids' ? bidsMap : stopsMap;
-    if (cache[routeId]) return;
-
-    setLoadingExpand(routeId);
-    try {
-      const endpoint = mode === 'bids' ? `/api/admin/routes/${routeId}/bids` : `/api/admin/routes/${routeId}/stops`;
-      const res = await fetch(endpoint, { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        if (mode === 'bids') {
-          setBidsMap(prev => ({ ...prev, [routeId]: data.bids ?? [] }));
-        } else {
-          setStopsMap(prev => ({ ...prev, [routeId]: data.stops ?? [] }));
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to load ${mode}:`, e);
-    } finally {
-      setLoadingExpand(null);
-    }
-  };
-
   const acceptBid = async (routeId: string, bid: RouteBid) => {
     try {
       const res = await fetch(`/api/admin/routes/${routeId}/assign`, {
@@ -213,10 +45,7 @@ const RoutesList: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({ driverId: bid.driverId, bidId: bid.id, actualPay: bid.bidAmount }),
       });
-      if (res.ok) {
-        setExpandedRouteId(null);
-        loadRoutes();
-      }
+      if (res.ok) loadRoutes();
     } catch (e) {
       console.error('Failed to accept bid:', e);
     }
@@ -234,6 +63,18 @@ const RoutesList: React.FC = () => {
     }
   };
 
+  const fetchBids = useCallback(async (routeId: string): Promise<RouteBid[]> => {
+    const res = await fetch(`/api/admin/routes/${routeId}/bids`, { credentials: 'include' });
+    if (res.ok) { const data = await res.json(); return data.bids ?? []; }
+    return [];
+  }, []);
+
+  const fetchStops = useCallback(async (routeId: string): Promise<RouteStop[]> => {
+    const res = await fetch(`/api/admin/routes/${routeId}/stops`, { credentials: 'include' });
+    if (res.ok) { const data = await res.json(); return data.stops ?? []; }
+    return [];
+  }, []);
+
   const filtered = routes.filter(r => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (typeFilter !== 'all' && r.routeType !== typeFilter) return false;
@@ -246,29 +87,18 @@ const RoutesList: React.FC = () => {
         <FilterBar>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">To</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            >
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
               <option value="all">All Statuses</option>
               <option value="draft">Draft</option>
               <option value="open">Open</option>
@@ -281,11 +111,8 @@ const RoutesList: React.FC = () => {
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Type</label>
-            <select
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            >
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
               <option value="all">All Types</option>
               <option value="daily_route">Route</option>
               <option value="bulk_collection">Bulk</option>
@@ -320,140 +147,28 @@ const RoutesList: React.FC = () => {
           message={statusFilter === 'all' && typeFilter === 'all' ? 'Use the Routes tab to plan routes, or create one manually.' : 'No routes match the selected filters.'}
         />
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Route</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Stops</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pay</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Driver</th>
-                <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-widest text-gray-400">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.map(route => {
-                const isExpanded = expandedRouteId === route.id;
-                const bids = bidsMap[route.id];
-                const stops = stopsMap[route.id];
-                const bidCount = route.bidCount ?? 0;
-                const stopCount = route.stopCount ?? 0;
-                const canAcceptBids = route.status === 'open' || route.status === 'bidding';
-
-                return (
-                  <React.Fragment key={route.id}>
-                    <tr className={`hover:bg-gray-50 transition-colors ${isExpanded ? 'bg-gray-50' : ''}`}>
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-semibold text-gray-900">{route.title}</div>
-                        {route.start_time && (
-                          <div className="text-xs text-gray-500">{route.start_time}{route.end_time ? ` – ${route.end_time}` : ''}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <RouteTypeChip type={route.routeType || 'daily_route'} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-700">{formatDate(route.scheduledDate)}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-700">
-                          {stopCount > 0 ? stopCount : (route.estimated_stops ?? '—')}
-                          {route.estimated_hours != null && (
-                            <span className="text-xs text-gray-400 ml-1">({route.estimated_hours}h)</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-semibold text-gray-900">
-                          {route.actualPay != null
-                            ? `$${Number(route.actualPay).toFixed(2)}`
-                            : route.basePay != null
-                            ? `$${Number(route.basePay).toFixed(2)}`
-                            : '—'}
-                        </div>
-                        {route.actualPay != null && route.basePay != null && Number(route.actualPay) !== Number(route.basePay) && (
-                          <div className="text-xs text-gray-400 line-through">${Number(route.basePay).toFixed(2)}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusChip status={route.status} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-700">{route.driverName ?? '—'}</div>
-                      </td>
-                      <td className="px-4 py-3 text-right space-x-1">
-                        {route.status === 'draft' && (
-                          <button type="button" onClick={() => publishRoute(route.id)}
-                            className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
-                            Publish
-                          </button>
-                        )}
-                        {stopCount > 0 && (
-                          <button type="button" onClick={() => toggleExpand(route.id, 'stops')}
-                            className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                              isExpanded && expandMode === 'stops' ? 'text-white bg-blue-600' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'
-                            }`}>
-                            {stopCount} Stop{stopCount !== 1 ? 's' : ''} {isExpanded && expandMode === 'stops' ? '▲' : '▼'}
-                          </button>
-                        )}
-                        {bidCount > 0 && (
-                          <button type="button" onClick={() => toggleExpand(route.id, 'bids')}
-                            className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                              isExpanded && expandMode === 'bids' ? 'text-white bg-teal-600' : 'text-teal-700 bg-teal-50 hover:bg-teal-100'
-                            }`}>
-                            {bidCount} Bid{bidCount !== 1 ? 's' : ''} {isExpanded && expandMode === 'bids' ? '▲' : '▼'}
-                          </button>
-                        )}
-                        <button type="button" onClick={() => setEditingRoute(route)}
-                          className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-
-                    {isExpanded && expandMode === 'bids' && (
-                      loadingExpand === route.id ? (
-                        <tr className="bg-gray-50/80"><td colSpan={9} className="px-4 py-4 text-center"><div className="text-sm text-gray-400">Loading bids...</div></td></tr>
-                      ) : bids && bids.length > 0 ? (
-                        <>
-                          <tr className="bg-gray-100/60">
-                            <td colSpan={2} className="px-4 py-2 pl-10 text-xs font-black uppercase tracking-widest text-gray-400">Driver</td>
-                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Bid Date</td>
-                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Rating</td>
-                            <td className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Bid Amount</td>
-                            <td colSpan={2} className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-400">Message</td>
-                            <td colSpan={2} className="px-4 py-2 text-right text-xs font-black uppercase tracking-widest text-gray-400">Action</td>
-                          </tr>
-                          {bids.map(bid => (
-                            <BidRow key={bid.id} bid={bid} basePay={route.basePay != null ? Number(route.basePay) : undefined}
-                              onAccept={() => acceptBid(route.id, bid)} canAccept={canAcceptBids} />
-                          ))}
-                        </>
-                      ) : (
-                        <tr className="bg-gray-50/80"><td colSpan={9} className="px-4 py-3 text-center text-sm text-gray-400">No bids yet</td></tr>
-                      )
-                    )}
-
-                    {isExpanded && expandMode === 'stops' && (
-                      loadingExpand === route.id ? (
-                        <tr className="bg-gray-50/80"><td colSpan={9} className="px-4 py-4 text-center"><div className="text-sm text-gray-400">Loading stops...</div></td></tr>
-                      ) : stops && stops.length > 0 ? (
-                        <StopsExpansion stops={stops} />
-                      ) : (
-                        <tr className="bg-gray-50/80"><td colSpan={9} className="px-4 py-3 text-center text-sm text-gray-400">No stops assigned</td></tr>
-                      )
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
-        </div>
+        <RouteTable
+          routes={filtered}
+          columns={{ type: true, driver: true, pay: true, stops: true }}
+          onExpandBids={fetchBids}
+          onExpandStops={fetchStops}
+          canAcceptBids
+          onAcceptBid={acceptBid}
+          renderActions={(route) => (
+            <>
+              {route.status === 'draft' && (
+                <button type="button" onClick={() => publishRoute(route.id)}
+                  className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                  Publish
+                </button>
+              )}
+              <button type="button" onClick={() => setEditingRoute(route)}
+                className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">
+                Edit
+              </button>
+            </>
+          )}
+        />
       )}
 
       {showCreate && (

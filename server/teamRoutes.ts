@@ -6,6 +6,7 @@ import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
 import { notifyWaitlistFlagged } from './slackNotifier';
+import { formatRouteForClient } from './formatRoute';
 
 /** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
 async function triggerWaitlistAutoFlag(zone: any) {
@@ -1043,7 +1044,7 @@ export function registerTeamRoutes(app: Express) {
         } catch { return { ...route, stop_count: 0 }; }
       }));
 
-      res.json({ data: enriched, hasZoneSelections });
+      res.json({ data: enriched.map(formatRouteForClient), hasZoneSelections });
     } catch (error: any) {
       console.error('Get routes error:', error);
       res.status(500).json({ error: 'Failed to get routes' });
@@ -1085,7 +1086,7 @@ export function registerTeamRoutes(app: Express) {
         createdAt: b.created_at,
       }));
 
-      res.json({ data: { ...route, bids: camelBids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
+      res.json({ data: { ...formatRouteForClient(route), bids: camelBids, stops: stops.map((p: any) => ({ address: p.address, customer_name: p.customer_name, pickup_type: p.pickup_type, sequence_number: p.sequence_number, status: p.status })) } });
     } catch (error: any) {
       console.error('Get route error:', error);
       res.status(500).json({ error: 'Failed to get route' });
@@ -1279,7 +1280,7 @@ export function registerTeamRoutes(app: Express) {
       const end = (req.query.end as string) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       const routes = await storage.getDriverSchedule(driverId, start, end);
-      res.json({ data: routes });
+      res.json({ data: routes.map(formatRouteForClient) });
     } catch (error: any) {
       console.error('Get schedule error:', error);
       res.status(500).json({ error: 'Failed to get schedule' });

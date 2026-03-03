@@ -5,6 +5,8 @@ import TeamAuthLayout from './components/TeamAuthLayout';
 import TeamLogin from './components/TeamLogin';
 import TeamRegister from './components/TeamRegister';
 import OnDemandPickups from './components/OnDemandPickups';
+import RouteTable, { STATUS_COLORS } from '../shared/components/RouteTable.tsx';
+import type { Route as SharedRoute } from '../shared/types/index.ts';
 const ZoneMapView = React.lazy(() => import('./components/ZoneMapView'));
 // AvailableLocations merged into ZoneMapView as unified Coverage view
 import {
@@ -40,19 +42,7 @@ interface OnboardingStatus {
   direct_deposit_completed: boolean;
 }
 
-interface Route {
-  id: string;
-  title: string;
-  description?: string;
-  routeType?: string;
-  scheduledDate?: string;
-  startTime?: string;
-  endTime?: string;
-  estimatedStops?: number;
-  estimatedHours?: number;
-  basePay?: number;
-  status: string;
-  assignedDriverId?: string;
+interface Route extends SharedRoute {
   bids?: Bid[];
 }
 
@@ -171,21 +161,12 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   cancelled: 'Cancelled \u2014 This route has been cancelled.',
 };
 
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const colors: Record<string, string> = {
-    open: 'bg-green-100 text-green-700',
-    bidding: 'bg-yellow-100 text-yellow-700',
-    assigned: 'bg-blue-100 text-blue-700',
-    in_progress: 'bg-yellow-100 text-yellow-700',
-    completed: 'bg-green-100 text-green-700',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${colors[status] || 'bg-gray-100 text-gray-600'}`}
-      title={STATUS_TOOLTIPS[status]}>
-      {status.replace('_', ' ')}
-    </span>
-  );
-};
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
+  <span className={`px-2 py-0.5 rounded-full text-xs font-bold capitalize ${STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}
+    title={STATUS_TOOLTIPS[status]}>
+    {status.replace('_', ' ')}
+  </span>
+);
 
 const formatDate = (dateStr?: string) => {
   if (!dateStr) return '';
@@ -1360,6 +1341,16 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
 
   const [completingRouteId, setCompletingRouteId] = useState<string | null>(null);
   const [startingRouteId, setStartingRouteId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [driverProfileId, setDriverProfileId] = useState<string | null>(null);
+  const [biddingRouteId, setBiddingRouteId] = useState<string | null>(null);
+  const [bidAmount, setBidAmount] = useState('');
+  const [bidMessage, setBidMessage] = useState('');
+  const [bidLoading, setBidLoading] = useState(false);
+  const [bidError, setBidError] = useState('');
+  const [myBids, setMyBids] = useState<Map<string, Bid>>(new Map());
+  const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Availability state
   const [availability, setAvailability] = useState<{ days: string[]; start_time: string; end_time: string }>({
@@ -1376,8 +1367,21 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
     const startStr = start.toISOString().split('T')[0];
     const endStr = end.toISOString().split('T')[0];
     try {
-      const res = await fetch(`/api/team/schedule?start=${startStr}&end=${endStr}`, { credentials: 'include' });
-      if (res.ok) { const j = await res.json(); setRoutes(j.data || []); }
+      const [schedRes, routesRes] = await Promise.all([
+        fetch(`/api/team/schedule?start=${startStr}&end=${endStr}`, { credentials: 'include' }),
+        fetch(`/api/team/routes?startDate=${startStr}&endDate=${endStr}`, { credentials: 'include' }),
+      ]);
+      let myRoutes: Route[] = [];
+      let openRoutes: Route[] = [];
+      if (schedRes.ok) { const j = await schedRes.json(); myRoutes = j.data || []; }
+      if (routesRes.ok) {
+        const j = await routesRes.json();
+        openRoutes = (j.data || []).filter((r: Route) => r.status === 'open' || r.status === 'bidding');
+      }
+      const routeMap = new Map<string, Route>();
+      for (const r of myRoutes) routeMap.set(r.id, r);
+      for (const r of openRoutes) { if (!routeMap.has(r.id)) routeMap.set(r.id, r); }
+      setRoutes(Array.from(routeMap.values()));
     } catch {}
     // Fetch weather (non-blocking)
     fetch(`/api/team/weather?from=${startStr}&to=${endStr}`, { credentials: 'include' })
@@ -1472,6 +1476,62 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
     document.getElementById('schedule-availability')?.scrollIntoView({ behavior: 'smooth' });
   }, [availability.days]);
 
+  // Bidding handlers
+  const openBidForm = useCallback(async (routeId: string) => {
+    setBiddingRouteId(routeId);
+    setBidError('');
+    setBidAmount('');
+    setBidMessage('');
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}`, { credentials: 'include' });
+      if (res.ok) {
+        const j = await res.json();
+        const route = j.data;
+        setBidAmount(route.base_pay && route.estimated_hours
+          ? (Number(route.base_pay) * Number(route.estimated_hours)).toFixed(2)
+          : (route.base_pay?.toString() || ''));
+        if (driverProfileId && route.bids?.length) {
+          const existing = route.bids.find((b: Bid) => b.driverId?.toString() === driverProfileId);
+          if (existing) setMyBids(prev => new Map(prev).set(routeId, existing));
+        }
+      }
+    } catch {}
+  }, [driverProfileId]);
+
+  const handleScheduleBid = useCallback(async (routeId: string) => {
+    setBidError('');
+    setBidLoading(true);
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/bid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bid_amount: parseFloat(bidAmount), message: bidMessage || undefined }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Failed to place bid');
+      setBiddingRouteId(null);
+      await fetchSchedule();
+    } catch (err: any) { setBidError(err.message); }
+    setBidLoading(false);
+  }, [bidAmount, bidMessage, fetchSchedule]);
+
+  const handleScheduleWithdrawBid = useCallback(async (routeId: string) => {
+    if (!window.confirm('Withdraw your bid?')) return;
+    setBidLoading(true);
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/bid`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) { const j = await res.json(); throw new Error(j.error); }
+      setMyBids(prev => { const m = new Map(prev); m.delete(routeId); return m; });
+      setBiddingRouteId(null);
+      await fetchSchedule();
+    } catch (err: any) { setBidError(err.message); }
+    setBidLoading(false);
+  }, [fetchSchedule]);
+
+  // Clear selection on filter/view changes
+  useEffect(() => { setSelectedRouteIds(new Set()); }, [statusFilter, viewMode]);
+
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
 
   // Load availability from profile
@@ -1482,6 +1542,7 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
         if (res.ok) {
           const j = await res.json();
           const d = j.data;
+          if (d.id) setDriverProfileId(d.id.toString());
           if (d.availability) {
             const av = typeof d.availability === 'string' ? JSON.parse(d.availability) : d.availability;
             setAvailability({
@@ -1539,30 +1600,32 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
     }
   });
 
-  const getRouteColor = (status: string) => {
-    if (status === 'assigned') return 'bg-teal-100 text-teal-700';
-    if (status === 'in_progress') return 'bg-yellow-100 text-yellow-700';
-    if (status === 'completed') return 'bg-green-100 text-green-700';
-    return 'bg-gray-100 text-gray-600';
-  };
+  const getRouteColor = (status: string) => STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-600';
 
   const todayStr = new Date().toISOString().split('T')[0];
   const selectedDayRoutes = selectedDay ? (routesByDate[selectedDay] || []) : [];
 
-  const allRoutesSorted = [...routes].sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
+  const allRoutesSorted = [...routes]
+    .filter(r => {
+      if (statusFilter === 'all') return true;
+      if (statusFilter === 'available') return r.status === 'open' || r.status === 'bidding';
+      return r.status === statusFilter;
+    })
+    .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
 
   // Blocked day / conflict helpers
   const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const isBlockedDay = (dateStr: string): boolean => {
     if (availability.days.length === 0) return false;
+    if (dateStr < todayStr) return false; // Past dates aren't blocked
     const dow = new Date(dateStr + 'T12:00:00').getDay();
     return !availability.days.includes(DAY_ABBR[dow]);
   };
 
   const getConflictRoutes = (dateStr: string): Route[] => {
     if (!isBlockedDay(dateStr)) return [];
-    return (routesByDate[dateStr] || []).filter(r => r.status === 'assigned');
+    return (routesByDate[dateStr] || []).filter(r => r.status === 'assigned' || r.status === 'in_progress');
   };
 
   const selectedDayConflicts = selectedDay ? getConflictRoutes(selectedDay) : [];
@@ -1570,7 +1633,7 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <p className="text-gray-500">View your upcoming routes and schedule.</p>
+        <p className="text-gray-500">Your routes, available work, and schedule at a glance.</p>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1670,20 +1733,38 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
               })}
             </div>
 
-            {availability.days.length > 0 && (
-              <div className="flex items-center gap-4 mt-3 text-[10px] text-gray-400">
-                <div className="flex items-center gap-1">
-                  <span className="inline-block w-4 h-3 rounded bg-red-50/60" style={{ backgroundImage: 'repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(239,68,68,0.08) 3px, rgba(239,68,68,0.08) 6px)' }} />
-                  <span>Unavailable</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <svg className="w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                  </svg>
-                  <span>Conflict</span>
-                </div>
+            <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] text-gray-400">
+              <div className="flex items-center gap-1">
+                <span className="inline-block w-4 h-3 rounded bg-blue-100" />
+                <span>Available</span>
               </div>
-            )}
+              <div className="flex items-center gap-1">
+                <span className="inline-block w-4 h-3 rounded bg-purple-100" />
+                <span>Assigned</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="inline-block w-4 h-3 rounded bg-orange-100" />
+                <span>In Progress</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="inline-block w-4 h-3 rounded bg-green-100" />
+                <span>Completed</span>
+              </div>
+              {availability.days.length > 0 && (
+                <>
+                  <div className="flex items-center gap-1">
+                    <span className="inline-block w-4 h-3 rounded bg-red-50/60" style={{ backgroundImage: 'repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(239,68,68,0.08) 3px, rgba(239,68,68,0.08) 6px)' }} />
+                    <span>Unavailable</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <svg className="w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                    <span>Conflict</span>
+                  </div>
+                </>
+              )}
+            </div>
           </Card>
 
           {selectedDay && (
@@ -1742,55 +1823,67 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
                   </div>
                 </div>
               )}
-              {selectedDayRoutes.length === 0 ? (
-                <p className="text-sm text-gray-400">No routes scheduled for this day.</p>
-              ) : (
-                <div className="space-y-3">
-                  {selectedDayRoutes.map(route => (
-                    <div key={route.id} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-gray-900 text-sm">{route.title}</span>
-                        <StatusBadge status={route.status} />
+              <RouteTable
+                routes={selectedDayRoutes}
+                columns={{ pay: true, stops: true }}
+                emptyMessage="No routes scheduled for this day."
+                renderActions={(route) => (
+                  <>
+                    {route.status === 'assigned' && (
+                      <>
+                        <button type="button" onClick={() => handleStartRoute(route.id)} disabled={startingRouteId === route.id}
+                          className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors disabled:opacity-50">
+                          {startingRouteId === route.id ? 'Starting...' : 'Start'}
+                        </button>
+                        <button type="button" onClick={() => handleDeclineRoute(route.id)} disabled={decliningRouteId === route.id}
+                          className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50">
+                          {decliningRouteId === route.id ? '...' : 'Decline'}
+                        </button>
+                      </>
+                    )}
+                    {(route.status === 'assigned' || route.status === 'in_progress') && (
+                      <button type="button" onClick={() => handleCompleteRoute(route.id)} disabled={completingRouteId === route.id}
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50">
+                        {completingRouteId === route.id ? 'Completing...' : 'Complete'}
+                      </button>
+                    )}
+                    {(route.status === 'open' || route.status === 'bidding') && biddingRouteId !== route.id && (
+                      <button type="button" onClick={() => openBidForm(route.id)}
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
+                        Bid
+                      </button>
+                    )}
+                  </>
+                )}
+                renderRowExtra={(route) => {
+                  if (biddingRouteId !== route.id) return null;
+                  if (myBids.has(route.id)) {
+                    return (
+                      <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
+                        <p className="text-sm font-bold text-teal-800">You already bid ${Number(myBids.get(route.id)!.bidAmount).toFixed(2)}</p>
+                        <Button variant="secondary" size="sm" onClick={() => handleScheduleWithdrawBid(route.id)} disabled={bidLoading} className="mt-2">
+                          {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
+                        </Button>
                       </div>
-                      <div className="text-xs text-gray-500 space-y-0.5">
-                        {(route.startTime || route.endTime) && <p>Time: {route.startTime}–{route.endTime}</p>}
-                        {route.estimatedStops != null && <p>Estimated stops: {route.estimatedStops}</p>}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        {route.status === 'assigned' && (
-                          <>
-                            <Button
-                              size="sm"
-                              onClick={() => handleStartRoute(route.id)}
-                              disabled={startingRouteId === route.id}
-                              className="bg-teal-600 hover:bg-teal-700"
-                            >
-                              {startingRouteId === route.id ? 'Starting...' : 'Start Route'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => handleDeclineRoute(route.id)}
-                              disabled={decliningRouteId === route.id}
-                              className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
-                            >
-                              {decliningRouteId === route.id ? 'Declining...' : 'Decline'}
-                            </Button>
-                          </>
-                        )}
-                        {(route.status === 'assigned' || route.status === 'in_progress') && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleCompleteRoute(route.id)}
-                            disabled={completingRouteId === route.id}
-                          >
-                            {completingRouteId === route.id ? 'Completing...' : 'Mark Complete'}
-                          </Button>
-                        )}
+                    );
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {bidError && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded px-3 py-2">{bidError}</div>}
+                      <div className="flex gap-2 items-end">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                          <input type="number" title="Bid amount" step="0.01" min="0.01" value={bidAmount} onChange={e => setBidAmount(e.target.value)} className="w-full pl-7 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                        </div>
+                        <Button size="sm" onClick={() => handleScheduleBid(route.id)} disabled={bidLoading || !bidAmount || parseFloat(bidAmount) <= 0} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                          {bidLoading ? '...' : 'Submit'}
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setBiddingRouteId(null)}>Cancel</Button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }}
+              />
             </Card>
           )}
 
@@ -1839,58 +1932,132 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
         </>
       ) : (
         <Card className="p-6">
-          {allRoutesSorted.length === 0 ? (
-            <div className="text-center py-8">
-              <CalendarDaysIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">No scheduled routes.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {allRoutesSorted.map(route => (
-                <div key={route.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg gap-3">
-                  <div className="min-w-0">
-                    <p className="font-bold text-gray-900 text-sm">{route.title}</p>
-                    <p className="text-xs text-gray-500">
-                      {formatDate(route.scheduledDate)} · {route.startTime}–{route.endTime}
-                      {route.estimatedStops != null && <> · {route.estimatedStops} stops</>}
-                    </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'available', label: 'Available' },
+              { key: 'assigned', label: 'Assigned' },
+              { key: 'in_progress', label: 'In Progress' },
+              { key: 'completed', label: 'Completed' },
+            ].map(chip => (
+              <button key={chip.key} type="button" onClick={() => setStatusFilter(chip.key)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${statusFilter === chip.key ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {chip.label}
+                <span className="ml-1 opacity-70">
+                  ({chip.key === 'all' ? routes.length
+                    : chip.key === 'available' ? routes.filter(r => r.status === 'open' || r.status === 'bidding').length
+                    : routes.filter(r => r.status === chip.key).length})
+                </span>
+              </button>
+            ))}
+          </div>
+          <RouteTable
+            routes={allRoutesSorted}
+            columns={{ pay: true, stops: true }}
+            selectable
+            selectedIds={selectedRouteIds}
+            onSelectionChange={setSelectedRouteIds}
+            emptyMessage="No routes match this filter."
+            emptyIcon={<CalendarDaysIcon className="w-12 h-12 text-gray-300 mx-auto" />}
+            renderActions={(route) => (
+              <>
+                {route.status === 'assigned' && (
+                  <>
+                    <button type="button" onClick={() => handleStartRoute(route.id)} disabled={startingRouteId === route.id}
+                      className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors disabled:opacity-50">
+                      {startingRouteId === route.id ? 'Starting...' : 'Start'}
+                    </button>
+                    <button type="button" onClick={() => handleDeclineRoute(route.id)} disabled={decliningRouteId === route.id}
+                      className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50">
+                      {decliningRouteId === route.id ? '...' : 'Decline'}
+                    </button>
+                  </>
+                )}
+                {(route.status === 'assigned' || route.status === 'in_progress') && (
+                  <button type="button" onClick={() => handleCompleteRoute(route.id)} disabled={completingRouteId === route.id}
+                    className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50">
+                    {completingRouteId === route.id ? 'Completing...' : 'Complete'}
+                  </button>
+                )}
+                {(route.status === 'open' || route.status === 'bidding') && biddingRouteId !== route.id && (
+                  <button type="button" onClick={() => openBidForm(route.id)}
+                    className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
+                    Bid
+                  </button>
+                )}
+              </>
+            )}
+            renderRowExtra={(route) => {
+              if (biddingRouteId !== route.id) return null;
+              if (myBids.has(route.id)) {
+                return (
+                  <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
+                    <p className="text-sm font-bold text-teal-800">You already bid ${Number(myBids.get(route.id)!.bidAmount).toFixed(2)}</p>
+                    <Button variant="secondary" size="sm" onClick={() => handleScheduleWithdrawBid(route.id)} disabled={bidLoading} className="mt-2">
+                      {bidLoading ? 'Withdrawing...' : 'Withdraw Bid'}
+                    </Button>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {isBlockedDay(route.scheduledDate || '') && route.status === 'assigned' && (
-                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">Conflict</span>
-                    )}
-                    <StatusBadge status={route.status} />
-                    {route.status === 'assigned' && (
-                      <>
-                        <Button
-                          size="sm"
-                          onClick={() => handleStartRoute(route.id)}
-                          disabled={startingRouteId === route.id}
-                        >
-                          {startingRouteId === route.id ? 'Starting...' : 'Start'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleDeclineRoute(route.id)}
-                          disabled={decliningRouteId === route.id}
-                          className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
-                        >
-                          {decliningRouteId === route.id ? '...' : 'Decline'}
-                        </Button>
-                      </>
-                    )}
-                    {(route.status === 'assigned' || route.status === 'in_progress') && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleCompleteRoute(route.id)}
-                        disabled={completingRouteId === route.id}
-                      >
-                        {completingRouteId === route.id ? 'Completing...' : 'Complete'}
-                      </Button>
-                    )}
+                );
+              }
+              return (
+                <div className="space-y-2">
+                  {bidError && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded px-3 py-2">{bidError}</div>}
+                  <div className="flex gap-2 items-end">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <input type="number" title="Bid amount" step="0.01" min="0.01" value={bidAmount} onChange={e => setBidAmount(e.target.value)} className="w-full pl-7 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                    </div>
+                    <Button size="sm" onClick={() => handleScheduleBid(route.id)} disabled={bidLoading || !bidAmount || parseFloat(bidAmount) <= 0} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                      {bidLoading ? '...' : 'Submit'}
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setBiddingRouteId(null)}>Cancel</Button>
                   </div>
                 </div>
-              ))}
+              );
+            }}
+          />
+          {selectedRouteIds.size > 0 && (
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 mt-4 flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-700">{selectedRouteIds.size} selected</span>
+              <div className="flex gap-2">
+                {(() => {
+                  const selected = allRoutesSorted.filter(r => selectedRouteIds.has(r.id));
+                  const assignedCount = selected.filter(r => r.status === 'assigned').length;
+                  const inProgressCount = selected.filter(r => r.status === 'in_progress').length;
+                  return (
+                    <>
+                      {assignedCount > 0 && (
+                        <Button size="sm" disabled={bulkActionLoading} onClick={async () => {
+                          const applicable = allRoutesSorted.filter(r => selectedRouteIds.has(r.id) && r.status === 'assigned');
+                          if (!window.confirm(`Start ${applicable.length} route(s)?`)) return;
+                          setBulkActionLoading(true);
+                          await Promise.allSettled(applicable.map(r => fetch(`/api/team/routes/${r.id}/start`, { method: 'POST', credentials: 'include' })));
+                          setSelectedRouteIds(new Set()); setBulkActionLoading(false); await fetchSchedule();
+                        }} className="bg-teal-600 hover:bg-teal-700">Start ({assignedCount})</Button>
+                      )}
+                      {inProgressCount > 0 && (
+                        <Button size="sm" disabled={bulkActionLoading} onClick={async () => {
+                          const applicable = allRoutesSorted.filter(r => selectedRouteIds.has(r.id) && r.status === 'in_progress');
+                          if (!window.confirm(`Complete ${applicable.length} route(s)?`)) return;
+                          setBulkActionLoading(true);
+                          await Promise.allSettled(applicable.map(r => fetch(`/api/team/routes/${r.id}/complete`, { method: 'POST', credentials: 'include' })));
+                          setSelectedRouteIds(new Set()); setBulkActionLoading(false); await fetchSchedule();
+                        }}>Complete ({inProgressCount})</Button>
+                      )}
+                      {assignedCount > 0 && (
+                        <Button size="sm" disabled={bulkActionLoading} onClick={async () => {
+                          const applicable = allRoutesSorted.filter(r => selectedRouteIds.has(r.id) && r.status === 'assigned');
+                          if (!window.confirm(`Decline ${applicable.length} route(s)?`)) return;
+                          setBulkActionLoading(true);
+                          await Promise.allSettled(applicable.map(r => fetch(`/api/team/routes/${r.id}/decline`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ reason: 'Bulk decline' }) })));
+                          setSelectedRouteIds(new Set()); setBulkActionLoading(false); await fetchSchedule();
+                        }} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200">Decline ({assignedCount})</Button>
+                      )}
+                    </>
+                  );
+                })()}
+                <Button size="sm" variant="secondary" onClick={() => setSelectedRouteIds(new Set())}>Clear</Button>
+              </div>
             </div>
           )}
         </Card>

@@ -22,9 +22,9 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   const [form, setForm] = useState({
     title: route.title,
     scheduledDate: route.scheduledDate?.split('T')[0] ?? '',
-    start_time: route.start_time ?? '',
-    end_time: route.end_time ?? '',
-    estimated_hours: route.estimated_hours != null ? String(route.estimated_hours) : '',
+    start_time: route.startTime ?? '',
+    end_time: route.endTime ?? '',
+    estimated_hours: route.estimatedHours != null ? String(route.estimatedHours) : '',
     basePay: route.basePay != null ? String(route.basePay) : '',
     notes: route.notes ?? '',
     assignedDriverId: route.assignedDriverId ?? '',

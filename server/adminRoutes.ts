@@ -18,6 +18,7 @@ import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
 import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
+import { formatRouteForClient } from './formatRoute';
 
 declare module 'express-session' {
   interface SessionData {
@@ -777,7 +778,7 @@ export function registerAdminRoutes(app: Express) {
         date_from: date_from as string | undefined,
         date_to: date_to as string | undefined,
       });
-      res.json({ routes });
+      res.json({ routes: routes.map(formatRouteForClient) });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch routes' });
     }
@@ -1786,7 +1787,7 @@ export function registerAdminRoutes(app: Express) {
         missingByDay[dateStr] = await storage.getMissingClientsForDate(dateStr);
       }
 
-      res.json({ routes, cancelled, missingByDay });
+      res.json({ routes: routes.map(formatRouteForClient), cancelled, missingByDay });
     } catch (error) {
       console.error('Failed to fetch week planning data:', error);
       res.status(500).json({ error: 'Failed to fetch week planning data' });
@@ -1821,7 +1822,7 @@ export function registerAdminRoutes(app: Express) {
 
       const created = await storage.copyWeekRoutes(sourceMondayDate, saturday);
       await audit(req, 'copy_week_routes', 'route', undefined, { sourceMondayDate, routesCopied: created.length });
-      res.json({ routes: created });
+      res.json({ routes: created.map(formatRouteForClient) });
     } catch (error) {
       console.error('Failed to copy week:', error);
       res.status(500).json({ error: 'Failed to copy week' });
