@@ -3,6 +3,7 @@ import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import type { Route, RouteStop } from '../../../shared/types/index.ts';
 import { getWeatherIcon, CalendarDaysIcon } from '../../../components/Icons.tsx';
 import { Card } from '../../../components/Card.tsx';
+import { STATUS_COLORS } from '../../../shared/components/RouteTable.tsx';
 import EditRouteModal from './EditRouteModal.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import OptimoStatusBanner from './OptimoStatusBanner.tsx';
@@ -88,16 +89,6 @@ const ROUTE_TYPE_COLORS: Record<string, string> = {
   daily_route: 'bg-teal-100 text-teal-700',
   bulk_collection: 'bg-orange-100 text-orange-700',
   on_demand: 'bg-purple-100 text-purple-700',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  open: 'bg-blue-100 text-blue-700',
-  bidding: 'bg-yellow-100 text-yellow-700',
-  assigned: 'bg-purple-100 text-purple-700',
-  in_progress: 'bg-orange-100 text-orange-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
 };
 
 const STATUS_TOOLTIPS: Record<string, string> = {

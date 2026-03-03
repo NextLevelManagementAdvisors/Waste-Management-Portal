@@ -1,15 +1,6 @@
 import React, { useState } from 'react';
 import type { Route, MissingLocation } from '../../../shared/types/index.ts';
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  open: 'bg-blue-100 text-blue-700',
-  bidding: 'bg-yellow-100 text-yellow-700',
-  assigned: 'bg-purple-100 text-purple-700',
-  in_progress: 'bg-orange-100 text-orange-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
-};
+import { STATUS_COLORS } from '../../../shared/components/RouteTable.tsx';
 
 const FREQ_LABELS: Record<string, string> = {
   weekly: 'W',

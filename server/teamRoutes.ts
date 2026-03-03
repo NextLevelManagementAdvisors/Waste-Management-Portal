@@ -1054,7 +1054,7 @@ export function registerTeamRoutes(app: Express) {
   app.get('/api/team/my-routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const myRoutes = await storage.getDriverRoutes(res.locals.driverProfile.id);
-      res.json({ data: myRoutes });
+      res.json({ data: myRoutes.map(formatRouteForClient) });
     } catch (error: any) {
       console.error('Get my routes error:', error);
       res.status(500).json({ error: 'Failed to get routes' });
@@ -1423,6 +1423,74 @@ export function registerTeamRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to mark on-demand pickup as completed' });
     }
   });
+
+  // ============================================================
+  // Driver Qualifications (team self-view)
+  // ============================================================
+
+  app.get('/api/team/my-qualifications', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment
+         FROM driver_profiles WHERE id = $1`,
+        [driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
+      const d = rows[0];
+      res.json({
+        qualifications: {
+          equipmentTypes: d.equipment_types || [],
+          certifications: d.certifications || [],
+          maxStopsPerDay: d.max_stops_per_day,
+          minRatingForAssignment: Number(d.min_rating_for_assignment),
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching qualifications:', err);
+      res.status(500).json({ error: 'Failed to fetch qualifications' });
+    }
+  });
+
+  // ============================================================
+  // Driver Contracts (team view — read-only)
+  // ============================================================
+
+  app.get('/api/team/my-contracts', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT rc.*,
+                sz.name AS zone_name,
+                (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
+                (SELECT COALESCE(SUM(r.computed_value), 0) FROM routes r WHERE r.contract_id = rc.id AND r.status = 'completed') AS total_earned
+         FROM route_contracts rc
+         JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.driver_id = $1
+         ORDER BY rc.status ASC, rc.end_date ASC`,
+        [driverId]
+      );
+      res.json({
+        contracts: rows.map((c: any) => ({
+          id: c.id,
+          zoneId: c.zone_id,
+          zoneName: c.zone_name,
+          dayOfWeek: c.day_of_week,
+          startDate: c.start_date,
+          endDate: c.end_date,
+          status: c.status,
+          perStopRate: c.per_stop_rate != null ? Number(c.per_stop_rate) : null,
+          termsNotes: c.terms_notes,
+          createdAt: c.created_at,
+          routeCount: parseInt(c.route_count),
+          totalEarned: Number(c.total_earned),
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching driver contracts:', err);
+      res.status(500).json({ error: 'Failed to fetch contracts' });
+    }
+  });
 }
 
 function formatDriverForClient(driverProfile: any, user?: any) {
@@ -1440,6 +1508,9 @@ function formatDriverForClient(driverProfile: any, user?: any) {
     direct_deposit_completed: driverProfile.direct_deposit_completed || false,
     stripe_connect_onboarded: driverProfile.stripe_connect_onboarded || false,
     availability: driverProfile.availability,
+    equipment_types: driverProfile.equipment_types || [],
+    certifications: driverProfile.certifications || [],
+    max_stops_per_day: driverProfile.max_stops_per_day || 50,
     created_at: driverProfile.created_at,
   };
 }

@@ -19,6 +19,7 @@ import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
 import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
+import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation } from './compensationEngine';
 
 declare module 'express-session' {
   interface SessionData {
@@ -813,7 +814,7 @@ export function registerAdminRoutes(app: Express) {
       }
       const route = await storage.createRoute({ title, scheduled_date, ...rest });
       await audit(req, 'create_route', 'route', route.id, { title, scheduled_date });
-      res.status(201).json({ route });
+      res.status(201).json({ route: formatRouteForClient(route) });
     } catch (error) {
       res.status(500).json({ error: 'Failed to create route' });
     }
@@ -908,7 +909,7 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json({ route: updated });
+      res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       console.error('Failed to update route:', error);
       res.status(500).json({ error: 'Failed to update route' });
@@ -978,7 +979,7 @@ export function registerAdminRoutes(app: Express) {
       if (route.status !== 'draft') return res.status(400).json({ error: 'Only draft routes can be published' });
       const updated = await storage.updateRoute(routeId, { status: 'open' });
       await audit(req, 'publish_route', 'route', routeId, {});
-      res.json({ route: updated });
+      res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       res.status(500).json({ error: 'Failed to publish route' });
     }
@@ -1025,7 +1026,7 @@ export function registerAdminRoutes(app: Express) {
         }
       }).catch(() => {});
 
-      res.json({ route: updated });
+      res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       console.error('Failed to assign route:', error);
       res.status(500).json({ error: 'Failed to assign route' });
@@ -1172,7 +1173,7 @@ export function registerAdminRoutes(app: Express) {
         storage.getOnDemandRequestsForDate(date),
         storage.getAllRoutes({ date_from: date, date_to: date }),
       ]);
-      res.json({ locations, onDemandRequests, existingRoutes });
+      res.json({ locations, onDemandRequests, existingRoutes: existingRoutes.map(formatRouteForClient) });
     } catch (error) {
       console.error('Failed to fetch planning date:', error);
       res.status(500).json({ error: 'Failed to fetch planning data for date' });
@@ -1267,7 +1268,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       await audit(req, 'auto_group_routes', 'route', null as any, { date, routeCount: created.length });
-      res.json({ routes: created });
+      res.json({ routes: created.map(formatRouteForClient) });
     } catch (error) {
       console.error('Failed to auto-group routes:', error);
       res.status(500).json({ error: 'Failed to auto-group routes' });
@@ -2002,7 +2003,7 @@ export function registerAdminRoutes(app: Express) {
         ...(actual_pay !== undefined ? { actual_pay: parseFloat(actual_pay) } : {}),
       });
       await audit(req, 'update_payment_status', 'route', req.params.id as string, { payment_status, actual_pay });
-      res.json({ route: updated });
+      res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       console.error('Update payment status error:', error);
       res.status(500).json({ error: 'Failed to update payment status' });
@@ -3166,6 +3167,411 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Gmail callback error:', error);
       res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=error');
+    }
+  });
+
+  // ============================================================
+  // Compensation Rules CRUD
+  // ============================================================
+
+  app.get('/api/admin/compensation-rules', requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM compensation_rules ORDER BY rule_type, priority DESC, created_at DESC`
+      );
+      res.json({
+        rules: rows.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          ruleType: r.rule_type,
+          conditions: r.conditions,
+          rateAmount: r.rate_amount != null ? Number(r.rate_amount) : null,
+          rateMultiplier: Number(r.rate_multiplier),
+          priority: r.priority,
+          active: r.active,
+          effectiveFrom: r.effective_from,
+          effectiveTo: r.effective_to,
+          createdBy: r.created_by,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching compensation rules:', err);
+      res.status(500).json({ error: 'Failed to fetch compensation rules' });
+    }
+  });
+
+  app.post('/api/admin/compensation-rules', requireAdmin, async (req, res) => {
+    try {
+      const { name, ruleType, conditions, rateAmount, rateMultiplier, priority, active, effectiveFrom, effectiveTo } = req.body;
+      if (!name || !ruleType) {
+        return res.status(400).json({ error: 'name and ruleType are required' });
+      }
+      const validTypes = ['base_rate', 'service_type_modifier', 'difficulty_modifier', 'zone_modifier'];
+      if (!validTypes.includes(ruleType)) {
+        return res.status(400).json({ error: `ruleType must be one of: ${validTypes.join(', ')}` });
+      }
+      const { rows } = await pool.query(
+        `INSERT INTO compensation_rules (name, rule_type, conditions, rate_amount, rate_multiplier, priority, active, effective_from, effective_to, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [name, ruleType, JSON.stringify(conditions || {}), rateAmount ?? null, rateMultiplier ?? 1.0, priority ?? 0, active !== false, effectiveFrom ?? null, effectiveTo ?? null, req.session.userId]
+      );
+      const r = rows[0];
+      res.status(201).json({
+        rule: {
+          id: r.id, name: r.name, ruleType: r.rule_type, conditions: r.conditions,
+          rateAmount: r.rate_amount != null ? Number(r.rate_amount) : null,
+          rateMultiplier: Number(r.rate_multiplier), priority: r.priority, active: r.active,
+          effectiveFrom: r.effective_from, effectiveTo: r.effective_to,
+          createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error creating compensation rule:', err);
+      res.status(500).json({ error: 'Failed to create compensation rule' });
+    }
+  });
+
+  app.put('/api/admin/compensation-rules/:id', requireAdmin, async (req, res) => {
+    try {
+      const { name, ruleType, conditions, rateAmount, rateMultiplier, priority, active, effectiveFrom, effectiveTo } = req.body;
+      const { rows } = await pool.query(
+        `UPDATE compensation_rules SET
+           name = COALESCE($1, name),
+           rule_type = COALESCE($2, rule_type),
+           conditions = COALESCE($3, conditions),
+           rate_amount = $4,
+           rate_multiplier = COALESCE($5, rate_multiplier),
+           priority = COALESCE($6, priority),
+           active = COALESCE($7, active),
+           effective_from = $8,
+           effective_to = $9,
+           updated_at = NOW()
+         WHERE id = $10 RETURNING *`,
+        [name, ruleType, conditions ? JSON.stringify(conditions) : null, rateAmount ?? null, rateMultiplier, priority, active, effectiveFrom ?? null, effectiveTo ?? null, req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Rule not found' });
+      const r = rows[0];
+      res.json({
+        rule: {
+          id: r.id, name: r.name, ruleType: r.rule_type, conditions: r.conditions,
+          rateAmount: r.rate_amount != null ? Number(r.rate_amount) : null,
+          rateMultiplier: Number(r.rate_multiplier), priority: r.priority, active: r.active,
+          effectiveFrom: r.effective_from, effectiveTo: r.effective_to,
+          createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error updating compensation rule:', err);
+      res.status(500).json({ error: 'Failed to update compensation rule' });
+    }
+  });
+
+  app.delete('/api/admin/compensation-rules/:id', requireAdmin, async (req, res) => {
+    try {
+      const { rowCount } = await pool.query(`DELETE FROM compensation_rules WHERE id = $1`, [req.params.id]);
+      if (rowCount === 0) return res.status(404).json({ error: 'Rule not found' });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting compensation rule:', err);
+      res.status(500).json({ error: 'Failed to delete compensation rule' });
+    }
+  });
+
+  // ============================================================
+  // Route Valuation Endpoints
+  // ============================================================
+
+  app.get('/api/admin/routes/:id/valuation', requireAdmin, async (req, res) => {
+    try {
+      const valuation = await calculateRouteValuation(req.params.id as string);
+      res.json({ valuation });
+    } catch (err: any) {
+      console.error('Error calculating route valuation:', err);
+      res.status(500).json({ error: 'Failed to calculate route valuation' });
+    }
+  });
+
+  app.post('/api/admin/routes/:id/recalculate', requireAdmin, async (req, res) => {
+    try {
+      const valuation = await recalculateRouteValue(req.params.id as string);
+      res.json({ valuation });
+    } catch (err: any) {
+      console.error('Error recalculating route value:', err);
+      res.status(500).json({ error: 'Failed to recalculate route value' });
+    }
+  });
+
+  app.get('/api/admin/locations/:id/compensation-preview', requireAdmin, async (req, res) => {
+    try {
+      const contractId = req.query.contractId as string | undefined;
+      const breakdown = await previewLocationCompensation(req.params.id as string, contractId);
+      res.json({ breakdown });
+    } catch (err: any) {
+      console.error('Error previewing location compensation:', err);
+      res.status(500).json({ error: 'Failed to preview compensation' });
+    }
+  });
+
+  // ============================================================
+  // Route Contracts CRUD
+  // ============================================================
+
+  app.get('/api/admin/contracts', requireAdmin, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const zoneId = req.query.zoneId as string | undefined;
+      const driverId = req.query.driverId as string | undefined;
+
+      let where = 'WHERE 1=1';
+      const params: any[] = [];
+      if (status) { params.push(status); where += ` AND rc.status = $${params.length}`; }
+      if (zoneId) { params.push(zoneId); where += ` AND rc.zone_id = $${params.length}`; }
+      if (driverId) { params.push(driverId); where += ` AND rc.driver_id = $${params.length}`; }
+
+      const { rows } = await pool.query(
+        `SELECT rc.*,
+                dp.name AS driver_name,
+                sz.name AS zone_name,
+                (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
+                (SELECT COUNT(*) FROM route_stops rs JOIN routes r ON rs.route_id = r.id WHERE r.contract_id = rc.id) AS stop_count
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON rc.driver_id = dp.id
+         JOIN service_zones sz ON rc.zone_id = sz.id
+         ${where}
+         ORDER BY rc.status ASC, rc.end_date ASC`,
+        params
+      );
+
+      res.json({
+        contracts: rows.map((c: any) => ({
+          id: c.id,
+          driverId: c.driver_id,
+          driverName: c.driver_name,
+          zoneId: c.zone_id,
+          zoneName: c.zone_name,
+          dayOfWeek: c.day_of_week,
+          startDate: c.start_date,
+          endDate: c.end_date,
+          status: c.status,
+          perStopRate: c.per_stop_rate != null ? Number(c.per_stop_rate) : null,
+          termsNotes: c.terms_notes,
+          awardedBy: c.awarded_by,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+          routeCount: parseInt(c.route_count),
+          stopCount: parseInt(c.stop_count),
+        })),
+      });
+    } catch (err: any) {
+      console.error('Error fetching contracts:', err);
+      res.status(500).json({ error: 'Failed to fetch contracts' });
+    }
+  });
+
+  app.post('/api/admin/contracts', requireAdmin, async (req, res) => {
+    try {
+      const { driverId, zoneId, dayOfWeek, startDate, endDate, perStopRate, termsNotes, status } = req.body;
+      if (!driverId || !zoneId || !dayOfWeek || !startDate || !endDate) {
+        return res.status(400).json({ error: 'driverId, zoneId, dayOfWeek, startDate, and endDate are required' });
+      }
+      const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      if (!validDays.includes(dayOfWeek.toLowerCase())) {
+        return res.status(400).json({ error: `dayOfWeek must be one of: ${validDays.join(', ')}` });
+      }
+
+      // Check for existing active contract on same zone+day
+      const existing = await pool.query(
+        `SELECT id FROM route_contracts WHERE zone_id = $1 AND day_of_week = $2 AND status = 'active'`,
+        [zoneId, dayOfWeek.toLowerCase()]
+      );
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'An active contract already exists for this zone and day', existingContractId: existing.rows[0].id });
+      }
+
+      const { rows } = await pool.query(
+        `INSERT INTO route_contracts (driver_id, zone_id, day_of_week, start_date, end_date, per_stop_rate, terms_notes, status, awarded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [driverId, zoneId, dayOfWeek.toLowerCase(), startDate, endDate, perStopRate ?? null, termsNotes ?? null, status || 'active', req.session.userId]
+      );
+      const c = rows[0];
+      res.status(201).json({
+        contract: {
+          id: c.id, driverId: c.driver_id, zoneId: c.zone_id, dayOfWeek: c.day_of_week,
+          startDate: c.start_date, endDate: c.end_date, status: c.status,
+          perStopRate: c.per_stop_rate != null ? Number(c.per_stop_rate) : null,
+          termsNotes: c.terms_notes, awardedBy: c.awarded_by,
+          createdAt: c.created_at, updatedAt: c.updated_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error creating contract:', err);
+      res.status(500).json({ error: 'Failed to create contract' });
+    }
+  });
+
+  app.put('/api/admin/contracts/:id', requireAdmin, async (req, res) => {
+    try {
+      const { endDate, perStopRate, termsNotes, status } = req.body;
+      const { rows } = await pool.query(
+        `UPDATE route_contracts SET
+           end_date = COALESCE($1, end_date),
+           per_stop_rate = $2,
+           terms_notes = COALESCE($3, terms_notes),
+           status = COALESCE($4, status),
+           updated_at = NOW()
+         WHERE id = $5 RETURNING *`,
+        [endDate, perStopRate ?? null, termsNotes, status, req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const c = rows[0];
+      res.json({
+        contract: {
+          id: c.id, driverId: c.driver_id, zoneId: c.zone_id, dayOfWeek: c.day_of_week,
+          startDate: c.start_date, endDate: c.end_date, status: c.status,
+          perStopRate: c.per_stop_rate != null ? Number(c.per_stop_rate) : null,
+          termsNotes: c.terms_notes, awardedBy: c.awarded_by,
+          createdAt: c.created_at, updatedAt: c.updated_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error updating contract:', err);
+      res.status(500).json({ error: 'Failed to update contract' });
+    }
+  });
+
+  app.delete('/api/admin/contracts/:id', requireAdmin, async (req, res) => {
+    try {
+      // Soft terminate — don't hard delete, set status to 'terminated'
+      const { rows } = await pool.query(
+        `UPDATE route_contracts SET status = 'terminated', updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      res.json({ success: true, contract: { id: rows[0].id, status: rows[0].status } });
+    } catch (err: any) {
+      console.error('Error terminating contract:', err);
+      res.status(500).json({ error: 'Failed to terminate contract' });
+    }
+  });
+
+  // ============================================================
+  // Driver Qualification Management (admin side)
+  // ============================================================
+
+  app.put('/api/admin/drivers/:id/qualifications', requireAdmin, async (req, res) => {
+    try {
+      const { equipmentTypes, certifications, maxStopsPerDay, minRatingForAssignment } = req.body;
+      const { rows } = await pool.query(
+        `UPDATE driver_profiles SET
+           equipment_types = COALESCE($1, equipment_types),
+           certifications = COALESCE($2, certifications),
+           max_stops_per_day = COALESCE($3, max_stops_per_day),
+           min_rating_for_assignment = COALESCE($4, min_rating_for_assignment),
+           updated_at = NOW()
+         WHERE id = $5 RETURNING id, equipment_types, certifications, max_stops_per_day, min_rating_for_assignment`,
+        [equipmentTypes ?? null, certifications ?? null, maxStopsPerDay ?? null, minRatingForAssignment ?? null, req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
+      const d = rows[0];
+      res.json({
+        qualifications: {
+          equipmentTypes: d.equipment_types || [],
+          certifications: d.certifications || [],
+          maxStopsPerDay: d.max_stops_per_day,
+          minRatingForAssignment: Number(d.min_rating_for_assignment),
+        },
+      });
+    } catch (err: any) {
+      console.error('Error updating driver qualifications:', err);
+      res.status(500).json({ error: 'Failed to update driver qualifications' });
+    }
+  });
+
+  app.get('/api/admin/drivers/:id/qualifications', requireAdmin, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment
+         FROM driver_profiles WHERE id = $1`,
+        [req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
+      const d = rows[0];
+      res.json({
+        qualifications: {
+          equipmentTypes: d.equipment_types || [],
+          certifications: d.certifications || [],
+          maxStopsPerDay: d.max_stops_per_day,
+          minRatingForAssignment: Number(d.min_rating_for_assignment),
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching driver qualifications:', err);
+      res.status(500).json({ error: 'Failed to fetch driver qualifications' });
+    }
+  });
+
+  // ============================================================
+  // Location Requirements Management
+  // ============================================================
+
+  app.put('/api/admin/locations/:id/requirements', requireAdmin, async (req, res) => {
+    try {
+      const { difficultyScore, customRate, requiredEquipment, requiredCertifications, minDriverRating, dayChangePreference } = req.body;
+      const { rows } = await pool.query(
+        `UPDATE locations SET
+           difficulty_score = COALESCE($1, difficulty_score),
+           custom_rate = $2,
+           required_equipment = COALESCE($3, required_equipment),
+           required_certifications = COALESCE($4, required_certifications),
+           min_driver_rating = COALESCE($5, min_driver_rating),
+           day_change_preference = COALESCE($6, day_change_preference),
+           updated_at = NOW()
+         WHERE id = $7
+         RETURNING id, difficulty_score, custom_rate, required_equipment, required_certifications, min_driver_rating, day_change_preference`,
+        [difficultyScore ?? null, customRate ?? null, requiredEquipment ?? null, requiredCertifications ?? null, minDriverRating ?? null, dayChangePreference ?? null, req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+      const l = rows[0];
+      res.json({
+        requirements: {
+          difficultyScore: Number(l.difficulty_score),
+          customRate: l.custom_rate != null ? Number(l.custom_rate) : null,
+          requiredEquipment: l.required_equipment || [],
+          requiredCertifications: l.required_certifications || [],
+          minDriverRating: Number(l.min_driver_rating),
+          dayChangePreference: l.day_change_preference,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error updating location requirements:', err);
+      res.status(500).json({ error: 'Failed to update location requirements' });
+    }
+  });
+
+  app.get('/api/admin/locations/:id/requirements', requireAdmin, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT difficulty_score, custom_rate, required_equipment, required_certifications, min_driver_rating, day_change_preference
+         FROM locations WHERE id = $1`,
+        [req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+      const l = rows[0];
+      res.json({
+        requirements: {
+          difficultyScore: Number(l.difficulty_score || 1.0),
+          customRate: l.custom_rate != null ? Number(l.custom_rate) : null,
+          requiredEquipment: l.required_equipment || [],
+          requiredCertifications: l.required_certifications || [],
+          minDriverRating: Number(l.min_driver_rating || 0),
+          dayChangePreference: l.day_change_preference || 'flexible',
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching location requirements:', err);
+      res.status(500).json({ error: 'Failed to fetch location requirements' });
     }
   });
 }
