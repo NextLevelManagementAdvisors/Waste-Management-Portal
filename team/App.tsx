@@ -1347,7 +1347,7 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
   );
 };
 
-const Schedule: React.FC = () => {
+const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1367,6 +1367,7 @@ const Schedule: React.FC = () => {
   });
   const [avSaveLoading, setAvSaveLoading] = useState(false);
   const [avSaveMsg, setAvSaveMsg] = useState('');
+  const [contactingAdmin, setContactingAdmin] = useState(false);
 
   const fetchSchedule = useCallback(async () => {
     setLoading(true);
@@ -1428,6 +1429,48 @@ const Schedule: React.FC = () => {
     } catch {}
     setDecliningRouteId(null);
   }, [fetchSchedule]);
+
+  const handleContactAdmin = useCallback(async (dateStr: string, routeTitle: string) => {
+    setContactingAdmin(true);
+    try {
+      const dayLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      await fetch('/api/team/conversations/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          subject: `Schedule Conflict: ${routeTitle} on ${dayLabel}`,
+          body: `I have a scheduling conflict — "${routeTitle}" is assigned on ${dayLabel}, which is outside my availability. Can we work out an alternative?`,
+        }),
+      });
+      if (onNavigate) onNavigate('messages');
+    } catch {}
+    setContactingAdmin(false);
+  }, [onNavigate]);
+
+  const handleDeclineConflict = useCallback(async (routeId: string, routeTitle: string, dateStr: string) => {
+    const dayLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    setDecliningRouteId(routeId);
+    try {
+      const res = await fetch(`/api/team/routes/${routeId}/decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ reason: `Schedule conflict: ${dayLabel} is outside my availability` }),
+      });
+      if (res.ok) await fetchSchedule();
+    } catch {}
+    setDecliningRouteId(null);
+  }, [fetchSchedule]);
+
+  const handleAddDayToAvailability = useCallback((dateStr: string) => {
+    const dow = new Date(dateStr + 'T12:00:00').getDay();
+    const dayAbbr = DAY_ABBR[dow];
+    if (!availability.days.includes(dayAbbr)) {
+      setAvailability(prev => ({ ...prev, days: [...prev.days, dayAbbr] }));
+    }
+    document.getElementById('schedule-availability')?.scrollIntoView({ behavior: 'smooth' });
+  }, [availability.days]);
 
   useEffect(() => { fetchSchedule(); }, [fetchSchedule]);
 
@@ -1508,49 +1551,24 @@ const Schedule: React.FC = () => {
 
   const allRoutesSorted = [...routes].sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
 
+  // Blocked day / conflict helpers
+  const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const isBlockedDay = (dateStr: string): boolean => {
+    if (availability.days.length === 0) return false;
+    const dow = new Date(dateStr + 'T12:00:00').getDay();
+    return !availability.days.includes(DAY_ABBR[dow]);
+  };
+
+  const getConflictRoutes = (dateStr: string): Route[] => {
+    if (!isBlockedDay(dateStr)) return [];
+    return (routesByDate[dateStr] || []).filter(r => r.status === 'assigned');
+  };
+
+  const selectedDayConflicts = selectedDay ? getConflictRoutes(selectedDay) : [];
+
   return (
     <div>
-      <Card className="p-6 mb-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Availability</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">Available Days</label>
-            <div className="flex flex-wrap gap-2">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                <button
-                  type="button"
-                  key={day}
-                  onClick={() => toggleDay(day)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
-                    availability.days.includes(day)
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}
-                >
-                  {day}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Preferred Start Time</label>
-              <input type="time" title="Preferred start time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Preferred End Time</label>
-              <input type="time" title="Preferred end time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button onClick={handleSaveAvailability} disabled={avSaveLoading} size="sm">
-              {avSaveLoading ? 'Saving...' : 'Save Availability'}
-            </Button>
-            {avSaveMsg && <span className="text-sm text-teal-600">{avSaveMsg}</span>}
-          </div>
-        </div>
-      </Card>
-
       <div className="flex items-center justify-between mb-6">
         <p className="text-gray-500">View your upcoming routes and schedule.</p>
         <div className="flex items-center gap-2">
@@ -1602,15 +1620,20 @@ const Schedule: React.FC = () => {
                 const dayRoutes = routesByDate[dateStr] || [];
                 const isToday = dateStr === todayStr;
                 const isSelected = dateStr === selectedDay;
+                const blocked = isBlockedDay(dateStr);
+                const conflicts = getConflictRoutes(dateStr);
 
                 return (
                   <button
                     type="button"
                     key={day}
                     onClick={() => setSelectedDay(dateStr === selectedDay ? null : dateStr)}
-                    className={`bg-white p-2 min-h-[80px] text-left transition-colors hover:bg-gray-50 ${isSelected ? 'ring-2 ring-teal-500 ring-inset' : ''}`}
+                    className={`p-2 min-h-[80px] text-left transition-colors hover:bg-gray-50 ${
+                      isSelected ? 'ring-2 ring-teal-500 ring-inset' : ''
+                    } ${blocked ? 'bg-red-50/60' : 'bg-white'}`}
+                    style={blocked ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(239,68,68,0.08) 3px, rgba(239,68,68,0.08) 6px)' } : undefined}
                   >
-                    <span className={`text-sm font-bold ${isToday ? 'bg-teal-600 text-white w-7 h-7 rounded-full inline-flex items-center justify-center' : 'text-gray-700'}`}>
+                    <span className={`text-sm font-bold ${isToday ? 'bg-teal-600 text-white w-7 h-7 rounded-full inline-flex items-center justify-center' : blocked ? 'text-gray-400' : 'text-gray-700'}`}>
                       {day}
                     </span>
                     {(() => {
@@ -1634,10 +1657,33 @@ const Schedule: React.FC = () => {
                         <div className="text-[10px] text-gray-400 font-bold">+{dayRoutes.length - 2} more</div>
                       )}
                     </div>
+                    {conflicts.length > 0 && (
+                      <div className="mt-0.5 flex items-center gap-0.5">
+                        <svg className="w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                        </svg>
+                        <span className="text-[9px] font-bold text-amber-600">Conflict</span>
+                      </div>
+                    )}
                   </button>
                 );
               })}
             </div>
+
+            {availability.days.length > 0 && (
+              <div className="flex items-center gap-4 mt-3 text-[10px] text-gray-400">
+                <div className="flex items-center gap-1">
+                  <span className="inline-block w-4 h-3 rounded bg-red-50/60" style={{ backgroundImage: 'repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(239,68,68,0.08) 3px, rgba(239,68,68,0.08) 6px)' }} />
+                  <span>Unavailable</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <svg className="w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  <span>Conflict</span>
+                </div>
+              </div>
+            )}
           </Card>
 
           {selectedDay && (
@@ -1661,6 +1707,41 @@ const Schedule: React.FC = () => {
                   </div>
                 );
               })()}
+              {selectedDayConflicts.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                  <p className="text-sm font-bold text-amber-800 mb-2">
+                    Schedule Conflict — {selectedDayConflicts.length} route{selectedDayConflicts.length > 1 ? 's' : ''} on an unavailable day
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleContactAdmin(selectedDay!, selectedDayConflicts[0].title)}
+                      disabled={contactingAdmin}
+                      className="bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                      {contactingAdmin ? 'Sending...' : 'Contact Admin'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleAddDayToAvailability(selectedDay!)}
+                      className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300"
+                    >
+                      Update Availability
+                    </Button>
+                    {selectedDayConflicts.map(r => (
+                      <Button
+                        key={r.id}
+                        size="sm"
+                        onClick={() => handleDeclineConflict(r.id, r.title, selectedDay!)}
+                        disabled={decliningRouteId === r.id}
+                        className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                      >
+                        {decliningRouteId === r.id ? 'Declining...' : `Decline: ${r.title}`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedDayRoutes.length === 0 ? (
                 <p className="text-sm text-gray-400">No routes scheduled for this day.</p>
               ) : (
@@ -1712,6 +1793,49 @@ const Schedule: React.FC = () => {
               )}
             </Card>
           )}
+
+          <div id="schedule-availability">
+            <Card className="p-6 mt-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Availability</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Available Days</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                      <button
+                        type="button"
+                        key={day}
+                        onClick={() => toggleDay(day)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                          availability.days.includes(day)
+                            ? 'bg-teal-600 text-white'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Preferred Start Time</label>
+                    <input type="time" title="Preferred start time" value={availability.start_time} onChange={e => setAvailability(prev => ({ ...prev, start_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Preferred End Time</label>
+                    <input type="time" title="Preferred end time" value={availability.end_time} onChange={e => setAvailability(prev => ({ ...prev, end_time: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleSaveAvailability} disabled={avSaveLoading} size="sm">
+                    {avSaveLoading ? 'Saving...' : 'Save Availability'}
+                  </Button>
+                  {avSaveMsg && <span className="text-sm text-teal-600">{avSaveMsg}</span>}
+                </div>
+              </div>
+            </Card>
+          </div>
         </>
       ) : (
         <Card className="p-6">
@@ -1732,6 +1856,9 @@ const Schedule: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {isBlockedDay(route.scheduledDate || '') && route.status === 'assigned' && (
+                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">Conflict</span>
+                    )}
                     <StatusBadge status={route.status} />
                     {route.status === 'assigned' && (
                       <>
@@ -3039,7 +3166,7 @@ const TeamApp: React.FC = () => {
         <div className="p-4 sm:p-6 lg:p-8">
           {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} />}
-          {currentView === 'schedule' && <Schedule />}
+          {currentView === 'schedule' && <Schedule onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'pickups' && <OnDemandPickups />}
           {currentView === 'zones' && (
             <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
