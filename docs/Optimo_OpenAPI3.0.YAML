@@ -1,0 +1,2342 @@
+openapi: 3.0.3
+info:
+  title: OptimoRoute Web Service API
+  version: '1.32'
+  description: "OpenAPI definition for the public OptimoRoute Web Service API.\nSource:\
+    \ https://optimoroute.com/api/\n\nNotes:\n  The API uses an application level \"\
+    success\" boolean and error \"code\" and \"message\" fields in JSON responses.\n\
+    \  OptimoRoute notes that additional response fields may be added in the future,\
+    \ so clients should ignore unknown fields.\n"
+servers:
+- url: https://api.optimoroute.com
+  description: OptimoRoute WS API base URL
+security:
+- ApiKeyAuth: []
+tags:
+- name: Orders
+  description: Create, update, retrieve, delete, and search for orders
+- name: Planning
+  description: Planning lifecycle, routes, and scheduling information
+- name: Drivers
+  description: Driver parameters and driver positions
+- name: LiveTracking
+  description: Mobile events and order completion details
+paths:
+  /v1/create_order:
+    post:
+      tags:
+      - Orders
+      summary: Create or update a single order
+      description: Creates a new order in the system or updates an existing order.
+      operationId: createOrder
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              create:
+                summary: Example request (CREATE)
+                value:
+                  operation: CREATE
+                  orderNo: ORD001
+                  type: D
+                  date: '2014-10-14'
+                  location:
+                    address: 393 Hanover St, Boston, MA 02113, USA
+                    locationNo: LOC001
+                    locationName: Green Cross Pharmacy North End
+                    acceptPartialMatch: true
+                  duration: 20
+                  twFrom: '10:00'
+                  twTo: '10:59'
+                  load1: 10
+                  load2: 25
+                  vehicleFeatures:
+                  - FR
+                  skills:
+                  - SK001
+                  - SK002
+                  notes: Deliver at back door
+      responses:
+        '200':
+          description: Order saved (created or updated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+              examples:
+                success:
+                  summary: Example success response
+                  value:
+                    success: true
+                    id: 8cde6711026ff11f79f15a719277fe26
+                    location:
+                      notes: ''
+                      longitude: -71.0528824
+                      locationName: Green Cross Pharmacy North End
+                      locationNo: LOC001
+                      address: 393 Hanover St, Boston, MA 02113, USA
+                      latitude: 42.3651425
+                      valid: true
+                      checkInTime: 0
+                    geocodingResults:
+                    - - 393 Hanover St, Boston, MA 02113, USA
+                      - 42.3651425
+                      - -71.0528824
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/create_or_update_orders:
+    post:
+      tags:
+      - Orders
+      summary: Create or update orders (bulk)
+      description: Create, update or replace one or more orders in the system.\nGeocoding
+        addresses is not available in this bulk call; locations must either already
+        exist or be specified via latitude and longitude.\n
+      operationId: createOrUpdateOrders
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrUpdateOrdersRequest'
+            examples:
+              bulk:
+                summary: Bulk orders request example
+                value:
+                  orders:
+                  - orderNo: '54913250'
+                    date: '2019-03-22'
+                    duration: 60
+                    priority: H
+                    type: T
+                    assignedTo:
+                      externalId: DRV001
+                      serial: '001'
+                    location:
+                      locationNo: G402333
+                      address: 393 Hanover St, Boston, MA 02113, USA
+                      locationName: Green Cross Pharmacy North End
+                      latitude: 42.365142
+                      longitude: -71.052882
+                      checkInTime: 0
+                    timeWindows:
+                    - twFrom: '11:00'
+                      twTo: '17:00'
+                    allowedWeekdays:
+                    - mon
+                    - tue
+                    - wed
+                    - thu
+                    - fri
+                    allowedDates: {}
+                    skills:
+                    - SK001
+                    vehicleFeatures: []
+                    notes: Notify manager
+                    email: joe.customer@example.com
+                    phone: ''
+                    customField1: '300'
+                    notificationPreference: email
+                  - orderNo: '27463225'
+                    date: '2019-03-22'
+                    duration: 10
+                    type: D
+                    load1: 1
+                    location:
+                      locationNo: '999999999'
+      responses:
+        '200':
+          description: Bulk create or update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrUpdateOrdersResponse'
+              examples:
+                bulkResult:
+                  summary: Bulk response example
+                  value:
+                    orders:
+                    - success: true
+                      id: c821486835d2f20539a9754454f7efbe
+                      orderNo: '54913250'
+                    - success: false
+                      code: ERR_LOC_NON_EXISTING_LOC
+                      message: The location with the given location number does not
+                        exist.
+                      orderNo: '27463225'
+                      locationNo: '999999999'
+                    success: true
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_orders:
+    post:
+      tags:
+      - Orders
+      summary: Get orders (bulk, POST)
+      description: Retrieves one or more orders from the system by orderNo or id. At
+        most 500 orders can be specified.
+      operationId: getOrdersPost
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetOrdersRequest'
+            examples:
+              bulk:
+                summary: Bulk get orders request example
+                value:
+                  orders:
+                  - orderNo: ORD001
+                  - orderNo: ORD99
+                  - id: 04e7b09e993e8488024f46aaf9d8c72d
+      responses:
+        '200':
+          description: Bulk order retrieval result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOrdersResponse'
+              examples:
+                bulkResult:
+                  summary: Bulk get orders response example (partial)
+                  value:
+                    success: true
+                    orders:
+                    - success: true
+                      id: 04e7b09e993e8488024f46aaf9d8c72d
+                      data:
+                        orderNo: ORD001
+                        id: 04e7b09e993e8488024f46aaf9d8c72d
+                        date: '2018-11-12'
+                        duration: 60
+                        priority: M
+                        type: T
+                        load1: 1
+                        load2: 0
+                        load3: 0
+                        load4: 0
+                        assignedTo:
+                          externalId: DRV001
+                          serial: '001'
+                        location:
+                          locationNo: LOC001
+                          address: 393 Hanover St, Boston, MA 02113, USA
+                          locationName: Green Cross Pharmacy North End
+                          latitude: 42.365142
+                          longitude: -71.052882
+                          checkInTime: 0
+                          notes: ''
+                        timeWindows:
+                        - twFrom: '11:00'
+                          twTo: '17:00'
+                        allowedWeekdays:
+                        - mon
+                        - tue
+                        - wed
+                        - thu
+                        - fri
+                        allowedDates: {}
+                        skills:
+                        - SK001
+                        vehicleFeatures: []
+                        notes: ''
+                        email: ''
+                        phone: ''
+                        customField1: ''
+                        customField2: ''
+                        customField3: ''
+                        customField4: ''
+                        customField5: ''
+                        notificationPreference: email
+                    - message: The order with the matching orderNo was not found.
+                      code: ERR_ORD_NOT_FOUND
+                      orderNo: ORD99
+                      success: false
+        default:
+          $ref: '#/components/responses/GenericError'
+    get:
+      tags:
+      - Orders
+      summary: Get orders (bulk, GET, orderNo only)
+      description: For flexibility, if using only orderNo the call to get_orders can
+        also be done as an HTTP GET request.\nSpecify orderNo repeatedly, for example
+        orderNo=ORD001&orderNo=ORD99\n
+      operationId: getOrdersGet
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - $ref: '#/components/parameters/OrderNoRepeated'
+      responses:
+        '200':
+          description: Bulk order retrieval result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOrdersResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/delete_order:
+    post:
+      tags:
+      - Orders
+      summary: Delete a single order
+      description: Removes an order from the system.
+      operationId: deleteOrder
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteOrderRequest'
+            examples:
+              basic:
+                summary: Delete by orderNo
+                value:
+                  orderNo: ORD001
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteOrderResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/delete_all_orders:
+    post:
+      tags:
+      - Orders
+      summary: Delete all orders (optional date)
+      description: Removes all orders and planned routes for the specified date from
+        the system.\nIf no date is set, all orders and routes are removed from the
+        system.\n
+      operationId: deleteAllOrders
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAllOrdersRequest'
+            examples:
+              forDate:
+                summary: Delete orders and routes for one date
+                value:
+                  date: '2014-10-14'
+      responses:
+        '200':
+          description: Delete all result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteAllOrdersResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/delete_orders:
+    post:
+      tags:
+      - Orders
+      summary: Delete orders (bulk)
+      description: Removes one or more orders from the system. At most 500 orders can
+        be specified.
+      operationId: deleteOrders
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteOrdersRequest'
+            examples:
+              bulk:
+                summary: Bulk delete request example
+                value:
+                  orders:
+                  - orderNo: ORD001
+                  - orderNo: ORD999
+                  - id: 04e7b09e993e8488024f46aaf9d8c72d
+      responses:
+        '200':
+          description: Bulk delete result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteOrdersResponse'
+              examples:
+                bulkResult:
+                  summary: Bulk delete response example
+                  value:
+                    success: true
+                    orders:
+                    - orderNo: ORD001
+                      success: true
+                    - message: The order with the matching orderNo was not found.
+                      code: ERR_ORD_NOT_FOUND
+                      orderNo: ORD999
+                      success: false
+                    - success: true
+                      id: 04e7b09e993e8488024f46aaf9d8c72d
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_routes:
+    get:
+      tags:
+      - Planning
+      summary: Get routes
+      description: Gets the routes for a specific date.
+      operationId: getRoutes
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - $ref: '#/components/parameters/Date'
+      - $ref: '#/components/parameters/DriverExternalId'
+      - $ref: '#/components/parameters/DriverSerial'
+      - $ref: '#/components/parameters/VehicleRegistration'
+      - $ref: '#/components/parameters/IncludeRoutePolyline'
+      - $ref: '#/components/parameters/IncludeRouteStartEnd'
+      responses:
+        '200':
+          description: Routes for the date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetRoutesResponse'
+              examples:
+                routes:
+                  summary: Get routes response example (partial)
+                  value:
+                    success: true
+                    routes:
+                    - driverExternalId: DRV001
+                      driverSerial: '001'
+                      driverName: John Doe
+                      vehicleRegistration: V001
+                      vehicleLabel: Truck 1
+                      duration: 28792
+                      distance: 496200
+                      load1: 0
+                      load2: 0
+                      load3: 0
+                      load4: 0
+                      stops:
+                      - stopNumber: 0
+                        orderNo: '-'
+                        id: 04e7b09e993e8488024f46aaf9d8c72d
+                        locationNo: DEPOT
+                        locationName: The Depot
+                        address: 6600 N High St, Worthington, OH 43085, USA
+                        latitude: 40.0934303
+                        longitude: -83.016852
+                        scheduledAt: 09:00
+                        scheduledAtDt: '2017-09-14 09:00:00'
+                        arrivalTimeDt: '2017-09-14 09:00:00'
+                        travelTime: 0
+                        distance: 0
+                        type: depot
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_scheduling_info:
+    get:
+      tags:
+      - Planning
+      summary: Get scheduling information for an order
+      description: Either orderNo or id must be supplied.
+      operationId: getSchedulingInfo
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - name: orderNo
+        in: query
+        required: false
+        schema:
+          type: string
+        description: The user specified order identifier.
+      - name: id
+        in: query
+        required: false
+        schema:
+          type: string
+        description: The OptimoRoute assigned order id.
+      responses:
+        '200':
+          description: Scheduling information result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSchedulingInfoResponse'
+              examples:
+                scheduled:
+                  summary: Scheduling info response example
+                  value:
+                    success: true
+                    orderScheduled: true
+                    scheduleInformation:
+                      driverExternalId: ''
+                      driverSerial: JQP
+                      driverName: John Q P
+                      vehicleRegistration: null
+                      vehicleLabel: null
+                      stopNumber: 3
+                      scheduledAt: '10:03'
+                      scheduledAtDt: '2022-01-02 10:03:44'
+                      arrivalTimeDt: '2022-01-02 10:03:44'
+                      travelTime: 2033
+                      distance: 32254
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/start_planning:
+    post:
+      tags:
+      - Planning
+      summary: Start planning
+      description: Starts the planning process for the specified date or dateRange.
+      operationId: startPlanning
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartPlanningRequest'
+            examples:
+              byDate:
+                summary: Example request (plan a date)
+                value:
+                  date: '2013-12-20'
+      responses:
+        '200':
+          description: Planning start result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartPlanningResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/stop_planning:
+    post:
+      tags:
+      - Planning
+      summary: Stop planning
+      description: Stops a planning process by planningId.
+      operationId: stopPlanning
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopPlanningRequest'
+            examples:
+              basic:
+                summary: Example stop planning request
+                value:
+                  planningId: 8828
+      responses:
+        '200':
+          description: Stop planning result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopPlanningResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_planning_status:
+    get:
+      tags:
+      - Planning
+      summary: Get planning status
+      description: Returns status and percentageComplete for a planning process.
+      operationId: getPlanningStatus
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - $ref: '#/components/parameters/PlanningId'
+      responses:
+        '200':
+          description: Planning status result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPlanningStatusResponse'
+              examples:
+                running:
+                  summary: Example status response
+                  value:
+                    success: true
+                    status: R
+                    percentageComplete: 50
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/update_driver_parameters:
+    post:
+      tags:
+      - Drivers
+      summary: Update driver parameters
+      description: Updates driver parameters for a particular date. Any existing routes
+        for the specified date/driver will be unscheduled.
+      operationId: updateDriverParameters
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverParametersRequest'
+            examples:
+              basic:
+                summary: Example request
+                value:
+                  externalId: '3945300304540'
+                  date: '2019-09-25'
+                  workTimeFrom: '09:30'
+                  workTimeTo: '18:00'
+      responses:
+        '200':
+          description: Update driver parameters result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDriverParametersResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/update_drivers_parameters:
+    post:
+      tags:
+      - Drivers
+      summary: Update driver parameters (bulk)
+      description: Updates parameters of multiple drivers for specified dates. Any
+        existing routes for the specified drivers and dates will be unscheduled.
+      operationId: updateDriversParameters
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriversParametersRequest'
+            examples:
+              bulk:
+                summary: Bulk update driver parameters request example (partial)
+                value:
+                  updates:
+                  - driver:
+                      externalId: '001'
+                    date: '2022-02-15'
+                    workTime:
+                      from: 08:15
+                      to: 16:15
+                    vehicleCapacity1: 100
+                    startLocation:
+                      type: custom
+                      latitude: 45.805945
+                      longitude: 16.237825
+                    endLocation:
+                      type: startLocation
+      responses:
+        '200':
+          description: Bulk update drivers parameters result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDriversParametersResponse'
+              examples:
+                bulkResult:
+                  summary: Bulk update response example (partial)
+                  value:
+                    updates:
+                    - success: true
+                      driver:
+                        externalId: '005'
+                      date: '2022-02-15'
+                    - success: false
+                      driver:
+                        serial: S002
+                      date: '2022-02-16'
+                      code: ERR_LOC_NOT_VALID
+                      message: Location is not valid.
+                    success: true
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_events:
+    get:
+      tags:
+      - LiveTracking
+      summary: Get mobile events
+      description: Retrieve mobile events for the currently active plan.\nEach get_events
+        request returns up to 500 events which occurred after the specified tag.\nThe
+        result contains a new tag to use as after_tag in the next request.\n
+      operationId: getEvents
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - name: after_tag
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Cursor tag from a previous response. If empty, fetch from the
+          beginning of currently available events.
+      responses:
+        '200':
+          description: Mobile events result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetEventsResponse'
+              examples:
+                events:
+                  summary: Get events response example
+                  value:
+                    remainingEvents: 0
+                    tag: abcd1234xyz
+                    events:
+                    - unixTimestamp: 1516294800
+                      utcTime: '2018-01-18T17:00:00'
+                      localTime: '2018-01-18T09:00:00'
+                      driverName: Charlie
+                      driverSerial: '0011'
+                      event: on_duty
+                    - unixTimestamp: 1516296030
+                      event: success
+                      utcTime: '2018-01-18T17:20:30'
+                      localTime: '2018-01-18T09:20:30'
+                      driverName: Charlie
+                      driverSerial: '0011'
+                      orderNo: ORD232
+                      orderId: f7afe58fcddfcbf9f42620c79ebad7ff
+                    success: true
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/get_completion_details:
+    post:
+      tags:
+      - LiveTracking
+      summary: Get order completion details (POST)
+      description: Retrieve completion details for one or more orders. At most 500
+        orders can be specified.
+      operationId: getCompletionDetailsPost
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetCompletionDetailsRequest'
+            examples:
+              bulk:
+                summary: Bulk completion details request example
+                value:
+                  orders:
+                  - orderNo: ORD001
+                  - orderNo: ORD99
+                  - id: 84e5e94d341dc637ff77b56ea96cb8e3
+      responses:
+        '200':
+          description: Completion details result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCompletionDetailsResponse'
+              examples:
+                bulkResult:
+                  summary: Completion details response example (partial)
+                  value:
+                    orders:
+                    - success: true
+                      orderNo: ORD001
+                      data:
+                        status: failed
+                        startTime:
+                          unixTimestamp: 1604267055
+                          utcTime: '2020-11-01T21:44:15'
+                          localTime: '2020-11-01T16:44:15'
+                        endTime:
+                          unixTimestamp: 1604267305
+                          utcTime: '2020-11-01T21:48:25'
+                          localTime: '2020-11-01T16:48:25'
+                        form:
+                          note: Customer was not available, waited for 5 minutes,
+                            nobody answered the door
+                        tracking_url: https://order.is/Ka231Xpp
+                    - success: false
+                      orderNo: XXXYZ
+                      message: The order with the matching orderNo was not found.
+                      code: ERR_ORD_NOT_FOUND
+                    success: true
+        default:
+          $ref: '#/components/responses/GenericError'
+    get:
+      tags:
+      - LiveTracking
+      summary: Get order completion details (GET, orderNo only)
+      description: For flexibility, the call can also be done as an HTTP GET request
+        with repeated orderNo query parameters.
+      operationId: getCompletionDetailsGet
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      parameters:
+      - $ref: '#/components/parameters/OrderNoRepeated'
+      responses:
+        '200':
+          description: Completion details result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCompletionDetailsResponse'
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/update_completion_details:
+    post:
+      tags:
+      - LiveTracking
+      summary: Update order completion details
+      description: Update order completion details for one or more orders.
+      operationId: updateCompletionDetails
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCompletionDetailsRequest'
+            examples:
+              bulk:
+                summary: Update completion details request example (partial)
+                value:
+                  updates:
+                  - orderNo: ORD55
+                    data:
+                      status: scheduled
+                  - id: 84e5e94d341dc637ff77b56ea96cb8e3
+                    data:
+                      status: on_route
+      responses:
+        '200':
+          description: Update completion details result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateCompletionDetailsResponse'
+              examples:
+                bulkResult:
+                  summary: Update completion details response example (shape varies
+                    in docs)
+                  value:
+                    success: true
+                    updates:
+                    - success: true
+                      orderNo: ORD55
+                      data:
+                        status: scheduled
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/update_drivers_positions:
+    post:
+      tags:
+      - Drivers
+      summary: Update drivers positions (bulk)
+      description: Updates positions of multiple drivers at given timestamps.
+      operationId: updateDriversPositions
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriversPositionsRequest'
+            examples:
+              bulk:
+                summary: Update drivers positions request example (partial)
+                value:
+                  updates:
+                  - driver:
+                      externalId: '001'
+                    positions:
+                    - timestamp: 1692186190
+                      latitude: 45.805945
+                      longitude: 16.237825
+                      speed: 0
+                      accuracy: 10.1
+                  - driver:
+                      serial: S002
+                    positions:
+                    - timestamp: 1692186190
+                      latitude: 45.805945
+                      longitude: 16.237825
+                      speed: 20.3
+                      accuracy: 10.1
+                      heading: 34.2
+      responses:
+        '200':
+          description: Update drivers positions result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDriversPositionsResponse'
+              examples:
+                bulkResult:
+                  summary: Update drivers positions response example (partial)
+                  value:
+                    success: true
+                    updates:
+                    - success: true
+                      driver:
+                        externalId: '001'
+                    - success: false
+                      driver:
+                        serial: S002
+                      code: ERR_MULTIPLE_DRV
+                      message: Found multiple drivers with matching external id or
+                        serial number.
+        default:
+          $ref: '#/components/responses/GenericError'
+  /v1/search_orders:
+    post:
+      tags:
+      - Orders
+      summary: Search orders
+      description: Search for orders by explicit order list and or dateRange and optional
+        status filter.\nReturns up to 500 orders per call. If more pages exist, response
+        includes after_tag to pass in the next request.\n
+      operationId: searchOrders
+      x-rateLimit: Max 5 concurrent requests per account or per IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchOrdersRequest'
+            examples:
+              byDateRange:
+                summary: Search by date range and status filters
+                value:
+                  dateRange:
+                    from: '2022-01-01'
+                    to: '2022-01-03'
+                  includeOrderData: true
+                  orderStatus:
+                  - failed
+                  - rejected
+              byOrders:
+                summary: Search by explicit order list
+                value:
+                  orders:
+                  - orderNo: '10203'
+                  - orderNo: '10204'
+      responses:
+        '200':
+          description: Search result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchOrdersResponse'
+              examples:
+                result:
+                  summary: Search response example with includeScheduleInformation
+                  value:
+                    success: true
+                    orders:
+                    - id: 72b85bf77fe53ebdc689c42ddaacad73
+                      scheduleInformation:
+                        driverExternalId: ''
+                        driverSerial: JQP
+                        driverName: John Q P
+                        vehicleRegistration: null
+                        vehicleLabel: null
+                        stopNumber: 3
+                        scheduledAt: '10:03'
+                        scheduledAtDt: '2022-01-02 10:03:44'
+                        arrivalTimeDt: '2022-01-02 10:03:44'
+                        travelTime: 2033
+                        distance: 32254
+                    - id: 5a9247a50481860d44573f7d7f8799d5
+                      scheduleInformation: null
+                    after_tag: gAAAAABjGMzYTPcM2QlRwp69tNXXU7asLhGUXJ0SfZZfieAbi37z73cmyfhaoSHWiT8sJX2HnvLjvDTrK3l9TySz0vfWEkuzx6OYOkS4Qc37smFa2Q0t7WE=
+        default:
+          $ref: '#/components/responses/GenericError'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: query
+      name: key
+      description: WS API authentication key, required with all API requests.
+  parameters:
+    PlanningId:
+      name: planningId
+      in: query
+      required: true
+      schema:
+        type: integer
+      description: The id of the planning process.
+    Date:
+      name: date
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: Date in YYYY-MM-DD format.
+    DriverExternalId:
+      name: driverExternalId
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Driver external identifier.
+    DriverSerial:
+      name: driverSerial
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Driver serial number.
+    VehicleRegistration:
+      name: vehicleRegistration
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Vehicle registration.
+    IncludeRoutePolyline:
+      name: includeRoutePolyline
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: Include routePolyline in route objects.
+    IncludeRouteStartEnd:
+      name: includeRouteStartEnd
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: Include route start and end locations (field names not specified
+        in docs).
+    OrderNoRepeated:
+      name: orderNo
+      in: query
+      required: true
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+      description: Repeated orderNo parameter to specify multiple orders.
+  responses:
+    GenericError:
+      description: Generic error response envelope with a code and message. Also used
+        for global errors such as authentication failure and malformed requests.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            authKeyMissing:
+              value:
+                success: false
+                code: AUTH_KEY_MISSING
+                message: the authentication key is missing
+            tooManyConnections:
+              value:
+                success: false
+                code: ERR_TOO_MANY_CONNECTIONS
+                message: there are too many concurrent requests
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+    DateRange:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+    DateTimeWindow:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date-time
+          nullable: true
+        to:
+          type: string
+          format: date-time
+          nullable: true
+    TimeWindow:
+      type: object
+      additionalProperties: false
+      properties:
+        twFrom:
+          type: string
+          example: '10:00'
+        twTo:
+          type: string
+          example: '14:00'
+      required:
+      - twFrom
+      - twTo
+    DriverIdentifier:
+      type: object
+      additionalProperties: false
+      properties:
+        serial:
+          type: string
+        externalId:
+          type: string
+      description: Driver identifier object. Must include serial or externalId.
+      anyOf:
+      - required:
+        - serial
+      - required:
+        - externalId
+    SelectedDriver:
+      type: object
+      additionalProperties: false
+      properties:
+        driverExternalId:
+          type: string
+        driverSerial:
+          type: string
+      description: Selected driver object. Use either driverExternalId or driverSerial.
+      anyOf:
+      - required:
+        - driverExternalId
+      - required:
+        - driverSerial
+    Location:
+      type: object
+      additionalProperties: true
+      properties:
+        locationNo:
+          type: string
+        locationName:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        valid:
+          type: boolean
+          readOnly: true
+        checkInTime:
+          type: integer
+        notes:
+          type: string
+    BarcodeObject:
+      type: object
+      additionalProperties: true
+      properties:
+        barcode:
+          type: string
+      required:
+      - barcode
+    CustomFields:
+      type: object
+      additionalProperties:
+        oneOf:
+        - type: string
+        - type: number
+        - type: boolean
+    Order:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          readOnly: true
+        orderNo:
+          type: string
+        relatedOrderNo:
+          type: string
+          nullable: true
+        relatedId:
+          type: string
+          nullable: true
+        date:
+          type: string
+          format: date
+        location:
+          $ref: '#/components/schemas/Location'
+        type:
+          type: string
+          description: Order type D delivery, P pickup, T task. Some responses can include
+            break or depot.
+        duration:
+          type: number
+          description: Time in minutes required to service the order.
+        timeWindows:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeWindow'
+          default: []
+        allowedWeekdays:
+          type: array
+          items:
+            type: string
+        allowedDates:
+          $ref: '#/components/schemas/DateRange'
+        allowedDateTimes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DateTimeWindow'
+          default: []
+        assignedTo:
+          $ref: '#/components/schemas/DriverIdentifier'
+          nullable: true
+        priority:
+          type: string
+          enum:
+          - L
+          - M
+          - H
+          - C
+          default: M
+        load1:
+          type: number
+          default: 0
+        load2:
+          type: number
+          default: 0
+        load3:
+          type: number
+          default: 0
+        load4:
+          type: number
+          default: 0
+        vehicleFeatures:
+          type: array
+          items:
+            type: string
+          default: []
+        skills:
+          type: array
+          items:
+            type: string
+          default: []
+        notes:
+          type: string
+        customField1:
+          type: string
+        customField2:
+          type: string
+        customField3:
+          type: string
+        customField4:
+          type: string
+        customField5:
+          type: string
+        customFields:
+          $ref: '#/components/schemas/CustomFields'
+        email:
+          type: string
+        phone:
+          type: string
+        notificationPreference:
+          type: string
+          enum:
+          - dont_notify
+          - email
+          - sms
+          - both
+          default: both
+        barcode:
+          type: array
+          items:
+            $ref: '#/components/schemas/BarcodeObject'
+    CreateOrderRequest:
+      allOf:
+      - $ref: '#/components/schemas/Order'
+      - type: object
+        additionalProperties: true
+        properties:
+          operation:
+            type: string
+            enum:
+            - CREATE
+            - UPDATE
+            - SYNC
+            - MERGE
+          acceptDuplicateOrderNo:
+            type: boolean
+          twFrom:
+            type: string
+            description: Deprecated. Ignored if timeWindows is set.
+          twTo:
+            type: string
+            description: Deprecated. Ignored if timeWindows is set.
+          location:
+            allOf:
+            - $ref: '#/components/schemas/Location'
+            - type: object
+              additionalProperties: true
+              properties:
+                acceptMultipleResults:
+                  type: boolean
+                acceptPartialMatch:
+                  type: boolean
+                storeInvalid:
+                  type: boolean
+        required:
+        - operation
+    CreateOrderResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        id:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        geocodingResults:
+          type: array
+          items:
+            type: array
+      required:
+      - success
+    CreateOrUpdateOrdersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+          minItems: 1
+          maxItems: 500
+      required:
+      - orders
+    OrderResponseObject:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        id:
+          type: string
+        orderNo:
+          type: string
+        locationNo:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+    CreateOrUpdateOrdersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderResponseObject'
+      required:
+      - success
+      - orders
+    OrderLookup:
+      type: object
+      additionalProperties: false
+      properties:
+        orderNo:
+          type: string
+        id:
+          type: string
+      description: Lookup object. Provide orderNo or id.
+      anyOf:
+      - required:
+        - orderNo
+      - required:
+        - id
+    GetOrdersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLookup'
+          minItems: 1
+          maxItems: 500
+      required:
+      - orders
+    GetOrdersOrderResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        orderNo:
+          type: string
+        id:
+          type: string
+        data:
+          $ref: '#/components/schemas/Order'
+      required:
+      - success
+    GetOrdersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetOrdersOrderResponse'
+      required:
+      - success
+      - orders
+    DeleteOrderRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orderNo:
+          type: string
+        forceDelete:
+          type: boolean
+          default: false
+      required:
+      - orderNo
+    DeleteOrderResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        planningId:
+          type: integer
+      required:
+      - success
+    DeleteAllOrdersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+    DeleteAllOrdersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        planningId:
+          type: integer
+      required:
+      - success
+    DeleteOrdersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLookup'
+          minItems: 1
+          maxItems: 500
+        deleteMultiple:
+          type: boolean
+          default: false
+        forceDelete:
+          type: boolean
+          default: false
+      required:
+      - orders
+    DeleteResponseObject:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        orderNo:
+          type: string
+        id:
+          type: string
+        planningId:
+          type: integer
+      required:
+      - success
+    DeleteOrdersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeleteResponseObject'
+      required:
+      - success
+      - orders
+    StopObject:
+      type: object
+      additionalProperties: true
+      properties:
+        stopNumber:
+          type: integer
+        orderNo:
+          type: string
+        id:
+          type: string
+        locationNo:
+          type: string
+        locationName:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        scheduledAt:
+          type: string
+        scheduledAtDt:
+          type: string
+        arrivalTimeDt:
+          type: string
+        travelTime:
+          type: integer
+        distance:
+          type: integer
+        type:
+          type: string
+    Route:
+      type: object
+      additionalProperties: true
+      properties:
+        driverExternalId:
+          type: string
+        driverSerial:
+          type: string
+        driverName:
+          type: string
+        vehicleRegistration:
+          type: string
+        vehicleLabel:
+          type: string
+        duration:
+          type: integer
+        distance:
+          type: number
+        load1:
+          type: integer
+        load2:
+          type: integer
+        load3:
+          type: integer
+        load4:
+          type: integer
+        stops:
+          type: array
+          items:
+            $ref: '#/components/schemas/StopObject'
+        routePolyline:
+          type: string
+    GetRoutesResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Route'
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+      - routes
+    ScheduleInformation:
+      type: object
+      additionalProperties: true
+      properties:
+        driverExternalId:
+          type: string
+          nullable: true
+        driverSerial:
+          type: string
+        driverName:
+          type: string
+        vehicleRegistration:
+          type: string
+          nullable: true
+        vehicleLabel:
+          type: string
+          nullable: true
+        stopNumber:
+          type: integer
+        scheduledAt:
+          type: string
+        scheduledAtDt:
+          type: string
+        arrivalTimeDt:
+          type: string
+        travelTime:
+          type: integer
+        distance:
+          type: integer
+    GetSchedulingInfoResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orderScheduled:
+          type: boolean
+        scheduleInformation:
+          $ref: '#/components/schemas/ScheduleInformation'
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+    StartPlanningRequest:
+      type: object
+      additionalProperties: true
+      properties:
+        date:
+          type: string
+          format: date
+        dateRange:
+          $ref: '#/components/schemas/DateRangeRequired'
+        balancing:
+          type: string
+          enum:
+          - OFF
+          - ON
+          - ON_FORCE
+          default: OFF
+        balanceBy:
+          type: string
+          enum:
+          - WT
+          - NUM
+          default: WT
+        balancingFactor:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.3
+        startWith:
+          type: string
+          enum:
+          - EMPTY
+          - CURRENT
+          default: EMPTY
+        lockType:
+          type: string
+          enum:
+          - NONE
+          - ROUTES
+          - RESOURCES
+          default: NONE
+        depotTrips:
+          type: boolean
+          default: false
+        depotVisitDuration:
+          type: integer
+          default: 0
+        clustering:
+          type: boolean
+          default: false
+        useDrivers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedDriver'
+          default: []
+        useOrders:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Deprecated; prefer useOrderObjects.
+        useOrderObjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLookup'
+          default: []
+        includeScheduledOrders:
+          type: boolean
+          default: true
+      description: If dateRange is specified, date is ignored and can be left out.
+    StartPlanningResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        planningId:
+          type: integer
+        missingOrders:
+          type: array
+          items:
+            type: string
+          default: []
+        missingDrivers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedDriver'
+          default: []
+        ordersWithInvalidLocation:
+          type: array
+          items:
+            type: string
+          default: []
+      required:
+      - success
+    StopPlanningRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        planningId:
+          type: integer
+      required:
+      - planningId
+    StopPlanningResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+      required:
+      - success
+    GetPlanningStatusResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        status:
+          type: string
+          enum:
+          - N
+          - R
+          - C
+          - F
+          - E
+        percentageComplete:
+          type: integer
+          minimum: 0
+          maximum: 100
+      required:
+      - success
+    UpdateDriverParametersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        externalId:
+          type: string
+        date:
+          type: string
+          format: date
+        enabled:
+          type: boolean
+        workTimeFrom:
+          type: string
+        workTimeTo:
+          type: string
+        assignedVehicle:
+          type: string
+        vehicleCapacity1:
+          type: integer
+        vehicleCapacity2:
+          type: integer
+        vehicleCapacity3:
+          type: integer
+        vehicleCapacity4:
+          type: integer
+        startLatitude:
+          type: number
+        startLongitude:
+          type: number
+        startAddress:
+          type: string
+        endLatitude:
+          type: number
+        endLongitude:
+          type: number
+        endAddress:
+          type: string
+      required:
+      - externalId
+      - date
+    UpdateDriverParametersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+      required:
+      - success
+    WorkTime:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+      required:
+      - from
+      - to
+    LocationType:
+      type: object
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          enum:
+          - custom
+          - employeeDefault
+          - startLocation
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+      required:
+      - type
+    DriverParameters:
+      type: object
+      additionalProperties: true
+      properties:
+        driver:
+          $ref: '#/components/schemas/DriverIdentifier'
+        date:
+          type: string
+          format: date
+        enabled:
+          type: boolean
+        workTime:
+          $ref: '#/components/schemas/WorkTime'
+        assignedVehicle:
+          oneOf:
+          - type: string
+          - $ref: '#/components/schemas/VehicleIdentifier'
+        vehicleCapacity1:
+          type: integer
+        vehicleCapacity2:
+          type: integer
+        vehicleCapacity3:
+          type: integer
+        vehicleCapacity4:
+          type: integer
+        startLocation:
+          $ref: '#/components/schemas/LocationType'
+        endLocation:
+          $ref: '#/components/schemas/LocationType'
+      required:
+      - driver
+      - date
+    VehicleIdentifier:
+      type: object
+      additionalProperties: false
+      properties:
+        registration:
+          type: string
+        externalId:
+          type: string
+      description: Vehicle identifier object for bulk update. Provide registration
+        or externalId.
+      anyOf:
+      - required:
+        - registration
+      - required:
+        - externalId
+    UpdateDriversParametersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverParameters'
+          minItems: 1
+          maxItems: 500
+      required:
+      - updates
+    DriverResponseObject:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        driver:
+          $ref: '#/components/schemas/DriverIdentifier'
+        date:
+          type: string
+          format: date
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+    UpdateDriversParametersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverResponseObject'
+      required:
+      - success
+      - updates
+    TimeObject:
+      type: object
+      additionalProperties: false
+      properties:
+        unixTimestamp:
+          type: integer
+        utcTime:
+          type: string
+          format: date-time
+        localTime:
+          type: string
+          format: date-time
+      required:
+      - unixTimestamp
+      - utcTime
+      - localTime
+    Event:
+      type: object
+      additionalProperties: true
+      properties:
+        event:
+          type: string
+        unixTimestamp:
+          type: integer
+        utcTime:
+          type: string
+          format: date-time
+        localTime:
+          type: string
+          format: date-time
+        driverName:
+          type: string
+        driverSerial:
+          type: string
+        driverExternalId:
+          type: string
+        orderNo:
+          type: string
+        orderId:
+          type: string
+        plannedStartTime:
+          $ref: '#/components/schemas/TimeObject'
+      required:
+      - event
+      - unixTimestamp
+      - utcTime
+      - localTime
+    GetEventsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+          default: []
+        tag:
+          type: string
+        remainingEvents:
+          type: integer
+      required:
+      - success
+    GetCompletionDetailsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLookup'
+          minItems: 1
+          maxItems: 500
+      required:
+      - orders
+    OrderStatus:
+      type: string
+      enum:
+      - unscheduled
+      - scheduled
+      - on_route
+      - servicing
+      - success
+      - failed
+      - rejected
+      - cancelled
+    ImageAttachment:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+        url:
+          type: string
+      required:
+      - type
+      - url
+    BarcodeStatus:
+      type: string
+      enum:
+      - success
+      - unscannable
+      - added
+      - replaced
+      - missing
+    BarcodeInfo:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          $ref: '#/components/schemas/BarcodeStatus'
+        scanned:
+          type: string
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageAttachment'
+        type:
+          type: string
+      required:
+      - status
+    BarcodeScan:
+      type: object
+      additionalProperties: true
+      properties:
+        barcode:
+          type: string
+          nullable: true
+        scanInfo:
+          $ref: '#/components/schemas/BarcodeInfo'
+    FormData:
+      type: object
+      additionalProperties: true
+      properties:
+        note:
+          type: string
+        signature:
+          $ref: '#/components/schemas/ImageAttachment'
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageAttachment'
+        barcode:
+          type: array
+          items:
+            $ref: '#/components/schemas/BarcodeScan'
+        barcode_collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/BarcodeScan'
+    CompletionDetails:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        startTime:
+          $ref: '#/components/schemas/TimeObject'
+        endTime:
+          $ref: '#/components/schemas/TimeObject'
+        form:
+          $ref: '#/components/schemas/FormData'
+        tracking_url:
+          type: string
+      required:
+      - status
+    CompletionResponseObject:
+      type: object
+      additionalProperties: true
+      properties:
+        orderNo:
+          type: string
+        id:
+          type: string
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/CompletionDetails'
+      required:
+      - success
+    GetCompletionDetailsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletionResponseObject'
+      required:
+      - success
+      - orders
+    TimeUpdateObject:
+      type: object
+      additionalProperties: false
+      properties:
+        unixTimestamp:
+          type: integer
+        utcTime:
+          type: string
+          format: date-time
+        localTime:
+          type: string
+          format: date-time
+      description: At least one of unixTimestamp, utcTime, localTime should be specified.
+    CompletionDetailsUpdate:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        startTime:
+          $ref: '#/components/schemas/TimeUpdateObject'
+        endTime:
+          $ref: '#/components/schemas/TimeUpdateObject'
+      required:
+      - status
+    CompletionDetailsUpdateObject:
+      type: object
+      additionalProperties: true
+      properties:
+        orderNo:
+          type: string
+        id:
+          type: string
+        data:
+          $ref: '#/components/schemas/CompletionDetailsUpdate'
+      required:
+      - data
+    UpdateCompletionDetailsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletionDetailsUpdateObject'
+          minItems: 1
+          maxItems: 500
+      required:
+      - updates
+    UpdateCompletionDetailsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletionResponseObject'
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletionResponseObject'
+      required:
+      - success
+    Position:
+      type: object
+      additionalProperties: false
+      properties:
+        timestamp:
+          type: integer
+        latitude:
+          type: number
+        longitude:
+          type: number
+        accuracy:
+          type: number
+        speed:
+          type: number
+        heading:
+          type: number
+      required:
+      - timestamp
+      - latitude
+      - longitude
+    DriverPositions:
+      type: object
+      additionalProperties: false
+      properties:
+        driver:
+          $ref: '#/components/schemas/DriverIdentifier'
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Position'
+          minItems: 1
+          maxItems: 100
+      required:
+      - driver
+      - positions
+    UpdateDriversPositionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverPositions'
+          minItems: 1
+      required:
+      - updates
+    UpdateDriversPositionsDriverResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        driver:
+          $ref: '#/components/schemas/DriverIdentifier'
+        code:
+          type: string
+        message:
+          type: string
+      required:
+      - success
+    UpdateDriversPositionsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/UpdateDriversPositionsDriverResponse'
+      required:
+      - success
+      - updates
+    SearchOrdersRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLookup'
+          maxItems: 500
+        dateRange:
+          $ref: '#/components/schemas/DateRangeRequired'
+        orderStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderStatus'
+        includeOrderData:
+          type: boolean
+          default: false
+        includeScheduleInformation:
+          type: boolean
+          default: false
+        after_tag:
+          type: string
+    SearchOrderResponseObject:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        data:
+          $ref: '#/components/schemas/Order'
+        scheduleInformation:
+          $ref: '#/components/schemas/ScheduleInformation'
+          nullable: true
+      required:
+      - id
+    SearchOrdersResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchOrderResponseObject'
+        after_tag:
+          type: string
+      required:
+      - success
+      - orders
+    DateRangeRequired:
+      allOf:
+      - $ref: '#/components/schemas/DateRange'
+      - type: object
+        required:
+        - from
+        - to
+      description: Date range with required from and to.
