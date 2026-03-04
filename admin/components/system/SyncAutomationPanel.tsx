@@ -4,7 +4,7 @@ import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import CustomerSyncPanel from '../operations/CustomerSyncPanel.tsx';
 import DriverSyncPanel from '../operations/DriverSyncPanel.tsx';
 
-type SyncSection = 'customer' | 'driver' | 'history';
+type SyncSection = 'customer' | 'driver' | 'history' | 'zone-assignments';
 
 interface SyncLogEntry {
   id: string;
@@ -136,6 +136,82 @@ const SyncHistoryPanel: React.FC = () => {
   );
 };
 
+const ZoneAssignmentSettingsPanel: React.FC = () => {
+  const [deadlineHours, setDeadlineHours] = useState('72');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/settings', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const settings = data?.settings || {};
+        if (settings.ZONE_ASSIGNMENT_DEADLINE_HOURS) {
+          setDeadlineHours(settings.ZONE_ASSIGNMENT_DEADLINE_HOURS);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          key: 'ZONE_ASSIGNMENT_DEADLINE_HOURS',
+          value: deadlineHours,
+          category: 'automation',
+          is_secret: false,
+        }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      }
+    } catch {}
+    setSaving(false);
+  };
+
+  return (
+    <Card className="p-6 space-y-4">
+      <div>
+        <h4 className="text-sm font-black text-gray-900">Zone Assignment Request Settings</h4>
+        <p className="text-xs text-gray-500 mt-1">
+          When an admin assigns a location to a driver's zone, a request is sent for the driver to approve.
+          Configure how long drivers have to respond before the request auto-expires.
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-bold text-gray-700 whitespace-nowrap">
+          Deadline (hours):
+        </label>
+        <input
+          type="number"
+          min="1"
+          max="720"
+          value={deadlineHours}
+          onChange={e => setDeadlineHours(e.target.value)}
+          className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400"
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-2 text-sm font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+      <p className="text-[10px] text-gray-400">
+        Default: 72 hours (3 days). After this period, unanswered requests expire automatically.
+      </p>
+    </Card>
+  );
+};
+
 const SyncAutomationPanel: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SyncSection>('customer');
 
@@ -155,6 +231,7 @@ const SyncAutomationPanel: React.FC = () => {
           { key: 'customer' as const, label: 'Customer Order Sync' },
           { key: 'driver' as const, label: 'Driver Sync' },
           { key: 'history' as const, label: 'Sync History' },
+          { key: 'zone-assignments' as const, label: 'Zone Assignments' },
         ]).map(s => (
           <button
             key={s.key}
@@ -174,6 +251,7 @@ const SyncAutomationPanel: React.FC = () => {
       {activeSection === 'customer' && <CustomerSyncPanel />}
       {activeSection === 'driver' && <DriverSyncPanel />}
       {activeSection === 'history' && <SyncHistoryPanel />}
+      {activeSection === 'zone-assignments' && <ZoneAssignmentSettingsPanel />}
     </div>
   );
 };

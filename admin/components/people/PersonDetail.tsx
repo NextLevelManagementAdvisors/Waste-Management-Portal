@@ -79,9 +79,16 @@ const LocationCollectionEditor: React.FC<{
               <span className="text-xs font-bold text-gray-700 capitalize">{property.collectionDay}</span>
               <span className="text-xs text-gray-400">({property.collectionFrequency || 'weekly'})</span>
               <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
-                property.collectionDaySource === 'manual' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
+                property.collectionDaySource === 'manual' || property.collectionDaySource === 'admin_override' ? 'bg-blue-100 text-blue-600'
+                : property.collectionDaySource === 'zone_default' ? 'bg-teal-100 text-teal-600'
+                : 'bg-purple-100 text-purple-600'
               }`}>
-                {property.collectionDaySource === 'manual' ? 'Manual' : 'Auto-detected'}
+                {property.collectionDaySource === 'manual' ? 'Manual'
+                  : property.collectionDaySource === 'admin_override' ? 'Admin'
+                  : property.collectionDaySource === 'zone_default' ? 'Zone Default'
+                  : property.collectionDaySource === 'route_optimized' ? 'Route Optimized'
+                  : property.collectionDaySource === 'feasibility_confirmed' ? 'Feasibility'
+                  : 'Auto-detected'}
               </span>
             </>
           ) : (

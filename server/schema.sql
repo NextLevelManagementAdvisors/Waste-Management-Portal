@@ -454,7 +454,7 @@ ALTER TABLE on_demand_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_frequency VARCHAR(20) DEFAULT 'weekly';
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day VARCHAR(10);
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day_detected_at TIMESTAMP;
-ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day_source VARCHAR(20);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS collection_day_source VARCHAR(30);
 
 -- OptimoRoute sync order ledger (tracks every order the sync system creates)
 CREATE TABLE IF NOT EXISTS optimo_sync_orders (
@@ -630,6 +630,7 @@ CREATE TABLE IF NOT EXISTS driver_custom_zones (
 ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS zone_type VARCHAR(20) NOT NULL DEFAULT 'circle';
 ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS polygon_coords JSONB;
 ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS zip_codes TEXT[];
+ALTER TABLE driver_custom_zones ADD COLUMN IF NOT EXISTS pickup_day VARCHAR(10);
 CREATE INDEX IF NOT EXISTS idx_dcz_driver ON driver_custom_zones(driver_id);
 CREATE INDEX IF NOT EXISTS idx_dcz_status ON driver_custom_zones(status);
 CREATE INDEX IF NOT EXISTS idx_dcz_type ON driver_custom_zones(zone_type);
@@ -919,4 +920,33 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_bid_status') THEN
     ALTER TABLE route_bids ADD CONSTRAINT chk_bid_status CHECK (status IN ('pending','accepted','rejected','withdrawn','expired'));
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_zar_status') THEN
+    ALTER TABLE zone_assignment_requests ADD CONSTRAINT chk_zar_status
+      CHECK (status IN ('pending','approved','denied','expired','cancelled'));
+  END IF;
 END $$;
+
+-- ============================================================
+-- Zone Assignment Requests
+-- Admin drags a location to a zone → request sent to driver for approval
+-- ============================================================
+CREATE TABLE IF NOT EXISTS zone_assignment_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  zone_id UUID NOT NULL REFERENCES driver_custom_zones(id) ON DELETE CASCADE,
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  requested_by UUID NOT NULL REFERENCES users(id),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  deadline TIMESTAMPTZ NOT NULL,
+  response_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  responded_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_zar_location ON zone_assignment_requests(location_id);
+CREATE INDEX IF NOT EXISTS idx_zar_zone ON zone_assignment_requests(zone_id);
+CREATE INDEX IF NOT EXISTS idx_zar_driver ON zone_assignment_requests(driver_id);
+CREATE INDEX IF NOT EXISTS idx_zar_status ON zone_assignment_requests(status);
+
+-- Confirmed zone assignment (set when driver approves assignment request)
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_zone_id UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_locations_coverage_zone ON locations(coverage_zone_id);

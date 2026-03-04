@@ -1137,7 +1137,7 @@ export function registerAdminRoutes(app: Express) {
   app.put('/api/admin/zones/:id/decision', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { decision, notes } = req.body;
+      const { decision, notes, pickup_day } = req.body;
       if (!decision || !['approved', 'rejected'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be "approved" or "rejected"' });
       }
@@ -1150,7 +1150,16 @@ export function registerAdminRoutes(app: Express) {
 
       const newStatus = decision === 'approved' ? 'active' : 'rejected';
       await storage.updateZoneStatus(id, newStatus);
-      await audit(req, `zone_${decision}`, 'driver_custom_zones', id, { zone_name: zone.name, driver_name: zone.driver_name, notes });
+
+      // Set pickup_day on approval if provided
+      if (decision === 'approved' && pickup_day) {
+        const VALID_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        if (VALID_DAYS.includes(pickup_day)) {
+          await storage.adminUpdateZone(id, { pickup_day });
+        }
+      }
+
+      await audit(req, `zone_${decision}`, 'driver_custom_zones', id, { zone_name: zone.name, driver_name: zone.driver_name, notes, pickup_day });
 
       // Notify via Slack
       const adminUser = await storage.getUserById(getAdminId(req));
@@ -1177,6 +1186,36 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Zone decision error:', error);
       res.status(500).json({ error: 'Failed to process zone decision' });
+    }
+  });
+
+  // Update zone properties (e.g., pickup_day)
+  app.patch('/api/admin/zones/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { pickup_day } = req.body;
+
+      const zone = await storage.getZoneById(id);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+      const VALID_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      if (pickup_day !== null && pickup_day !== undefined && !VALID_DAYS.includes(pickup_day)) {
+        return res.status(400).json({ error: 'pickup_day must be a weekday name (monday-saturday) or null' });
+      }
+
+      const updated = await storage.adminUpdateZone(id, {
+        pickup_day: pickup_day === undefined ? undefined : pickup_day,
+      });
+
+      await audit(req, 'zone_updated', 'driver_custom_zones', id, {
+        zone_name: zone.name, field: 'pickup_day',
+        old_value: zone.pickup_day, new_value: pickup_day,
+      });
+
+      res.json({ success: true, zone: updated });
+    } catch (error) {
+      console.error('Zone update error:', error);
+      res.status(500).json({ error: 'Failed to update zone' });
     }
   });
 
@@ -1270,6 +1309,212 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('Bulk zone delete error:', error);
       res.status(500).json({ error: 'Failed to process bulk zone deletion' });
+    }
+  });
+
+  // ── Zone Assignment Requests ──
+
+  app.get('/api/admin/service-areas/locations', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { search, status, collectionDay, page, limit } = req.query;
+      const { rows, total } = await storage.getLocationsGroupedByZone({
+        search: search as string | undefined,
+        status: status as string | undefined,
+        collectionDay: collectionDay as string | undefined,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 200,
+      });
+      res.json({ locations: rows, total, page: page ? parseInt(page as string, 10) : 1 });
+    } catch (error) {
+      console.error('Service areas locations error:', error);
+      res.status(500).json({ error: 'Failed to fetch service area locations' });
+    }
+  });
+
+  app.get('/api/admin/zone-assignment-requests', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { status, zoneId, locationId } = req.query;
+      const requests = await storage.getZoneAssignmentRequests({
+        status: status as string | undefined,
+        zoneId: zoneId as string | undefined,
+        locationId: locationId as string | undefined,
+      });
+      res.json({ requests });
+    } catch (error) {
+      console.error('Get zone assignment requests error:', error);
+      res.status(500).json({ error: 'Failed to fetch zone assignment requests' });
+    }
+  });
+
+  app.post('/api/admin/zone-assignment-requests', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { locationId, zoneId } = req.body;
+      if (!locationId || !zoneId) return res.status(400).json({ error: 'locationId and zoneId are required' });
+
+      const zone = await storage.getZoneById(zoneId);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+      if (zone.status !== 'active') return res.status(400).json({ error: 'Zone must be active to receive assignments' });
+
+      const locResult = await storage.query('SELECT id, address FROM locations WHERE id = $1', [locationId]);
+      if (locResult.rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+
+      // Check for existing pending request for same location+zone
+      const existing = await storage.getZoneAssignmentRequests({ status: 'pending', locationId, zoneId });
+      if (existing.length > 0) return res.status(409).json({ error: 'A pending request already exists for this location and zone' });
+
+      const deadlineHours = parseInt(process.env.ZONE_ASSIGNMENT_DEADLINE_HOURS || '72', 10);
+      const adminId = (req.session as any).userId;
+      const request = await storage.createZoneAssignmentRequest(locationId, zoneId, zone.driver_id, adminId, deadlineHours);
+
+      // Notify driver in-app
+      const driverProfile = await storage.getDriverById(zone.driver_id);
+      if (driverProfile?.user_id) {
+        await storage.createNotification(
+          driverProfile.user_id,
+          'zone_assignment_request',
+          'New Location Assignment Request',
+          `An admin has requested you add ${locResult.rows[0].address} to your zone "${zone.name}". Please respond within ${deadlineHours} hours.`
+        );
+      }
+
+      // Email notification
+      try {
+        await sendDriverNotification(zone.driver_id, 'zone_assignment_request',
+          `Location Assignment Request: ${locResult.rows[0].address}`,
+          `An admin has requested you add ${locResult.rows[0].address} to your zone "${zone.name}". Please log in to approve or deny this request.`
+        );
+      } catch (emailErr) {
+        console.warn('Failed to send zone assignment email:', emailErr);
+      }
+
+      await audit(req, 'zone_assignment_requested', 'zone_assignment_requests', request.id, {
+        locationId, zoneId, zoneName: zone.name, driverName: zone.driver_name, address: locResult.rows[0].address
+      });
+
+      res.json({ success: true, request });
+    } catch (error) {
+      console.error('Create zone assignment request error:', error);
+      res.status(500).json({ error: 'Failed to create zone assignment request' });
+    }
+  });
+
+  app.delete('/api/admin/zone-assignment-requests/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const cancelled = await storage.cancelZoneAssignmentRequest(req.params.id);
+      if (!cancelled) return res.status(404).json({ error: 'Request not found or not pending' });
+      await audit(req, 'zone_assignment_cancelled', 'zone_assignment_requests', req.params.id, {});
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Cancel zone assignment request error:', error);
+      res.status(500).json({ error: 'Failed to cancel zone assignment request' });
+    }
+  });
+
+  // ── Batch Auto-Assign Locations to Zones ──
+  app.post('/api/admin/service-areas/auto-assign', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const adminId = (req.session as any).userId;
+      const conflictStrategy = process.env.ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY || 'skip';
+      const deadlineHours = parseInt(process.env.ZONE_ASSIGNMENT_DEADLINE_HOURS || '72', 10);
+
+      const unassigned = await storage.getUnassignedLocationsWithCoords();
+      const results = {
+        assigned: 0,
+        skippedNoZone: 0,
+        skippedConflict: 0,
+        skippedExistingRequest: 0,
+        errors: 0,
+      };
+
+      for (const loc of unassigned) {
+        try {
+          const matchingZones = await storage.findActiveZonesContainingPoint(
+            Number(loc.latitude), Number(loc.longitude)
+          );
+
+          if (matchingZones.length === 0) {
+            results.skippedNoZone++;
+            continue;
+          }
+
+          let targetZone = matchingZones[0];
+
+          if (matchingZones.length > 1) {
+            switch (conflictStrategy) {
+              case 'nearest_center': {
+                let minDist = Infinity;
+                let nearest = matchingZones[0];
+                for (const zone of matchingZones) {
+                  if (zone.center_lat == null || zone.center_lng == null) continue;
+                  const R = 3958.8;
+                  const dLat = (Number(loc.latitude) - zone.center_lat) * Math.PI / 180;
+                  const dLng = (Number(loc.longitude) - zone.center_lng) * Math.PI / 180;
+                  const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(zone.center_lat * Math.PI / 180) * Math.cos(Number(loc.latitude) * Math.PI / 180) *
+                    Math.sin(dLng / 2) ** 2;
+                  const dist = R * 2 * Math.asin(Math.sqrt(a));
+                  if (dist < minDist) { minDist = dist; nearest = zone; }
+                }
+                targetZone = nearest;
+                break;
+              }
+              case 'first_created':
+                targetZone = matchingZones.sort((a, b) =>
+                  new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                )[0];
+                break;
+              case 'skip':
+              default:
+                results.skippedConflict++;
+                continue;
+            }
+          }
+
+          // Check for existing pending request on this location
+          const existing = await storage.getZoneAssignmentRequests({ status: 'pending', locationId: loc.id });
+          if (existing.length > 0) {
+            results.skippedExistingRequest++;
+            continue;
+          }
+
+          await storage.createZoneAssignmentRequest(loc.id, targetZone.id, targetZone.driver_id, adminId, deadlineHours);
+
+          // Notify driver in-app
+          const driverProfile = await storage.getDriverById(targetZone.driver_id);
+          if (driverProfile?.user_id) {
+            await storage.createNotification(
+              driverProfile.user_id,
+              'zone_assignment_request',
+              'New Location Assignment Request',
+              `An admin has requested you add ${loc.address} to your zone "${targetZone.name}". Please respond within ${deadlineHours} hours.`
+            );
+          }
+
+          // Email notification
+          try {
+            await sendDriverNotification(targetZone.driver_id, 'zone_assignment_request',
+              `Location Assignment Request: ${loc.address}`,
+              `An admin has requested you add ${loc.address} to your zone "${targetZone.name}". Please log in to approve or deny this request.`
+            );
+          } catch (emailErr) {
+            console.warn('Failed to send zone assignment email:', emailErr);
+          }
+
+          results.assigned++;
+        } catch (err) {
+          console.error(`[AutoAssign] Error processing location ${loc.id}:`, err);
+          results.errors++;
+        }
+      }
+
+      await audit(req, 'zone_auto_assign_batch', 'locations', null, {
+        total: unassigned.length, ...results, conflictStrategy
+      });
+
+      res.json({ success: true, results });
+    } catch (error) {
+      console.error('Auto-assign batch error:', error);
+      res.status(500).json({ error: 'Failed to run auto-assignment' });
     }
   });
 
@@ -2994,8 +3239,8 @@ export function registerAdminRoutes(app: Express) {
         // Auto-assign collection day from route insertion optimization
         if (optimizationResult) {
           await client.query(
-            `UPDATE locations SET collection_day = $1, collection_day_source = 'route_optimized', collection_day_detected_at = NOW() WHERE id = $2`,
-            [optimizationResult.collection_day, locationId]
+            `UPDATE locations SET collection_day = $1, collection_day_source = $2, collection_day_detected_at = NOW() WHERE id = $3`,
+            [optimizationResult.collection_day, optimizationResult.source || 'route_optimized', locationId]
           );
         }
 
@@ -3118,6 +3363,8 @@ export function registerAdminRoutes(app: Express) {
     WAITLIST_AUTO_FLAG_ENABLED: { category: 'operations', isSecret: false, label: 'Auto-Flag Waitlisted Locations on Zone Approval', displayType: 'toggle' },
     AUTO_ASSIGN_NEW_LOCATIONS: { category: 'operations', isSecret: false, label: 'Auto-Assign New Locations to Contract Drivers', displayType: 'toggle' },
     AUTO_EXPIRE_CONTRACTS:    { category: 'operations', isSecret: false, label: 'Auto-Expire Contracts Past End Date', displayType: 'toggle' },
+    ZONE_ASSIGNMENT_DEADLINE_HOURS:     { category: 'operations', isSecret: false, label: 'Zone Assignment Deadline (hours)',  displayType: 'text' },
+    ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY: { category: 'operations', isSecret: false, label: 'Multi-Zone Conflict Strategy',     displayType: 'text' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },

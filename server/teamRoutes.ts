@@ -1662,6 +1662,48 @@ export function registerTeamRoutes(app: Express) {
   });
 
   // ============================================================
+  // Zone Assignment Requests — driver approves/denies location assignments
+  // ============================================================
+
+  app.get('/api/team/zone-assignment-requests', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const requests = await storage.getPendingAssignmentRequestsForDriver(driverId);
+      res.json({ requests });
+    } catch (err: any) {
+      console.error('Error fetching zone assignment requests:', err);
+      res.status(500).json({ error: 'Failed to fetch zone assignment requests' });
+    }
+  });
+
+  app.put('/api/team/zone-assignment-requests/:id/respond', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { decision, notes } = req.body;
+      if (!decision || !['approved', 'denied'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be "approved" or "denied"' });
+      }
+      const result = await storage.respondToZoneAssignmentRequest(req.params.id, driverId, decision, notes);
+      if (!result) return res.status(404).json({ error: 'Request not found, not yours, or not pending' });
+
+      // Notify the requesting admin
+      if (result.requested_by) {
+        await storage.createNotification(
+          result.requested_by,
+          'zone_assignment_response',
+          `Zone Assignment ${decision === 'approved' ? 'Approved' : 'Denied'}`,
+          `Driver ${decision === 'approved' ? 'approved' : 'denied'} the assignment request for zone "${result.zone_name || 'unknown'}".${notes ? ` Notes: ${notes}` : ''}`
+        );
+      }
+
+      res.json({ success: true, request: result });
+    } catch (err: any) {
+      console.error('Error responding to zone assignment request:', err);
+      res.status(500).json({ error: 'Failed to respond to zone assignment request' });
+    }
+  });
+
+  // ============================================================
   // Contract Routes — driver views routes under a specific contract
   // ============================================================
 

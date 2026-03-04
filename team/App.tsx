@@ -8,6 +8,7 @@ import OnDemandPickups from './components/OnDemandPickups';
 import RouteTable, { STATUS_COLORS } from '../shared/components/RouteTable.tsx';
 import type { Route as SharedRoute } from '../shared/types/index.ts';
 const ZoneMapView = React.lazy(() => import('./components/ZoneMapView'));
+import ZoneAssignmentRequests from './components/ZoneAssignmentRequests';
 // AvailableLocations merged into ZoneMapView as unified Coverage view
 import {
   HomeIcon,
@@ -911,6 +912,8 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
           </Card>
         );
       })()}
+
+      <ZoneAssignmentRequests />
 
       {upcomingRoutes.length > 0 && (
         <Card className="p-6 mb-6">

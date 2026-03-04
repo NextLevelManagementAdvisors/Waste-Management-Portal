@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Circle, Polygon, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, Polygon, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import type { AdminZone } from './ZonesPanel.tsx';
+import type { AdminZone } from './ServiceAreasPanel.tsx';
+import type { ServiceAreaLocation } from './ServiceAreasPanel.tsx';
 import { StatusBadge } from '../ui/index.ts';
 
 // Fix Leaflet default marker icon paths (known Vite issue)
@@ -15,6 +16,15 @@ L.Icon.Default.mergeOptions({
 });
 
 const MILES_TO_METERS = 1609.34;
+
+const LOCATION_DOT_COLORS: Record<string, string> = {
+  approved: '#22C55E',
+  pending_review: '#EAB308',
+  waitlist: '#3B82F6',
+  denied: '#EF4444',
+};
+
+const capitalize = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 
 const zoneDetail = (zone: AdminZone): string => {
   if (zone.zone_type === 'circle' && zone.radius_miles != null) return `${zone.radius_miles} mi radius`;
@@ -38,7 +48,7 @@ const getZoneStyle = (zone: AdminZone) => {
 };
 
 // Auto-fit bounds component
-const FitBounds: React.FC<{ zones: AdminZone[]; highlightZoneId: string | null }> = ({ zones, highlightZoneId }) => {
+const FitBounds: React.FC<{ zones: AdminZone[]; locations?: ServiceAreaLocation[]; highlightZoneId: string | null }> = ({ zones, locations, highlightZoneId }) => {
   const map = useMap();
   const hasFit = useRef(false);
 
@@ -63,19 +73,28 @@ const FitBounds: React.FC<{ zones: AdminZone[]; highlightZoneId: string | null }
       if (z.center_lat && z.center_lng) points.push([Number(z.center_lat), Number(z.center_lng)]);
       if (z.polygon_coords) z.polygon_coords.forEach(c => points.push([c[0], c[1]]));
     });
+    // Include location points
+    if (locations) {
+      locations.forEach(loc => {
+        if (loc.latitude != null && loc.longitude != null) {
+          points.push([Number(loc.latitude), Number(loc.longitude)]);
+        }
+      });
+    }
 
     if (points.length > 0) {
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [40, 40] });
       hasFit.current = true;
     }
-  }, [map, zones, highlightZoneId]);
+  }, [map, zones, locations, highlightZoneId]);
 
   return null;
 };
 
 interface ZoneMapViewProps {
   zones: AdminZone[];
+  locations?: ServiceAreaLocation[];
   onApprove: (id: string) => Promise<void>;
   onReject: (id: string, notes?: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -89,7 +108,7 @@ interface ZoneMapViewProps {
 }
 
 const ZoneMapView: React.FC<ZoneMapViewProps> = ({
-  zones, onApprove, onReject, onDelete,
+  zones, locations, onApprove, onReject, onDelete,
   highlightZoneId, onHighlightConsumed,
   statusFilter, onStatusFilterChange, driverFilter, onDriverFilterChange, uniqueDrivers,
 }) => {
@@ -139,6 +158,7 @@ const ZoneMapView: React.FC<ZoneMapViewProps> = ({
           <div>
             <p className="text-xs text-gray-500">Driver: <span className="font-bold text-gray-700">{zone.driver_name}</span></p>
             <p className="text-xs text-gray-500">Type: {zone.zone_type} &middot; {zoneDetail(zone)}</p>
+            <p className="text-xs text-gray-500">Pickup Day: <span className="font-bold text-gray-700">{zone.pickup_day ? zone.pickup_day.charAt(0).toUpperCase() + zone.pickup_day.slice(1) : 'Not set'}</span></p>
           </div>
           <StatusBadge status={zone.status} />
 
@@ -210,6 +230,11 @@ const ZoneMapView: React.FC<ZoneMapViewProps> = ({
   // Default center (US center)
   const defaultCenter: [number, number] = [38.5, -79.5];
 
+  // Filter locations with valid coordinates
+  const mappableLocations = (locations || []).filter(
+    loc => loc.latitude != null && loc.longitude != null
+  );
+
   return (
     <div className="relative">
       {/* Map filters overlay */}
@@ -239,19 +264,36 @@ const ZoneMapView: React.FC<ZoneMapViewProps> = ({
 
       {/* Legend */}
       <div className="absolute bottom-3 left-3 z-[1000] bg-white/95 rounded-lg shadow-sm border border-gray-200 px-3 py-2">
-        <div className="flex items-center gap-3 text-[10px] font-bold text-gray-500">
-          <span className="flex items-center gap-1">
-            <span className="w-4 h-1 bg-blue-500 rounded" /> Active
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-4 h-1 bg-gray-400 rounded border-dashed border border-gray-500" /> Paused
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-4 h-1 bg-amber-500 rounded" style={{ borderBottom: '2px dashed #D97706' }} /> Pending
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-4 h-1 bg-gray-300 rounded" style={{ borderBottom: '1px dotted #9CA3AF' }} /> Rejected
-          </span>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-3 text-[10px] font-bold text-gray-500">
+            <span className="text-[9px] uppercase text-gray-400">Zones:</span>
+            <span className="flex items-center gap-1">
+              <span className="w-4 h-1 bg-blue-500 rounded" /> Active
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-4 h-1 bg-gray-400 rounded border-dashed border border-gray-500" /> Paused
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-4 h-1 bg-amber-500 rounded" style={{ borderBottom: '2px dashed #D97706' }} /> Pending
+            </span>
+          </div>
+          {mappableLocations.length > 0 && (
+            <div className="flex items-center gap-3 text-[10px] font-bold text-gray-500">
+              <span className="text-[9px] uppercase text-gray-400">Locations:</span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#22C55E' }} /> Approved
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#EAB308' }} /> Pending
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#3B82F6' }} /> Waitlist
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#EF4444' }} /> Denied
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -265,8 +307,9 @@ const ZoneMapView: React.FC<ZoneMapViewProps> = ({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds zones={zones} highlightZoneId={highlightZoneId} />
+        <FitBounds zones={zones} locations={locations} highlightZoneId={highlightZoneId} />
 
+        {/* Zone shapes */}
         {zones.map(zone => {
           const style = getZoneStyle(zone);
 
@@ -296,6 +339,35 @@ const ZoneMapView: React.FC<ZoneMapViewProps> = ({
           }
 
           return null;
+        })}
+
+        {/* Location dots */}
+        {mappableLocations.map(loc => {
+          const color = LOCATION_DOT_COLORS[loc.service_status] || '#9CA3AF';
+          return (
+            <CircleMarker
+              key={`loc-${loc.id}`}
+              center={[Number(loc.latitude), Number(loc.longitude)]}
+              radius={6}
+              pathOptions={{ color, fillColor: color, fillOpacity: 0.8, weight: 2 }}
+            >
+              <Popup maxWidth={250} minWidth={180}>
+                <div className="space-y-1 text-sm">
+                  <p className="font-black text-gray-900">{loc.address}</p>
+                  <p className="text-xs text-gray-500">Customer: <span className="font-bold text-gray-700">{loc.owner_name || 'Unknown'}</span></p>
+                  <p className="text-xs text-gray-500">Status: <span className="font-bold" style={{ color }}>{loc.service_status.replace('_', ' ')}</span></p>
+                  {loc.collection_day && (
+                    <p className="text-xs text-gray-500">Collection: <span className="font-bold text-gray-700">{capitalize(loc.collection_day)}</span></p>
+                  )}
+                  {loc.zone_name ? (
+                    <p className="text-xs text-gray-500">Zone: <span className="font-bold text-gray-700">{loc.zone_name}</span> ({loc.zone_driver_name})</p>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">Unassigned</p>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
+          );
         })}
       </MapContainer>
     </div>

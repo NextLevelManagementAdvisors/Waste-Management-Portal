@@ -13,6 +13,7 @@ export interface OptimizationResult {
   insertion_cost_miles: number;
   best_route_id?: string;
   confidence: number;
+  source?: 'route_optimized' | 'zone_default';
 }
 
 interface StopWithCoords {
@@ -76,9 +77,29 @@ function minInsertionCost(
 }
 
 /**
+ * Fallback: when route optimization has no data, check if the address is inside
+ * an active zone with a configured pickup_day.
+ */
+async function zoneFallback(lat: number, lng: number): Promise<OptimizationResult | null> {
+  const containingZones = await storage.findActiveZonesContainingPoint(lat, lng);
+  const zoneWithDay = containingZones.find(z => z.pickup_day);
+  if (zoneWithDay) {
+    return {
+      collection_day: zoneWithDay.pickup_day!,
+      zone_name: zoneWithDay.name,
+      driver_name: zoneWithDay.driver_name,
+      insertion_cost_miles: 0,
+      confidence: 0.5,
+      source: 'zone_default',
+    };
+  }
+  return null;
+}
+
+/**
  * Find the optimal collection day for a location by simulating insertion into
  * recent routes and picking the day with the lowest average additional mileage
- * (or estimated time).
+ * (or estimated time). Falls back to zone pickup_day when no route data exists.
  */
 export async function findOptimalCollectionDay(locationId: string): Promise<OptimizationResult | null> {
   const location = await storage.getLocationById(locationId);
@@ -114,7 +135,12 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
   const activeStatuses = new Set(['open', 'assigned', 'in_progress', 'completed']);
   const activeRoutes = routes.filter(r => activeStatuses.has(r.status));
 
-  if (activeRoutes.length === 0) return null;
+  if (activeRoutes.length === 0) {
+    // Fallback: check if address is inside a zone with a configured pickup_day
+    const fallback = await zoneFallback(lat, lng);
+    if (fallback) return fallback;
+    return null;
+  }
 
   // 4. For each route, calculate minimum insertion cost
   interface RouteResult {
@@ -143,7 +169,11 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
     });
   }
 
-  if (routeResults.length === 0) return null;
+  if (routeResults.length === 0) {
+    const fallback = await zoneFallback(lat, lng);
+    if (fallback) return fallback;
+    return null;
+  }
 
   // 5. Group by day of week, average the insertion cost
   const dayGroups: Record<string, { totalCost: number; count: number; bestRouteId: string; bestCost: number }> = {};
@@ -191,5 +221,6 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
     insertion_cost_miles: bestAvg,
     best_route_id: bestRouteId,
     confidence,
+    source: 'route_optimized',
   };
 }

@@ -1808,12 +1808,13 @@ export class Storage {
     zip_codes?: string[];
     color?: string;
     status?: string;
+    pickup_day?: string;
   }) {
     const zoneType = data.zone_type || 'circle';
     const status = data.status || 'active';
     const result = await this.query(
-      `INSERT INTO driver_custom_zones (driver_id, name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      `INSERT INTO driver_custom_zones (driver_id, name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, color, status, pickup_day)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
         driverId, data.name, zoneType,
         data.center_lat ?? null, data.center_lng ?? null, data.radius_miles ?? null,
@@ -1821,12 +1822,13 @@ export class Storage {
         data.zip_codes ?? null,
         data.color || '#3B82F6',
         status,
+        data.pickup_day ?? null,
       ]
     );
     return result.rows[0];
   }
 
-  async updateDriverCustomZone(id: string, driverId: string, data: Partial<{ name: string; center_lat: number; center_lng: number; radius_miles: number; polygon_coords: [number, number][]; color: string; status: string }>) {
+  async updateDriverCustomZone(id: string, driverId: string, data: Partial<{ name: string; center_lat: number; center_lng: number; radius_miles: number; polygon_coords: [number, number][]; color: string; status: string; pickup_day: string }>) {
     const sets: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -1901,6 +1903,111 @@ export class Storage {
       [zoneId]
     );
     return result.rowCount! > 0;
+  }
+
+  async adminUpdateZone(zoneId: string, data: Partial<{ pickup_day: string | null }>) {
+    const sets: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        sets.push(`${key} = $${idx}`);
+        params.push(val);
+        idx++;
+      }
+    }
+    if (sets.length === 0) return null;
+    sets.push(`updated_at = NOW()`);
+    params.push(zoneId);
+    const result = await this.query(
+      `UPDATE driver_custom_zones SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params
+    );
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Find all active driver zones that contain a given point.
+   * Uses Haversine for circles, Turf.js booleanPointInPolygon for polygon/zip.
+   */
+  async findActiveZonesContainingPoint(lat: number, lng: number): Promise<Array<{
+    id: string;
+    name: string;
+    driver_id: string;
+    driver_name: string;
+    pickup_day: string | null;
+    zone_type: string;
+    center_lat: number | null;
+    center_lng: number | null;
+    created_at: string;
+  }>> {
+    const allZones = await this.query(
+      `SELECT dcz.*, dp.name AS driver_name
+       FROM driver_custom_zones dcz
+       JOIN driver_profiles dp ON dcz.driver_id = dp.id
+       WHERE dcz.status = 'active'`
+    );
+
+    const matches: any[] = [];
+    for (const zone of allZones.rows) {
+      if (zone.zone_type === 'circle') {
+        if (zone.center_lat == null || zone.center_lng == null || zone.radius_miles == null) continue;
+        const cLat = Number(zone.center_lat);
+        const cLng = Number(zone.center_lng);
+        const R = 3958.8;
+        const dLat = (lat - cLat) * Math.PI / 180;
+        const dLng = (lng - cLng) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(cLat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) *
+          Math.sin(dLng / 2) ** 2;
+        const dist = R * 2 * Math.asin(Math.sqrt(a));
+        if (dist <= Number(zone.radius_miles)) {
+          matches.push(zone);
+        }
+      } else if (zone.zone_type === 'polygon' || zone.zone_type === 'zip') {
+        const coords = typeof zone.polygon_coords === 'string'
+          ? JSON.parse(zone.polygon_coords)
+          : zone.polygon_coords;
+        if (!coords || coords.length < 3) continue;
+        const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+        ring.push(ring[0]);
+        const poly = turfPolygon([ring]);
+        const pt = point([lng, lat]);
+        if (booleanPointInPolygon(pt, poly)) {
+          matches.push(zone);
+        }
+      }
+    }
+
+    return matches.map(z => ({
+      id: z.id,
+      name: z.name,
+      driver_id: z.driver_id,
+      driver_name: z.driver_name,
+      pickup_day: z.pickup_day || null,
+      zone_type: z.zone_type,
+      center_lat: z.center_lat ? Number(z.center_lat) : null,
+      center_lng: z.center_lng ? Number(z.center_lng) : null,
+      created_at: z.created_at,
+    }));
+  }
+
+  async getUnassignedLocationsWithCoords(): Promise<Array<{
+    id: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    service_status: string;
+  }>> {
+    const result = await this.query(
+      `SELECT id, address, latitude, longitude, service_status
+       FROM locations
+       WHERE coverage_zone_id IS NULL
+         AND latitude IS NOT NULL AND longitude IS NOT NULL
+         AND service_status IN ('approved', 'pending_review')
+       ORDER BY created_at ASC`
+    );
+    return result.rows;
   }
 
   // ── Zone Approval ──
@@ -2006,6 +2113,134 @@ export class Storage {
       [zoneId, locationIds]
     );
     return result.rowCount || 0;
+  }
+
+  // ── Zone Assignment Requests ──
+
+  async createZoneAssignmentRequest(locationId: string, zoneId: string, driverId: string, requestedBy: string, deadlineHours: number) {
+    const result = await this.query(
+      `INSERT INTO zone_assignment_requests (location_id, zone_id, driver_id, requested_by, deadline)
+       VALUES ($1, $2, $3, $4, NOW() + ($5 || ' hours')::interval)
+       RETURNING *`,
+      [locationId, zoneId, driverId, requestedBy, String(deadlineHours)]
+    );
+    return result.rows[0];
+  }
+
+  async getZoneAssignmentRequests(opts?: { status?: string; zoneId?: string; locationId?: string }) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (opts?.status) { conditions.push(`zar.status = $${idx++}`); params.push(opts.status); }
+    if (opts?.zoneId) { conditions.push(`zar.zone_id = $${idx++}`); params.push(opts.zoneId); }
+    if (opts?.locationId) { conditions.push(`zar.location_id = $${idx++}`); params.push(opts.locationId); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.query(
+      `SELECT zar.*, l.address AS location_address, dcz.name AS zone_name,
+              dp.name AS driver_name, u.first_name || ' ' || u.last_name AS requested_by_name
+       FROM zone_assignment_requests zar
+       JOIN locations l ON zar.location_id = l.id
+       JOIN driver_custom_zones dcz ON zar.zone_id = dcz.id
+       JOIN driver_profiles dp ON zar.driver_id = dp.id
+       JOIN users u ON zar.requested_by = u.id
+       ${where}
+       ORDER BY zar.created_at DESC`,
+      params
+    );
+    return result.rows;
+  }
+
+  async getPendingAssignmentRequestsForDriver(driverId: string) {
+    const result = await this.query(
+      `SELECT zar.*, l.address AS location_address, dcz.name AS zone_name,
+              u.first_name || ' ' || u.last_name AS requested_by_name
+       FROM zone_assignment_requests zar
+       JOIN locations l ON zar.location_id = l.id
+       JOIN driver_custom_zones dcz ON zar.zone_id = dcz.id
+       JOIN users u ON zar.requested_by = u.id
+       WHERE zar.driver_id = $1 AND zar.status = 'pending'
+       ORDER BY zar.deadline ASC`,
+      [driverId]
+    );
+    return result.rows;
+  }
+
+  async respondToZoneAssignmentRequest(requestId: string, driverId: string, decision: 'approved' | 'denied', notes?: string) {
+    const result = await this.query(
+      `UPDATE zone_assignment_requests
+       SET status = $1, response_notes = $2, responded_at = NOW()
+       WHERE id = $3 AND driver_id = $4 AND status = 'pending'
+       RETURNING *`,
+      [decision, notes || null, requestId, driverId]
+    );
+    const request = result.rows[0];
+    if (!request) return null;
+    // On approval, assign location to zone
+    if (decision === 'approved') {
+      await this.query(
+        `UPDATE locations SET coverage_zone_id = $1, updated_at = NOW() WHERE id = $2`,
+        [request.zone_id, request.location_id]
+      );
+    }
+    return request;
+  }
+
+  async cancelZoneAssignmentRequest(requestId: string) {
+    const result = await this.query(
+      `UPDATE zone_assignment_requests SET status = 'cancelled'
+       WHERE id = $1 AND status = 'pending' RETURNING *`,
+      [requestId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async expireStaleZoneAssignmentRequests() {
+    const result = await this.query(
+      `UPDATE zone_assignment_requests SET status = 'expired'
+       WHERE status = 'pending' AND deadline < NOW()
+       RETURNING id`
+    );
+    return result.rowCount || 0;
+  }
+
+  async getLocationsGroupedByZone(opts?: {
+    search?: string; status?: string; collectionDay?: string;
+    page?: number; limit?: number;
+  }) {
+    const page = opts?.page || 1;
+    const limit = opts?.limit || 200;
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (opts?.search) {
+      conditions.push(`(l.address ILIKE $${idx} OR u.first_name || ' ' || u.last_name ILIKE $${idx})`);
+      params.push(`%${opts.search}%`); idx++;
+    }
+    if (opts?.status) { conditions.push(`l.service_status = $${idx}`); params.push(opts.status); idx++; }
+    if (opts?.collectionDay) { conditions.push(`l.collection_day = $${idx}`); params.push(opts.collectionDay); idx++; }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const countResult = await this.query(
+      `SELECT COUNT(*) as count FROM locations l LEFT JOIN users u ON l.user_id = u.id ${where}`, params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+    const result = await this.query(
+      `SELECT l.id, l.address, l.service_status, l.collection_day, l.collection_frequency,
+              l.latitude, l.longitude, l.coverage_zone_id, l.collection_day_source, l.created_at,
+              u.first_name || ' ' || u.last_name AS owner_name, u.email AS owner_email,
+              dcz.name AS zone_name, dcz.color AS zone_color, dcz.status AS zone_status,
+              dcz.pickup_day AS zone_pickup_day, dcz.driver_id AS zone_driver_id,
+              dp.name AS zone_driver_name
+       FROM locations l
+       LEFT JOIN users u ON l.user_id = u.id
+       LEFT JOIN driver_custom_zones dcz ON l.coverage_zone_id = dcz.id
+       LEFT JOIN driver_profiles dp ON dcz.driver_id = dp.id
+       ${where}
+       ORDER BY dcz.name NULLS FIRST, l.address ASC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
 

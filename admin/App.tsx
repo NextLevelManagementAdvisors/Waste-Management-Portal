@@ -44,12 +44,14 @@ const PATH_TO_VIEW: Record<string, AdminView> = Object.fromEntries(
 const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
   routes: '/admin/operations/routes',
-  locations: '/admin/operations/locations',
+  'service-areas': '/admin/operations/service-areas',
   contracts: '/admin/operations/contracts',
   opportunities: '/admin/operations/opportunities',
-  zones: '/admin/operations/zones',
-  'zone-approvals': '/admin/operations/zones',
   issues: '/admin/operations/issues',
+  // Backward compat aliases
+  locations: '/admin/operations/service-areas',
+  zones: '/admin/operations/service-areas',
+  'zone-approvals': '/admin/operations/service-areas',
   actions: '/admin/operations/issues',
   'address-review': '/admin/operations/issues',
 };
@@ -57,13 +59,14 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
 const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
   '/admin/operations/routes': 'routes',
-  '/admin/operations/locations': 'locations',
+  '/admin/operations/service-areas': 'service-areas',
   '/admin/operations/contracts': 'contracts',
   '/admin/operations/opportunities': 'opportunities',
-  '/admin/operations/zones': 'zones',
-  '/admin/operations/zone-approvals': 'zones',
   '/admin/operations/issues': 'issues',
   // Backward compat: old tab paths
+  '/admin/operations/locations': 'service-areas',
+  '/admin/operations/zones': 'service-areas',
+  '/admin/operations/zone-approvals': 'service-areas',
   '/admin/operations/actions': 'issues',
   '/admin/operations/address-review': 'issues',
   '/admin/operations/live': 'operations',

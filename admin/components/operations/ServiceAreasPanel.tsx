@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { LoadingSpinner } from '../ui/index.ts';
-import ZoneListView from './ZoneListView.tsx';
+import ServiceAreasListView from './ServiceAreasListView.tsx';
 
 const ZoneMapView = lazy(() => import('./ZoneMapView.tsx'));
 
@@ -19,29 +19,72 @@ export interface AdminZone {
   zip_codes: string[] | null;
   color: string;
   status: string;
+  pickup_day: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export interface ServiceAreaLocation {
+  id: string;
+  address: string;
+  service_status: string;
+  collection_day: string | null;
+  collection_frequency: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  coverage_zone_id: string | null;
+  collection_day_source: string | null;
+  created_at: string;
+  owner_name: string;
+  owner_email: string;
+  zone_name: string | null;
+  zone_color: string | null;
+  zone_status: string | null;
+  zone_pickup_day: string | null;
+  zone_driver_id: string | null;
+  zone_driver_name: string | null;
+}
+
+export interface AssignmentRequest {
+  id: string;
+  location_id: string;
+  zone_id: string;
+  driver_id: string;
+  requested_by: string;
+  status: string;
+  deadline: string;
+  response_notes: string | null;
+  created_at: string;
+  responded_at: string | null;
+  location_address: string;
+  zone_name: string;
+  driver_name: string;
+  requested_by_name: string;
+}
+
 export type ViewMode = 'list' | 'map';
 
-interface ZonesPanelProps {
+interface ServiceAreasPanelProps {
   onActionResolved?: () => void;
 }
 
-const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
+const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved }) => {
   const [zones, setZones] = useState<AdminZone[]>([]);
+  const [locations, setLocations] = useState<ServiceAreaLocation[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<AssignmentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [selectedZones, setSelectedZones] = useState<Map<string, AdminZone>>(new Map());
   const [highlightZoneId, setHighlightZoneId] = useState<string | null>(null);
   const [flaggedNotice, setFlaggedNotice] = useState<{ count: number } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [driverFilter, setDriverFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [locationStatusFilter, setLocationStatusFilter] = useState('all');
 
   const loadZones = useCallback(async () => {
     try {
@@ -51,10 +94,38 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
         setZones(j.zones || []);
       }
     } catch {}
-    setLoading(false);
   }, []);
 
-  useEffect(() => { loadZones(); }, [loadZones]);
+  const loadLocations = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (locationStatusFilter !== 'all') params.set('status', locationStatusFilter);
+      const res = await fetch(`/api/admin/service-areas/locations?${params}`, { credentials: 'include' });
+      if (res.ok) {
+        const j = await res.json();
+        setLocations(j.locations || []);
+      }
+    } catch {}
+  }, [search, locationStatusFilter]);
+
+  const loadRequests = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/zone-assignment-requests?status=pending', { credentials: 'include' });
+      if (res.ok) {
+        const j = await res.json();
+        setPendingRequests(j.requests || []);
+      }
+    } catch {}
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([loadZones(), loadLocations(), loadRequests()]);
+    setLoading(false);
+  }, [loadZones, loadLocations, loadRequests]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   const pendingCount = useMemo(() => zones.filter(z => z.status === 'pending_approval').length, [zones]);
   const uniqueDrivers = useMemo(() => {
@@ -75,11 +146,14 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
     return result;
   }, [zones, statusFilter, typeFilter, driverFilter, search]);
 
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 5000); };
+
   const showFlagged = (count: number) => {
     setFlaggedNotice({ count });
     setTimeout(() => setFlaggedNotice(null), 8000);
   };
 
+  // Zone approval handlers (reused from ZonesPanel)
   const handleApprove = async (zoneId: string) => {
     const res = await fetch(`/api/admin/zones/${zoneId}/decision`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -88,7 +162,7 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
     if (res.ok) {
       const data = await res.json();
       if (data.flaggedLocations > 0) showFlagged(data.flaggedLocations);
-      await loadZones();
+      await loadAll();
       onActionResolved?.();
     }
   };
@@ -98,12 +172,12 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ decision: 'rejected', notes }),
     });
-    if (res.ok) { await loadZones(); onActionResolved?.(); }
+    if (res.ok) { await loadAll(); onActionResolved?.(); }
   };
 
   const handleDelete = async (zoneId: string) => {
     const res = await fetch(`/api/admin/zones/${zoneId}`, { method: 'DELETE', credentials: 'include' });
-    if (res.ok) { await loadZones(); onActionResolved?.(); }
+    if (res.ok) { await loadAll(); onActionResolved?.(); }
   };
 
   const handleBulkDecision = async (zoneIds: string[], decision: 'approved' | 'rejected', notes?: string) => {
@@ -116,7 +190,7 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
       const totalFlagged = (data.results || []).reduce((sum: number, r: any) => sum + (r.flaggedLocations || 0), 0);
       if (totalFlagged > 0) showFlagged(totalFlagged);
       setSelectedZones(new Map());
-      await loadZones();
+      await loadAll();
       onActionResolved?.();
     }
   };
@@ -126,12 +200,47 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ zoneIds }),
     });
-    if (res.ok) { setSelectedZones(new Map()); await loadZones(); onActionResolved?.(); }
+    if (res.ok) { setSelectedZones(new Map()); await loadAll(); onActionResolved?.(); }
+  };
+
+  const handleUpdatePickupDay = async (zoneId: string, pickupDay: string | null) => {
+    const res = await fetch(`/api/admin/zones/${zoneId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ pickup_day: pickupDay }),
+    });
+    if (res.ok) await loadAll();
   };
 
   const handleViewOnMap = (zoneId: string) => {
     setHighlightZoneId(zoneId);
     setViewMode('map');
+  };
+
+  // Zone assignment request handlers
+  const handleCreateAssignmentRequest = async (locationId: string, zoneId: string) => {
+    const res = await fetch('/api/admin/zone-assignment-requests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ locationId, zoneId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const zone = zones.find(z => z.id === zoneId);
+      showToast(`Request sent to ${zone?.driver_name || 'driver'} for zone "${zone?.name || 'unknown'}"`);
+      await loadRequests();
+    } else {
+      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      showToast(err.error || 'Failed to create assignment request');
+    }
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    const res = await fetch(`/api/admin/zone-assignment-requests/${requestId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (res.ok) {
+      showToast('Assignment request cancelled');
+      await loadRequests();
+    }
   };
 
   if (loading) return <LoadingSpinner />;
@@ -143,9 +252,10 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h3 className="text-base font-bold text-gray-900">Coverage Zones</h3>
+          <h3 className="text-base font-bold text-gray-900">Service Areas</h3>
           <div className="flex gap-4 text-sm text-gray-500 mt-0.5">
             <span><span className="font-bold text-gray-900">{zones.length}</span> zone{zones.length !== 1 ? 's' : ''}</span>
+            <span><span className="font-bold text-gray-900">{locations.length}</span> location{locations.length !== 1 ? 's' : ''}</span>
             <span><span className="font-bold text-gray-900">{uniqueDrivers.length}</span> driver{uniqueDrivers.length !== 1 ? 's' : ''}</span>
             <span><span className="font-bold text-gray-900">{activeCount}</span> active</span>
           </div>
@@ -209,10 +319,20 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
         </div>
       )}
 
+      {/* Toast */}
+      {toast && (
+        <div className="bg-gray-900 text-white text-sm font-bold px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2">
+          {toast}
+          <button type="button" onClick={() => setToast(null)} className="ml-auto text-white/60 hover:text-white text-xs">&times;</button>
+        </div>
+      )}
+
       {/* View Content */}
       {viewMode === 'list' ? (
-        <ZoneListView
+        <ServiceAreasListView
           zones={filteredZones}
+          locations={locations}
+          pendingRequests={pendingRequests}
           selectedZones={selectedZones}
           onSelectedChange={setSelectedZones}
           onApprove={handleApprove}
@@ -221,12 +341,17 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
           onBulkDecision={handleBulkDecision}
           onBulkDelete={handleBulkDelete}
           onViewOnMap={handleViewOnMap}
+          onUpdatePickupDay={handleUpdatePickupDay}
+          onCreateAssignmentRequest={handleCreateAssignmentRequest}
+          onCancelRequest={handleCancelRequest}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
           typeFilter={typeFilter}
           onTypeFilterChange={setTypeFilter}
           driverFilter={driverFilter}
           onDriverFilterChange={setDriverFilter}
+          locationStatusFilter={locationStatusFilter}
+          onLocationStatusFilterChange={setLocationStatusFilter}
           search={search}
           onSearchChange={setSearch}
           uniqueDrivers={uniqueDrivers}
@@ -235,6 +360,7 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
         <Suspense fallback={<LoadingSpinner />}>
           <ZoneMapView
             zones={filteredZones}
+            locations={locations}
             onApprove={handleApprove}
             onReject={handleReject}
             onDelete={handleDelete}
@@ -252,4 +378,4 @@ const ZonesPanel: React.FC<ZonesPanelProps> = ({ onActionResolved }) => {
   );
 };
 
-export default ZonesPanel;
+export default ServiceAreasPanel;

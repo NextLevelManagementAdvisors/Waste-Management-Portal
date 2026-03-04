@@ -300,21 +300,21 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
       <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
         <div>
           <p className="text-sm font-bold text-gray-800">Auto-Approve Addresses in Zone</p>
-          <p className="text-xs text-gray-500">Automatically approve new addresses that fall within a recognized service zone</p>
+          <p className="text-xs text-gray-500">Automatically approve new addresses that fall within an active driver coverage zone</p>
         </div>
         <button
           type="button"
           title={autoApprove ? 'Disable auto-approve' : 'Enable auto-approve'}
           onClick={handleAutoApproveToggle}
-          disabled={savingOpt || !autoAssign}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${autoApprove && autoAssign ? 'bg-teal-600' : 'bg-gray-200'}`}
+          disabled={savingOpt}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${autoApprove ? 'bg-teal-600' : 'bg-gray-200'}`}
         >
-          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoApprove && autoAssign ? 'translate-x-5' : 'translate-x-0'}`} />
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autoApprove ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
 
       {/* Auto-Approve Thresholds (only shown when auto-approve is enabled) */}
-      {autoApprove && autoAssign && (
+      {autoApprove && (
         <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3 ml-4 border-l-4 border-l-teal-200">
           <p className="text-xs font-bold text-gray-500">Auto-Approve Thresholds</p>
           <p className="text-xs text-gray-400">

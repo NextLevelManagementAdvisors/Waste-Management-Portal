@@ -314,6 +314,16 @@ setInterval(processScheduledMessages, 60_000);
         console.log(`[Lifecycle] Auto-expired ${expiredCR.rowCount} stale coverage request(s)`);
       }
 
+      // Auto-expire zone assignment requests past deadline
+      const expiredZAR = await dbPool.query(
+        `UPDATE zone_assignment_requests SET status = 'expired'
+         WHERE status = 'pending' AND deadline < NOW()
+         RETURNING id`
+      );
+      if ((expiredZAR.rowCount || 0) > 0) {
+        console.log(`[Lifecycle] Auto-expired ${expiredZAR.rowCount} stale zone assignment request(s)`);
+      }
+
       // US-8: Auto-expire opportunities past start_date
       const expiredOpp = await dbPool.query(
         `UPDATE contract_opportunities SET status = 'cancelled'

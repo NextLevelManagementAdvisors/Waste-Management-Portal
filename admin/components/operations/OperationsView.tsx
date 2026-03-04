@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import type { NavFilter } from '../../../shared/types/index.ts';
-import LocationsList from './LocationsList.tsx';
 import MissedCollectionsList from './MissedCollectionsList.tsx';
 import PlanningCalendar from './PlanningCalendar.tsx';
 import RoutesList from './RoutesList.tsx';
-import ZonesPanel from './ZonesPanel.tsx';
+import ServiceAreasPanel from './ServiceAreasPanel.tsx';
 import ContractsPanel from './ContractsPanel.tsx';
 import OpportunitiesPanel from './OpportunitiesPanel.tsx';
 
 // Kept for backward compat with App.tsx routing
-export type OpsTabType = 'operations' | 'routes' | 'locations' | 'contracts' | 'opportunities' | 'zones' | 'zone-approvals' | 'issues' | 'actions' | 'address-review';
+export type OpsTabType = 'operations' | 'routes' | 'service-areas' | 'contracts' | 'opportunities' | 'issues' | 'actions' | 'address-review'
+  | 'locations' | 'zones' | 'zone-approvals'; // backward compat aliases
 
 interface OperationsViewProps {
   navFilter?: NavFilter | null;
@@ -25,10 +25,9 @@ interface OperationsViewProps {
 const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'operations', label: 'Calendar' },
   { key: 'routes', label: 'Routes' },
-  { key: 'locations', label: 'Locations' },
+  { key: 'service-areas', label: 'Service Areas' },
   { key: 'contracts', label: 'Contracts' },
   { key: 'opportunities', label: 'Opportunities' },
-  { key: 'zones', label: 'Zones' },
   { key: 'issues', label: 'Issues' },
 ];
 
@@ -38,15 +37,16 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
     if (navFilter?.tab) {
       if (navFilter.tab === 'issues' || navFilter.tab === 'actions') {
         onTabChange?.('issues');
-      } else if (navFilter.tab === 'zone-approvals') {
-        // Backward compat: redirect zone-approvals to zones
-        onTabChange?.('zones');
+      } else if (navFilter.tab === 'zone-approvals' || navFilter.tab === 'zones' || navFilter.tab === 'locations') {
+        onTabChange?.('service-areas');
       }
       onFilterConsumed?.();
     }
   }, [navFilter, onFilterConsumed, onTabChange]);
 
-  const currentTab = (activeTab === 'zone-approvals' ? 'zones' : activeTab) || 'operations';
+  // Normalize legacy tab values
+  const normalizedTab = (['zones', 'zone-approvals', 'locations'].includes(activeTab) ? 'service-areas' : activeTab) || 'operations';
+  const currentTab = normalizedTab;
   const isIssues = currentTab === 'issues' || currentTab === 'actions' || currentTab === 'address-review';
 
   return (
@@ -57,10 +57,10 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
           const isActive = tab.key === 'issues' ? isIssues : currentTab === tab.key;
           const badge =
             (tab.key === 'issues' && missedCollectionsCount > 0) ? missedCollectionsCount :
-            (tab.key === 'zones' && pendingZonesCount > 0) ? pendingZonesCount :
+            (tab.key === 'service-areas' && pendingZonesCount > 0) ? pendingZonesCount :
             (tab.key === 'contracts' && contractAlertsCount > 0) ? contractAlertsCount :
             null;
-          const badgeColor = tab.key === 'zones' ? 'bg-blue-500' : tab.key === 'contracts' ? 'bg-amber-500' : 'bg-red-500';
+          const badgeColor = tab.key === 'service-areas' ? 'bg-blue-500' : tab.key === 'contracts' ? 'bg-amber-500' : 'bg-red-500';
           return (
             <button
               key={tab.key}
@@ -86,10 +86,9 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {/* Tab Content */}
       {currentTab === 'operations' && <PlanningCalendar />}
       {currentTab === 'routes' && <RoutesList />}
-      {currentTab === 'locations' && <LocationsList />}
+      {currentTab === 'service-areas' && <ServiceAreasPanel onActionResolved={onActionResolved} />}
       {currentTab === 'contracts' && <ContractsPanel />}
       {currentTab === 'opportunities' && <OpportunitiesPanel />}
-      {currentTab === 'zones' && <ZonesPanel onActionResolved={onActionResolved} />}
       {isIssues && <MissedCollectionsList onActionResolved={onActionResolved} />}
     </div>
   );

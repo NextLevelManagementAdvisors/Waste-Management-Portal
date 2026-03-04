@@ -1,4 +1,6 @@
 import { storage } from './storage.ts';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { point, polygon as turfPolygon } from '@turf/helpers';
 
 export interface RouteSuggestion {
   zone_name: string;
@@ -40,13 +42,33 @@ export async function findNearestZone(lat: number, lng: number): Promise<{ zone_
   let best: { zone_id: string; zone_name: string; driver_name?: string; distance_miles: number } | null = null;
 
   for (const zone of zones) {
-    if (zone.center_lat == null || zone.center_lng == null) continue;
     if (zone.status !== 'active') continue;
-    const dist = haversineDistanceMiles(lat, lng, Number(zone.center_lat), Number(zone.center_lng));
-    const radius = zone.radius_miles ? Number(zone.radius_miles) : Infinity;
-    if (dist > radius) continue;
-    if (!best || dist < best.distance_miles) {
-      best = { zone_id: zone.id, zone_name: zone.name, driver_name: zone.driver_name, distance_miles: dist };
+
+    // Circle zones: check distance to center within radius
+    if (zone.zone_type === 'circle' && zone.center_lat != null && zone.center_lng != null) {
+      const dist = haversineDistanceMiles(lat, lng, Number(zone.center_lat), Number(zone.center_lng));
+      const radius = zone.radius_miles ? Number(zone.radius_miles) : Infinity;
+      if (dist > radius) continue;
+      if (!best || dist < best.distance_miles) {
+        best = { zone_id: zone.id, zone_name: zone.name, driver_name: zone.driver_name, distance_miles: dist };
+      }
+    }
+
+    // Polygon/zip zones: point-in-polygon check (distance 0 if inside)
+    if ((zone.zone_type === 'polygon' || zone.zone_type === 'zip') && zone.polygon_coords) {
+      const coords = typeof zone.polygon_coords === 'string'
+        ? JSON.parse(zone.polygon_coords)
+        : zone.polygon_coords;
+      if (!coords || coords.length < 3) continue;
+      const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+      ring.push(ring[0]);
+      const poly = turfPolygon([ring]);
+      const pt = point([lng, lat]);
+      if (booleanPointInPolygon(pt, poly)) {
+        if (!best || 0 < best.distance_miles) {
+          best = { zone_id: zone.id, zone_name: zone.name, driver_name: zone.driver_name, distance_miles: 0 };
+        }
+      }
     }
   }
 
