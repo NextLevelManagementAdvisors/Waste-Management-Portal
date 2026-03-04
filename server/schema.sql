@@ -637,24 +637,6 @@ CREATE INDEX IF NOT EXISTS idx_dcz_type ON driver_custom_zones(zone_type);
 -- Waitlist auto-flagging FK (must come after driver_custom_zones table creation)
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_flagged_by_zone UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
 
--- ── Location Claims (Dual Dispatch) ──
-CREATE TABLE IF NOT EXISTS location_claims (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
-  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
-  status VARCHAR(20) NOT NULL DEFAULT 'active',
-  claimed_at TIMESTAMP DEFAULT NOW(),
-  revoked_at TIMESTAMP,
-  revoked_by UUID,
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lc_active_location ON location_claims(location_id) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS idx_lc_driver ON location_claims(driver_id);
-CREATE INDEX IF NOT EXISTS idx_lc_status ON location_claims(status);
-CREATE INDEX IF NOT EXISTS idx_lc_driver_status ON location_claims(driver_id, status);
-
 -- Account deletion
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_for TIMESTAMP;

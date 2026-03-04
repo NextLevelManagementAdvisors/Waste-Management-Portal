@@ -48,8 +48,7 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   contracts: '/admin/operations/contracts',
   opportunities: '/admin/operations/opportunities',
   zones: '/admin/operations/zones',
-  claims: '/admin/operations/claims',
-  'zone-approvals': '/admin/operations/zone-approvals',
+  'zone-approvals': '/admin/operations/zones',
   issues: '/admin/operations/issues',
   actions: '/admin/operations/issues',
   'address-review': '/admin/operations/issues',
@@ -62,8 +61,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations/contracts': 'contracts',
   '/admin/operations/opportunities': 'opportunities',
   '/admin/operations/zones': 'zones',
-  '/admin/operations/claims': 'claims',
-  '/admin/operations/zone-approvals': 'zone-approvals',
+  '/admin/operations/zone-approvals': 'zones',
   '/admin/operations/issues': 'issues',
   // Backward compat: old tab paths
   '/admin/operations/actions': 'issues',
@@ -689,7 +687,7 @@ const AdminApp: React.FC = () => {
               {pzCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('operations', { tab: 'zone-approvals' })}
+                  onClick={() => navigateTo('operations', { tab: 'zones' })}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-blue-200 hover:bg-blue-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

@@ -33,6 +33,10 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className = ''
         return 'bg-blue-100 text-blue-800';
       case 'paused':
         return 'bg-gray-100 text-gray-800';
+      case 'pending_approval':
+        return 'bg-amber-100 text-amber-800';
+      case 'rejected':
+        return 'bg-red-100 text-red-800';
       case 'processing':
         return 'bg-blue-100 text-blue-800';
       case 'inactive':

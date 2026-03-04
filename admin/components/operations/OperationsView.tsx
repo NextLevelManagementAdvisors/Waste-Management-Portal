@@ -5,13 +5,11 @@ import MissedCollectionsList from './MissedCollectionsList.tsx';
 import PlanningCalendar from './PlanningCalendar.tsx';
 import RoutesList from './RoutesList.tsx';
 import ZonesPanel from './ZonesPanel.tsx';
-import ClaimsPanel from './ClaimsPanel.tsx';
-import ZoneApprovalPanel from './ZoneApprovalPanel.tsx';
 import ContractsPanel from './ContractsPanel.tsx';
 import OpportunitiesPanel from './OpportunitiesPanel.tsx';
 
 // Kept for backward compat with App.tsx routing
-export type OpsTabType = 'operations' | 'routes' | 'locations' | 'contracts' | 'opportunities' | 'zones' | 'claims' | 'zone-approvals' | 'issues' | 'actions' | 'address-review';
+export type OpsTabType = 'operations' | 'routes' | 'locations' | 'contracts' | 'opportunities' | 'zones' | 'zone-approvals' | 'issues' | 'actions' | 'address-review';
 
 interface OperationsViewProps {
   navFilter?: NavFilter | null;
@@ -31,8 +29,6 @@ const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'contracts', label: 'Contracts' },
   { key: 'opportunities', label: 'Opportunities' },
   { key: 'zones', label: 'Zones' },
-  { key: 'claims', label: 'Claims' },
-  { key: 'zone-approvals', label: 'Zone Approvals' },
   { key: 'issues', label: 'Issues' },
 ];
 
@@ -43,13 +39,14 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       if (navFilter.tab === 'issues' || navFilter.tab === 'actions') {
         onTabChange?.('issues');
       } else if (navFilter.tab === 'zone-approvals') {
-        onTabChange?.('zone-approvals');
+        // Backward compat: redirect zone-approvals to zones
+        onTabChange?.('zones');
       }
       onFilterConsumed?.();
     }
   }, [navFilter, onFilterConsumed, onTabChange]);
 
-  const currentTab = activeTab || 'operations';
+  const currentTab = (activeTab === 'zone-approvals' ? 'zones' : activeTab) || 'operations';
   const isIssues = currentTab === 'issues' || currentTab === 'actions' || currentTab === 'address-review';
 
   return (
@@ -60,10 +57,10 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
           const isActive = tab.key === 'issues' ? isIssues : currentTab === tab.key;
           const badge =
             (tab.key === 'issues' && missedCollectionsCount > 0) ? missedCollectionsCount :
-            (tab.key === 'zone-approvals' && pendingZonesCount > 0) ? pendingZonesCount :
+            (tab.key === 'zones' && pendingZonesCount > 0) ? pendingZonesCount :
             (tab.key === 'contracts' && contractAlertsCount > 0) ? contractAlertsCount :
             null;
-          const badgeColor = tab.key === 'zone-approvals' ? 'bg-blue-500' : tab.key === 'contracts' ? 'bg-amber-500' : 'bg-red-500';
+          const badgeColor = tab.key === 'zones' ? 'bg-blue-500' : tab.key === 'contracts' ? 'bg-amber-500' : 'bg-red-500';
           return (
             <button
               key={tab.key}
@@ -92,9 +89,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {currentTab === 'locations' && <LocationsList />}
       {currentTab === 'contracts' && <ContractsPanel />}
       {currentTab === 'opportunities' && <OpportunitiesPanel />}
-      {currentTab === 'zones' && <ZonesPanel />}
-      {currentTab === 'claims' && <ClaimsPanel />}
-      {currentTab === 'zone-approvals' && <ZoneApprovalPanel onActionResolved={onActionResolved} />}
+      {currentTab === 'zones' && <ZonesPanel onActionResolved={onActionResolved} />}
       {isIssues && <MissedCollectionsList onActionResolved={onActionResolved} />}
     </div>
   );

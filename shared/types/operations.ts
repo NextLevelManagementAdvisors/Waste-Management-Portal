@@ -231,41 +231,6 @@ export interface LocationDirectoryResponse {
   limit: number;
 }
 
-// -- Location Claims (Dual Dispatch) --
-
-export type LocationClaimStatus = 'active' | 'revoked' | 'released';
-
-export interface LocationClaim {
-  id: string;
-  locationId: string;
-  driverId: string;
-  status: LocationClaimStatus;
-  claimedAt: string;
-  revokedAt: string | null;
-  notes: string | null;
-  driverName?: string;
-  driverRating?: number;
-  address?: string;
-  customerName?: string;
-}
-
-export interface AvailableLocation {
-  id: string;
-  address: string;
-  serviceType: string;
-  collectionDay: string | null;
-  collectionFrequency: string | null;
-  latitude: number;
-  longitude: number;
-  customerName: string;
-  claimedByDriverId: string | null;
-  claimedByDriverName: string | null;
-  claimStatus: LocationClaimStatus | null;
-  isMine: boolean;
-  distanceMiles: number;
-  matchingZoneName: string;
-}
-
 // ============================================================
 // Contract & Compensation Types
 // ============================================================

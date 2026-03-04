@@ -1886,13 +1886,21 @@ export class Storage {
 
   async getAllDriverCustomZones() {
     const result = await this.query(
-      `SELECT dcz.*, dp.name AS driver_name, u.email AS driver_email
+      `SELECT dcz.*, dp.name AS driver_name, dp.rating AS driver_rating, u.email AS driver_email
        FROM driver_custom_zones dcz
        JOIN driver_profiles dp ON dcz.driver_id = dp.id
        LEFT JOIN users u ON dp.user_id = u.id
-       ORDER BY dp.name, dcz.name`
+       ORDER BY CASE WHEN dcz.status = 'pending_approval' THEN 0 ELSE 1 END, dp.name, dcz.name`
     );
     return result.rows;
+  }
+
+  async adminDeleteZone(zoneId: string) {
+    const result = await this.query(
+      `DELETE FROM driver_custom_zones WHERE id = $1 RETURNING id`,
+      [zoneId]
+    );
+    return result.rowCount! > 0;
   }
 
   // ── Zone Approval ──
@@ -1932,7 +1940,7 @@ export class Storage {
 
   /**
    * Find all waitlisted locations that fall within a specific zone's geometry.
-   * Reuses the same Haversine / Turf.js spatial logic as getAvailableLocationsForDriver.
+   * Uses Haversine / Turf.js spatial logic for zone geometry matching.
    */
   async getWaitlistedLocationsInZone(zone: {
     id: string;
@@ -2000,274 +2008,6 @@ export class Storage {
     return result.rowCount || 0;
   }
 
-  // ── Location Claims ──
-
-  async getAvailableLocationsForDriver(driverId: string) {
-    // Step 1: Circle-based matching (existing Haversine SQL for circle zones)
-    const circleResult = await this.query(
-      `WITH driver_zones AS (
-         SELECT sz.id AS zone_source_id, sz.name AS zone_source_name,
-                sz.center_lat, sz.center_lng, sz.radius_miles
-         FROM driver_zone_selections dzs
-         JOIN service_zones sz ON dzs.zone_id = sz.id
-         WHERE dzs.driver_id = $1 AND dzs.status = 'active'
-           AND sz.center_lat IS NOT NULL AND sz.center_lng IS NOT NULL
-           AND sz.radius_miles IS NOT NULL AND sz.active = true
-         UNION ALL
-         SELECT dcz.id AS zone_source_id, dcz.name AS zone_source_name,
-                dcz.center_lat, dcz.center_lng, dcz.radius_miles
-         FROM driver_custom_zones dcz
-         WHERE dcz.driver_id = $1 AND dcz.status = 'active'
-           AND dcz.center_lat IS NOT NULL AND dcz.radius_miles IS NOT NULL
-       ),
-       matched_locations AS (
-         SELECT DISTINCT ON (p.id)
-           p.id, p.address, p.service_type, p.collection_day, p.collection_frequency,
-           p.latitude, p.longitude, p.zone_id,
-           u.first_name || ' ' || u.last_name AS customer_name,
-           sz.name AS zone_name, sz.color AS zone_color,
-           dz.zone_source_name AS matching_zone_name,
-           (3958.8 * 2 * ASIN(SQRT(
-             POWER(SIN(RADIANS(CAST(p.latitude AS float) - CAST(dz.center_lat AS float)) / 2), 2) +
-             COS(RADIANS(CAST(dz.center_lat AS float))) * COS(RADIANS(CAST(p.latitude AS float))) *
-             POWER(SIN(RADIANS(CAST(p.longitude AS float) - CAST(dz.center_lng AS float)) / 2), 2)
-           ))) AS distance_miles
-         FROM locations p
-         JOIN users u ON p.user_id = u.id
-         LEFT JOIN service_zones sz ON p.zone_id = sz.id
-         CROSS JOIN driver_zones dz
-         WHERE p.service_status = 'approved'
-           AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-           AND (3958.8 * 2 * ASIN(SQRT(
-             POWER(SIN(RADIANS(CAST(p.latitude AS float) - CAST(dz.center_lat AS float)) / 2), 2) +
-             COS(RADIANS(CAST(dz.center_lat AS float))) * COS(RADIANS(CAST(p.latitude AS float))) *
-             POWER(SIN(RADIANS(CAST(p.longitude AS float) - CAST(dz.center_lng AS float)) / 2), 2)
-           ))) <= CAST(dz.radius_miles AS float)
-         ORDER BY p.id, distance_miles ASC
-       )
-       SELECT mp.*,
-         lc.driver_id AS claimed_by_driver_id,
-         dp.name AS claimed_by_driver_name,
-         lc.status AS claim_status
-       FROM matched_locations mp
-       LEFT JOIN location_claims lc ON lc.location_id = mp.id AND lc.status = 'active'
-       LEFT JOIN driver_profiles dp ON lc.driver_id = dp.id
-       ORDER BY mp.distance_miles ASC`,
-      [driverId]
-    );
-
-    // Step 2: Polygon/ZIP zone matching via Turf.js
-    const polyZonesResult = await this.query(
-      `SELECT id, name, polygon_coords FROM driver_custom_zones
-       WHERE driver_id = $1 AND status = 'active' AND zone_type IN ('polygon', 'zip')
-       AND polygon_coords IS NOT NULL`,
-      [driverId]
-    );
-
-    const circleRows = circleResult.rows;
-    const polyZones = polyZonesResult.rows;
-
-    if (polyZones.length === 0) return circleRows;
-
-    // Fetch all approved locations with coordinates for polygon checking
-    const allPropsResult = await this.query(
-      `SELECT p.id, p.address, p.service_type, p.collection_day, p.collection_frequency,
-              p.latitude, p.longitude, p.zone_id,
-              u.first_name || ' ' || u.last_name AS customer_name,
-              sz.name AS zone_name, sz.color AS zone_color,
-              lc.driver_id AS claimed_by_driver_id,
-              dp.name AS claimed_by_driver_name,
-              lc.status AS claim_status
-       FROM locations p
-       JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
-       LEFT JOIN location_claims lc ON lc.location_id = p.id AND lc.status = 'active'
-       LEFT JOIN driver_profiles dp ON lc.driver_id = dp.id
-       WHERE p.service_status = 'approved'
-         AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`
-    );
-
-    // Check each property against each polygon zone
-    const polyMatched: any[] = [];
-    const circleIds = new Set(circleRows.map((r: any) => r.id));
-
-    for (const prop of allPropsResult.rows) {
-      if (circleIds.has(prop.id)) continue; // already matched by circle
-      const pt = point([Number(prop.longitude), Number(prop.latitude)]);
-      for (const zone of polyZones) {
-        const coords: [number, number][] = zone.polygon_coords;
-        if (!coords || coords.length < 3) continue;
-        // Convert [lat,lng] stored format to [lng,lat] GeoJSON format
-        const ring = coords.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
-        ring.push(ring[0]); // close the ring
-        const poly = turfPolygon([ring]);
-        if (booleanPointInPolygon(pt, poly)) {
-          polyMatched.push({ ...prop, matching_zone_name: zone.name, distance_miles: 0 });
-          break;
-        }
-      }
-    }
-
-    // Merge circle and polygon results
-    return [...circleRows, ...polyMatched];
-  }
-
-  async createLocationClaim(propertyId: string, driverId: string, notes?: string) {
-    const result = await this.query(
-      `INSERT INTO location_claims (location_id, driver_id, notes)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [propertyId, driverId, notes || null]
-    );
-    return result.rows[0];
-  }
-
-  async getActiveClaimForLocation(propertyId: string) {
-    const result = await this.query(
-      `SELECT lc.*, dp.name AS driver_name, dp.rating AS driver_rating
-       FROM location_claims lc
-       JOIN driver_profiles dp ON lc.driver_id = dp.id
-       WHERE lc.location_id = $1 AND lc.status = 'active'`,
-      [propertyId]
-    );
-    return result.rows[0] || null;
-  }
-
-  async getDriverClaims(driverId: string) {
-    const result = await this.query(
-      `SELECT lc.*, p.address, p.service_type, p.collection_day, p.collection_frequency,
-              p.latitude, p.longitude, p.zone_id,
-              u.first_name || ' ' || u.last_name AS customer_name,
-              sz.name AS zone_name, sz.color AS zone_color
-       FROM location_claims lc
-       JOIN locations p ON lc.location_id = p.id
-       JOIN users u ON p.user_id = u.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
-       WHERE lc.driver_id = $1 AND lc.status = 'active'
-       ORDER BY p.address`,
-      [driverId]
-    );
-    return result.rows;
-  }
-
-  async releaseLocationClaim(propertyId: string, driverId: string) {
-    const result = await this.query(
-      `UPDATE location_claims
-       SET status = 'released', revoked_at = NOW(), updated_at = NOW()
-       WHERE location_id = $1 AND driver_id = $2 AND status = 'active'
-       RETURNING *`,
-      [propertyId, driverId]
-    );
-    return result.rows[0] || null;
-  }
-
-  async revokeLocationClaim(claimId: string, adminUserId: string, notes?: string) {
-    const result = await this.query(
-      `UPDATE location_claims
-       SET status = 'revoked', revoked_at = NOW(), revoked_by = $2,
-           notes = COALESCE($3, notes), updated_at = NOW()
-       WHERE id = $1 AND status = 'active'
-       RETURNING *`,
-      [claimId, adminUserId, notes || null]
-    );
-    return result.rows[0] || null;
-  }
-
-  async revokeLocationClaimByLocation(propertyId: string, notes?: string) {
-    const result = await this.query(
-      `UPDATE location_claims
-       SET status = 'revoked', revoked_at = NOW(),
-           notes = COALESCE($2, notes), updated_at = NOW()
-       WHERE location_id = $1 AND status = 'active'
-       RETURNING *`,
-      [propertyId, notes || null]
-    );
-    return result.rows[0] || null;
-  }
-
-  async adminAssignLocationClaim(propertyId: string, driverId: string, adminUserId: string) {
-    await this.query(
-      `UPDATE location_claims
-       SET status = 'revoked', revoked_at = NOW(), revoked_by = $2,
-           notes = 'Admin reassigned', updated_at = NOW()
-       WHERE location_id = $1 AND status = 'active'`,
-      [propertyId, adminUserId]
-    );
-    return this.createLocationClaim(propertyId, driverId, 'Admin assigned');
-  }
-
-  async getAllLocationClaims(filters?: {
-    status?: string; zone_id?: string; driver_id?: string;
-    page?: number; limit?: number;
-  }): Promise<{ rows: any[]; total: number }> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let idx = 1;
-
-    if (filters?.status) {
-      conditions.push(`lc.status = $${idx++}`);
-      params.push(filters.status);
-    }
-    if (filters?.zone_id) {
-      conditions.push(`p.zone_id = $${idx++}`);
-      params.push(filters.zone_id);
-    }
-    if (filters?.driver_id) {
-      conditions.push(`lc.driver_id = $${idx++}`);
-      params.push(filters.driver_id);
-    }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limit = filters?.limit || 50;
-    const page = filters?.page || 1;
-    const offset = (page - 1) * limit;
-
-    const countResult = await this.query(
-      `SELECT COUNT(*)::int AS total
-       FROM location_claims lc
-       JOIN locations p ON lc.location_id = p.id
-       ${where}`,
-      params
-    );
-
-    const dataParams = [...params, limit, offset];
-    const result = await this.query(
-      `SELECT lc.*, p.address, p.service_type, p.zone_id, p.collection_day,
-              u.first_name || ' ' || u.last_name AS customer_name,
-              dp.name AS driver_name, dp.rating AS driver_rating,
-              sz.name AS zone_name, sz.color AS zone_color
-       FROM location_claims lc
-       JOIN locations p ON lc.location_id = p.id
-       JOIN users u ON p.user_id = u.id
-       JOIN driver_profiles dp ON lc.driver_id = dp.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
-       ${where}
-       ORDER BY lc.claimed_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      dataParams
-    );
-
-    return { rows: result.rows, total: countResult.rows[0].total };
-  }
-
-  async getActiveClaimsForDate(date: string): Promise<any[]> {
-    const dayOfWeek = new Date(date + 'T12:00:00')
-      .toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-    const result = await this.query(
-      `SELECT lc.driver_id, dp.name AS driver_name,
-              p.id AS location_id, p.address, p.zone_id,
-              sz.name AS zone_name
-       FROM location_claims lc
-       JOIN locations p ON lc.location_id = p.id
-       JOIN driver_profiles dp ON lc.driver_id = dp.id
-       LEFT JOIN service_zones sz ON p.zone_id = sz.id
-       WHERE lc.status = 'active'
-         AND p.service_status = 'approved'
-         AND LOWER(p.collection_day) = $1
-       ORDER BY lc.driver_id, p.address`,
-      [dayOfWeek]
-    );
-    return result.rows;
-  }
 
   async getRoutesInDriverCoverage(driverId: string, filters?: { startDate?: string; endDate?: string }): Promise<any[]> {
     const zonesResult = await this.query(

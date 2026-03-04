@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
-import { MapContainer, TileLayer, Circle, Polygon, CircleMarker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import '@geoman-io/leaflet-geoman-free';
 import { Button } from '../../components/Button.tsx';
@@ -29,35 +29,7 @@ interface CustomZone {
   status: string;
 }
 
-interface AvailableLocation {
-  id: string;
-  address: string;
-  serviceType: string;
-  collectionDay: string | null;
-  collectionFrequency: string | null;
-  latitude: number;
-  longitude: number;
-  customerName: string;
-  claimedByDriverId: string | null;
-  claimedByDriverName: string | null;
-  claimStatus: string | null;
-  isMine: boolean;
-  distanceMiles: number;
-  matchingZoneName: string;
-}
-
-interface ClaimedLocation {
-  id: string;
-  locationId: string;
-  address: string;
-  serviceType: string;
-  collectionDay: string | null;
-  collectionFrequency: string | null;
-  customerName: string;
-}
-
 type AddModeType = false | 'circle' | 'polygon' | 'zip';
-type BottomTab = 'zones' | 'available' | 'claimed';
 
 // Auto-fit map to show all zone points
 const FitBounds: React.FC<{ points: [number, number][] }> = ({ points }) => {
@@ -182,24 +154,11 @@ const GeomanEdit: React.FC<{
 const MILES_TO_METERS = 1609.34;
 const ZONE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
 
-const getMarkerColor = (loc: AvailableLocation) => {
-  if (loc.isMine) return '#3B82F6';
-  if (loc.claimedByDriverId) return '#F97316';
-  return '#10B981';
-};
-
 const ZoneMapView: React.FC = () => {
   const [customZones, setCustomZones] = useState<CustomZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('zones');
-
-  // Locations state
-  const [available, setAvailable] = useState<AvailableLocation[]>([]);
-  const [claimed, setClaimed] = useState<ClaimedLocation[]>([]);
-  const [actionId, setActionId] = useState<string | null>(null);
-  const [showLocationsOnMap, setShowLocationsOnMap] = useState(true);
 
   // Add zone state
   const [addMode, setAddMode] = useState<AddModeType>(false);
@@ -221,56 +180,13 @@ const ZoneMapView: React.FC = () => {
     } catch {}
   }, []);
 
-  const loadLocations = useCallback(async () => {
-    try {
-      const [availRes, claimedRes] = await Promise.all([
-        fetch('/api/team/available-locations', { credentials: 'include' }),
-        fetch('/api/team/my-locations', { credentials: 'include' }),
-      ]);
-      if (availRes.ok) { const d = await availRes.json(); setAvailable(d.data || []); }
-      if (claimedRes.ok) { const d = await claimedRes.json(); setClaimed(d.data || []); }
-    } catch {}
-  }, []);
-
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadZones(), loadLocations()]);
+    await loadZones();
     setLoading(false);
-  }, [loadZones, loadLocations]);
+  }, [loadZones]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  // ── Location claim/release ──
-  const claimLocation = useCallback(async (locationId: string) => {
-    setActionId(locationId);
-    try {
-      const res = await fetch(`/api/team/locations/${locationId}/claim`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (res.ok) {
-        await loadLocations();
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Failed to claim location');
-      }
-    } catch {
-      alert('Failed to claim location');
-    } finally { setActionId(null); }
-  }, [loadLocations]);
-
-  const releaseLocation = useCallback(async (locationId: string) => {
-    setActionId(locationId);
-    try {
-      const res = await fetch(`/api/team/locations/${locationId}/claim`, {
-        method: 'DELETE', credentials: 'include',
-      });
-      if (res.ok) { await loadLocations(); }
-      else { alert('Failed to release location'); }
-    } catch { alert('Failed to release location'); }
-    finally { setActionId(null); }
-  }, [loadLocations]);
 
   // ── Zone CRUD ──
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -295,11 +211,11 @@ const ZoneMapView: React.FC = () => {
         }),
       });
       if (res.ok) {
-        await Promise.all([loadZones(), loadLocations()]);
+        await loadZones();
         cancelAddMode();
       }
     } catch {} finally { setSaving(false); }
-  }, [newZoneCenter, newZoneName, newZoneRadius, newZoneColor, loadZones, loadLocations]);
+  }, [newZoneCenter, newZoneName, newZoneRadius, newZoneColor, loadZones]);
 
   const savePolygonZone = useCallback(async () => {
     if (!newPolygonCoords || !newZoneName.trim()) return;
@@ -314,11 +230,11 @@ const ZoneMapView: React.FC = () => {
         }),
       });
       if (res.ok) {
-        await Promise.all([loadZones(), loadLocations()]);
+        await loadZones();
         cancelAddMode();
       }
     } catch {} finally { setSaving(false); }
-  }, [newPolygonCoords, newZoneName, newZoneColor, loadZones, loadLocations]);
+  }, [newPolygonCoords, newZoneName, newZoneColor, loadZones]);
 
   const addZipToList = useCallback(async () => {
     const zip = zipInput.trim();
@@ -367,11 +283,11 @@ const ZoneMapView: React.FC = () => {
         }),
       });
       if (res.ok) {
-        await Promise.all([loadZones(), loadLocations()]);
+        await loadZones();
         cancelAddMode();
       }
     } catch {} finally { setSaving(false); }
-  }, [pendingZips, newZoneName, newZoneColor, loadZones, loadLocations]);
+  }, [pendingZips, newZoneName, newZoneColor, loadZones]);
 
   const cancelAddMode = useCallback(() => {
     setAddMode(false);
@@ -390,10 +306,9 @@ const ZoneMapView: React.FC = () => {
       const res = await fetch(`/api/team/my-custom-zones/${id}`, { method: 'DELETE', credentials: 'include' });
       if (res.ok) {
         setCustomZones(prev => prev.filter(z => z.id !== id));
-        loadLocations();
       }
     } catch {} finally { setSaving(false); }
-  }, [loadLocations]);
+  }, []);
 
   const toggleCustomZonePause = useCallback(async (id: string, currentlyPaused: boolean) => {
     setSaving(true);
@@ -407,10 +322,9 @@ const ZoneMapView: React.FC = () => {
         setCustomZones(prev => prev.map(z =>
           z.id === id ? { ...z, status: currentlyPaused ? 'active' : 'paused' } : z
         ));
-        loadLocations();
       }
     } catch {} finally { setSaving(false); }
-  }, [loadLocations]);
+  }, []);
 
   const handleZoneEdited = useCallback(async (zoneId: string, data: any) => {
     try {
@@ -463,7 +377,7 @@ const ZoneMapView: React.FC = () => {
               : addMode === 'polygon' ? 'Click points on the map to draw your zone boundary. Double-click to finish.'
               : addMode === 'zip' ? 'Enter ZIP codes to auto-create zone boundaries.'
               : editMode ? 'Drag zones to move them, or drag vertices to reshape polygons.'
-              : 'Manage your zones and claim locations within them.'}
+              : 'Manage your coverage zones.'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -661,39 +575,6 @@ const ZoneMapView: React.FC = () => {
             return null;
           })}
 
-          {/* Location markers on the map */}
-          {showLocationsOnMap && !editMode && available.filter(l => l.latitude && l.longitude).map(loc => (
-            <CircleMarker key={`loc-${loc.id}`}
-              center={[loc.latitude, loc.longitude]} radius={7}
-              pathOptions={{ color: getMarkerColor(loc), fillColor: getMarkerColor(loc), fillOpacity: 0.7, weight: 2 }}>
-              <Popup>
-                <div className="min-w-[180px]">
-                  <div className="font-bold text-sm">{loc.address}</div>
-                  <div className="text-xs text-gray-500 mt-1">{loc.customerName}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {loc.serviceType} &bull; {loc.collectionDay || 'No day'} &bull; {loc.matchingZoneName} &bull; {(Number(loc.distanceMiles) || 0).toFixed(1)} mi
-                  </div>
-                  {loc.claimedByDriverId && !loc.isMine && (
-                    <div className="text-xs text-orange-600 font-medium mt-1">Claimed by {loc.claimedByDriverName}</div>
-                  )}
-                  <div className="mt-2">
-                    {loc.isMine ? (
-                      <button onClick={() => releaseLocation(loc.id)} disabled={actionId === loc.id}
-                        className="px-3 py-1 rounded text-xs font-bold bg-red-100 text-red-700">
-                        {actionId === loc.id ? '...' : 'Release'}
-                      </button>
-                    ) : !loc.claimedByDriverId ? (
-                      <button onClick={() => claimLocation(loc.id)} disabled={actionId === loc.id}
-                        className="px-3 py-1 rounded text-xs font-bold bg-teal-100 text-teal-700">
-                        {actionId === loc.id ? '...' : 'Claim'}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </Popup>
-            </CircleMarker>
-          ))}
-
           {/* New zone previews */}
           {addMode === 'circle' && newZoneCenter && (
             <Circle center={newZoneCenter} radius={newZoneRadius * MILES_TO_METERS}
@@ -710,41 +591,12 @@ const ZoneMapView: React.FC = () => {
         </MapContainer>
       </div>
 
-      {/* Map legend + toggle */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-4 text-xs text-gray-500">
-          <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500" /> Unclaimed</div>
-          <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500" /> My Claim</div>
-          <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500" /> Other Driver</div>
-        </div>
-        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-          <input type="checkbox" checked={showLocationsOnMap} onChange={e => setShowLocationsOnMap(e.target.checked)}
-            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-          Show locations
-        </label>
-      </div>
-
-      {/* Tabbed bottom panel: Zones | Available | Claimed */}
+      {/* My Zones */}
       <div className="bg-white rounded-xl border border-gray-200">
-        <div className="flex border-b border-gray-100">
-          {([
-            { key: 'zones' as BottomTab, label: `My Zones (${customZones.length})` },
-            { key: 'available' as BottomTab, label: `Available (${available.length})` },
-            { key: 'claimed' as BottomTab, label: `Claimed (${claimed.length})` },
-          ]).map(t => (
-            <button key={t.key}
-              onClick={() => setBottomTab(t.key)}
-              className={`flex-1 px-4 py-3 text-sm font-bold transition-colors ${
-                bottomTab === t.key ? 'text-teal-700 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'
-              }`}>
-              {t.label}
-            </button>
-          ))}
+        <div className="px-4 py-3 border-b border-gray-100">
+          <span className="text-sm font-bold text-gray-700">My Zones ({customZones.length})</span>
         </div>
-
-        {/* Zones tab */}
-        {bottomTab === 'zones' && (
-          customZones.length > 0 ? (
+        {customZones.length > 0 ? (
             <div className="divide-y divide-gray-100">
               {customZones.map(zone => (
                 <div key={zone.id} className="flex items-center justify-between px-4 py-3">
@@ -782,67 +634,7 @@ const ZoneMapView: React.FC = () => {
               No coverage zones yet. Tap "+ Add Zone" to define your coverage area.
             </div>
           )
-        )}
-
-        {/* Available locations tab */}
-        {bottomTab === 'available' && (
-          available.length > 0 ? (
-            <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
-              {available.map(loc => (
-                <div key={loc.id} className="flex items-center justify-between px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getMarkerColor(loc) }} />
-                      <span className="text-sm font-medium text-gray-800 truncate">{loc.address}</span>
-                    </div>
-                    <div className="text-xs text-gray-400 ml-4 mt-0.5">
-                      {loc.customerName} &bull; {loc.matchingZoneName} &bull; {(Number(loc.distanceMiles) || 0).toFixed(1)} mi
-                    </div>
-                    {loc.claimedByDriverId && !loc.isMine && (
-                      <div className="text-xs text-orange-500 ml-4 mt-0.5">Claimed by {loc.claimedByDriverName}</div>
-                    )}
-                  </div>
-                  <div className="flex-shrink-0 ml-2">
-                    {loc.isMine ? (
-                      <Button variant="secondary" size="sm" onClick={() => releaseLocation(loc.id)} disabled={actionId === loc.id}>Release</Button>
-                    ) : !loc.claimedByDriverId ? (
-                      <Button variant="primary" size="sm" onClick={() => claimLocation(loc.id)} disabled={actionId === loc.id}>Claim</Button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-400">
-              No locations found in your zones. Add coverage zones to see available locations.
-            </div>
-          )
-        )}
-
-        {/* Claimed locations tab */}
-        {bottomTab === 'claimed' && (
-          claimed.length > 0 ? (
-            <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
-              {claimed.map(loc => (
-                <div key={loc.id} className="flex items-center justify-between px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-gray-800 truncate">{loc.address}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {loc.customerName} &bull; {loc.collectionDay || 'No day'} &bull; {loc.collectionFrequency || 'weekly'}
-                    </div>
-                  </div>
-                  <Button variant="secondary" size="sm" onClick={() => releaseLocation(loc.locationId)} disabled={actionId === loc.locationId}>
-                    Release
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-400">
-              No claimed locations yet. Switch to "Available" to claim locations.
-            </div>
-          )
-        )}
+        }
       </div>
     </div>
   );

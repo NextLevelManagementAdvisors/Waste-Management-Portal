@@ -383,7 +383,7 @@ export function registerAdminRoutes(app: Express) {
           email: u.email,
           date: u.created_at,
         })),
-        recentOnDemand: recentOnDemand.rows.map(p => ({
+        recentPickups: recentOnDemand.rows.map(p => ({
           id: p.id,
           userName: p.user_name,
           serviceName: p.service_name,
@@ -1180,52 +1180,96 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── Location Claims ──
-
-  app.get('/api/admin/location-claims', requireAdmin, async (req: Request, res: Response) => {
+  // Bulk approve/reject zones
+  app.post('/api/admin/zones/bulk-decision', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const { status, zone_id, driver_id, page, limit } = req.query;
-      const { rows, total } = await storage.getAllLocationClaims({
-        status: status as string | undefined,
-        zone_id: zone_id as string | undefined,
-        driver_id: driver_id as string | undefined,
-        page: page ? parseInt(page as string, 10) : 1,
-        limit: limit ? parseInt(limit as string, 10) : 50,
-      });
-      res.json({ claims: rows, total, page: page ? parseInt(page as string, 10) : 1 });
+      const { zoneIds, decision, notes } = req.body;
+      if (!Array.isArray(zoneIds) || zoneIds.length === 0) {
+        return res.status(400).json({ error: 'zoneIds must be a non-empty array' });
+      }
+      if (!decision || !['approved', 'rejected'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be "approved" or "rejected"' });
+      }
+
+      const adminUser = await storage.getUserById(getAdminId(req));
+      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : undefined;
+      const results: { id: string; success: boolean; flaggedLocations?: number; error?: string }[] = [];
+
+      for (const zoneId of zoneIds) {
+        try {
+          const zone = await storage.getZoneById(zoneId);
+          if (!zone) { results.push({ id: zoneId, success: false, error: 'Not found' }); continue; }
+          if (zone.status !== 'pending_approval') { results.push({ id: zoneId, success: false, error: `Already ${zone.status}` }); continue; }
+
+          const newStatus = decision === 'approved' ? 'active' : 'rejected';
+          await storage.updateZoneStatus(zoneId, newStatus);
+          await audit(req, `zone_${decision}`, 'driver_custom_zones', zoneId, { zone_name: zone.name, driver_name: zone.driver_name, notes });
+          notifyZoneDecision(zone.name, zone.driver_name, decision, adminName).catch(() => {});
+
+          let flaggedLocations = 0;
+          if (decision === 'approved' && process.env.WAITLIST_AUTO_FLAG_ENABLED !== 'false') {
+            try {
+              const matched = await storage.getWaitlistedLocationsInZone(zone);
+              if (matched.length > 0) {
+                const ids = matched.map((m: any) => m.id);
+                await storage.flagWaitlistedLocations(ids, zone.id);
+                notifyWaitlistFlagged(matched.length, zone.name, zone.driver_name).catch(() => {});
+                flaggedLocations = matched.length;
+              }
+            } catch {}
+          }
+          results.push({ id: zoneId, success: true, flaggedLocations });
+        } catch (e) {
+          results.push({ id: zoneId, success: false, error: 'Processing failed' });
+        }
+      }
+      res.json({ results });
     } catch (error) {
-      console.error('Get location claims error:', error);
-      res.status(500).json({ error: 'Failed to fetch location claims' });
+      console.error('Bulk zone decision error:', error);
+      res.status(500).json({ error: 'Failed to process bulk zone decision' });
     }
   });
 
-  app.put('/api/admin/location-claims/:id/revoke', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  // Admin delete a single zone
+  app.delete('/api/admin/zones/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const claimId = req.params.id;
-      const adminUserId = getAdminId(req);
-      const claim = await storage.revokeLocationClaim(claimId, adminUserId, req.body.notes);
-      if (!claim) return res.status(404).json({ error: 'Active claim not found' });
-      await audit(req, 'revoke_location_claim', 'location_claim', claimId, { notes: req.body.notes });
-      res.json({ claim });
+      const { id } = req.params;
+      const zone = await storage.getZoneById(id);
+      if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+      await storage.adminDeleteZone(id);
+      await audit(req, 'zone_deleted', 'driver_custom_zones', id, { zone_name: zone.name, driver_name: zone.driver_name });
+      res.json({ success: true });
     } catch (error) {
-      console.error('Revoke claim error:', error);
-      res.status(500).json({ error: 'Failed to revoke claim' });
+      console.error('Zone delete error:', error);
+      res.status(500).json({ error: 'Failed to delete zone' });
     }
   });
 
-  app.put('/api/admin/locations/:locationId/assign-driver', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  // Bulk delete zones
+  app.post('/api/admin/zones/bulk-delete', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const { locationId } = req.params;
-      const { driverId } = req.body;
-      if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+      const { zoneIds } = req.body;
+      if (!Array.isArray(zoneIds) || zoneIds.length === 0) {
+        return res.status(400).json({ error: 'zoneIds must be a non-empty array' });
+      }
 
-      const adminUserId = getAdminId(req);
-      const claim = await storage.adminAssignLocationClaim(locationId, driverId, adminUserId);
-      await audit(req, 'admin_assign_location', 'location_claim', claim.id, { locationId, driverId });
-      res.json({ claim });
+      const results: { id: string; success: boolean }[] = [];
+      for (const zoneId of zoneIds) {
+        try {
+          const zone = await storage.getZoneById(zoneId);
+          if (!zone) { results.push({ id: zoneId, success: false }); continue; }
+          await storage.adminDeleteZone(zoneId);
+          await audit(req, 'zone_deleted', 'driver_custom_zones', zoneId, { zone_name: zone.name, driver_name: zone.driver_name });
+          results.push({ id: zoneId, success: true });
+        } catch {
+          results.push({ id: zoneId, success: false });
+        }
+      }
+      res.json({ results });
     } catch (error) {
-      console.error('Assign driver error:', error);
-      res.status(500).json({ error: 'Failed to assign driver' });
+      console.error('Bulk zone delete error:', error);
+      res.status(500).json({ error: 'Failed to process bulk zone deletion' });
     }
   });
 
@@ -1266,49 +1310,19 @@ export function registerAdminRoutes(app: Express) {
       const locations = await storage.getLocationsDueOnDate(date);
       const created: any[] = [];
 
-      // Phase A: Create routes for driver-claimed locations
-      const claimedRows = await storage.getActiveClaimsForDate(date);
-      const claimedLocationIds = new Set(claimedRows.map((c: any) => c.location_id));
-
-      const byDriver = new Map<string, typeof claimedRows>();
-      for (const row of claimedRows) {
-        if (!byDriver.has(row.driver_id)) byDriver.set(row.driver_id, []);
-        byDriver.get(row.driver_id)!.push(row);
-      }
-
-      for (const [dId, driverLocs] of byDriver) {
-        const driverName = driverLocs[0].driver_name;
-        const route = await storage.createRoute({
-          title: `${driverName} Claimed - ${date}`,
-          scheduled_date: date,
-          estimated_stops: driverLocs.length,
-          route_type: 'daily_route',
-          source: 'driver_claimed',
-          assigned_driver_id: dId,
-          status: 'assigned',
-        });
-        await storage.addRouteStops(
-          route.id,
-          driverLocs.map((p: any) => ({ location_id: p.location_id, order_type: 'recurring' }))
-        );
-        created.push(route);
-      }
-
-      // Phase B: Create route for unclaimed locations
-      const unclaimedLocations = locations.filter((p: any) => !claimedLocationIds.has(p.id));
-      if (unclaimedLocations.length > 0) {
+      if (locations.length > 0) {
         const dayName = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
         const route = await storage.createRoute({
           title: `${dayName} Route - ${date}`,
           scheduled_date: date,
-          estimated_stops: unclaimedLocations.length,
+          estimated_stops: locations.length,
           route_type: 'daily_route',
           source: 'auto_planned',
           status: 'draft',
         });
         await storage.addRouteStops(
           route.id,
-          unclaimedLocations.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
+          locations.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
         );
         created.push(route);
       }
@@ -1384,46 +1398,16 @@ export function registerAdminRoutes(app: Express) {
         const locations = await storage.getLocationsDueOnDate(dateStr);
         if (locations.length === 0) { skippedDays++; continue; }
 
-        // Phase A: Create routes for driver-claimed locations
-        const claimedRows = await storage.getActiveClaimsForDate(dateStr);
-        const claimedLocationIds = new Set(claimedRows.map((c: any) => c.location_id));
-
-        const byDriver = new Map<string, typeof claimedRows>();
-        for (const row of claimedRows) {
-          if (!byDriver.has(row.driver_id)) byDriver.set(row.driver_id, []);
-          byDriver.get(row.driver_id)!.push(row);
-        }
-
-        for (const [dId, driverLocs] of byDriver) {
-          const driverName = driverLocs[0].driver_name;
-          const route = await storage.createRoute({
-            title: `${driverName} Claimed - ${dateStr}`,
-            scheduled_date: dateStr,
-            estimated_stops: driverLocs.length,
-            route_type: 'daily_route',
-            source: 'driver_claimed',
-            assigned_driver_id: dId,
-            status: 'assigned',
-          });
-          await storage.addRouteStops(
-            route.id,
-            driverLocs.map((p: any) => ({ location_id: p.location_id, order_type: 'recurring' }))
-          );
-          routesCreated++;
-        }
-
-        // Phase B: Create routes for unclaimed locations
-        const unclaimedLocations = locations.filter((p: any) => !claimedLocationIds.has(p.id));
         const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
 
         // Split into multiple routes if exceeding capacity
-        const chunks: typeof unclaimedLocations[] = [];
-        if (unclaimedLocations.length > maxStops) {
-          for (let c = 0; c < unclaimedLocations.length; c += maxStops) {
-            chunks.push(unclaimedLocations.slice(c, c + maxStops));
+        const chunks: typeof locations[] = [];
+        if (locations.length > maxStops) {
+          for (let c = 0; c < locations.length; c += maxStops) {
+            chunks.push(locations.slice(c, c + maxStops));
           }
-        } else if (unclaimedLocations.length > 0) {
-          chunks.push(unclaimedLocations);
+        } else {
+          chunks.push(locations);
         }
 
         for (let ci = 0; ci < chunks.length; ci++) {
