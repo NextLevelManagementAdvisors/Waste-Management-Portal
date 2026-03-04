@@ -1708,6 +1708,9 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
       const userId = req.session.userId!;
       const locationId = req.params.locationId as string;
       const date = req.params.date as string;
+      if (!date || date === 'undefined') {
+        return res.status(400).json({ error: 'Invalid date parameter' });
+      }
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });

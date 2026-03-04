@@ -119,7 +119,7 @@ export const getDashboardState = async (selectedLocationId: string | 'all') => {
             let collectionStatus: string = isPaused ? 'paused' : isToday ? 'in-progress' : 'upcoming';
 
             let intent: string | null = null;
-            if (!isToday) {
+            if (!isToday && collectionDate) {
                 try {
                     const ciRes = await fetch(`/api/collection-intent/${loc.id}/${collectionDate}`, { credentials: 'include' });
                     if (ciRes.ok) { const ciJson = await ciRes.json(); intent = ciJson.data?.intent || null; }
