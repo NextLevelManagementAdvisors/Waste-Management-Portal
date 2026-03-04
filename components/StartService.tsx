@@ -22,6 +22,8 @@ interface StartServiceProps {
     onCancel: () => void;
     isOnboarding?: boolean;
     serviceFlowType?: 'recurring' | 'request';
+    resumingLocationId?: string | null;
+    onResumeComplete?: (services: ServiceSelection[]) => Promise<void>;
 }
 
 const initialFormState: NewLocationInfo = {
@@ -160,8 +162,11 @@ const OrderSummary: React.FC<{
 };
 
 
-const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType }) => {
+const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, isOnboarding = false, serviceFlowType, resumingLocationId, onResumeComplete }) => {
     const { locations, setCurrentView } = useLocation();
+
+    // When resuming, skip straight to services (step 3 for recurring)
+    const isResuming = !!(resumingLocationId && onResumeComplete);
 
     // Flow type: determined by prop or chosen by user in step 0
     const [flowType, setFlowType] = useState<'recurring' | 'request' | null>(serviceFlowType || null);
@@ -171,7 +176,8 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
     // Step 0 = flow selector (only shown when serviceFlowType prop not provided)
     // For one-time: steps 1=Address, 2=Services, 3=Payment
     // For recurring: steps 1=Address, 2=Details, 3=Services, 4=Payment
-    const [step, setStep] = useState(serviceFlowType ? 1 : 0);
+    // When resuming: skip to service selection step directly
+    const [step, setStep] = useState(isResuming ? 3 : serviceFlowType ? 1 : 0);
 
     const [formData, setFormData] = useState<NewLocationInfo>(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -273,6 +279,11 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     const handleNext = () => setStep(s => s + 1);
     const handleBack = () => {
+        // When resuming, don't go back past the service selection step
+        if (isResuming && step <= 3) {
+            onCancel();
+            return;
+        }
         if (step === 1 && !serviceFlowType) {
             setStep(0); // Go back to flow selector
         } else {
@@ -282,11 +293,19 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
 
     const submitLabel = isOneTime ? 'Submit Request' : 'Complete Setup';
 
+    const completeSetup = async () => {
+        if (isResuming && onResumeComplete) {
+            await onResumeComplete(selectedServices);
+        } else {
+            await onCompleteSetup(formData, selectedServices);
+        }
+    };
+
     const handleNewPaymentConfirmed = async (paymentMethodId: string) => {
         try {
             setSelectedMethodId(paymentMethodId);
             await setPrimaryPaymentMethod(paymentMethodId);
-            await onCompleteSetup(formData, selectedServices);
+            await completeSetup();
         } catch (error) {
             console.error("Failed during service setup:", error);
             setSetupError("An error occurred during setup. Please check your details and try again.");
@@ -305,7 +324,7 @@ const StartService: React.FC<StartServiceProps> = ({ onCompleteSetup, onCancel, 
             if (selectedMethodId) {
                 await setPrimaryPaymentMethod(selectedMethodId);
             }
-            await onCompleteSetup(formData, selectedServices);
+            await completeSetup();
         } catch (error) {
             console.error("Failed during service setup:", error);
             setSetupError("An error occurred during setup. Please check your details and try again.");

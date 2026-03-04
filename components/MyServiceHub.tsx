@@ -7,7 +7,7 @@ import LocationManagement from './LocationManagement.tsx';
 import StartService from './StartService.tsx';
 import ServiceReviewStatus from './ServiceReviewStatus.tsx';
 import { useLocation } from '../LocationContext.tsx';
-import { getSubscriptions } from '../services/apiService.ts';
+import { getSubscriptions, savePendingSelections } from '../services/apiService.ts';
 import { Subscription, NewLocationInfo } from '../types.ts';
 import {
     ChartPieIcon, TruckIcon, WrenchScrewdriverIcon, ListBulletIcon, InformationCircleIcon
@@ -53,6 +53,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
     const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
     const [loadingSubs, setLoadingSubs] = useState(true);
     const [showSetupWizard, setShowSetupWizard] = useState(false);
+    const [resumingLocationId, setResumingLocationId] = useState<string | null>(null);
 
     const hasNoLocations = locations.length === 0;
 
@@ -120,9 +121,11 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                 <StartService
                     onCompleteSetup={async (locationInfo, services) => {
                         await onCompleteSetup(locationInfo, services);
+                        setResumingLocationId(null);
                         setShowSetupWizard(false);
                     }}
                     onCancel={() => {
+                        setResumingLocationId(null);
                         if (hasNoLocations) {
                             setCurrentView('home');
                         } else {
@@ -130,7 +133,14 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
                         }
                     }}
                     isOnboarding={hasNoLocations}
-                    serviceFlowType={serviceFlowType}
+                    serviceFlowType={resumingLocationId ? 'recurring' : serviceFlowType}
+                    resumingLocationId={resumingLocationId}
+                    onResumeComplete={resumingLocationId ? async (services) => {
+                        await savePendingSelections(resumingLocationId, services);
+                        await refreshUser();
+                        setResumingLocationId(null);
+                        setShowSetupWizard(false);
+                    } : undefined}
                 />
             </div>
         );
@@ -173,7 +183,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
             <div className="animate-in fade-in duration-500">
                 <LocationManagement
                     onAddLocation={() => setShowSetupWizard(true)}
-                    onResumeSetup={() => setShowSetupWizard(true)}
+                    onResumeSetup={(locId) => { setResumingLocationId(locId); setShowSetupWizard(true); }}
                     onLocationRemoved={() => refreshUser()}
                 />
             </div>
@@ -189,7 +199,7 @@ const MyServiceHub: React.FC<MyServiceHubProps> = ({ onCompleteSetup }) => {
             <div className="animate-in fade-in duration-500">
                 <ServiceReviewStatus
                     onBack={() => setSelectedLocationId('all')}
-                    onResumeSetup={() => setShowSetupWizard(true)}
+                    onResumeSetup={() => { setResumingLocationId(selectedLocation?.id || null); setShowSetupWizard(true); }}
                     onLocationRemoved={() => refreshUser()}
                 />
             </div>
