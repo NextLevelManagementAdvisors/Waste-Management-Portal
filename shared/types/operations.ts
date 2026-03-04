@@ -421,3 +421,17 @@ export interface LocationRequirements {
   minDriverRating: number;
   dayChangePreference: 'flexible' | 'prefer_current' | 'do_not_change';
 }
+
+// ============================================================
+// Shared Status Constants (US-20)
+// Server and client share these to prevent status value drift.
+// ============================================================
+
+export const ROUTE_STATUSES: RouteStatus[] = ['draft', 'open', 'bidding', 'assigned', 'in_progress', 'completed', 'cancelled'];
+export const ON_DEMAND_STATUSES = ['pending', 'scheduled', 'completed', 'cancelled'] as const;
+export const MISSED_COLLECTION_STATUSES = ['pending', 'investigating', 'escalated', 'resolved', 'dismissed'] as const;
+export const CONTRACT_STATUSES: ContractStatus[] = ['active', 'expired', 'terminated', 'pending'];
+export const OPPORTUNITY_STATUSES: OpportunityStatus[] = ['open', 'awarded', 'cancelled'];
+export const APPLICATION_STATUSES: ApplicationStatus[] = ['pending', 'accepted', 'rejected'];
+export const COVERAGE_STATUSES: CoverageStatus[] = ['pending', 'approved', 'filled', 'denied'];
+export const BID_STATUSES: BidStatus[] = ['pending', 'accepted', 'rejected', 'withdrawn', 'expired'];

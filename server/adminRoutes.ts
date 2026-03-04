@@ -613,6 +613,15 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { status, resolutionNotes, scheduleRedo } = req.body;
       await storage.updateMissedCollectionStatus(req.params.id, status, resolutionNotes);
+
+      // Track who resolved it and when (US-16)
+      if (status === 'resolved') {
+        await pool.query(
+          `UPDATE missed_collection_reports SET resolved_by = $1, resolved_at = NOW() WHERE id = $2`,
+          [(req.session as any).userId, req.params.id]
+        );
+      }
+
       await audit(req, 'resolve_missed_collection', 'missed_collection', req.params.id, { status, resolutionNotes, scheduleRedo });
 
       const report = await storage.query(
@@ -624,13 +633,30 @@ export function registerAdminRoutes(app: Express) {
       // Schedule a redo stop on the next available route for this location
       let redoDate: string | undefined;
       if (status === 'resolved' && scheduleRedo && row?.location_id) {
-        // Find the next route for this location's scheduled date area
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const nextRoute = await storage.query(
-          `SELECT id, scheduled_date FROM routes WHERE scheduled_date >= $1 AND status IN ('draft', 'open', 'assigned') ORDER BY scheduled_date LIMIT 1`,
-          [tomorrow.toISOString().split('T')[0]]
-        );
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+        // Try to find a route in the same zone first (US-10)
+        const locZone = await storage.query(`SELECT zone_id FROM locations WHERE id = $1`, [row.location_id]);
+        let nextRoute;
+        if (locZone.rows[0]?.zone_id) {
+          nextRoute = await storage.query(
+            `SELECT r.id, r.scheduled_date FROM routes r
+             JOIN route_contracts rc ON r.contract_id = rc.id
+             WHERE r.scheduled_date >= $1 AND r.status IN ('draft', 'open', 'assigned')
+               AND rc.zone_id = $2
+             ORDER BY r.scheduled_date LIMIT 1`,
+            [tomorrowStr, locZone.rows[0].zone_id]
+          );
+        }
+        // Fallback to any available route
+        if (!nextRoute || nextRoute.rows.length === 0) {
+          nextRoute = await storage.query(
+            `SELECT id, scheduled_date FROM routes WHERE scheduled_date >= $1 AND status IN ('draft', 'open', 'assigned') ORDER BY scheduled_date LIMIT 1`,
+            [tomorrowStr]
+          );
+        }
         if (nextRoute.rows.length > 0) {
           const routeId = nextRoute.rows[0].id;
           redoDate = nextRoute.rows[0].scheduled_date?.split('T')[0];
@@ -738,6 +764,20 @@ export function registerAdminRoutes(app: Express) {
         return res.status(404).json({ error: 'On-demand request not found' });
       }
 
+      // Validate status transitions (US-15)
+      if (status && status !== existing.status) {
+        const validTransitions: Record<string, string[]> = {
+          pending: ['scheduled', 'cancelled'],
+          scheduled: ['completed', 'cancelled'],
+          completed: [],
+          cancelled: [],
+        };
+        const allowed = validTransitions[existing.status] || [];
+        if (!allowed.includes(status)) {
+          return res.status(400).json({ error: `Cannot transition from '${existing.status}' to '${status}'` });
+        }
+      }
+
       const updates: any = {};
       if (status !== undefined) updates.status = status;
       if (adminNotes !== undefined) updates.adminNotes = adminNotes;
@@ -757,6 +797,12 @@ export function registerAdminRoutes(app: Express) {
         if (messages[status]) {
           sendServiceUpdate(existing.user_id, `Request ${status.charAt(0).toUpperCase() + status.slice(1)}`, messages[status]).catch(e => console.error('On-demand status notification failed:', e));
         }
+      }
+
+      // Flag for billing review when cancelling a paid/invoiced request (US-2)
+      if (status === 'cancelled' && existing.status !== 'cancelled') {
+        console.warn(`[Billing] On-demand request ${id} cancelled — review for invoice voiding (service: ${existing.service_name}, price: $${existing.service_price})`);
+        await audit(req, 'billing_flag_cancellation', 'on_demand_request', id, { serviceName: existing.service_name, servicePrice: existing.service_price });
       }
 
       // Update OptimoRoute if date changed
@@ -1001,6 +1047,9 @@ export function registerAdminRoutes(app: Express) {
       if (!driverId) return res.status(400).json({ error: 'driverId is required' });
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (!['open', 'bidding'].includes(route.status)) {
+        return res.status(400).json({ error: `Cannot assign route with status '${route.status}'. Route must be open or bidding.` });
+      }
       const updated = await storage.updateRoute(routeId, {
         status: 'assigned',
         assigned_driver_id: driverId,
@@ -1008,6 +1057,15 @@ export function registerAdminRoutes(app: Express) {
         actual_pay: actualPay || route.base_pay,
       });
       await audit(req, 'assign_route', 'route', routeId, { driverId, bidId, actualPay });
+
+      // Update bid statuses: accept winning bid, reject others
+      if (bidId) {
+        await pool.query(`UPDATE route_bids SET status = 'accepted' WHERE id = $1`, [bidId]);
+      }
+      await pool.query(
+        `UPDATE route_bids SET status = 'rejected' WHERE route_id = $1 AND driver_id != $2 AND (status IS NULL OR status = 'pending')`,
+        [routeId, driverId]
+      );
 
       // Notify driver of assignment
       const pay = actualPay || route.base_pay;
@@ -2610,8 +2668,40 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
       }
       await storage.updateDriver(req.params.id, { status });
-      await audit(req, 'update_driver_status', 'driver', req.params.id, { status });
-      res.json({ success: true });
+
+      // Reactivation: notify and log for manual route/contract review (US-14)
+      if (status === 'active') {
+        const activeContracts = await pool.query(
+          `SELECT id, day_of_week, (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name
+           FROM route_contracts WHERE driver_id = $1 AND status = 'active' AND end_date >= CURRENT_DATE`,
+          [req.params.id]
+        );
+        if (activeContracts.rows.length > 0) {
+          console.log(`[DriverReactivation] Driver ${req.params.id} reactivated with ${activeContracts.rows.length} active contract(s)`);
+          sendDriverNotification(req.params.id, 'Account Reactivated',
+            `<p>Your driver account has been reactivated.</p>
+             <p>You have ${activeContracts.rows.length} active contract(s). Log in to the team portal to check your schedule.</p>`
+          ).catch(() => {});
+        }
+      }
+
+      // Cascade: unassign future routes when suspending/rejecting a driver (US-3)
+      let unassignedCount = 0;
+      if (['suspended', 'rejected'].includes(status)) {
+        const unassigned = await pool.query(
+          `UPDATE routes SET assigned_driver_id = NULL, status = 'open', updated_at = NOW()
+           WHERE assigned_driver_id = $1 AND scheduled_date >= CURRENT_DATE AND status IN ('assigned', 'open', 'bidding')
+           RETURNING id`,
+          [req.params.id]
+        );
+        unassignedCount = unassigned.rowCount || 0;
+        if (unassignedCount > 0) {
+          console.log(`[DriverCascade] Unassigned ${unassignedCount} future routes from ${status} driver ${req.params.id}`);
+        }
+      }
+
+      await audit(req, 'update_driver_status', 'driver', req.params.id, { status, unassignedRoutes: unassignedCount });
+      res.json({ success: true, unassignedRoutes: unassignedCount });
     } catch (error) {
       console.error('Failed to update driver status:', error);
       res.status(500).json({ error: 'Failed to update driver status' });
@@ -3511,13 +3601,15 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: `dayOfWeek must be one of: ${validDays.join(', ')}` });
       }
 
-      // Check for existing active contract on same zone+day
+      // Check for existing active contract on same zone+day with overlapping date range (US-23)
       const existing = await pool.query(
-        `SELECT id FROM route_contracts WHERE zone_id = $1 AND day_of_week = $2 AND status = 'active'`,
-        [zoneId, dayOfWeek.toLowerCase()]
+        `SELECT id FROM route_contracts
+         WHERE zone_id = $1 AND day_of_week = $2 AND status = 'active'
+           AND start_date <= $4 AND end_date >= $3`,
+        [zoneId, dayOfWeek.toLowerCase(), startDate, endDate]
       );
       if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'An active contract already exists for this zone and day', existingContractId: existing.rows[0].id });
+        return res.status(409).json({ error: 'An active contract with overlapping dates already exists for this zone and day', existingContractId: existing.rows[0].id });
       }
 
       const { rows } = await pool.query(
@@ -3753,6 +3845,19 @@ export function registerAdminRoutes(app: Express) {
         `UPDATE coverage_requests SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
         params
       );
+
+      // When approved (no substitute yet), unassign the original driver's route so it's not left assigned (US-9)
+      if (status === 'approved') {
+        const unassigned = await pool.query(
+          `UPDATE routes SET assigned_driver_id = NULL, status = 'open', updated_at = NOW()
+           WHERE contract_id = $1 AND scheduled_date = $2 AND assigned_driver_id = $3
+           RETURNING id`,
+          [request.contract_id, request.coverage_date, request.contract_driver_id]
+        );
+        if ((unassigned.rowCount || 0) > 0) {
+          console.log(`[Coverage] Unassigned route ${unassigned.rows[0].id} from approved coverage request ${req.params.id}`);
+        }
+      }
 
       // Handle route reassignment when filling coverage
       if (status === 'filled' && substituteDriverId) {
@@ -4106,8 +4211,11 @@ export function registerAdminRoutes(app: Express) {
       const { applicationId, perStopRate, termsNotes } = req.body;
       if (!applicationId) return res.status(400).json({ error: 'applicationId is required' });
 
-      // Fetch opportunity
-      const oppResult = await pool.query(`SELECT * FROM contract_opportunities WHERE id = $1`, [req.params.id]);
+      // Fetch opportunity with zone name
+      const oppResult = await pool.query(
+        `SELECT co.*, sz.name AS zone_name FROM contract_opportunities co LEFT JOIN service_zones sz ON co.zone_id = sz.id WHERE co.id = $1`,
+        [req.params.id]
+      );
       if (oppResult.rows.length === 0) return res.status(404).json({ error: 'Opportunity not found' });
       const opp = oppResult.rows[0];
       if (opp.status !== 'open') return res.status(400).json({ error: 'Opportunity is not open' });
@@ -4151,6 +4259,26 @@ export function registerAdminRoutes(app: Express) {
       await audit(req, 'award_contract_opportunity', 'contract_opportunity', req.params.id, {
         applicationId, contractId: contract.id, driverId: app_.driver_id,
       });
+
+      // Notify winning driver (US-11)
+      sendDriverNotification(app_.driver_id, 'Contract Opportunity Awarded',
+        `<p>Congratulations! You've been awarded the contract for <strong>${opp.zone_name || 'Zone'} - ${opp.day_of_week}</strong>.</p>
+         <p>Start date: ${opp.start_date}, Duration: ${opp.duration_months} months.</p>
+         <p>Log in to the team portal to view your contract details.</p>`
+      ).catch(err => console.error('[Opportunity] Winner notification error:', err));
+
+      // Notify rejected applicants (US-11)
+      pool.query(
+        `SELECT driver_id FROM contract_applications WHERE opportunity_id = $1 AND id != $2 AND status = 'rejected'`,
+        [req.params.id, applicationId]
+      ).then(({ rows }) => {
+        for (const ra of rows) {
+          sendDriverNotification(ra.driver_id, 'Application Update',
+            `<p>The opportunity for <strong>${opp.zone_name || 'Zone'} - ${opp.day_of_week}</strong> has been awarded to another driver.</p>
+             <p>Check the team portal for other available opportunities.</p>`
+          ).catch(() => {});
+        }
+      }).catch(() => {});
 
       res.json({
         contract: {

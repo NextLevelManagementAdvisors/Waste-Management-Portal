@@ -896,3 +896,45 @@ CREATE TABLE IF NOT EXISTS optimization_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_op_zone ON optimization_proposals(zone_id);
 CREATE INDEX IF NOT EXISTS idx_op_status ON optimization_proposals(status);
+
+-- ============================================================
+-- Lifecycle Hardening (Phase 12)
+-- ============================================================
+
+-- US-12: Add status column to route_bids
+ALTER TABLE route_bids ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+
+-- US-16: Resolution tracking for missed collection reports
+ALTER TABLE missed_collection_reports ADD COLUMN IF NOT EXISTS resolved_by UUID REFERENCES users(id);
+ALTER TABLE missed_collection_reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+
+-- US-7: Coverage request deadline
+ALTER TABLE coverage_requests ADD COLUMN IF NOT EXISTS deadline DATE;
+
+-- US-19: CHECK constraints for status columns
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_routes_status') THEN
+    ALTER TABLE routes ADD CONSTRAINT chk_routes_status CHECK (status IN ('draft','open','bidding','assigned','in_progress','completed','cancelled'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_on_demand_status') THEN
+    ALTER TABLE on_demand_requests ADD CONSTRAINT chk_on_demand_status CHECK (status IN ('pending','scheduled','completed','cancelled'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_missed_collection_status') THEN
+    ALTER TABLE missed_collection_reports ADD CONSTRAINT chk_missed_collection_status CHECK (status IN ('pending','investigating','escalated','resolved','dismissed'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_coverage_status') THEN
+    ALTER TABLE coverage_requests ADD CONSTRAINT chk_coverage_status CHECK (status IN ('pending','approved','filled','denied'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_contract_status') THEN
+    ALTER TABLE route_contracts ADD CONSTRAINT chk_contract_status CHECK (status IN ('active','expired','terminated','pending'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_opportunity_status') THEN
+    ALTER TABLE contract_opportunities ADD CONSTRAINT chk_opportunity_status CHECK (status IN ('open','awarded','cancelled'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_application_status') THEN
+    ALTER TABLE contract_applications ADD CONSTRAINT chk_application_status CHECK (status IN ('pending','accepted','rejected'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_bid_status') THEN
+    ALTER TABLE route_bids ADD CONSTRAINT chk_bid_status CHECK (status IN ('pending','accepted','rejected','withdrawn','expired'));
+  END IF;
+END $$;

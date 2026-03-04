@@ -222,6 +222,18 @@ setInterval(processScheduledMessages, 60_000);
       );
       for (const c of expired.rows) {
         console.log(`[ContractExpiry] Expired contract ${c.id} (${c.zone_name} ${c.day_of_week})`);
+
+        // Unassign future routes from expired contracts (US-4)
+        const unassigned = await dbPool.query(
+          `UPDATE routes SET assigned_driver_id = NULL, status = 'open', updated_at = NOW()
+           WHERE contract_id = $1 AND scheduled_date >= CURRENT_DATE AND status IN ('assigned', 'draft', 'open')
+           RETURNING id`,
+          [c.id]
+        );
+        if ((unassigned.rowCount || 0) > 0) {
+          console.log(`[ContractExpiry] Unassigned ${unassigned.rowCount} future routes for expired contract ${c.id}`);
+        }
+
         sendDriverNotification(c.driver_id,
           'Contract Expired',
           `<p>Your contract for <strong>${c.zone_name} - ${c.day_of_week}</strong> has expired as of ${c.end_date}.</p><p>Please contact your administrator about renewal.</p>`
@@ -258,6 +270,67 @@ setInterval(processScheduledMessages, 60_000);
   }
 
   setInterval(checkAndExpireContracts, CONTRACT_CHECK_INTERVAL);
+}
+
+// Lifecycle cleanup scheduler — expires stale on-demand requests, opportunities, coverage requests; escalates missed collections
+{
+  const LIFECYCLE_CHECK_INTERVAL = 60 * 60 * 1000; // every hour
+  let lifecycleRunning = false;
+
+  async function runLifecycleCleanup() {
+    if (lifecycleRunning) return;
+    lifecycleRunning = true;
+    try {
+      const { pool: dbPool } = await import('./db');
+
+      // US-5: Auto-expire on-demand requests past requested_date
+      const expiredOD = await dbPool.query(
+        `UPDATE on_demand_requests SET status = 'cancelled', updated_at = NOW()
+         WHERE status = 'pending' AND requested_date < CURRENT_DATE
+         RETURNING id`
+      );
+      if ((expiredOD.rowCount || 0) > 0) {
+        console.log(`[Lifecycle] Auto-expired ${expiredOD.rowCount} stale on-demand request(s)`);
+      }
+
+      // US-6: Flag aging missed collection reports (> 48 hours unresolved)
+      const escalated = await dbPool.query(
+        `UPDATE missed_collection_reports SET status = 'escalated', updated_at = NOW()
+         WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours'
+         RETURNING id`
+      );
+      if ((escalated.rowCount || 0) > 0) {
+        console.log(`[Lifecycle] Escalated ${escalated.rowCount} aging missed collection report(s)`);
+      }
+
+      // US-7: Auto-expire coverage requests past deadline or coverage_date
+      const expiredCR = await dbPool.query(
+        `UPDATE coverage_requests SET status = 'denied'
+         WHERE status = 'pending'
+           AND (coverage_date < CURRENT_DATE OR (deadline IS NOT NULL AND deadline < CURRENT_DATE))
+         RETURNING id`
+      );
+      if ((expiredCR.rowCount || 0) > 0) {
+        console.log(`[Lifecycle] Auto-expired ${expiredCR.rowCount} stale coverage request(s)`);
+      }
+
+      // US-8: Auto-expire opportunities past start_date
+      const expiredOpp = await dbPool.query(
+        `UPDATE contract_opportunities SET status = 'cancelled'
+         WHERE status = 'open' AND start_date < CURRENT_DATE
+         RETURNING id`
+      );
+      if ((expiredOpp.rowCount || 0) > 0) {
+        console.log(`[Lifecycle] Auto-expired ${expiredOpp.rowCount} stale opportunity/opportunities`);
+      }
+    } catch (error: any) {
+      console.error('[Lifecycle] Scheduler error:', error.message);
+    } finally {
+      lifecycleRunning = false;
+    }
+  }
+
+  setInterval(runLifecycleCleanup, LIFECYCLE_CHECK_INTERVAL);
 }
 
 app.use('/api/team/auth/login', authRateLimit);

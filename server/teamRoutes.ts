@@ -7,6 +7,7 @@ import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
 import { notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
+import { sendDriverNotification } from './notificationService';
 
 /** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
 async function triggerWaitlistAutoFlag(zone: any) {
@@ -1663,6 +1664,34 @@ export function registerTeamRoutes(app: Express) {
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [contractId, driverId, coverageDate, reason, reasonNotes || null]
       );
+
+      // Notify eligible zone drivers about coverage opportunity (US-17)
+      const contractDetail = await pool.query(
+        `SELECT rc.zone_id, rc.day_of_week, sz.name AS zone_name, dp.name AS driver_name
+         FROM route_contracts rc
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         LEFT JOIN driver_profiles dp ON rc.driver_id = dp.id
+         WHERE rc.id = $1`,
+        [contractId]
+      );
+      if (contractDetail.rows.length > 0) {
+        const cd = contractDetail.rows[0];
+        // Find other active drivers in the same zone
+        pool.query(
+          `SELECT DISTINCT dp.id FROM driver_profiles dp
+           JOIN driver_custom_zones dcz ON dp.id = dcz.driver_id AND dcz.zone_id = $1 AND dcz.status = 'active'
+           WHERE dp.status = 'active' AND dp.id != $2`,
+          [cd.zone_id, driverId]
+        ).then(({ rows: drivers }) => {
+          for (const d of drivers) {
+            sendDriverNotification(d.id, 'Coverage Opportunity',
+              `<p><strong>${cd.driver_name || 'A driver'}</strong> needs coverage for <strong>${cd.zone_name || 'Zone'} - ${cd.day_of_week}</strong> on <strong>${coverageDate}</strong>.</p>
+               <p>Reason: ${reason}. Contact your admin if you're available to cover.</p>`
+            ).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
       res.status(201).json({ data: rows[0] });
     } catch (err: any) {
       console.error('Error creating coverage request:', err);

@@ -106,6 +106,7 @@ const ResolveModal: React.FC<ResolveModalProps> = ({ isOpen, report, onClose, on
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             >
               <option value="investigating">Investigating</option>
+              <option value="escalated">Escalated</option>
               <option value="resolved">Resolved</option>
               <option value="dismissed">Dismissed</option>
             </select>
@@ -317,7 +318,9 @@ const MissedCollectionsList: React.FC<{ onActionResolved?: () => void }> = ({ on
             <option value="all">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="investigating">Investigating</option>
+            <option value="escalated">Escalated</option>
             <option value="resolved">Resolved</option>
+            <option value="dismissed">Dismissed</option>
           </select>
         </div>
       </FilterBar>
@@ -354,8 +357,8 @@ const MissedCollectionsList: React.FC<{ onActionResolved?: () => void }> = ({ on
                       <div className="text-sm text-gray-700">{report.address}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-gray-700">{formatDate(report.pickupDate)}</div>
-                      <div className="text-xs text-gray-500">{formatTime(report.pickupDate)}</div>
+                      <div className="text-sm text-gray-700">{formatDate(report.collectionDate)}</div>
+                      <div className="text-xs text-gray-500">{formatTime(report.collectionDate)}</div>
                       <div className={`text-[10px] font-bold ${ageColor(report.createdAt)}`}>Reported {relativeAge(report.createdAt)}</div>
                     </td>
                     <td className="px-4 py-3">

@@ -76,6 +76,8 @@ vi.mock('../notificationService', () => ({
   // Route handlers call .catch() on the return value, so these must return Promises
   sendMissedCollectionConfirmation: vi.fn().mockResolvedValue(undefined),
   sendServiceUpdate: vi.fn().mockResolvedValue(undefined),
+  sendWelcomeEmail: vi.fn().mockResolvedValue(undefined),
+  sendVerificationEmail: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../optimoRouteClient', () => ({

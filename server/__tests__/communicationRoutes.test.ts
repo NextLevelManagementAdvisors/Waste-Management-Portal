@@ -62,6 +62,7 @@ vi.mock('../notificationService', () => ({
   logCommunication: vi.fn().mockResolvedValue('log-1'),
   renderTemplate: vi.fn((body: string) => body),
   sendAndLogNotification: vi.fn().mockResolvedValue({ email: true }),
+  sendDriverNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ---------------------------------------------------------------------------

@@ -268,16 +268,16 @@ const CompensationRulesPanel: React.FC = () => {
                       <span className="text-gray-400 mx-2">{loc.serviceType}</span>
                       {loc.zoneName && <span className="text-gray-400 mx-2">{loc.zoneName}</span>}
                       <span className={`font-medium ml-2 ${
-                        loc.breakdown.source === 'custom_rate' ? 'text-purple-600' :
-                        loc.breakdown.source === 'contract_rate' ? 'text-blue-600' : 'text-teal-600'
+                        loc.breakdown?.source === 'custom_rate' ? 'text-purple-600' :
+                        loc.breakdown?.source === 'contract_rate' ? 'text-blue-600' : 'text-teal-600'
                       }`}>
-                        ${loc.breakdown.finalRate.toFixed(2)}
+                        ${loc.breakdown?.finalRate?.toFixed(2) ?? '0.00'}
                       </span>
                       <span className={`text-[10px] ml-1.5 px-1.5 py-0.5 rounded ${
-                        loc.breakdown.source === 'custom_rate' ? 'bg-purple-50 text-purple-600' :
-                        loc.breakdown.source === 'contract_rate' ? 'bg-blue-50 text-blue-600' : 'bg-teal-50 text-teal-600'
+                        loc.breakdown?.source === 'custom_rate' ? 'bg-purple-50 text-purple-600' :
+                        loc.breakdown?.source === 'contract_rate' ? 'bg-blue-50 text-blue-600' : 'bg-teal-50 text-teal-600'
                       }`}>
-                        {loc.breakdown.source === 'custom_rate' ? 'Custom' : loc.breakdown.source === 'contract_rate' ? 'Contract' : 'Rules'}
+                        {loc.breakdown?.source === 'custom_rate' ? 'Custom' : loc.breakdown?.source === 'contract_rate' ? 'Contract' : 'Rules'}
                       </span>
                     </div>
                   ))}
