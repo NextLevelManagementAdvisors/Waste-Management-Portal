@@ -36,6 +36,8 @@ const OrdersView: React.FC = () => {
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const searchOrders = useCallback(async () => {
     setError('');
@@ -77,6 +79,45 @@ const OrdersView: React.FC = () => {
       setError('Failed to delete order — network error');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const toggleSelectOrder = (key: string) => {
+    setSelectedOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedOrders.size === orders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(orders.map(getOrderKey)));
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (selectedOrders.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch('/api/admin/optimoroute/orders/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ orderNos: Array.from(selectedOrders), forceDelete: true }),
+      });
+      if (res.ok) {
+        setOrders(prev => prev.filter(o => !selectedOrders.has(getOrderKey(o))));
+        setSelectedOrders(new Set());
+      } else {
+        setError('Failed to bulk delete orders');
+      }
+    } catch {
+      setError('Failed to bulk delete orders — network error');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -131,6 +172,22 @@ const OrdersView: React.FC = () => {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selectedOrders.size > 0 && (
+        <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-sm font-bold text-teal-700">{selectedOrders.size} order{selectedOrders.size !== 1 ? 's' : ''} selected</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSelectedOrders(new Set())} className="px-3 py-1.5 text-xs font-bold text-gray-600 bg-white rounded-lg hover:bg-gray-100 transition-colors">
+              Clear
+            </button>
+            <button onClick={bulkDelete} disabled={bulkDeleting}
+              className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+              {bulkDeleting ? 'Deleting...' : 'Delete Selected'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Results */}
       {loading ? (
         <LoadingSpinner />
@@ -140,6 +197,10 @@ const OrdersView: React.FC = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" checked={selectedOrders.size === orders.length && orders.length > 0} onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                  </th>
                   <th className="px-4 py-3 text-[10px] font-black uppercase text-gray-400">Order #</th>
                   <th className="px-4 py-3 text-[10px] font-black uppercase text-gray-400">Date</th>
                   <th className="px-4 py-3 text-[10px] font-black uppercase text-gray-400">Type</th>
@@ -153,6 +214,10 @@ const OrdersView: React.FC = () => {
               <tbody>
                 {orders.map(order => (
                   <tr key={order.id || order.orderNo} className="border-t border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-3 w-8">
+                      <input type="checkbox" checked={selectedOrders.has(getOrderKey(order))} onChange={() => toggleSelectOrder(getOrderKey(order))}
+                        className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">
                       {order.orderNo || order.location?.locationName || order.id?.slice(0, 8) || '—'}
                     </td>
@@ -309,6 +374,14 @@ const CreateOrderModal: React.FC<{ onClose: () => void; onCreated: () => void }>
   const [locationName, setLocationName] = useState('');
   const [duration, setDuration] = useState('15');
   const [notes, setNotes] = useState('');
+  const [priority, setPriority] = useState<'' | 'L' | 'M' | 'H' | 'C'>('');
+  const [twFrom, setTwFrom] = useState('');
+  const [twTo, setTwTo] = useState('');
+  const [driverSerial, setDriverSerial] = useState('');
+  const [load1, setLoad1] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -329,6 +402,12 @@ const CreateOrderModal: React.FC<{ onClose: () => void; onCreated: () => void }>
           locationName: locationName.trim() || undefined,
           duration: parseInt(duration) || 15,
           notes: notes.trim() || undefined,
+          ...(priority && { priority }),
+          ...(twFrom && twTo && { timeWindows: [{ twFrom, twTo }] }),
+          ...(driverSerial.trim() && { assignedTo: { serial: driverSerial.trim() } }),
+          ...(load1 && { load1: parseFloat(load1) }),
+          ...(email.trim() && { email: email.trim() }),
+          ...(phone.trim() && { phone: phone.trim() }),
         }),
       });
       if (res.ok) {
@@ -410,6 +489,66 @@ const CreateOrderModal: React.FC<{ onClose: () => void; onCreated: () => void }>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Special instructions..."
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none" />
             </div>
+
+            <button type="button" onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors">
+              {showAdvanced ? 'Hide' : 'Show'} Advanced Options
+            </button>
+
+            {showAdvanced && (
+              <div className="space-y-4 border-t border-gray-100 pt-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Priority</label>
+                    <select value={priority} onChange={e => setPriority(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
+                      <option value="">Default</option>
+                      <option value="L">Low</option>
+                      <option value="M">Medium</option>
+                      <option value="H">High</option>
+                      <option value="C">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Load (units)</label>
+                    <input type="number" value={load1} onChange={e => setLoad1(e.target.value)} min="0" step="0.1" placeholder="0"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Time Window From</label>
+                    <input type="time" value={twFrom} onChange={e => setTwFrom(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Time Window To</label>
+                    <input type="time" value={twTo} onChange={e => setTwTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Assign to Driver (serial)</label>
+                  <input value={driverSerial} onChange={e => setDriverSerial(e.target.value)} placeholder="Driver serial or external ID"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Customer Email</label>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Customer Phone</label>
+                    <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1234567890"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={onClose} disabled={sending}>Cancel</Button>

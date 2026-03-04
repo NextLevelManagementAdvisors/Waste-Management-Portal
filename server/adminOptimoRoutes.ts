@@ -65,7 +65,13 @@ export function registerAdminOptimoRoutes(app: Express) {
   app.get('/api/admin/optimoroute/routes', requireAdmin, async (req: Request, res: Response) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
-      const result = await optimo.getRoutes(date);
+      const options: optimo.GetRoutesOptions = { date };
+      if (req.query.includeRoutePolyline === 'true') options.includeRoutePolyline = true;
+      if (req.query.includeRouteStartEnd === 'true') options.includeRouteStartEnd = true;
+      if (req.query.driverSerial) options.driverSerial = req.query.driverSerial as string;
+      if (req.query.driverExternalId) options.driverExternalId = req.query.driverExternalId as string;
+      if (req.query.vehicleRegistration) options.vehicleRegistration = req.query.vehicleRegistration as string;
+      const result = await optimo.getRoutes(options);
       res.json({ routes: result.routes || (result as any).data || [], date });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error fetching routes:', error);
@@ -122,11 +128,11 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   app.post('/api/admin/optimoroute/orders', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { orderNo, type, date, address, locationName, duration, notes, timeWindows, priority, assignedTo } = req.body;
+      const { orderNo, type, date, address } = req.body;
       if (!orderNo || !type || !date || !address) {
         return res.status(400).json({ error: 'orderNo, type, date, and address are required' });
       }
-      const result = await optimo.createOrder({ orderNo, type, date, address, locationName, duration, notes });
+      const result = await optimo.createOrder(req.body);
       res.json(result);
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error creating order:', error);
@@ -143,6 +149,55 @@ export function registerAdminOptimoRoutes(app: Express) {
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error deleting order:', error);
       res.status(500).json({ error: 'Failed to delete order' });
+    }
+  });
+
+  // ── Bulk Order Operations ──
+
+  app.post('/api/admin/optimoroute/orders/bulk', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { orders } = req.body;
+      if (!orders || !Array.isArray(orders) || orders.length === 0) {
+        return res.status(400).json({ error: 'orders array required' });
+      }
+      if (orders.length > 2000) {
+        return res.status(400).json({ error: 'Maximum 2000 orders per request' });
+      }
+      const results = await optimo.createOrUpdateOrders(orders);
+      res.json({ success: true, results });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Bulk order create failed:', error);
+      res.status(500).json({ error: 'Failed to bulk create/update orders' });
+    }
+  });
+
+  app.post('/api/admin/optimoroute/orders/bulk-delete', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { orderNos, forceDelete } = req.body;
+      if (!orderNos || !Array.isArray(orderNos) || orderNos.length === 0) {
+        return res.status(400).json({ error: 'orderNos array required' });
+      }
+      const results = await optimo.deleteOrders(orderNos, forceDelete === true);
+      res.json({ success: true, results });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Bulk delete failed:', error);
+      res.status(500).json({ error: 'Failed to bulk delete orders' });
+    }
+  });
+
+  app.post('/api/admin/optimoroute/orders/delete-all', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { date, confirmPhrase } = req.body;
+      if (!date && confirmPhrase !== 'DELETE_ALL_ORDERS') {
+        return res.status(400).json({
+          error: 'To delete ALL orders, send confirmPhrase: "DELETE_ALL_ORDERS". To delete for a specific date, provide the date parameter.',
+        });
+      }
+      const result = await optimo.deleteAllOrders(date || undefined);
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Delete all failed:', error);
+      res.status(500).json({ error: 'Failed to delete all orders' });
     }
   });
 
@@ -288,6 +343,22 @@ export function registerAdminOptimoRoutes(app: Express) {
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error pushing drivers:', error);
       res.status(500).json({ error: 'Failed to push drivers to OptimoRoute' });
+    }
+  });
+
+  // ── Driver GPS positions ──
+
+  app.post('/api/admin/optimoroute/drivers/positions', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { positions } = req.body;
+      if (!positions || !Array.isArray(positions) || positions.length === 0) {
+        return res.status(400).json({ error: 'positions array required' });
+      }
+      const result = await optimo.updateDriverPositions(positions);
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error updating driver positions:', error);
+      res.status(500).json({ error: 'Failed to update driver positions' });
     }
   });
 

@@ -111,11 +111,22 @@ function syncOrderNo(locationId: string, date: string): string {
   return `SYNC-${locationId.substring(0, 8).toUpperCase()}-${date.replace(/-/g, '')}`;
 }
 
-// ── Per-location sync ──
+// ── Per-location order collection (batch-friendly) ──
 
-async function syncLocationOrders(location: any): Promise<{ created: number; skipped: number; errors: string[] }> {
+interface CollectedOrder {
+  orderNo: string;
+  locationId: string;
+  scheduledDate: string;
+  bulkInput: optimo.BulkOrderInput;
+}
+
+/**
+ * Collect orders that need to be created for a location (does NOT call the API).
+ * Returns the orders to batch-submit later.
+ */
+async function collectLocationOrders(location: any): Promise<{ orders: CollectedOrder[]; skipped: number; errors: string[] }> {
   if (!location.collection_day) {
-    return { created: 0, skipped: 1, errors: [] };
+    return { orders: [], skipped: 1, errors: [] };
   }
 
   const dates = generateCollectionDates(
@@ -123,7 +134,7 @@ async function syncLocationOrders(location: any): Promise<{ created: number; ski
     location.collection_frequency || 'weekly'
   );
 
-  let created = 0;
+  const orders: CollectedOrder[] = [];
   let skipped = 0;
   const errors: string[] = [];
 
@@ -147,25 +158,58 @@ async function syncLocationOrders(location: any): Promise<{ created: number; ski
       continue;
     }
 
-    try {
-      const customerName = `${location.first_name} ${location.last_name}`;
-      await optimo.createOrder({
+    const customerName = `${location.first_name} ${location.last_name}`;
+    orders.push({
+      orderNo,
+      locationId: location.id,
+      scheduledDate: date,
+      bulkInput: {
         orderNo,
         type: 'P',
         date,
-        address: location.address,
-        locationName: customerName,
+        location: {
+          address: location.address,
+          locationName: customerName,
+        },
         duration: 10,
         notes: `Auto-synced | ${location.collection_frequency || 'weekly'} collection`,
+        ...(location.email && { email: location.email }),
+        ...(location.zone_driver_serial && { assignedTo: { serial: location.zone_driver_serial } }),
+      },
+    });
+  }
+
+  return { orders, skipped, errors };
+}
+
+/**
+ * Legacy single-order sync (used by optimizeRoute and other callers).
+ */
+async function syncLocationOrders(location: any): Promise<{ created: number; skipped: number; errors: string[] }> {
+  const { orders, skipped, errors } = await collectLocationOrders(location);
+
+  let created = 0;
+  for (const order of orders) {
+    try {
+      await optimo.createOrder({
+        orderNo: order.orderNo,
+        type: 'P',
+        date: order.scheduledDate,
+        address: order.bulkInput.location.address,
+        locationName: order.bulkInput.location.locationName,
+        duration: order.bulkInput.duration || 10,
+        notes: order.bulkInput.notes || '',
+        ...(order.bulkInput.email && { email: order.bulkInput.email }),
+        ...(order.bulkInput.assignedTo && { assignedTo: order.bulkInput.assignedTo }),
       });
       await storage.createSyncOrder({
-        locationId: location.id,
-        orderNo,
-        scheduledDate: date,
+        locationId: order.locationId,
+        orderNo: order.orderNo,
+        scheduledDate: order.scheduledDate,
       });
       created++;
     } catch (err: any) {
-      errors.push(`${orderNo}: ${err.message || 'Unknown error'}`);
+      errors.push(`${order.orderNo}: ${err.message || 'Unknown error'}`);
     }
   }
 
@@ -179,16 +223,20 @@ async function syncLocationOrders(location: any): Promise<{ created: number; ski
  */
 export async function cleanupFutureOrdersForLocation(locationId: string): Promise<{ deleted: number; errors: number }> {
   const futureOrders = await storage.getFutureSyncOrdersForLocation(locationId);
+  if (futureOrders.length === 0) return { deleted: 0, errors: 0 };
+
+  // Batch delete from OptimoRoute
+  const orderNos = futureOrders.map(o => o.order_no);
+  try {
+    await optimo.deleteOrders(orderNos, true);
+  } catch (err: any) {
+    console.warn(`[OptimoSync] Batch delete from OptimoRoute failed for location ${locationId}:`, err.message);
+  }
+
+  // Mark all as deleted locally
   let deleted = 0;
   let errors = 0;
-
   for (const order of futureOrders) {
-    try {
-      await optimo.deleteOrder(order.order_no, true);
-    } catch (err: any) {
-      // Order may already be deleted in OptimoRoute — still mark locally
-      console.warn(`[OptimoSync] Could not delete ${order.order_no} from OptimoRoute:`, err.message);
-    }
     try {
       await storage.markSyncOrderDeleted(order.order_no);
       deleted++;
@@ -262,20 +310,84 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
     // Step 2: Get eligible locations
     const locations = await storage.getLocationsForSync();
 
-    // Step 3: Sync orders per location
+    // Step 3: Collect orders across all locations, then batch-submit
     let totalCreated = 0;
     let totalSkipped = 0;
     let totalErrored = 0;
+    const allCollected: CollectedOrder[] = [];
 
     for (const loc of locations) {
       try {
-        const result = await syncLocationOrders(loc);
-        totalCreated += result.created;
+        const result = await collectLocationOrders(loc);
+        allCollected.push(...result.orders);
         totalSkipped += result.skipped;
         totalErrored += result.errors.length;
       } catch (err: any) {
         totalErrored++;
-        console.error(`[OptimoSync] Error syncing location ${loc.id}:`, err.message);
+        console.error(`[OptimoSync] Error collecting orders for location ${loc.id}:`, err.message);
+      }
+    }
+
+    // Batch-submit to OptimoRoute
+    if (allCollected.length > 0) {
+      try {
+        const bulkInputs = allCollected.map(o => o.bulkInput);
+        const batchResults = await optimo.createOrUpdateOrders(bulkInputs);
+
+        // Build a set of successfully created order numbers
+        const successSet = new Set<string>();
+        for (const batch of batchResults) {
+          if (batch.orders) {
+            for (const r of batch.orders) {
+              if (r.success !== false) successSet.add(r.orderNo);
+              else totalErrored++;
+            }
+          } else if (batch.success !== false) {
+            // Whole batch succeeded — mark all in this batch as successful
+            for (const input of bulkInputs) successSet.add(input.orderNo);
+          }
+        }
+
+        // Record successful orders in local ledger
+        for (const order of allCollected) {
+          if (successSet.has(order.orderNo)) {
+            try {
+              await storage.createSyncOrder({
+                locationId: order.locationId,
+                orderNo: order.orderNo,
+                scheduledDate: order.scheduledDate,
+              });
+              totalCreated++;
+            } catch (err: any) {
+              totalErrored++;
+              console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('[OptimoSync] Batch order creation failed, falling back to individual:', err.message);
+        // Fallback: create one at a time
+        for (const order of allCollected) {
+          try {
+            await optimo.createOrder({
+              orderNo: order.orderNo,
+              type: 'P',
+              date: order.scheduledDate,
+              address: order.bulkInput.location.address,
+              locationName: order.bulkInput.location.locationName,
+              duration: order.bulkInput.duration || 10,
+              notes: order.bulkInput.notes || '',
+            });
+            await storage.createSyncOrder({
+              locationId: order.locationId,
+              orderNo: order.orderNo,
+              scheduledDate: order.scheduledDate,
+            });
+            totalCreated++;
+          } catch (fallbackErr: any) {
+            totalErrored++;
+          }
+        }
       }
     }
 

@@ -138,45 +138,64 @@ const SyncHistoryPanel: React.FC = () => {
 
 const ZoneAssignmentSettingsPanel: React.FC = () => {
   const [deadlineHours, setDeadlineHours] = useState('72');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [conflictStrategy, setConflictStrategy] = useState('skip');
+  const [savingDeadline, setSavingDeadline] = useState(false);
+  const [savedDeadline, setSavedDeadline] = useState(false);
+  const [savingStrategy, setSavingStrategy] = useState(false);
+  const [savedStrategy, setSavedStrategy] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/settings', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        const settings = data?.settings || {};
-        if (settings.ZONE_ASSIGNMENT_DEADLINE_HOURS) {
-          setDeadlineHours(settings.ZONE_ASSIGNMENT_DEADLINE_HOURS);
+        if (!Array.isArray(data)) return;
+        const map = new Map(data.map((s: any) => [s.key, s.value]));
+        if (map.get('ZONE_ASSIGNMENT_DEADLINE_HOURS')) {
+          setDeadlineHours(map.get('ZONE_ASSIGNMENT_DEADLINE_HOURS')!);
+        }
+        if (map.get('ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY')) {
+          setConflictStrategy(map.get('ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY')!);
         }
       })
       .catch(() => {});
   }, []);
 
-  const handleSave = async () => {
-    setSaving(true);
+  const handleSaveDeadline = async () => {
+    setSavingDeadline(true);
     try {
       const res = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          key: 'ZONE_ASSIGNMENT_DEADLINE_HOURS',
-          value: deadlineHours,
-          category: 'automation',
-          is_secret: false,
-        }),
+        body: JSON.stringify({ key: 'ZONE_ASSIGNMENT_DEADLINE_HOURS', value: deadlineHours }),
       });
       if (res.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
+        setSavedDeadline(true);
+        setTimeout(() => setSavedDeadline(false), 3000);
       }
     } catch {}
-    setSaving(false);
+    setSavingDeadline(false);
+  };
+
+  const handleSaveStrategy = async () => {
+    setSavingStrategy(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ key: 'ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY', value: conflictStrategy }),
+      });
+      if (res.ok) {
+        setSavedStrategy(true);
+        setTimeout(() => setSavedStrategy(false), 3000);
+      }
+    } catch {}
+    setSavingStrategy(false);
   };
 
   return (
-    <Card className="p-6 space-y-4">
+    <Card className="p-6 space-y-5">
       <div>
         <h4 className="text-sm font-black text-gray-900">Zone Assignment Request Settings</h4>
         <p className="text-xs text-gray-500 mt-1">
@@ -198,15 +217,51 @@ const ZoneAssignmentSettingsPanel: React.FC = () => {
         />
         <button
           type="button"
-          onClick={handleSave}
-          disabled={saving}
+          onClick={handleSaveDeadline}
+          disabled={savingDeadline}
           className="px-4 py-2 text-sm font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
         >
-          {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
+          {savingDeadline ? 'Saving...' : savedDeadline ? 'Saved!' : 'Save'}
         </button>
       </div>
       <p className="text-[10px] text-gray-400">
         Default: 72 hours (3 days). After this period, unanswered requests expire automatically.
+      </p>
+
+      <hr className="border-gray-100" />
+
+      <div>
+        <h4 className="text-sm font-black text-gray-900">Auto-Assign Conflict Strategy</h4>
+        <p className="text-xs text-gray-500 mt-1">
+          When a location falls in multiple driver zones during auto-assignment, how should the system decide which zone to assign?
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-bold text-gray-700 whitespace-nowrap">
+          Strategy:
+        </label>
+        <select
+          value={conflictStrategy}
+          onChange={e => setConflictStrategy(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400"
+        >
+          <option value="skip">Skip (admin handles manually)</option>
+          <option value="nearest_center">Nearest zone center</option>
+          <option value="first_created">First created zone</option>
+        </select>
+        <button
+          type="button"
+          onClick={handleSaveStrategy}
+          disabled={savingStrategy}
+          className="px-4 py-2 text-sm font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+        >
+          {savingStrategy ? 'Saving...' : savedStrategy ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+      <p className="text-[10px] text-gray-400">
+        "Skip" is safest — conflicting locations appear in the unassigned list for manual review.
+        "Nearest zone center" uses straight-line distance to each zone's center point.
+        "First created" assigns to whichever zone was created first.
       </p>
     </Card>
   );

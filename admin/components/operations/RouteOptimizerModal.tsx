@@ -10,8 +10,16 @@ const RouteOptimizerModal: React.FC<RouteOptimizerModalProps> = ({ date, onClose
   const [planDate, setPlanDate] = useState(date);
   const [balancing, setBalancing] = useState<'OFF' | 'ON' | 'ON_FORCE'>('OFF');
   const [balanceBy, setBalanceBy] = useState<'WT' | 'NUM'>('WT');
+  const [balancingFactor, setBalancingFactor] = useState(50);
   const [startWith, setStartWith] = useState<'EMPTY' | 'CURRENT'>('EMPTY');
+  const [lockType, setLockType] = useState<'NONE' | 'ROUTES' | 'RESOURCES'>('NONE');
   const [clustering, setClustering] = useState(false);
+  const [depotTrips, setDepotTrips] = useState(false);
+  const [depotVisitDuration, setDepotVisitDuration] = useState(10);
+  const [includeScheduledOrders, setIncludeScheduledOrders] = useState(false);
+  const [useDateRange, setUseDateRange] = useState(false);
+  const [dateRangeTo, setDateRangeTo] = useState(date);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [running, setRunning] = useState(false);
   const [planningId, setPlanningId] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
@@ -28,7 +36,13 @@ const RouteOptimizerModal: React.FC<RouteOptimizerModalProps> = ({ date, onClose
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ date: planDate, balancing, balanceBy, startWith, clustering }),
+        body: JSON.stringify({
+          ...(useDateRange ? { dateRange: { from: planDate, to: dateRangeTo } } : { date: planDate }),
+          balancing, balanceBy, startWith, clustering, lockType,
+          ...(balancing !== 'OFF' && { balancingFactor }),
+          ...(depotTrips && { depotTrips: true, depotVisitDuration }),
+          ...(includeScheduledOrders && { includeScheduledOrders: true }),
+        }),
       });
       const data = await res.json();
       if (data.success && data.planningId) {
@@ -132,6 +146,71 @@ const RouteOptimizerModal: React.FC<RouteOptimizerModalProps> = ({ date, onClose
               className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
             <span className="text-sm font-medium text-gray-700">Clustering (minimize route overlap)</span>
           </label>
+
+          <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} disabled={running}
+            className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors">
+            {showAdvanced ? 'Hide' : 'Show'} Advanced Options
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-4 border-t border-gray-100 pt-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={useDateRange} onChange={e => setUseDateRange(e.target.checked)} disabled={running}
+                  className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                <span className="text-sm font-medium text-gray-700">Plan date range (weekly)</span>
+              </label>
+
+              {useDateRange && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
+                  <input type="date" value={dateRangeTo} onChange={e => setDateRangeTo(e.target.value)} disabled={running}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-50" />
+                </div>
+              )}
+
+              {balancing !== 'OFF' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Balancing Factor ({balancingFactor}%)</label>
+                  <input type="range" min={0} max={100} value={balancingFactor} onChange={e => setBalancingFactor(Number(e.target.value))} disabled={running}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600 disabled:opacity-50" />
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                    <span>Shorter routes</span>
+                    <span>Even workload</span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Lock Type</label>
+                <select value={lockType} onChange={e => setLockType(e.target.value as any)} disabled={running}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-50">
+                  <option value="NONE">None — Full re-optimization</option>
+                  <option value="ROUTES">Routes — Keep assigned stops, reorder</option>
+                  <option value="RESOURCES">Resources — Keep driver assignments</option>
+                </select>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={depotTrips} onChange={e => setDepotTrips(e.target.checked)} disabled={running}
+                  className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                <span className="text-sm font-medium text-gray-700">Allow depot trips (multi-trip routes)</span>
+              </label>
+
+              {depotTrips && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Depot Visit Duration (minutes)</label>
+                  <input type="number" min={1} max={60} value={depotVisitDuration} onChange={e => setDepotVisitDuration(Number(e.target.value))} disabled={running}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-50" />
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={includeScheduledOrders} onChange={e => setIncludeScheduledOrders(e.target.checked)} disabled={running}
+                  className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                <span className="text-sm font-medium text-gray-700">Include already-scheduled orders</span>
+              </label>
+            </div>
+          )}
 
           {running && (
             <div>

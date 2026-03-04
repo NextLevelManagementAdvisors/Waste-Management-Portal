@@ -78,6 +78,14 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
   const [highlightZoneId, setHighlightZoneId] = useState<string | null>(null);
   const [flaggedNotice, setFlaggedNotice] = useState<{ count: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [autoAssignResult, setAutoAssignResult] = useState<{
+    assigned: number;
+    skippedNoZone: number;
+    skippedConflict: number;
+    skippedExistingRequest: number;
+    errors: number;
+  } | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('all');
@@ -243,6 +251,32 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
     }
   };
 
+  const handleAutoAssign = async () => {
+    if (!confirm('Auto-assign all unassigned locations to matching driver zones?\n\nThis will create assignment requests that drivers must approve.')) return;
+    setAutoAssigning(true);
+    setAutoAssignResult(null);
+    try {
+      const res = await fetch('/api/admin/service-areas/auto-assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAutoAssignResult(data.results);
+        const r = data.results;
+        showToast(`Auto-assign complete: ${r.assigned} assigned, ${r.skippedNoZone + r.skippedConflict + r.skippedExistingRequest} skipped`);
+        await loadAll();
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Failed' }));
+        showToast(err.error || 'Auto-assign failed');
+      }
+    } catch {
+      showToast('Auto-assign failed');
+    }
+    setAutoAssigning(false);
+  };
+
   if (loading) return <LoadingSpinner />;
 
   const activeCount = zones.filter(z => z.status === 'active').length;
@@ -259,6 +293,31 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
             <span><span className="font-bold text-gray-900">{uniqueDrivers.length}</span> driver{uniqueDrivers.length !== 1 ? 's' : ''}</span>
             <span><span className="font-bold text-gray-900">{activeCount}</span> active</span>
           </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleAutoAssign}
+            disabled={autoAssigning}
+            className="px-4 py-2 text-xs font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+          >
+            {autoAssigning ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Auto-Assigning...
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                Auto-Assign
+              </>
+            )}
+          </button>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
           <button
@@ -324,6 +383,34 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
         <div className="bg-gray-900 text-white text-sm font-bold px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2">
           {toast}
           <button type="button" onClick={() => setToast(null)} className="ml-auto text-white/60 hover:text-white text-xs">&times;</button>
+        </div>
+      )}
+
+      {/* Auto-Assign Results */}
+      {autoAssignResult && (
+        <div className="bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 flex items-start gap-3">
+          <svg className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <div className="text-sm">
+            <p className="font-bold text-teal-900">Auto-Assignment Results</p>
+            <ul className="mt-1 text-teal-700 space-y-0.5">
+              <li><strong>{autoAssignResult.assigned}</strong> location{autoAssignResult.assigned !== 1 ? 's' : ''} assigned (pending driver approval)</li>
+              {autoAssignResult.skippedNoZone > 0 && (
+                <li><strong>{autoAssignResult.skippedNoZone}</strong> skipped (no matching zone)</li>
+              )}
+              {autoAssignResult.skippedConflict > 0 && (
+                <li><strong>{autoAssignResult.skippedConflict}</strong> skipped (multiple zones)</li>
+              )}
+              {autoAssignResult.skippedExistingRequest > 0 && (
+                <li><strong>{autoAssignResult.skippedExistingRequest}</strong> skipped (request already pending)</li>
+              )}
+              {autoAssignResult.errors > 0 && (
+                <li className="text-red-600"><strong>{autoAssignResult.errors}</strong> error{autoAssignResult.errors !== 1 ? 's' : ''}</li>
+              )}
+            </ul>
+          </div>
+          <button type="button" onClick={() => setAutoAssignResult(null)} className="ml-auto text-teal-400 hover:text-teal-600">&times;</button>
         </div>
       )}
 

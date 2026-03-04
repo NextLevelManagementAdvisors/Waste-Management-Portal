@@ -186,6 +186,94 @@ export interface EventsResult {
   remainingEvents: number;
 }
 
+// ── Route query options ──
+
+export interface GetRoutesOptions {
+  date: string;
+  includeRoutePolyline?: boolean;
+  includeRouteStartEnd?: boolean;
+  driverSerial?: string;
+  driverExternalId?: string;
+  vehicleRegistration?: string;
+}
+
+// ── Order creation input (all fields) ──
+
+export interface CreateOrderInput {
+  orderNo: string;
+  type: 'D' | 'P' | 'T';
+  date: string;
+  address: string;
+  locationName?: string;
+  locationNo?: string;
+  latitude?: number;
+  longitude?: number;
+  duration?: number;
+  notes?: string;
+  assignedTo?: { externalId?: string; serial?: string };
+  priority?: 'L' | 'M' | 'H' | 'C';
+  timeWindows?: { twFrom: string; twTo: string }[];
+  load1?: number;
+  load2?: number;
+  load3?: number;
+  load4?: number;
+  skills?: string[];
+  email?: string;
+  phone?: string;
+  notificationPreference?: string;
+  customField1?: string;
+  customField2?: string;
+  customField3?: string;
+  customField4?: string;
+  customField5?: string;
+  customFields?: Record<string, any>;
+}
+
+// ── Bulk order input (for create_or_update_orders) ──
+
+export interface BulkOrderInput {
+  orderNo: string;
+  type?: 'D' | 'P' | 'T';
+  date: string;
+  location: {
+    address: string;
+    locationName?: string;
+    locationNo?: string;
+    latitude?: number;
+    longitude?: number;
+    notes?: string;
+  };
+  duration?: number;
+  notes?: string;
+  assignedTo?: { externalId?: string; serial?: string };
+  priority?: 'L' | 'M' | 'H' | 'C';
+  timeWindows?: { twFrom: string; twTo: string }[];
+  load1?: number;
+  load2?: number;
+  load3?: number;
+  load4?: number;
+  skills?: string[];
+  email?: string;
+  phone?: string;
+  notificationPreference?: string;
+  customField1?: string;
+  customField2?: string;
+  customField3?: string;
+  customField4?: string;
+  customField5?: string;
+  customFields?: Record<string, any>;
+}
+
+// ── Driver position interface ──
+
+export interface DriverPosition {
+  driverSerial?: string;
+  driverExternalId?: string;
+  latitude: number;
+  longitude: number;
+  timestamp?: number;
+}
+
 // ── Driver parameter interfaces ──
 
 export interface DriverParameters {
@@ -257,8 +345,15 @@ export async function searchOrders(from: string, to: string, includeOrderData = 
   });
 }
 
-export async function getRoutes(date: string): Promise<{ routes: Route[] }> {
-  return apiGet('get_routes', { date });
+export async function getRoutes(dateOrOptions: string | GetRoutesOptions): Promise<{ routes: Route[] }> {
+  const opts = typeof dateOrOptions === 'string' ? { date: dateOrOptions } : dateOrOptions;
+  const params: Record<string, string> = { date: opts.date };
+  if (opts.includeRoutePolyline) params.includeRoutePolyline = 'true';
+  if (opts.includeRouteStartEnd) params.includeRouteStartEnd = 'true';
+  if (opts.driverSerial) params.driverSerial = opts.driverSerial;
+  if (opts.driverExternalId) params.driverExternalId = opts.driverExternalId;
+  if (opts.vehicleRegistration) params.vehicleRegistration = opts.vehicleRegistration;
+  return apiGet('get_routes', params);
 }
 
 export async function getSchedulingInfo(orderNo: string): Promise<{ success: boolean; orderScheduled: boolean; scheduleInformation?: ScheduleInfo }> {
@@ -271,16 +366,8 @@ export async function getCompletionDetails(orderNos: string[]): Promise<any> {
   });
 }
 
-export async function createOrder(data: {
-  orderNo: string;
-  type: 'D' | 'P' | 'T';
-  date: string;
-  address: string;
-  locationName?: string;
-  duration?: number;
-  notes?: string;
-}): Promise<any> {
-  return apiPost('create_order', {
+export async function createOrder(data: CreateOrderInput): Promise<any> {
+  const body: any = {
     operation: 'CREATE',
     orderNo: data.orderNo,
     type: data.type,
@@ -288,10 +375,31 @@ export async function createOrder(data: {
     location: {
       address: data.address,
       locationName: data.locationName || '',
+      ...(data.locationNo && { locationNo: data.locationNo }),
+      ...(data.latitude != null && { latitude: data.latitude }),
+      ...(data.longitude != null && { longitude: data.longitude }),
     },
     duration: data.duration || 15,
     notes: data.notes || '',
-  });
+  };
+  if (data.assignedTo) body.assignedTo = data.assignedTo;
+  if (data.priority) body.priority = data.priority;
+  if (data.timeWindows?.length) body.timeWindows = data.timeWindows;
+  if (data.load1 != null) body.load1 = data.load1;
+  if (data.load2 != null) body.load2 = data.load2;
+  if (data.load3 != null) body.load3 = data.load3;
+  if (data.load4 != null) body.load4 = data.load4;
+  if (data.skills?.length) body.skills = data.skills;
+  if (data.email) body.email = data.email;
+  if (data.phone) body.phone = data.phone;
+  if (data.notificationPreference) body.notificationPreference = data.notificationPreference;
+  if (data.customField1) body.customField1 = data.customField1;
+  if (data.customField2) body.customField2 = data.customField2;
+  if (data.customField3) body.customField3 = data.customField3;
+  if (data.customField4) body.customField4 = data.customField4;
+  if (data.customField5) body.customField5 = data.customField5;
+  if (data.customFields) body.customFields = data.customFields;
+  return apiPost('create_order', body);
 }
 
 // ── New API functions ──
@@ -306,11 +414,30 @@ export async function deleteOrder(orderNo: string, forceDelete = false): Promise
   return apiPost('delete_order', { orderNo, forceDelete });
 }
 
-export async function updateOrder(orderNo: string, data: { date?: string; notes?: string }): Promise<any> {
-  const update: any = { operation: 'MERGE', orderNo };
-  if (data.date) update.date = data.date;
-  if (data.notes) update.notes = data.notes;
-  return apiPost('create_order', update);
+export async function updateOrder(orderNo: string, data: Partial<Omit<CreateOrderInput, 'orderNo' | 'type'>>): Promise<any> {
+  const body: any = { operation: 'MERGE', orderNo };
+  if (data.date) body.date = data.date;
+  if (data.notes) body.notes = data.notes;
+  if (data.address) body.location = { address: data.address, ...(data.locationName && { locationName: data.locationName }) };
+  if (data.duration != null) body.duration = data.duration;
+  if (data.assignedTo) body.assignedTo = data.assignedTo;
+  if (data.priority) body.priority = data.priority;
+  if (data.timeWindows?.length) body.timeWindows = data.timeWindows;
+  if (data.load1 != null) body.load1 = data.load1;
+  if (data.load2 != null) body.load2 = data.load2;
+  if (data.load3 != null) body.load3 = data.load3;
+  if (data.load4 != null) body.load4 = data.load4;
+  if (data.skills?.length) body.skills = data.skills;
+  if (data.email) body.email = data.email;
+  if (data.phone) body.phone = data.phone;
+  if (data.notificationPreference) body.notificationPreference = data.notificationPreference;
+  if (data.customField1) body.customField1 = data.customField1;
+  if (data.customField2) body.customField2 = data.customField2;
+  if (data.customField3) body.customField3 = data.customField3;
+  if (data.customField4) body.customField4 = data.customField4;
+  if (data.customField5) body.customField5 = data.customField5;
+  if (data.customFields) body.customFields = data.customFields;
+  return apiPost('create_order', body);
 }
 
 export async function startPlanning(opts: PlanningOptions): Promise<PlanningResult> {
@@ -347,6 +474,46 @@ export async function updateDriverParams(params: DriverParameters): Promise<{ su
 
 export async function updateDriverParamsBulk(drivers: any[]): Promise<any> {
   return apiPost('update_drivers_parameters', { drivers });
+}
+
+// ── Bulk order operations ──
+
+export async function createOrUpdateOrders(orders: BulkOrderInput[]): Promise<any[]> {
+  const CHUNK_SIZE = 500;
+  const results: any[] = [];
+  for (let i = 0; i < orders.length; i += CHUNK_SIZE) {
+    const chunk = orders.slice(i, i + CHUNK_SIZE);
+    const result = await apiPost('create_or_update_orders', { orders: chunk });
+    results.push(result);
+  }
+  return results;
+}
+
+export async function deleteOrders(orderNos: string[], forceDelete = false): Promise<any[]> {
+  const CHUNK_SIZE = 500;
+  const results: any[] = [];
+  for (let i = 0; i < orderNos.length; i += CHUNK_SIZE) {
+    const chunk = orderNos.slice(i, i + CHUNK_SIZE);
+    const result = await apiPost('delete_orders', {
+      orders: chunk.map(orderNo => ({ orderNo })),
+      deleteMultiple: true,
+      forceDelete,
+    });
+    results.push(result);
+  }
+  return results;
+}
+
+export async function deleteAllOrders(date?: string): Promise<{ success: boolean }> {
+  const body: any = {};
+  if (date) body.date = date;
+  return apiPost('delete_all_orders', body);
+}
+
+// ── Driver GPS positions ──
+
+export async function updateDriverPositions(positions: DriverPosition[]): Promise<{ success: boolean }> {
+  return apiPost('update_drivers_positions', { drivers: positions });
 }
 
 // ── Existing helper functions ──
