@@ -473,7 +473,7 @@ export async function updateDriverParams(params: DriverParameters): Promise<{ su
 }
 
 export async function updateDriverParamsBulk(drivers: any[]): Promise<any> {
-  return apiPost('update_drivers_parameters', { drivers });
+  return apiPost('update_drivers_parameters', { updates: drivers });
 }
 
 // ── Bulk order operations ──
