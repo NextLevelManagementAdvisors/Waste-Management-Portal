@@ -226,7 +226,7 @@ describe('runAutomatedSync', () => {
         vi.mocked(storage.getFutureSyncOrdersForLocation).mockResolvedValue([]);
         vi.mocked(pool.query).mockResolvedValue({ rows: [], rowCount: 0 } as any);
         vi.mocked(optimo.deleteOrders).mockResolvedValue([]);
-        vi.mocked(collectionDayDetector.detectAndStoreCollectionDays).mockResolvedValue({ updated: 0, skipped: 0, noData: 0 });
+        vi.mocked(collectionDayDetector.detectAndStoreCollectionDays).mockResolvedValue({ updated: 0, created: 0 });
 
         // Dynamic mock for createOrUpdateOrders
         vi.mocked(optimo.createOrUpdateOrders).mockImplementation(async (orders) => {

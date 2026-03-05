@@ -184,9 +184,7 @@ export function registerRoutes(app: Express) {
         stripe.paymentMethods.list({ customer: customerId, type: 'us_bank_account' }),
         stripe.customers.retrieve(customerId),
       ]);
-      const defaultPmId = (customer as any)?.deleted
-        ? null
-        : ((customer as any)?.invoice_settings?.default_payment_method ?? null);
+      const defaultPmId = !customer.deleted ? customer.invoice_settings?.default_payment_method : null;
       res.json({ data: [...cards.data, ...bankAccounts.data], defaultPaymentMethodId: defaultPmId });
     } catch (error: any) {
       if (error?.code === 'resource_missing') {

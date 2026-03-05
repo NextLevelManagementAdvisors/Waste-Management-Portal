@@ -20,7 +20,7 @@ interface FixContextModalProps {
 const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSubmit, fixing, selectedErrors }) => {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<ErrorEntry[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set<number>());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
   const [loadingErrors, setLoadingErrors] = useState(false);
 
@@ -29,7 +29,7 @@ const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSu
   useEffect(() => {
     if (isOpen) {
       setNotes('');
-      setSelected(new Set<number>());
+      setSelected(new Set());
       setSearch('');
 
       if (isManualMode) {
@@ -136,7 +136,7 @@ const FixContextModal: React.FC<FixContextModalProps> = ({ isOpen, onClose, onSu
 
               {selected.size > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {Array.from<number>(selected).map(idx => {
+                  {Array.from(selected).map(idx => {
                     const e = errors[idx];
                     if (!e) return null;
                     return (

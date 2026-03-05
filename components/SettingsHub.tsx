@@ -213,9 +213,6 @@ const DEFAULT_PREFS: NotificationPreferences = {
   referralUpdates: true,
 };
 
-type ChannelNotificationKey = 'collectionReminders' | 'scheduleChanges' | 'driverUpdates';
-type SimpleNotificationKey = 'invoiceDue' | 'paymentConfirmation' | 'autopayReminder' | 'serviceUpdates' | 'promotions' | 'referralUpdates';
-
 const NotificationsTab: React.FC = () => {
   const { selectedLocation, locations, setSelectedLocationId, refreshUser } = useLocation();
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
@@ -232,7 +229,7 @@ const NotificationsTab: React.FC = () => {
 
   useEffect(() => {
     if (selectedLocation) {
-      const np = selectedLocation.notificationPreferences ?? DEFAULT_PREFS;
+      const np = selectedLocation.notificationPreferences;
       setPrefs({
         collectionReminders: { email: np.collectionReminders?.email !== false, sms: np.collectionReminders?.sms === true },
         scheduleChanges: { email: np.scheduleChanges?.email !== false, sms: np.scheduleChanges?.sms === true },
@@ -253,16 +250,15 @@ const NotificationsTab: React.FC = () => {
     }
   }, [selectedLocation, locations.length]);
 
-  const handlePrefChange = useCallback((category: ChannelNotificationKey | SimpleNotificationKey, type?: 'email' | 'sms') => {
+  const handlePrefChange = useCallback((category: keyof NotificationPreferences, type?: 'email' | 'sms') => {
     setPrefs(prev => {
       if (!prev) return null;
       if (type) {
-        const channelKey = category as ChannelNotificationKey;
-        const channelPrefs = prev[channelKey];
-        return { ...prev, [channelKey]: { ...channelPrefs, [type]: !channelPrefs[type] } };
+        const newPrefs = { ...prev };
+        newPrefs[category] = { ...newPrefs[category], [type]: !newPrefs[category][type] };
+        return newPrefs;
       }
-      const simpleKey = category as SimpleNotificationKey;
-      return { ...prev, [simpleKey]: !Boolean(prev[simpleKey]) };
+      return { ...prev, [category]: !prev[category] };
     });
     setHasChanges(true);
   }, []);
@@ -285,7 +281,7 @@ const NotificationsTab: React.FC = () => {
     }
   };
 
-  const NotifRow: React.FC<{ title: string; description: string; categoryKey: ChannelNotificationKey }> = ({ title, description, categoryKey }) => (
+  const NotifRow: React.FC<{ title: string; description: string; categoryKey: keyof NotificationPreferences }> = ({ title, description, categoryKey }) => (
     <div className="py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       <div className="flex-1">
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>

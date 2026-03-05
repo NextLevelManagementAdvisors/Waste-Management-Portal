@@ -312,11 +312,10 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
     // Step 3: Group locations by provider
     const locationsByProvider = new Map<string, any[]>();
     for (const loc of locations) {
-        const providerKey = loc.provider_id || '__unassigned__';
-        if (!locationsByProvider.has(providerKey)) {
-            locationsByProvider.set(providerKey, []);
+        if (!locationsByProvider.has(loc.provider_id)) {
+            locationsByProvider.set(loc.provider_id, []);
         }
-        locationsByProvider.get(providerKey)!.push(loc);
+        locationsByProvider.get(loc.provider_id)!.push(loc);
     }
 
     let totalCreated = 0;
@@ -325,13 +324,10 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
 
     // Step 4: Process each provider's locations
     for (const [providerId, providerLocations] of locationsByProvider.entries()) {
-        const isUnassignedProviderBucket = providerId === '__unassigned__';
-        const providerDrivers = isUnassignedProviderBucket
-            ? []
-            : ((await storage.getDriversForProvider(providerId)) || []);
+        const providerDrivers = await storage.getDriversForProvider(providerId);
         const optimoDrivers = providerDrivers.filter(d => d.optimoroute_driver_id);
 
-        if (!isUnassignedProviderBucket && optimoDrivers.length === 0) {
+        if (optimoDrivers.length === 0) {
             console.warn(`[OptimoSync] Provider ${providerId} has no drivers with an OptimoRoute ID. Skipping ${providerLocations.length} locations.`);
             totalSkipped += providerLocations.length; // Or handle as errors
             continue;
@@ -350,14 +346,12 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
             }
         }
 
-        // Round-robin assign drivers only when this provider has mapped Optimo drivers.
-        if (optimoDrivers.length > 0) {
-            let driverIndex = 0;
-            for (const order of allCollected) {
-                const driver = optimoDrivers[driverIndex % optimoDrivers.length];
-                order.bulkInput.assignedTo = { serial: driver.optimoroute_driver_id! };
-                driverIndex++;
-            }
+        // Round-robin assign drivers to the collected orders for this provider
+        let driverIndex = 0;
+        for (const order of allCollected) {
+            const driver = optimoDrivers[driverIndex % optimoDrivers.length];
+            order.bulkInput.assignedTo = { serial: driver.optimoroute_driver_id! };
+            driverIndex++;
         }
 
         // Batch-submit to OptimoRoute

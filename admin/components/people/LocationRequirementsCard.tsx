@@ -65,7 +65,7 @@ const LocationRequirementsCard: React.FC<LocationRequirementsCardProps> = ({ loc
     try {
       const body = {
         ...form,
-        customRate: form.customRate != null ? Number(form.customRate) : null,
+        customRate: form.customRate != null && form.customRate !== '' ? Number(form.customRate) : null,
       };
       const res = await fetch(`/api/admin/locations/${locationId}/requirements`, {
         method: 'PUT',

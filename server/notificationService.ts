@@ -432,7 +432,7 @@ export async function sendCollectionCompleteNotification(userId: string, address
   );
 
   // Send email if collection reminders are enabled for this location
-  const locations = await storage.getLocationsForUser(userId);
+  const locations = await storage.getLocationsByUserId(userId);
   const loc = locations.find((l: any) => l.address === address);
   const prefs = loc?.notification_preferences;
   const emailEnabled = prefs?.collectionReminders?.email !== false;

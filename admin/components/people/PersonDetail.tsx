@@ -654,10 +654,7 @@ const PersonDetail: React.FC<{
       )}
 
       {activeTab === 'communications' && (
-        <CustomerCommunicationsTab
-          customerId={person.id}
-          customerName={person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim() || 'Customer'}
-        />
+        <CustomerCommunicationsTab customerId={person.id} />
       )}
     </div>
   );

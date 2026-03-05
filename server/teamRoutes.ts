@@ -9,11 +9,6 @@ import { notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { sendDriverNotification } from './notificationService';
 
-const toParam = (value: string | string[] | undefined): string => {
-  if (Array.isArray(value)) return value[0] ?? '';
-  return value ?? '';
-};
-
 /** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
 async function triggerWaitlistAutoFlag(zone: any) {
   if (process.env.WAITLIST_AUTO_FLAG_ENABLED === 'false') return;
@@ -871,7 +866,7 @@ export function registerTeamRoutes(app: Express) {
   app.put('/api/team/my-custom-zones/:id', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const approvalRequired = process.env.ZONE_APPROVAL_REQUIRED !== 'false';
       const geometryFields = ['center_lat', 'center_lng', 'radius_miles', 'polygon_coords', 'zip_codes'];
       const hasGeometryChange = geometryFields.some(f => req.body[f] !== undefined);
@@ -900,7 +895,7 @@ export function registerTeamRoutes(app: Express) {
   app.delete('/api/team/my-custom-zones/:id', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const deleted = await storage.deleteDriverCustomZone(toParam(req.params.id), driverId);
+      const deleted = await storage.deleteDriverCustomZone(req.params.id, driverId);
       if (!deleted) return res.status(404).json({ error: 'Zone not found' });
       res.json({ success: true });
     } catch (error) {
@@ -913,7 +908,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/zip-boundary/:zip', requireDriverAuth, async (req: Request, res: Response) => {
     try {
-      const zip = toParam(req.params.zip);
+      const { zip } = req.params;
       if (!/^\d{5}(-\d{4})?$/.test(zip)) {
         return res.status(400).json({ error: 'Invalid ZIP code format. Use 5-digit or ZIP+4 (e.g. 22630 or 22630-1234)' });
       }
@@ -981,7 +976,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.get('/api/team/routes/:routeId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const route = await storage.getRouteById(routeId);
       if (!route) {
         return res.status(404).json({ error: 'Route not found' });
@@ -1024,7 +1019,7 @@ export function registerTeamRoutes(app: Express) {
   // Compensation breakdown for a route (driver visibility)
   app.get('/api/team/routes/:routeId/valuation', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
 
       const route = await storage.getRouteById(routeId);
@@ -1046,7 +1041,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.post('/api/team/routes/:routeId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
       const { bid_amount, message } = req.body;
 
@@ -1091,7 +1086,7 @@ export function registerTeamRoutes(app: Express) {
 
   app.delete('/api/team/routes/:routeId/bid', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
 
       const existingBid = await storage.getBidByRouteAndDriver(routeId, driverId);
@@ -1111,7 +1106,7 @@ export function registerTeamRoutes(app: Express) {
   // Driver starts an assigned route, transitioning it to in_progress.
   app.post('/api/team/routes/:routeId/start', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
 
       const route = await storage.getRouteById(routeId);
@@ -1138,7 +1133,7 @@ export function registerTeamRoutes(app: Express) {
   // Driver declines an assigned route. Sets route back to open and logs the reason.
   app.post('/api/team/routes/:routeId/decline', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
       const { reason } = req.body || {};
 
@@ -1167,7 +1162,7 @@ export function registerTeamRoutes(app: Express) {
   // auto-creates a driver_pay expense record so payroll stays in sync.
   app.post('/api/team/routes/:routeId/complete', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.routeId);
+      const routeId = req.params.routeId;
       const driverId = res.locals.driverProfile.id;
       const { notes } = req.body || {};
 
@@ -1353,7 +1348,7 @@ export function registerTeamRoutes(app: Express) {
   app.put('/api/team/on-demand/:id/complete', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       // Verify this on-demand request is assigned to the requesting driver
       const onDemandRequest = await storage.getOnDemandRequestById(id);
       if (!onDemandRequest || onDemandRequest.assigned_driver_id !== driverId) {
@@ -1493,7 +1488,7 @@ export function registerTeamRoutes(app: Express) {
       const { proposedRate, message } = req.body;
 
       // Verify opportunity is open
-      const oppResult = await pool.query(`SELECT * FROM contract_opportunities WHERE id = $1 AND status = 'open'`, [toParam(req.params.id)]);
+      const oppResult = await pool.query(`SELECT * FROM contract_opportunities WHERE id = $1 AND status = 'open'`, [req.params.id]);
       if (oppResult.rows.length === 0) return res.status(404).json({ error: 'Opportunity not found or not open' });
 
       // Get driver rating at time of application
@@ -1509,7 +1504,7 @@ export function registerTeamRoutes(app: Express) {
            driver_rating_at_application = EXCLUDED.driver_rating_at_application,
            status = 'pending'
          RETURNING *`,
-        [toParam(req.params.id), driverId, proposedRate ?? null, message ?? null, driverRating]
+        [req.params.id, driverId, proposedRate ?? null, message ?? null, driverRating]
       );
       const a = rows[0];
       res.status(201).json({
@@ -1534,7 +1529,7 @@ export function registerTeamRoutes(app: Express) {
       const driverId = res.locals.driverProfile.id;
       const { rowCount } = await pool.query(
         `DELETE FROM contract_applications WHERE opportunity_id = $1 AND driver_id = $2 AND status = 'pending'`,
-        [toParam(req.params.id), driverId]
+        [req.params.id, driverId]
       );
       if (rowCount === 0) return res.status(404).json({ error: 'No pending application found' });
       res.json({ success: true });
@@ -1656,7 +1651,7 @@ export function registerTeamRoutes(app: Express) {
       const driverId = res.locals.driverProfile.id;
       const { rows } = await pool.query(
         `DELETE FROM coverage_requests WHERE id = $1 AND requesting_driver_id = $2 AND status = 'pending' RETURNING id`,
-        [toParam(req.params.id), driverId]
+        [req.params.id, driverId]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Request not found or not withdrawable' });
       res.json({ success: true });
@@ -1688,7 +1683,7 @@ export function registerTeamRoutes(app: Express) {
       if (!decision || !['approved', 'denied'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be "approved" or "denied"' });
       }
-      const result = await storage.respondToZoneAssignmentRequest(toParam(req.params.id), driverId, decision, notes);
+      const result = await storage.respondToZoneAssignmentRequest(req.params.id, driverId, decision, notes);
       if (!result) return res.status(404).json({ error: 'Request not found, not yours, or not pending' });
 
       // Notify the requesting admin
@@ -1715,7 +1710,7 @@ export function registerTeamRoutes(app: Express) {
   app.get('/api/team/contracts/:id/routes', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const contractId = toParam(req.params.id);
+      const contractId = req.params.id;
 
       // Verify driver owns this contract
       const contract = await pool.query(
@@ -1766,7 +1761,7 @@ export function registerTeamRoutes(app: Express) {
   app.get('/api/team/contracts/:id/forecast', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const contractId = toParam(req.params.id);
+      const contractId = req.params.id;
 
       // Load contract
       const { rows: contractRows } = await pool.query(
@@ -1841,5 +1836,3 @@ function formatDriverForClient(driverProfile: any, user?: any) {
     created_at: driverProfile.created_at,
   };
 }
-
-

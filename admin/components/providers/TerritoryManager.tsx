@@ -1,300 +1,124 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { OnboardingWizard } from '../onboarding/OnboardingWizard';
+import React, { useState, useEffect } from 'react';
 
-interface Provider {
-  id: string;
-  name: string;
-  owner_name?: string | null;
-  owner_email?: string | null;
-  driver_count?: number;
-  territory_count?: number;
-  onboarding_status?: string;
-  status?: string;
-}
+// Mock API functions - replace with actual calls to your new endpoints
+const api = {
+  getProviders: async () => {
+    console.log('Fetching providers...');
+    // Replace with: return fetch('/api/admin/providers').then(res => res.json());
+    return Promise.resolve({
+      providers: [
+        { id: 'prov_1', name: 'Joe's Trash Service', owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
+        { id: 'prov_2', name: 'City Waste Co', owner_name: 'Jane Doe', driver_count: 10, territory_count: 5 },
+      ],
+    });
+  },
+  getTerritories: async (providerId: string) => {
+    console.log(`Fetching territories for ${providerId}...`);
+    // Replace with: return fetch(`/api/admin/providers/${providerId}/territories`).then(res => res.json());
+    if (providerId === 'prov_1') {
+      return Promise.resolve({
+        territories: [{ id: 'terr_1', name: 'North Boston', zone_type: 'polygon', status: 'active' }],
+      });
+    }
+    return Promise.resolve({ territories: [] });
+  },
+};
 
-interface Territory {
-  id: string;
-  name: string;
-  zone_type: string;
-  status: string;
-  default_pickup_day?: string | null;
-  color?: string;
-}
+const ProviderList: React.FC<{ providers: any[], onSelectProvider: (id: string) => void, selectedProviderId: string | null }> = ({ providers, onSelectProvider, selectedProviderId }) => (
+  <div className="w-1/3 pr-4">
+    <h2 className="text-xl font-semibold mb-2">Providers</h2>
+    <div className="bg-white rounded-lg shadow-md">
+      <ul className="divide-y divide-gray-200">
+        {providers.map(p => (
+          <li
+            key={p.id}
+            onClick={() => onSelectProvider(p.id)}
+            className={`p-4 cursor-pointer hover:bg-gray-50 ${selectedProviderId === p.id ? 'bg-green-50 border-l-4 border-green-500' : ''}`}
+          >
+            <div className="font-bold text-gray-800">{p.name}</div>
+            <div className="text-sm text-gray-500">{p.driver_count} drivers, {p.territory_count} territories</div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+);
 
-interface CreateTerritoryInput {
-  name: string;
-  zone_type: 'polygon' | 'zip';
-  zip_codes?: string[];
-  default_pickup_day?: string | null;
-  color?: string;
-}
+const TerritoryList: React.FC<{ territories: any[] }> = ({ territories }) => (
+  <div>
+    <h3 className="text-lg font-semibold mb-2">Service Territories</h3>
+     <div className="bg-white rounded-lg shadow-md">
+        <ul className="divide-y divide-gray-200">
+            {territories.map(t => (
+            <li key={t.id} className="p-3 flex justify-between items-center">
+                <div>
+                <div className="font-medium">{t.name}</div>
+                <div className="text-sm text-gray-500 capitalize">{t.zone_type}</div>
+                </div>
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    t.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                }`}>
+                {t.status}
+                </span>
+            </li>
+            ))}
+            {territories.length === 0 && <li className="p-4 text-center text-gray-500">No territories found.</li>}
+        </ul>
+     </div>
+     <button className="mt-4 w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700">
+        Add New Territory
+     </button>
+  </div>
+);
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { credentials: 'include', ...init });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(body || `Request failed (${res.status})`);
-  }
-  return res.json();
-}
+const MapEditor: React.FC = () => (
+    <div className="bg-gray-200 h-full rounded-lg shadow-inner flex items-center justify-center">
+        <p className="text-gray-500">Map editor placeholder</p>
+    </div>
+);
+
 
 export const TerritoryManager: React.FC = () => {
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<any[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [territories, setTerritories] = useState<Territory[]>([]);
-  const [loadingProviders, setLoadingProviders] = useState(true);
-  const [loadingTerritories, setLoadingTerritories] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [creatingTerritory, setCreatingTerritory] = useState(false);
-
-  const [newTerritory, setNewTerritory] = useState<CreateTerritoryInput>({
-    name: '',
-    zone_type: 'polygon',
-    zip_codes: [],
-    default_pickup_day: null,
-    color: '#3B82F6',
-  });
-  const [zipCodesInput, setZipCodesInput] = useState('');
-
-  const selectedProvider = useMemo(
-    () => providers.find((p) => p.id === selectedProviderId) || null,
-    [providers, selectedProviderId]
-  );
-
-  const loadProviders = async () => {
-    setLoadingProviders(true);
-    setError(null);
-    try {
-      const data = await fetchJson<{ providers: Provider[] }>('/api/admin/providers');
-      const nextProviders = data.providers || [];
-      setProviders(nextProviders);
-      setSelectedProviderId((prev) => {
-        if (prev && nextProviders.some((p) => p.id === prev)) return prev;
-        return nextProviders[0]?.id || null;
-      });
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load providers.');
-    } finally {
-      setLoadingProviders(false);
-    }
-  };
-
-  const loadTerritories = async (providerId: string) => {
-    setLoadingTerritories(true);
-    setError(null);
-    try {
-      const data = await fetchJson<{ territories: Territory[] }>(`/api/admin/providers/${providerId}/territories`);
-      setTerritories(data.territories || []);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load territories.');
-      setTerritories([]);
-    } finally {
-      setLoadingTerritories(false);
-    }
-  };
+  const [territories, setTerritories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadProviders();
+    api.getProviders().then(data => {
+      setProviders(data.providers);
+      if (data.providers.length > 0) {
+        setSelectedProviderId(data.providers[0].id);
+      }
+      setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
     if (selectedProviderId) {
-      loadTerritories(selectedProviderId);
+      api.getTerritories(selectedProviderId).then(data => {
+        setTerritories(data.territories);
+      });
     } else {
       setTerritories([]);
     }
   }, [selectedProviderId]);
 
-  const handleCreateTerritory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProviderId || !newTerritory.name.trim()) return;
-
-    setCreatingTerritory(true);
-    setError(null);
-    try {
-      const payload: any = {
-        name: newTerritory.name.trim(),
-        zone_type: newTerritory.zone_type,
-        color: newTerritory.color || '#3B82F6',
-      };
-      if (newTerritory.default_pickup_day) payload.default_pickup_day = newTerritory.default_pickup_day;
-      const zipCodes = zipCodesInput
-        .split(',')
-        .map((z) => z.trim())
-        .filter(Boolean);
-      if (newTerritory.zone_type === 'zip' && zipCodes.length > 0) {
-        payload.zip_codes = zipCodes;
-      }
-      await fetchJson<{ territory: Territory }>(`/api/admin/providers/${selectedProviderId}/territories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      setNewTerritory({
-        name: '',
-        zone_type: 'polygon',
-        zip_codes: [],
-        default_pickup_day: null,
-        color: '#3B82F6',
-      });
-      setZipCodesInput('');
-      await Promise.all([loadTerritories(selectedProviderId), loadProviders()]);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create territory.');
-    } finally {
-      setCreatingTerritory(false);
-    }
-  };
-
-  if (loadingProviders) {
-    return <div className="text-sm text-gray-500">Loading providers...</div>;
+  if (loading) {
+    return <div>Loading...</div>;
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
-      <section className="bg-white rounded-lg border border-gray-200">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-800">Providers</h2>
+    <div className="flex h-[calc(100vh-12rem)]">
+      <ProviderList providers={providers} onSelectProvider={setSelectedProviderId} selectedProviderId={selectedProviderId} />
+      <div className="w-2/3 flex flex-col">
+        <div className="w-full md:w-1/2 lg:w-1/3 flex-shrink-0 pr-4">
+            {selectedProviderId && <TerritoryList territories={territories} />}
         </div>
-        {providers.length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No providers found.</p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {providers.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedProviderId(p.id)}
-                  className={`w-full text-left p-4 hover:bg-gray-50 ${
-                    selectedProviderId === p.id ? 'bg-green-50 border-l-4 border-green-500' : ''
-                  }`}
-                >
-                  <div className="font-bold text-gray-800">{p.name}</div>
-                  <div className="text-xs text-gray-500">
-                    {p.driver_count || 0} drivers, {p.territory_count || 0} territories
-                  </div>
-                  {p.onboarding_status && p.onboarding_status !== 'active' && (
-                    <div className="mt-1 text-[11px] font-semibold text-amber-700">
-                      Onboarding: {p.onboarding_status.replace(/_/g, ' ')}
-                    </div>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-4">
-        {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">{error}</div>}
-
-        {selectedProvider && selectedProvider.onboarding_status && selectedProvider.onboarding_status !== 'active' && (
-          <OnboardingWizard
-            key={selectedProvider.id}
-            providerId={selectedProvider.id}
-            providerName={selectedProvider.name}
-            initialStatus={selectedProvider.onboarding_status}
-            onStatusChanged={() => {
-              loadProviders();
-              if (selectedProviderId) loadTerritories(selectedProviderId);
-            }}
-          />
-        )}
-
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="text-base font-bold text-gray-800">Territories</h3>
-          </div>
-          {loadingTerritories ? (
-            <p className="p-4 text-sm text-gray-500">Loading territories...</p>
-          ) : territories.length === 0 ? (
-            <p className="p-4 text-sm text-gray-500">No territories found for this provider.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {territories.map((t) => (
-                <li key={t.id} className="p-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-gray-800">{t.name}</div>
-                    <div className="text-xs text-gray-500 capitalize">
-                      {t.zone_type} {t.default_pickup_day ? `• ${t.default_pickup_day}` : ''}
-                    </div>
-                  </div>
-                  <span
-                    className={`px-2 py-1 rounded-full text-[11px] font-semibold ${
-                      t.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    {t.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="flex-grow h-full mt-4 md:mt-0">
+             <MapEditor />
         </div>
-
-        {selectedProviderId && (
-          <form onSubmit={handleCreateTerritory} className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-            <h4 className="text-sm font-bold text-gray-800">Add Territory</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input
-                value={newTerritory.name}
-                onChange={(e) => setNewTerritory((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Territory name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                required
-              />
-              <select
-                value={newTerritory.zone_type}
-                onChange={(e) => setNewTerritory((prev) => ({ ...prev, zone_type: e.target.value as 'polygon' | 'zip' }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="polygon">Polygon</option>
-                <option value="zip">ZIP</option>
-              </select>
-            </div>
-            {newTerritory.zone_type === 'zip' && (
-              <input
-                value={zipCodesInput}
-                onChange={(e) => setZipCodesInput(e.target.value)}
-                placeholder="ZIP codes, comma-separated"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              />
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <select
-                value={newTerritory.default_pickup_day || ''}
-                onChange={(e) =>
-                  setNewTerritory((prev) => ({ ...prev, default_pickup_day: e.target.value || null }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">Default pickup day (optional)</option>
-                <option value="monday">Monday</option>
-                <option value="tuesday">Tuesday</option>
-                <option value="wednesday">Wednesday</option>
-                <option value="thursday">Thursday</option>
-                <option value="friday">Friday</option>
-                <option value="saturday">Saturday</option>
-                <option value="sunday">Sunday</option>
-              </select>
-              <input
-                type="color"
-                value={newTerritory.color || '#3B82F6'}
-                onChange={(e) => setNewTerritory((prev) => ({ ...prev, color: e.target.value }))}
-                className="h-10 w-full border border-gray-300 rounded-md bg-white"
-                title="Territory color"
-              />
-              <button
-                type="submit"
-                disabled={creatingTerritory}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-60 text-sm font-semibold"
-              >
-                {creatingTerritory ? 'Saving...' : 'Create Territory'}
-              </button>
-            </div>
-          </form>
-        )}
-      </section>
+      </div>
     </div>
   );
 };

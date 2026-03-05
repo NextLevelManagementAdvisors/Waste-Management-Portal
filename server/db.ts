@@ -52,9 +52,6 @@ export interface DbLocation {
   collection_day_detected_at: string | null;
   collection_day_source: string | null;
   zone_id: string | null;
-  coverage_flagged_by_zone?: string | null;
-  provider_id?: string | null;
-  provider_territory_id?: string | null;
   latitude: number | null;
   longitude: number | null;
   created_at: string;

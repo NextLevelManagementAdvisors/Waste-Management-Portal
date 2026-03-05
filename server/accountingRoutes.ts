@@ -5,11 +5,6 @@ import { expenseRepo, EXPENSE_CATEGORIES } from './repositories/ExpenseRepositor
 import { storage } from './storage';
 import { getUncachableStripeClient } from './stripeClient';
 
-const toParam = (value: string | string[] | undefined): string => {
-  if (Array.isArray(value)) return value[0] ?? '';
-  return value ?? '';
-};
-
 function getAdminId(req: Request) {
   return req.session.originalAdminUserId || req.session.userId!;
 }
@@ -384,7 +379,7 @@ export function registerAccountingRoutes(app: Express) {
   // ========================================================================
   app.put('/api/admin/accounting/expenses/:id', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
-      const existing = await expenseRepo.getById(toParam(req.params.id));
+      const existing = await expenseRepo.getById(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: 'Expense not found' });
       }
@@ -397,12 +392,12 @@ export function registerAccountingRoutes(app: Express) {
         return res.status(400).json({ error: `Invalid category` });
       }
 
-      const updated = await expenseRepo.update(toParam(req.params.id), {
+      const updated = await expenseRepo.update(req.params.id, {
         category, description, amount: amount ? parseFloat(amount) : undefined,
         expenseDate, vendor, paymentMethod, notes,
       });
 
-      await audit(req, 'update_expense', 'expense', toParam(req.params.id), req.body);
+      await audit(req, 'update_expense', 'expense', req.params.id, req.body);
 
       res.json({ success: true, expense: updated });
     } catch (error) {
@@ -416,7 +411,7 @@ export function registerAccountingRoutes(app: Express) {
   // ========================================================================
   app.delete('/api/admin/accounting/expenses/:id', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
     try {
-      const existing = await expenseRepo.getById(toParam(req.params.id));
+      const existing = await expenseRepo.getById(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: 'Expense not found' });
       }
@@ -424,12 +419,12 @@ export function registerAccountingRoutes(app: Express) {
         return res.status(403).json({ error: 'Cannot delete auto-synced driver pay expenses' });
       }
 
-      const deleted = await expenseRepo.delete(toParam(req.params.id));
+      const deleted = await expenseRepo.delete(req.params.id);
       if (!deleted) {
         return res.status(500).json({ error: 'Failed to delete expense' });
       }
 
-      await audit(req, 'delete_expense', 'expense', toParam(req.params.id), { category: existing.category, amount: existing.amount });
+      await audit(req, 'delete_expense', 'expense', req.params.id, { category: existing.category, amount: existing.amount });
 
       res.json({ success: true });
     } catch (error) {
@@ -445,4 +440,3 @@ export function registerAccountingRoutes(app: Express) {
     res.json(EXPENSE_CATEGORIES);
   });
 }
-

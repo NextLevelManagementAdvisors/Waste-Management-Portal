@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 interface Provider {
   id: string;
@@ -6,7 +6,6 @@ interface Provider {
   owner_name: string;
   driver_count: number;
   territory_count: number;
-  onboarding_status?: string;
 }
 
 interface ProviderContextType {
@@ -35,33 +34,15 @@ export const ProviderProvider: React.FC<ProviderProviderProps> = ({ children }) 
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // In a real app, you'd fetch this from your API
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch('/api/admin/providers', { credentials: 'include' });
-        if (!res.ok) throw new Error(`Failed to load providers (${res.status})`);
-        const data = await res.json();
-        if (cancelled) return;
-        const nextProviders: Provider[] = data.providers || [];
-        setProviders(nextProviders);
-        setSelectedProviderId((prev) => {
-          if (prev && nextProviders.some((p) => p.id === prev)) return prev;
-          return nextProviders[0]?.id || null;
-        });
-      } catch {
-        if (!cancelled) {
-          setProviders([]);
-          setSelectedProviderId(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
+    const mockProviders: Provider[] = [
+      { id: 'prov_1', name: 'Joe's Trash Service', owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
+      { id: 'prov_2', name: 'City Waste Co', owner_name: 'Jane Doe', driver_count: 10, territory_count: 5 },
+      { id: 'prov_3', name: 'Green Haulers', owner_name: 'Al Gore', driver_count: 1, territory_count: 1 },
+    ];
+    setProviders(mockProviders);
+    setLoading(false);
   }, []);
 
   const selectedProvider = providers.find(p => p.id === selectedProviderId) || null;

@@ -144,7 +144,7 @@ export interface RouteTableProps {
 
 const RouteTable: React.FC<RouteTableProps> = ({
   routes,
-  columns = {} as NonNullable<RouteTableProps['columns']>,
+  columns = {},
   renderActions,
   onExpandStops,
   onExpandBids,

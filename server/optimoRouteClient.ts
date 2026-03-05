@@ -272,9 +272,6 @@ export interface DriverPosition {
   latitude: number;
   longitude: number;
   timestamp?: number;
-  speed?: number;
-  accuracy?: number;
-  heading?: number;
 }
 
 // ── Driver parameter interfaces ──
@@ -471,7 +468,7 @@ export async function updateCompletionDetails(updates: CompletionUpdate[]): Prom
   return apiPost('update_completion_details', { updates });
 }
 
-export async function updateDriverParams(params: DriverParameters): Promise<{ success: boolean; code?: string; message?: string }> {
+export async function updateDriverParams(params: DriverParameters): Promise<{ success: boolean; code?: string }> {
   return apiPost('update_driver_parameters', params);
 }
 
@@ -516,35 +513,7 @@ export async function deleteAllOrders(date?: string): Promise<{ success: boolean
 // ── Driver GPS positions ──
 
 export async function updateDriverPositions(positions: DriverPosition[]): Promise<{ success: boolean }> {
-  const grouped = new Map<string, { driver: { externalId?: string; serial?: string }; positions: any[] }>();
-
-  for (const p of positions) {
-    const identifier = p.driverExternalId
-      ? { externalId: p.driverExternalId }
-      : p.driverSerial
-      ? { serial: p.driverSerial }
-      : null;
-    if (!identifier) {
-      throw new Error('Driver position update requires driverExternalId or driverSerial for each item.');
-    }
-    const key = identifier.externalId ? `external:${identifier.externalId}` : `serial:${identifier.serial}`;
-    if (!grouped.has(key)) {
-      grouped.set(key, { driver: identifier, positions: [] });
-    }
-    const entry: any = {
-      timestamp: p.timestamp ?? Math.floor(Date.now() / 1000),
-      latitude: p.latitude,
-      longitude: p.longitude,
-    };
-    if (p.speed != null) entry.speed = p.speed;
-    if (p.accuracy != null) entry.accuracy = p.accuracy;
-    if (p.heading != null) entry.heading = p.heading;
-    grouped.get(key)!.positions.push(entry);
-  }
-
-  return apiPost('update_drivers_positions', {
-    updates: Array.from(grouped.values()),
-  });
+  return apiPost('update_drivers_positions', { drivers: positions });
 }
 
 // ── Existing helper functions ──

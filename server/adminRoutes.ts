@@ -21,11 +21,6 @@ import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateStopCompensation } from './compensationEngine';
 
-const toParam = (value: string | string[] | undefined): string => {
-  if (Array.isArray(value)) return value[0] ?? '';
-  return value ?? '';
-};
-
 declare module 'express-session' {
   interface SessionData {
     gmailOAuthState?: string;
@@ -203,7 +198,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/customers/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const user = await storage.getUserById(toParam(req.params.id) as string);
+      const user = await storage.getUserById(req.params.id as string);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const locations = await storage.getLocationsForUser(user.id);
@@ -324,7 +319,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/locations/:locationId/assign-zone', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const locationId = toParam(req.params.locationId);
+      const { locationId } = req.params;
       const { zoneId } = req.body;
       if (!zoneId) return res.status(400).json({ error: 'zoneId is required' });
 
@@ -349,7 +344,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/locations/:locationId/collection-day', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const locationId = toParam(req.params.locationId);
+      const { locationId } = req.params;
       const { collectionDay } = req.body;
       const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       if (!collectionDay || !validDays.includes(collectionDay)) {
@@ -414,7 +409,7 @@ export function registerAdminRoutes(app: Express) {
   app.put('/api/admin/customers/:id', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
       const { firstName, lastName, phone, email, isAdmin } = req.body;
-      const user = await storage.getUserById(toParam(req.params.id));
+      const user = await storage.getUserById(req.params.id);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const updateData: any = {};
@@ -423,11 +418,11 @@ export function registerAdminRoutes(app: Express) {
       if (phone !== undefined) updateData.phone = phone;
       if (email !== undefined) updateData.email = email;
 
-      await storage.updateUserAdmin(toParam(req.params.id), updateData);
+      await storage.updateUserAdmin(req.params.id, updateData);
       if (isAdmin !== undefined) {
-        await storage.setUserAdmin(toParam(req.params.id), isAdmin);
+        await storage.setUserAdmin(req.params.id, isAdmin);
       }
-      await audit(req, 'edit_customer', 'user', toParam(req.params.id), { ...updateData, isAdmin });
+      await audit(req, 'edit_customer', 'user', req.params.id, { ...updateData, isAdmin });
       res.json({ success: true });
     } catch (error) {
       console.error('Admin edit customer error:', error);
@@ -438,7 +433,7 @@ export function registerAdminRoutes(app: Express) {
   // Customer notes
   app.get('/api/admin/customers/:id/notes', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const notes = await storage.getAdminNotes(toParam(req.params.id));
+      const notes = await storage.getAdminNotes(req.params.id);
       res.json(notes.map((n: any) => ({
         id: n.id,
         note: n.note,
@@ -455,8 +450,8 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { note, tags } = req.body;
       if (!note) return res.status(400).json({ error: 'Note is required' });
-      await storage.createAdminNote(toParam(req.params.id), getAdminId(req), note, tags || []);
-      await audit(req, 'add_note', 'user', toParam(req.params.id), { note: note.substring(0, 100) });
+      await storage.createAdminNote(req.params.id, getAdminId(req), note, tags || []);
+      await audit(req, 'add_note', 'user', req.params.id, { note: note.substring(0, 100) });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to create note' });
@@ -465,7 +460,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/notes/:noteId', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
-      await storage.deleteAdminNote(parseInt(toParam(req.params.noteId)), getAdminId(req));
+      await storage.deleteAdminNote(parseInt(req.params.noteId), getAdminId(req));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete note' });
@@ -617,21 +612,21 @@ export function registerAdminRoutes(app: Express) {
   app.put('/api/admin/missed-collections/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { status, resolutionNotes, scheduleRedo } = req.body;
-      await storage.updateMissedCollectionStatus(toParam(req.params.id), status, resolutionNotes);
+      await storage.updateMissedCollectionStatus(req.params.id, status, resolutionNotes);
 
       // Track who resolved it and when (US-16)
       if (status === 'resolved') {
         await pool.query(
           `UPDATE missed_collection_reports SET resolved_by = $1, resolved_at = NOW() WHERE id = $2`,
-          [(req.session as any).userId, toParam(req.params.id)]
+          [(req.session as any).userId, req.params.id]
         );
       }
 
-      await audit(req, 'resolve_missed_collection', 'missed_collection', toParam(req.params.id), { status, resolutionNotes, scheduleRedo });
+      await audit(req, 'resolve_missed_collection', 'missed_collection', req.params.id, { status, resolutionNotes, scheduleRedo });
 
       const report = await storage.query(
         `SELECT mcr.location_id, mcr.address, mcr.collection_date, p.user_id FROM missed_collection_reports mcr LEFT JOIN locations p ON mcr.location_id = p.id WHERE mcr.id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       const row = report.rows[0];
 
@@ -723,7 +718,7 @@ export function registerAdminRoutes(app: Express) {
   // Get single on-demand request detail
   app.get('/api/admin/on-demand/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const record = await storage.getOnDemandRequestById(toParam(req.params.id));
+      const record = await storage.getOnDemandRequestById(req.params.id);
       if (!record) return res.status(404).json({ error: 'On-demand request not found' });
       res.json({
         id: record.id,
@@ -753,7 +748,7 @@ export function registerAdminRoutes(app: Express) {
   // Update On-Demand Request (status, notes, driver, price, date)
   app.put('/api/admin/on-demand/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const { status, adminNotes, assignedDriverId, pickupDate, servicePrice } = req.body;
 
       if (status) {
@@ -845,7 +840,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/routes/:id/bids', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const bids = await storage.getRouteBids(toParam(req.params.id) as string);
+      const bids = await storage.getRouteBids(req.params.id as string);
       res.json({
         bids: bids.map((b: any) => ({
           id: b.id,
@@ -880,7 +875,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/routes/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const existing = await storage.getRouteById(routeId);
       if (!existing) {
         return res.status(404).json({ error: 'Route not found' });
@@ -979,7 +974,7 @@ export function registerAdminRoutes(app: Express) {
   // Route Stops
   app.get('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const stops = await storage.getRouteStops(toParam(req.params.id) as string);
+      const stops = await storage.getRouteStops(req.params.id as string);
       res.json({ stops });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch route stops' });
@@ -988,7 +983,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const { locationIds, onDemandIds, missedRedoLocationIds } = req.body;
       const stops: Array<{ location_id: string; order_type?: string; on_demand_request_id?: string }> = [];
       if (locationIds?.length) {
@@ -1020,8 +1015,8 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/routes/:id/stops/:stopId', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
-      const stopId = toParam(req.params.stopId) as string;
+      const routeId = req.params.id as string;
+      const stopId = req.params.stopId as string;
       await storage.removeRouteStop(stopId);
       await audit(req, 'remove_route_stop', 'route', routeId, { stopId });
       res.json({ success: true });
@@ -1033,7 +1028,7 @@ export function registerAdminRoutes(app: Express) {
   // Route Actions
   app.post('/api/admin/routes/:id/publish', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
       if (route.status !== 'draft') return res.status(400).json({ error: 'Only draft routes can be published' });
@@ -1047,7 +1042,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/assign', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const { driverId, bidId, actualPay } = req.body;
       if (!driverId) return res.status(400).json({ error: 'driverId is required' });
       const route = await storage.getRouteById(routeId);
@@ -1141,7 +1136,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/zones/:id/decision', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const { decision, notes, pickup_day } = req.body;
       if (!decision || !['approved', 'rejected'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be "approved" or "rejected"' });
@@ -1197,7 +1192,7 @@ export function registerAdminRoutes(app: Express) {
   // Update zone properties (e.g., pickup_day)
   app.patch('/api/admin/zones/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const { pickup_day } = req.body;
 
       const zone = await storage.getZoneById(id);
@@ -1277,7 +1272,7 @@ export function registerAdminRoutes(app: Express) {
   // Admin delete a single zone
   app.delete('/api/admin/zones/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const zone = await storage.getZoneById(id);
       if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
@@ -1306,7 +1301,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/providers/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-        const provider = await storage.getProviderById(toParam(req.params.id));
+        const provider = await storage.getProviderById(req.params.id);
         if (!provider) {
             return res.status(404).json({ error: 'Provider not found' });
         }
@@ -1334,13 +1329,13 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/providers/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-        const id = toParam(req.params.id);
-        const { name, status, onboarding_status, stripe_account_id } = req.body;
-        const updatedProvider = await storage.updateProvider(id, { name, status, onboarding_status, stripe_account_id });
+        const { id } = req.params;
+        const { name, status } = req.body;
+        const updatedProvider = await storage.updateProvider(id, { name, status });
         if (!updatedProvider) {
             return res.status(404).json({ error: 'Provider not found' });
         }
-        await audit(req, 'update_provider', 'provider', id, { name, status, onboarding_status, stripe_account_id });
+        await audit(req, 'update_provider', 'provider', id, { name, status });
         res.json({ provider: updatedProvider });
     } catch (err: any) {
         console.error('Error updating provider:', err);
@@ -1350,7 +1345,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/providers/:providerId/territories', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-        const providerId = toParam(req.params.providerId);
+        const { providerId } = req.params;
         const territories = await storage.getTerritoriesForProvider(providerId);
         res.json({ territories });
     } catch (err: any) {
@@ -1361,7 +1356,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/providers/:providerId/territories', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const providerId = toParam(req.params.providerId);
+      const { providerId } = req.params;
       const data = req.body;
       const territory = await storage.createProviderTerritory({ providerId, ...data });
       await audit(req, 'create_provider_territory', 'provider_territory', territory.id, { providerId, name: data.name });
@@ -1374,7 +1369,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/territories/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-        const id = toParam(req.params.id);
+        const { id } = req.params;
         const data = req.body;
         const updatedTerritory = await storage.updateProviderTerritory(id, data);
         if (!updatedTerritory) {
@@ -1390,7 +1385,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/territories/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-        const id = toParam(req.params.id);
+        const { id } = req.params;
         const success = await storage.deleteProviderTerritory(id);
         if (!success) {
             return res.status(404).json({ error: 'Territory not found' });
@@ -1408,12 +1403,9 @@ export function registerAdminRoutes(app: Express) {
   app.post('/api/admin/swaps/generate', requireAdmin, requirePermission('*'), async (req, res) => {
     try {
       const { generateSwapRecommendations } = await import('./swapRecommendationService');
-      const { recommendations, summary } = await generateSwapRecommendations();
-      await audit(req, 'generate_swaps', 'system', undefined, {
-        count: recommendations.length,
-        summary,
-      });
-      res.status(201).json({ recommendations, summary });
+      const recommendations = await generateSwapRecommendations();
+      await audit(req, 'generate_swaps', 'system', undefined, { count: recommendations.length });
+      res.status(201).json({ recommendations });
     } catch (err: any) {
       console.error('Error generating swap recommendations:', err);
       res.status(500).json({ error: 'Failed to generate recommendations' });
@@ -1432,7 +1424,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/swaps/:id/decision', requireAdmin, requirePermission('*'), async (req, res) => {
     try {
-      const id = toParam(req.params.id);
+      const { id } = req.params;
       const { decision } = req.body; // 'accepted' or 'rejected'
       if (!['accepted', 'rejected'].includes(decision)) {
         return res.status(400).json({ error: 'Invalid decision' });
@@ -1445,12 +1437,8 @@ export function registerAdminRoutes(app: Express) {
 
       // If accepted, perform the location provider change
       if (decision === 'accepted') {
-        await storage.applySwapProviderReassignment({
-          locationAId: updatedSwap.location_a_to_b_id,
-          newProviderForLocationA: updatedSwap.provider_b_id,
-          locationBId: updatedSwap.location_b_to_a_id,
-          newProviderForLocationB: updatedSwap.provider_a_id,
-        });
+        await storage.updateLocation(updatedSwap.location_a_to_b_id, { provider_id: updatedSwap.provider_b_id });
+        await storage.updateLocation(updatedSwap.location_b_to_a_id, { provider_id: updatedSwap.provider_a_id });
         
         // Notify customers
         try {
@@ -1573,8 +1561,7 @@ export function registerAdminRoutes(app: Express) {
 
       // Email notification
       try {
-        await sendDriverNotification(
-          zone.driver_id,
+        await sendDriverNotification(zone.driver_id, 'zone_assignment_request',
           `Location Assignment Request: ${locResult.rows[0].address}`,
           `An admin has requested you add ${locResult.rows[0].address} to your zone "${zone.name}". Please log in to approve or deny this request.`
         );
@@ -1595,9 +1582,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/zone-assignment-requests/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const cancelled = await storage.cancelZoneAssignmentRequest(toParam(req.params.id));
+      const cancelled = await storage.cancelZoneAssignmentRequest(req.params.id);
       if (!cancelled) return res.status(404).json({ error: 'Request not found or not pending' });
-      await audit(req, 'zone_assignment_cancelled', 'zone_assignment_requests', toParam(req.params.id), {});
+      await audit(req, 'zone_assignment_cancelled', 'zone_assignment_requests', req.params.id, {});
       res.json({ success: true });
     } catch (error) {
       console.error('Cancel zone assignment request error:', error);
@@ -1623,9 +1610,9 @@ export function registerAdminRoutes(app: Express) {
 
       for (const loc of unassigned) {
         try {
-          const matchingZones: any[] = await storage.findActiveZonesContainingPoint(
+          const matchingZones = await storage.findActiveZonesContainingPoint(
             Number(loc.latitude), Number(loc.longitude)
-          ) as any[];
+          );
 
           if (matchingZones.length === 0) {
             results.skippedNoZone++;
@@ -1687,8 +1674,7 @@ export function registerAdminRoutes(app: Express) {
 
           // Email notification
           try {
-            await sendDriverNotification(
-              targetZone.driver_id,
+            await sendDriverNotification(targetZone.driver_id, 'zone_assignment_request',
               `Location Assignment Request: ${loc.address}`,
               `An admin has requested you add ${loc.address} to your zone "${targetZone.name}". Please log in to approve or deny this request.`
             );
@@ -1730,7 +1716,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/planning/date/:date', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const date = toParam(req.params.date) as string;
+      const date = req.params.date as string;
       const [locations, onDemandRequests, existingRoutes] = await Promise.all([
         storage.getLocationsDueOnDate(date),
         storage.getOnDemandRequestsForDate(date),
@@ -1908,7 +1894,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/sync-to-optimo', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id);
+      const routeId = req.params.id;
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
       const stops = await storage.getRouteStops(routeId);
@@ -2024,7 +2010,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/pull-sequence', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id);
+      const routeId = req.params.id;
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
@@ -2074,7 +2060,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/pull-completion', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id);
+      const routeId = req.params.id;
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
@@ -2361,7 +2347,7 @@ export function registerAdminRoutes(app: Express) {
   // Route Optimization
   app.post('/api/admin/routes/:id/optimize', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const result = await optimizeRouteJob(routeId);
       await audit(req, 'optimize_route', 'route', routeId, { planningId: result.planningId, ordersCreated: result.ordersCreated });
       res.json(result);
@@ -2373,7 +2359,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/routes/:id/optimize-status', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const routeId = toParam(req.params.id) as string;
+      const routeId = req.params.id as string;
       const result = await checkRouteOptimizationStatus(routeId);
       res.json(result);
     } catch (error: any) {
@@ -2498,14 +2484,14 @@ export function registerAdminRoutes(app: Express) {
       if (!payment_status || !['unpaid', 'paid', 'processing'].includes(payment_status)) {
         return res.status(400).json({ error: 'payment_status must be unpaid, processing, or paid' });
       }
-      const route = await storage.getRouteById(toParam(req.params.id) as string);
+      const route = await storage.getRouteById(req.params.id as string);
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
-      const updated = await storage.updateRoute(toParam(req.params.id) as string, {
+      const updated = await storage.updateRoute(req.params.id as string, {
         payment_status,
         ...(actual_pay !== undefined ? { actual_pay: parseFloat(actual_pay) } : {}),
       });
-      await audit(req, 'update_payment_status', 'route', toParam(req.params.id) as string, { payment_status, actual_pay });
+      await audit(req, 'update_payment_status', 'route', req.params.id as string, { payment_status, actual_pay });
       res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       console.error('Update payment status error:', error);
@@ -2634,7 +2620,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/billing/payment-history/:customerId', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const user = await storage.getUserById(toParam(req.params.customerId));
+      const user = await storage.getUserById(req.params.customerId);
       if (!user?.stripe_customer_id) return res.json([]);
       const stripe = await getUncachableStripeClient();
       const charges = await stripe.charges.list({ customer: user.stripe_customer_id, limit: 50 });
@@ -2741,7 +2727,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/roles/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const userId = toParam(req.params.userId);
+      const { userId } = req.params;
       const { role } = req.body;
       const validRoles = ['full_admin', 'support', 'viewer'];
       if (!validRoles.includes(role)) {
@@ -2796,7 +2782,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/impersonate/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const targetUserId = toParam(req.params.userId);
+      const targetUserId = req.params.userId;
       const targetUser = await storage.getUserById(targetUserId);
       if (!targetUser) {
         return res.status(404).json({ error: 'User not found' });
@@ -2847,7 +2833,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/impersonate-driver/:driverId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const driverProfileId = toParam(req.params.driverId);
+      const driverProfileId = req.params.driverId;
       const driverProfile = await storage.getDriverById(driverProfileId);
       if (!driverProfile || !driverProfile.user_id) {
         return res.status(404).json({ error: 'Driver not found' });
@@ -2952,7 +2938,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/people/:userId', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
-      const user = await storage.getUserById(toParam(req.params.userId));
+      const user = await storage.getUserById(req.params.userId);
       if (!user) {
         return res.status(404).json({ error: 'Person not found' });
       }
@@ -2986,7 +2972,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/people/:userId/roles', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const userId = toParam(req.params.userId);
+      const { userId } = req.params;
       const { role, action, adminRole } = req.body;
 
       if (!role || !action || !['add', 'remove'].includes(action)) {
@@ -3027,7 +3013,7 @@ export function registerAdminRoutes(app: Express) {
   // Delete a user (full_admin only)
   app.delete('/api/admin/people/:userId', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
-      const userId = toParam(req.params.userId);
+      const { userId } = req.params;
 
       // Prevent self-deletion
       if (userId === req.session.userId) {
@@ -3092,18 +3078,18 @@ export function registerAdminRoutes(app: Express) {
       if (!validStatuses.includes(status)) {
         return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
       }
-      await storage.updateDriver(toParam(req.params.id), { status });
+      await storage.updateDriver(req.params.id, { status });
 
       // Reactivation: notify and log for manual route/contract review (US-14)
       if (status === 'active') {
         const activeContracts = await pool.query(
           `SELECT id, day_of_week, (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name
            FROM route_contracts WHERE driver_id = $1 AND status = 'active' AND end_date >= CURRENT_DATE`,
-          [toParam(req.params.id)]
+          [req.params.id]
         );
         if (activeContracts.rows.length > 0) {
-          console.log(`[DriverReactivation] Driver ${toParam(req.params.id)} reactivated with ${activeContracts.rows.length} active contract(s)`);
-          sendDriverNotification(toParam(req.params.id), 'Account Reactivated',
+          console.log(`[DriverReactivation] Driver ${req.params.id} reactivated with ${activeContracts.rows.length} active contract(s)`);
+          sendDriverNotification(req.params.id, 'Account Reactivated',
             `<p>Your driver account has been reactivated.</p>
              <p>You have ${activeContracts.rows.length} active contract(s). Log in to the team portal to check your schedule.</p>`
           ).catch(() => {});
@@ -3117,15 +3103,15 @@ export function registerAdminRoutes(app: Express) {
           `UPDATE routes SET assigned_driver_id = NULL, status = 'open', updated_at = NOW()
            WHERE assigned_driver_id = $1 AND scheduled_date >= CURRENT_DATE AND status IN ('assigned', 'open', 'bidding')
            RETURNING id`,
-          [toParam(req.params.id)]
+          [req.params.id]
         );
         unassignedCount = unassigned.rowCount || 0;
         if (unassignedCount > 0) {
-          console.log(`[DriverCascade] Unassigned ${unassignedCount} future routes from ${status} driver ${toParam(req.params.id)}`);
+          console.log(`[DriverCascade] Unassigned ${unassignedCount} future routes from ${status} driver ${req.params.id}`);
         }
       }
 
-      await audit(req, 'update_driver_status', 'driver', toParam(req.params.id), { status, unassignedRoutes: unassignedCount });
+      await audit(req, 'update_driver_status', 'driver', req.params.id, { status, unassignedRoutes: unassignedCount });
       res.json({ success: true, unassignedRoutes: unassignedCount });
     } catch (error) {
       console.error('Failed to update driver status:', error);
@@ -3164,10 +3150,10 @@ export function registerAdminRoutes(app: Express) {
       if (!name || price == null) return res.status(400).json({ error: 'name and price are required' });
       const result = await storage.query(
         'UPDATE on_demand_services SET name=$1, description=$2, price=$3, active=$4, icon_name=$5 WHERE id=$6 RETURNING *',
-        [name, description || '', Math.round(price * 100) / 100, active !== false, icon || null, toParam(req.params.id)]
+        [name, description || '', Math.round(price * 100) / 100, active !== false, icon || null, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
-      await audit(req, 'update_on_demand_service', 'on_demand_service', toParam(req.params.id), { name, price, active });
+      await audit(req, 'update_on_demand_service', 'on_demand_service', req.params.id, { name, price, active });
       res.json(result.rows[0]);
     } catch (error) {
       res.status(500).json({ error: 'Failed to update on-demand service' });
@@ -3176,9 +3162,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/on-demand-services/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const result = await storage.query('DELETE FROM on_demand_services WHERE id=$1 RETURNING id', [toParam(req.params.id)]);
+      const result = await storage.query('DELETE FROM on_demand_services WHERE id=$1 RETURNING id', [req.params.id]);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Service not found' });
-      await audit(req, 'delete_on_demand_service', 'on_demand_service', toParam(req.params.id));
+      await audit(req, 'delete_on_demand_service', 'on_demand_service', req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete on-demand service' });
@@ -3344,7 +3330,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/address-reviews/:locationId/check-feasibility', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const locationId = toParam(req.params.locationId) as string;
+      const locationId = req.params.locationId as string;
       const location = await storage.getLocationById(locationId);
       if (!location) return res.status(404).json({ error: 'Location not found' });
 
@@ -3361,7 +3347,7 @@ export function registerAdminRoutes(app: Express) {
   // Route suggestion for a location (geocode → nearest zone → day detection)
   app.get('/api/admin/address-reviews/:locationId/route-suggestion', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const suggestion = await suggestRoute(toParam(req.params.locationId) as string);
+      const suggestion = await suggestRoute(req.params.locationId as string);
       res.json({ suggestion });
     } catch (error) {
       console.error('Route suggestion error:', error);
@@ -3371,7 +3357,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put('/api/admin/address-reviews/:locationId/decision', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
-      const locationId = toParam(req.params.locationId) as string;
+      const locationId = req.params.locationId as string;
       const { decision, notes } = req.body;
       if (!decision || !['approved', 'denied', 'waitlist'].includes(decision)) {
         return res.status(400).json({ error: 'decision must be approved, denied, or waitlist' });
@@ -3822,7 +3808,7 @@ export function registerAdminRoutes(app: Express) {
            effective_to = $9,
            updated_at = NOW()
          WHERE id = $10 RETURNING *`,
-        [name, ruleType, conditions ? JSON.stringify(conditions) : null, rateAmount ?? null, rateMultiplier, priority, active, effectiveFrom ?? null, effectiveTo ?? null, toParam(req.params.id)]
+        [name, ruleType, conditions ? JSON.stringify(conditions) : null, rateAmount ?? null, rateMultiplier, priority, active, effectiveFrom ?? null, effectiveTo ?? null, req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Rule not found' });
       const r = rows[0];
@@ -3844,9 +3830,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/compensation-rules/:id', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
-      const { rowCount } = await pool.query(`DELETE FROM compensation_rules WHERE id = $1`, [toParam(req.params.id)]);
+      const { rowCount } = await pool.query(`DELETE FROM compensation_rules WHERE id = $1`, [req.params.id]);
       if (rowCount === 0) return res.status(404).json({ error: 'Rule not found' });
-      await audit(req, 'delete_compensation_rule', 'compensation_rule', toParam(req.params.id), {});
+      await audit(req, 'delete_compensation_rule', 'compensation_rule', req.params.id, {});
       res.json({ success: true });
     } catch (err: any) {
       console.error('Error deleting compensation rule:', err);
@@ -3930,7 +3916,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/routes/:id/valuation', requireAdmin, async (req, res) => {
     try {
-      const valuation = await calculateRouteValuation(toParam(req.params.id) as string);
+      const valuation = await calculateRouteValuation(req.params.id as string);
       res.json({ valuation });
     } catch (err: any) {
       console.error('Error calculating route valuation:', err);
@@ -3940,7 +3926,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post('/api/admin/routes/:id/recalculate', requireAdmin, async (req, res) => {
     try {
-      const valuation = await recalculateRouteValue(toParam(req.params.id) as string);
+      const valuation = await recalculateRouteValue(req.params.id as string);
       res.json({ valuation });
     } catch (err: any) {
       console.error('Error recalculating route value:', err);
@@ -3951,7 +3937,7 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/locations/:id/compensation-preview', requireAdmin, async (req, res) => {
     try {
       const contractId = req.query.contractId as string | undefined;
-      const breakdown = await previewLocationCompensation(toParam(req.params.id) as string, contractId);
+      const breakdown = await previewLocationCompensation(req.params.id as string, contractId);
       res.json({ breakdown });
     } catch (err: any) {
       console.error('Error previewing location compensation:', err);
@@ -4072,7 +4058,7 @@ export function registerAdminRoutes(app: Express) {
            status = COALESCE($4, status),
            updated_at = NOW()
          WHERE id = $5 RETURNING *`,
-        [endDate, perStopRate ?? null, termsNotes, status, toParam(req.params.id)]
+        [endDate, perStopRate ?? null, termsNotes, status, req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const c = rows[0];
@@ -4098,7 +4084,7 @@ export function registerAdminRoutes(app: Express) {
       const { rows } = await pool.query(
         `UPDATE route_contracts SET status = 'terminated', updated_at = NOW() WHERE id = $1
          RETURNING *, (SELECT name FROM service_zones WHERE id = route_contracts.zone_id) AS zone_name`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const contract = rows[0];
@@ -4108,7 +4094,7 @@ export function registerAdminRoutes(app: Express) {
         `UPDATE routes SET status = 'open', assigned_driver_id = NULL, contract_id = NULL, updated_at = NOW()
          WHERE contract_id = $1 AND scheduled_date > CURRENT_DATE AND status IN ('draft', 'assigned')
          RETURNING id`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       const unassignedCount = futureRoutes.rows.length;
 
@@ -4136,7 +4122,7 @@ export function registerAdminRoutes(app: Express) {
       const existing = await pool.query(
         `SELECT rc.*, sz.name AS zone_name FROM route_contracts rc
          LEFT JOIN service_zones sz ON rc.zone_id = sz.id
-         WHERE rc.id = $1`, [toParam(req.params.id)]
+         WHERE rc.id = $1`, [req.params.id]
       );
       if (existing.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const contract = existing.rows[0];
@@ -4160,7 +4146,7 @@ export function registerAdminRoutes(app: Express) {
         updates.push(`terms_notes = $${idx++}`);
         params.push(termsNotes);
       }
-      params.push(toParam(req.params.id));
+      params.push(req.params.id);
 
       const { rows } = await pool.query(
         `UPDATE route_contracts SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
@@ -4173,7 +4159,7 @@ export function registerAdminRoutes(app: Express) {
         `<p>Your contract for <strong>${contract.zone_name || 'Zone'} - ${contract.day_of_week}</strong> has been renewed until <strong>${newEndDate}</strong>.</p>`
       ).catch(err => console.error('[ContractRenew] Notification error:', err));
 
-      await audit(req, 'renew_contract', 'route_contract', toParam(req.params.id), { newEndDate, perStopRate, termsNotes });
+      await audit(req, 'renew_contract', 'route_contract', req.params.id, { newEndDate, perStopRate, termsNotes });
       res.json({ success: true, contract: rows[0] });
     } catch (err: any) {
       console.error('Error renewing contract:', err);
@@ -4248,7 +4234,7 @@ export function registerAdminRoutes(app: Express) {
          JOIN route_contracts rc ON cr.contract_id = rc.id
          LEFT JOIN service_zones sz ON rc.zone_id = sz.id
          WHERE cr.id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (existing.rows.length === 0) return res.status(404).json({ error: 'Coverage request not found' });
       const request = existing.rows[0];
@@ -4266,7 +4252,7 @@ export function registerAdminRoutes(app: Express) {
           params.push(substitutePay);
         }
       }
-      params.push(toParam(req.params.id));
+      params.push(req.params.id);
 
       const { rows } = await pool.query(
         `UPDATE coverage_requests SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
@@ -4282,7 +4268,7 @@ export function registerAdminRoutes(app: Express) {
           [request.contract_id, request.coverage_date, request.contract_driver_id]
         );
         if ((unassigned.rowCount || 0) > 0) {
-          console.log(`[Coverage] Unassigned route ${unassigned.rows[0].id} from approved coverage request ${toParam(req.params.id)}`);
+          console.log(`[Coverage] Unassigned route ${unassigned.rows[0].id} from approved coverage request ${req.params.id}`);
         }
       }
 
@@ -4314,7 +4300,7 @@ export function registerAdminRoutes(app: Express) {
         `<p>Your coverage request for <strong>${request.zone_name || 'Zone'} - ${request.day_of_week}</strong> on <strong>${request.coverage_date}</strong> has been <strong>${statusMsg}</strong>.</p>`
       ).catch(err => console.error('[Coverage] Requester notification error:', err));
 
-      await audit(req, `coverage_${status}`, 'coverage_request', toParam(req.params.id), { substituteDriverId, substitutePay });
+      await audit(req, `coverage_${status}`, 'coverage_request', req.params.id, { substituteDriverId, substitutePay });
       res.json({ success: true, data: rows[0] });
     } catch (err: any) {
       console.error('Error updating coverage request:', err);
@@ -4328,7 +4314,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/contracts/:id/performance', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
-      const contractId = toParam(req.params.id);
+      const contractId = req.params.id;
 
       const metrics = await pool.query(
         `SELECT
@@ -4588,7 +4574,7 @@ export function registerAdminRoutes(app: Express) {
       if (proposedPerStopRate !== undefined) { updates.push(`proposed_per_stop_rate = $${idx++}`); params.push(proposedPerStopRate); }
       if (requirements !== undefined) { updates.push(`requirements = $${idx++}`); params.push(JSON.stringify(requirements)); }
       if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
-      params.push(toParam(req.params.id));
+      params.push(req.params.id);
       const { rows } = await pool.query(
         `UPDATE contract_opportunities SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
         params
@@ -4610,7 +4596,7 @@ export function registerAdminRoutes(app: Express) {
          JOIN driver_profiles dp ON ca.driver_id = dp.id
          WHERE ca.opportunity_id = $1
          ORDER BY ca.created_at ASC`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       res.json({
         applications: rows.map((a: any) => ({
@@ -4641,14 +4627,14 @@ export function registerAdminRoutes(app: Express) {
       // Fetch opportunity with zone name
       const oppResult = await pool.query(
         `SELECT co.*, sz.name AS zone_name FROM contract_opportunities co LEFT JOIN service_zones sz ON co.zone_id = sz.id WHERE co.id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (oppResult.rows.length === 0) return res.status(404).json({ error: 'Opportunity not found' });
       const opp = oppResult.rows[0];
       if (opp.status !== 'open') return res.status(400).json({ error: 'Opportunity is not open' });
 
       // Fetch application
-      const appResult = await pool.query(`SELECT * FROM contract_applications WHERE id = $1 AND opportunity_id = $2`, [applicationId, toParam(req.params.id)]);
+      const appResult = await pool.query(`SELECT * FROM contract_applications WHERE id = $1 AND opportunity_id = $2`, [applicationId, req.params.id]);
       if (appResult.rows.length === 0) return res.status(404).json({ error: 'Application not found' });
       const app_ = appResult.rows[0];
 
@@ -4673,17 +4659,17 @@ export function registerAdminRoutes(app: Express) {
       // Update opportunity → awarded
       await pool.query(
         `UPDATE contract_opportunities SET status = 'awarded', awarded_contract_id = $1 WHERE id = $2`,
-        [contract.id, toParam(req.params.id)]
+        [contract.id, req.params.id]
       );
 
       // Accept the winning application, reject others
       await pool.query(`UPDATE contract_applications SET status = 'accepted' WHERE id = $1`, [applicationId]);
       await pool.query(
         `UPDATE contract_applications SET status = 'rejected' WHERE opportunity_id = $1 AND id != $2 AND status = 'pending'`,
-        [toParam(req.params.id), applicationId]
+        [req.params.id, applicationId]
       );
 
-      await audit(req, 'award_contract_opportunity', 'contract_opportunity', toParam(req.params.id), {
+      await audit(req, 'award_contract_opportunity', 'contract_opportunity', req.params.id, {
         applicationId, contractId: contract.id, driverId: app_.driver_id,
       });
 
@@ -4697,7 +4683,7 @@ export function registerAdminRoutes(app: Express) {
       // Notify rejected applicants (US-11)
       pool.query(
         `SELECT driver_id FROM contract_applications WHERE opportunity_id = $1 AND id != $2 AND status = 'rejected'`,
-        [toParam(req.params.id), applicationId]
+        [req.params.id, applicationId]
       ).then(({ rows }) => {
         for (const ra of rows) {
           sendDriverNotification(ra.driver_id, 'Application Update',
@@ -4745,7 +4731,7 @@ export function registerAdminRoutes(app: Express) {
          JOIN driver_profiles dp ON rc.driver_id = dp.id
          JOIN service_zones sz ON rc.zone_id = sz.id
          WHERE rc.id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (cResult.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const contract = cResult.rows[0];
@@ -4762,7 +4748,7 @@ export function registerAdminRoutes(app: Express) {
       // Check no existing route for this contract+date
       const existingRoute = await pool.query(
         `SELECT id FROM routes WHERE contract_id = $1 AND scheduled_date = $2`,
-        [toParam(req.params.id), scheduledDate]
+        [req.params.id, scheduledDate]
       );
       if (existingRoute.rows.length > 0) {
         return res.status(409).json({ error: 'A route already exists for this contract on that date', routeId: existingRoute.rows[0].id });
@@ -4783,7 +4769,7 @@ export function registerAdminRoutes(app: Express) {
       // Link route to contract and set pay_mode to dynamic
       await pool.query(
         `UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`,
-        [toParam(req.params.id), route.id]
+        [req.params.id, route.id]
       );
 
       // Auto-populate stops from locations in this zone with matching collection day
@@ -4813,7 +4799,7 @@ export function registerAdminRoutes(app: Express) {
         valuation = await recalculateRouteValue(route.id);
       }
 
-      await audit(req, 'create_contract_route', 'route', route.id, { contractId: toParam(req.params.id), scheduledDate, stopsAdded: locationsResult.rows.length });
+      await audit(req, 'create_contract_route', 'route', route.id, { contractId: req.params.id, scheduledDate, stopsAdded: locationsResult.rows.length });
 
       res.status(201).json({
         route: {
@@ -4845,7 +4831,7 @@ export function registerAdminRoutes(app: Express) {
          JOIN driver_profiles dp ON rc.driver_id = dp.id
          JOIN service_zones sz ON rc.zone_id = sz.id
          WHERE rc.id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (cResult.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
       const contract = cResult.rows[0];
@@ -4868,7 +4854,7 @@ export function registerAdminRoutes(app: Express) {
       // Check which dates already have routes
       const existingResult = await pool.query(
         `SELECT scheduled_date FROM routes WHERE contract_id = $1 AND scheduled_date = ANY($2)`,
-        [toParam(req.params.id), dates]
+        [req.params.id, dates]
       );
       const existingDates = new Set(existingResult.rows.map((r: any) => {
         const d = r.scheduled_date;
@@ -4899,7 +4885,7 @@ export function registerAdminRoutes(app: Express) {
           source: 'contract',
           status: 'assigned',
         });
-        await pool.query(`UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`, [toParam(req.params.id), route.id]);
+        await pool.query(`UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`, [req.params.id, route.id]);
 
         let stopNumber = 1;
         for (const locId of locationIds) {
@@ -4916,7 +4902,7 @@ export function registerAdminRoutes(app: Express) {
         created.push({ id: route.id, date, stopCount: locationIds.length });
       }
 
-      await audit(req, 'bulk_create_contract_routes', 'route_contract', toParam(req.params.id), { startDate, endDate, routesCreated: created.length, skipped: existingDates.size });
+      await audit(req, 'bulk_create_contract_routes', 'route_contract', req.params.id, { startDate, endDate, routesCreated: created.length, skipped: existingDates.size });
 
       res.json({
         routesCreated: created.length,
@@ -4944,7 +4930,7 @@ export function registerAdminRoutes(app: Express) {
            min_rating_for_assignment = COALESCE($4, min_rating_for_assignment),
            updated_at = NOW()
          WHERE id = $5 RETURNING id, equipment_types, certifications, max_stops_per_day, min_rating_for_assignment`,
-        [equipmentTypes ?? null, certifications ?? null, maxStopsPerDay ?? null, minRatingForAssignment ?? null, toParam(req.params.id)]
+        [equipmentTypes ?? null, certifications ?? null, maxStopsPerDay ?? null, minRatingForAssignment ?? null, req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
       const d = rows[0];
@@ -4967,7 +4953,7 @@ export function registerAdminRoutes(app: Express) {
       const { rows } = await pool.query(
         `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment
          FROM driver_profiles WHERE id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
       const d = rows[0];
@@ -5003,7 +4989,7 @@ export function registerAdminRoutes(app: Express) {
            updated_at = NOW()
          WHERE id = $7
          RETURNING id, difficulty_score, custom_rate, required_equipment, required_certifications, min_driver_rating, day_change_preference`,
-        [difficultyScore ?? null, customRate ?? null, requiredEquipment ?? null, requiredCertifications ?? null, minDriverRating ?? null, dayChangePreference ?? null, toParam(req.params.id)]
+        [difficultyScore ?? null, customRate ?? null, requiredEquipment ?? null, requiredCertifications ?? null, minDriverRating ?? null, dayChangePreference ?? null, req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
       const l = rows[0];
@@ -5028,7 +5014,7 @@ export function registerAdminRoutes(app: Express) {
       const { rows } = await pool.query(
         `SELECT difficulty_score, custom_rate, required_equipment, required_certifications, min_driver_rating, day_change_preference
          FROM locations WHERE id = $1`,
-        [toParam(req.params.id)]
+        [req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
       const l = rows[0];
@@ -5048,5 +5034,3 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 }
-
-
