@@ -174,7 +174,6 @@ async function collectLocationOrders(location: any): Promise<{ orders: Collected
         duration: 10,
         notes: `Auto-synced | ${location.collection_frequency || 'weekly'} collection`,
         ...(location.email && { email: location.email }),
-        ...(location.zone_driver_serial && { assignedTo: { serial: location.zone_driver_serial } }),
       },
     });
   }
@@ -189,6 +188,7 @@ async function syncLocationOrders(location: any): Promise<{ created: number; ski
   const { orders, skipped, errors } = await collectLocationOrders(location);
 
   let created = 0;
+  // Note: This legacy function does not have provider/driver context, so orders will be unassigned.
   for (const order of orders) {
     try {
       await optimo.createOrder({
@@ -200,7 +200,6 @@ async function syncLocationOrders(location: any): Promise<{ created: number; ski
         duration: order.bulkInput.duration || 10,
         notes: order.bulkInput.notes || '',
         ...(order.bulkInput.email && { email: order.bulkInput.email }),
-        ...(order.bulkInput.assignedTo && { assignedTo: order.bulkInput.assignedTo }),
       });
       await storage.createSyncOrder({
         locationId: order.locationId,
@@ -310,91 +309,95 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
     // Step 2: Get eligible locations
     const locations = await storage.getLocationsForSync();
 
-    // Step 3: Collect orders across all locations, then batch-submit
+    // Step 3: Group locations by provider
+    const locationsByProvider = new Map<string, any[]>();
+    for (const loc of locations) {
+        if (!locationsByProvider.has(loc.provider_id)) {
+            locationsByProvider.set(loc.provider_id, []);
+        }
+        locationsByProvider.get(loc.provider_id)!.push(loc);
+    }
+
     let totalCreated = 0;
     let totalSkipped = 0;
     let totalErrored = 0;
-    const allCollected: CollectedOrder[] = [];
 
-    for (const loc of locations) {
-      try {
-        const result = await collectLocationOrders(loc);
-        allCollected.push(...result.orders);
-        totalSkipped += result.skipped;
-        totalErrored += result.errors.length;
-      } catch (err: any) {
-        totalErrored++;
-        console.error(`[OptimoSync] Error collecting orders for location ${loc.id}:`, err.message);
-      }
-    }
+    // Step 4: Process each provider's locations
+    for (const [providerId, providerLocations] of locationsByProvider.entries()) {
+        const providerDrivers = await storage.getDriversForProvider(providerId);
+        const optimoDrivers = providerDrivers.filter(d => d.optimoroute_driver_id);
 
-    // Batch-submit to OptimoRoute
-    if (allCollected.length > 0) {
-      try {
-        const bulkInputs = allCollected.map(o => o.bulkInput);
-        const batchResults = await optimo.createOrUpdateOrders(bulkInputs);
-
-        // Build a set of successfully created order numbers
-        const successSet = new Set<string>();
-        for (const batch of batchResults) {
-          if (batch.orders) {
-            for (const r of batch.orders) {
-              if (r.success !== false) successSet.add(r.orderNo);
-              else totalErrored++;
-            }
-          } else if (batch.success !== false) {
-            // Whole batch succeeded — mark all in this batch as successful
-            for (const input of bulkInputs) successSet.add(input.orderNo);
-          }
+        if (optimoDrivers.length === 0) {
+            console.warn(`[OptimoSync] Provider ${providerId} has no drivers with an OptimoRoute ID. Skipping ${providerLocations.length} locations.`);
+            totalSkipped += providerLocations.length; // Or handle as errors
+            continue;
         }
 
-        // Record successful orders in local ledger
-        for (const order of allCollected) {
-          if (successSet.has(order.orderNo)) {
+        const allCollected: CollectedOrder[] = [];
+        for (const loc of providerLocations) {
             try {
-              await storage.createSyncOrder({
-                locationId: order.locationId,
-                orderNo: order.orderNo,
-                scheduledDate: order.scheduledDate,
-              });
-              totalCreated++;
+                const result = await collectLocationOrders(loc);
+                allCollected.push(...result.orders);
+                totalSkipped += result.skipped;
+                totalErrored += result.errors.length;
             } catch (err: any) {
-              totalErrored++;
-              console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
+                totalErrored++;
+                console.error(`[OptimoSync] Error collecting orders for location ${loc.id}:`, err.message);
             }
-          }
         }
-      } catch (err: any) {
-        console.error('[OptimoSync] Batch order creation failed, falling back to individual:', err.message);
-        // Fallback: create one at a time
+
+        // Round-robin assign drivers to the collected orders for this provider
+        let driverIndex = 0;
         for (const order of allCollected) {
-          try {
-            await optimo.createOrder({
-              orderNo: order.orderNo,
-              type: 'P',
-              date: order.scheduledDate,
-              address: order.bulkInput.location.address,
-              locationName: order.bulkInput.location.locationName,
-              duration: order.bulkInput.duration || 10,
-              notes: order.bulkInput.notes || '',
-            });
-            await storage.createSyncOrder({
-              locationId: order.locationId,
-              orderNo: order.orderNo,
-              scheduledDate: order.scheduledDate,
-            });
-            totalCreated++;
-          } catch (fallbackErr: any) {
-            totalErrored++;
-          }
+            const driver = optimoDrivers[driverIndex % optimoDrivers.length];
+            order.bulkInput.assignedTo = { serial: driver.optimoroute_driver_id! };
+            driverIndex++;
         }
-      }
+
+        // Batch-submit to OptimoRoute
+        if (allCollected.length > 0) {
+            try {
+                const bulkInputs = allCollected.map(o => o.bulkInput);
+                const batchResults = await optimo.createOrUpdateOrders(bulkInputs);
+
+                const successSet = new Set<string>();
+                for (const batch of batchResults) {
+                  if (batch.orders) {
+                    for (const r of batch.orders) {
+                      if (r.success !== false) successSet.add(r.orderNo);
+                      else totalErrored++;
+                    }
+                  } else if (batch.success !== false) {
+                    for (const input of bulkInputs) successSet.add(input.orderNo);
+                  }
+                }
+
+                for (const order of allCollected) {
+                  if (successSet.has(order.orderNo)) {
+                    try {
+                      await storage.createSyncOrder({
+                        locationId: order.locationId,
+                        orderNo: order.orderNo,
+                        scheduledDate: order.scheduledDate,
+                      });
+                      totalCreated++;
+                    } catch (err: any) {
+                      totalErrored++;
+                      console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
+                    }
+                  }
+                }
+            } catch (err: any) {
+                console.error(`[OptimoSync] Batch order creation failed for provider ${providerId}:`, err.message);
+                totalErrored += allCollected.length;
+            }
+        }
     }
 
-    // Step 4: Clean up orphaned orders
+    // Step 5: Clean up orphaned orders
     const cleanup = await cleanupOrphanedOrders();
 
-    // Step 5: Send collection-complete notifications for past orders not yet notified
+    // Step 6: Send collection-complete notifications for past orders not yet notified
     try {
       const unnotified = await storage.query(
         `SELECT o.id, o.location_id, o.order_no, o.scheduled_date,

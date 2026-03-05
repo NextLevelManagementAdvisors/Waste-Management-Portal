@@ -9,6 +9,7 @@ import AccountingView from './components/accounting/AccountingView.tsx';
 import type { AccountingTabType } from './components/accounting/AccountingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
 import type { OpsTabType } from './components/operations/OperationsView.tsx';
+import Providers from './components/providers/Providers.tsx';
 import SettingsView from './components/system/SettingsView.tsx';
 import type { SettingsTabType } from './components/system/SettingsView.tsx';
 import CommunicationsView from './components/communications/CommunicationsView.tsx';
@@ -45,6 +46,7 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   operations: '/admin/operations',
   routes: '/admin/operations/routes',
   'service-areas': '/admin/operations/service-areas',
+  providers: '/admin/operations/providers',
   contracts: '/admin/operations/contracts',
   opportunities: '/admin/operations/opportunities',
   issues: '/admin/operations/issues',
@@ -60,6 +62,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations': 'operations',
   '/admin/operations/routes': 'routes',
   '/admin/operations/service-areas': 'service-areas',
+  '/admin/operations/providers': 'providers',
   '/admin/operations/contracts': 'contracts',
   '/admin/operations/opportunities': 'opportunities',
   '/admin/operations/issues': 'issues',
@@ -734,6 +737,7 @@ const AdminApp: React.FC = () => {
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} pendingZonesCount={badgeCounts.pendingZones || 0} contractAlertsCount={(badgeCounts.contractsExpiring || 0) + (badgeCounts.pendingCoverage || 0)} onActionResolved={refreshBadgeCounts} />}
+          {currentView === 'providers' && <Providers />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>

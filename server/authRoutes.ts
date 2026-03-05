@@ -546,69 +546,105 @@ export function registerAuthRoutes(app: Express) {
             }
           }
 
-          if (lat != null && lng != null) {
-            // Zone geometry check: address must be inside an active zone
-            const containingZones = await storage.findActiveZonesContainingPoint(lat, lng);
-
-            if (containingZones.length > 0) {
-              // If we have route optimization data, apply threshold checks
-              let passesThresholds = true;
-              if (optimizationResult && optimizationResult.insertion_cost_miles > 0) {
-                const maxMiles = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MILES || '0');
-                const maxMinutes = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MINUTES || '0');
-                const insertionMinutes = (optimizationResult.insertion_cost_miles / 25) * 60;
-                passesThresholds =
-                  (maxMiles <= 0 || optimizationResult.insertion_cost_miles <= maxMiles) &&
-                  (maxMinutes <= 0 || insertionMinutes <= maxMinutes);
-              }
-
-              if (passesThresholds) {
-                // If no collection day yet, try zone pickup_day
-                const effectiveDay = location.collection_day
-                  || containingZones.find(z => z.pickup_day)?.pickup_day
-                  || undefined;
-
-                if (!location.collection_day && effectiveDay) {
-                  await storage.updateLocation(location.id, {
-                    collection_day: effectiveDay,
-                    collection_day_source: 'zone_default',
-                    collection_day_detected_at: new Date().toISOString(),
-                  });
-                  Object.assign(location, { collection_day: effectiveDay });
-                }
-
-                const useFeasibility = process.env.PICKUP_AUTO_APPROVE_USE_FEASIBILITY !== 'false'
-                  && !!process.env.OPTIMOROUTE_API_KEY;
-
-                if (useFeasibility) {
-                  runFeasibilityAndApprove(location.id, userId, location.address, effectiveDay).catch(err => {
-                    console.error('Background feasibility check failed (non-blocking):', err);
-                  });
-                } else {
-                  // Immediate approval with notification (mirrors feasibility path)
-                  const approved = await storage.approveIfPending(location.id);
-                  if (approved) {
-                    Object.assign(location, { service_status: 'approved' });
-                    try {
-                      const activation = await activatePendingSelections(location.id, userId, { source: 'auto_approval' });
-                      if (activation.activated > 0 || activation.failed === 0) {
-                        const msg = approvalMessage(location.address, effectiveDay, activation.rentalDeliveries > 0);
-                        sendServiceUpdate(userId, msg.subject, msg.body).catch(err => {
-                          console.error('Auto-approval notification failed:', err);
-                        });
-                        storage.createNotification(userId, 'address_approved', msg.subject, msg.body, { locationId: location.id }).catch(err => {
-                          console.error('Failed to create auto-approval in-portal notification:', err);
-                        });
+                    if (lat != null && lng != null) {
+                      const containingTerritories = await storage.findActiveTerritoriesContainingPoint(lat, lng);
+          
+                      if (containingTerritories.length > 0) {
+                        let bestProviderId: string | null = null;
+                        let assignedTerritory: any = null;
+          
+                        if (containingTerritories.length === 1) {
+                          assignedTerritory = containingTerritories[0];
+                          bestProviderId = assignedTerritory.provider_id;
+                        } else {
+                          // Overlap rule: find the least loaded provider
+                          let minWorkload = Infinity;
+                          const providerTerritoryMap = new Map<string, any>();
+                          for (const territory of containingTerritories) {
+                              if (!providerTerritoryMap.has(territory.provider_id)) {
+                                  providerTerritoryMap.set(territory.provider_id, territory);
+                              }
+                          }
+          
+                          for (const providerId of providerTerritoryMap.keys()) {
+                              const workload = await storage.getProviderWorkload(providerId);
+                              if (workload < minWorkload) {
+                                  minWorkload = workload;
+                                  bestProviderId = providerId;
+                              }
+                          }
+                          if (bestProviderId) {
+                              assignedTerritory = providerTerritoryMap.get(bestProviderId);
+                          }
+                        }
+          
+                        if (bestProviderId && assignedTerritory) {
+                          await storage.updateLocation(location.id, {
+                            provider_id: bestProviderId,
+                            provider_territory_id: assignedTerritory.id,
+                          });
+                          Object.assign(location, {
+                            provider_id: bestProviderId,
+                            provider_territory_id: assignedTerritory.id,
+                          });
+          
+                          // If we have route optimization data, apply threshold checks
+                          let passesThresholds = true;
+                          if (optimizationResult && optimizationResult.insertion_cost_miles > 0) {
+                            const maxMiles = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MILES || '0');
+                            const maxMinutes = parseFloat(process.env.PICKUP_AUTO_APPROVE_MAX_MINUTES || '0');
+                            const insertionMinutes = (optimizationResult.insertion_cost_miles / 25) * 60;
+                            passesThresholds =
+                              (maxMiles <= 0 || optimizationResult.insertion_cost_miles <= maxMiles) &&
+                              (maxMinutes <= 0 || insertionMinutes <= maxMinutes);
+                          }
+          
+                          if (passesThresholds) {
+                            const effectiveDay = location.collection_day
+                              || assignedTerritory.default_pickup_day
+                              || undefined;
+          
+                            if (!location.collection_day && effectiveDay) {
+                              await storage.updateLocation(location.id, {
+                                collection_day: effectiveDay,
+                                collection_day_source: 'zone_default',
+                                collection_day_detected_at: new Date().toISOString(),
+                              });
+                              Object.assign(location, { collection_day: effectiveDay });
+                            }
+          
+                            const useFeasibility = process.env.PICKUP_AUTO_APPROVE_USE_FEASIBILITY !== 'false'
+                              && !!process.env.OPTIMOROUTE_API_KEY;
+          
+                            if (useFeasibility) {
+                              runFeasibilityAndApprove(location.id, userId, location.address, effectiveDay).catch(err => {
+                                console.error('Background feasibility check failed (non-blocking):', err);
+                              });
+                            } else {
+                              // Immediate approval with notification
+                              const approved = await storage.approveIfPending(location.id);
+                              if (approved) {
+                                Object.assign(location, { service_status: 'approved' });
+                                try {
+                                  const activation = await activatePendingSelections(location.id, userId, { source: 'auto_approval' });
+                                  if (activation.activated > 0 || activation.failed === 0) {
+                                    const msg = approvalMessage(location.address, effectiveDay, activation.rentalDeliveries > 0);
+                                    sendServiceUpdate(userId, msg.subject, msg.body).catch(err => {
+                                      console.error('Auto-approval notification failed:', err);
+                                    });
+                                    storage.createNotification(userId, 'address_approved', msg.subject, msg.body, { locationId: location.id }).catch(err => {
+                                      console.error('Failed to create auto-approval in-portal notification:', err);
+                                    });
+                                  }
+                                } catch (err) {
+                                  console.error('Auto-activation after immediate approval failed:', err);
+                                }
+                              }
+                            }
+                          }
+                        }
                       }
-                    } catch (err) {
-                      console.error('Auto-activation after immediate approval failed:', err);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        } catch (e) {
+                    }        } catch (e) {
           console.error('Auto-approve failed (non-blocking):', e);
         }
       }

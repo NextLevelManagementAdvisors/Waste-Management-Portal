@@ -6,9 +6,10 @@ import RoutesList from './RoutesList.tsx';
 import ServiceAreasPanel from './ServiceAreasPanel.tsx';
 import ContractsPanel from './ContractsPanel.tsx';
 import OpportunitiesPanel from './OpportunitiesPanel.tsx';
+import Providers from '../providers/Providers.tsx';
 
 // Kept for backward compat with App.tsx routing
-export type OpsTabType = 'operations' | 'routes' | 'service-areas' | 'contracts' | 'opportunities' | 'issues' | 'actions' | 'address-review'
+export type OpsTabType = 'operations' | 'routes' | 'service-areas' | 'providers' | 'contracts' | 'opportunities' | 'issues' | 'actions' | 'address-review'
   | 'locations' | 'zones' | 'zone-approvals'; // backward compat aliases
 
 interface OperationsViewProps {
@@ -26,6 +27,7 @@ const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'operations', label: 'Calendar' },
   { key: 'routes', label: 'Routes' },
   { key: 'service-areas', label: 'Service Areas' },
+  { key: 'providers', label: 'Providers' },
   { key: 'contracts', label: 'Contracts' },
   { key: 'opportunities', label: 'Opportunities' },
   { key: 'issues', label: 'Issues' },
@@ -87,6 +89,7 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {currentTab === 'operations' && <PlanningCalendar />}
       {currentTab === 'routes' && <RoutesList />}
       {currentTab === 'service-areas' && <ServiceAreasPanel onActionResolved={onActionResolved} />}
+      {currentTab === 'providers' && <Providers />}
       {currentTab === 'contracts' && <ContractsPanel />}
       {currentTab === 'opportunities' && <OpportunitiesPanel />}
       {isIssues && <MissedCollectionsList onActionResolved={onActionResolved} />}

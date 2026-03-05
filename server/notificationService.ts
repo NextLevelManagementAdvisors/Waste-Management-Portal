@@ -640,3 +640,33 @@ export async function sendOnDemandApproval(userId: string, serviceName: string, 
     console.error('Failed to send on-demand approval notification:', e);
   }
 }
+
+export async function sendProviderChangeNotification(userId: string, locationAddress: string, oldProviderName: string, newProviderName: string, pickupDay: string) {
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  const locations = await storage.getLocationsForUser(userId);
+  const location = locations.find((l: any) => l.address === locationAddress);
+  const prefs = location?.notification_preferences;
+
+  const emailEnabled = !(prefs?.serviceUpdates === false);
+
+  if (emailEnabled) {
+    const subject = `An update to your collection service`;
+    const body = `
+      <p style="color:#4b5563;line-height:1.6;">Hi ${user.first_name},</p>
+      <p style="color:#4b5563;line-height:1.6;">To improve our service efficiency, your collection provider for <strong>${locationAddress}</strong> has been updated.</p>
+      <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+        <p style="margin:0;color:#1e40af;"><strong>From:</strong> ${oldProviderName}</p>
+        <p style="margin:8px 0 0;color:#1e40af;"><strong>To:</strong> ${newProviderName}</p>
+      </div>
+      <p style="color:#4b5563;line-height:1.6;">Your collection day will remain <strong>${pickupDay}</strong>. No action is needed from you.</p>
+    `;
+    try {
+      await sendEmail(user.email, subject, baseTemplate(subject, body));
+      logCommunication({ recipientId: userId, recipientType: 'user', recipientName: `${user.first_name} ${user.last_name}`, recipientContact: user.email, channel: 'email', subject, body: `Provider changed from ${oldProviderName} to ${newProviderName}`, status: 'sent' }).catch(() => {});
+    } catch (e: any) {
+      console.error('Failed to send provider change notification email:', e);
+    }
+  }
+}

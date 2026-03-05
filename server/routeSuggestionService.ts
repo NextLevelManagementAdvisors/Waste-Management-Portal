@@ -10,17 +10,32 @@ export interface RouteSuggestion {
   distance_miles: number;
 }
 
-export async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+export async function geocodeAddress(
+  address: string,
+): Promise<{ lat: number; lng: number; postalCode?: string } | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return null;
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+      address,
+    )}&key=${key}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
     if (data.status !== 'OK' || !data.results?.length) return null;
-    const { lat, lng } = data.results[0].geometry.location;
-    return { lat, lng };
+
+    const result = data.results[0];
+    const { lat, lng } = result.geometry.location;
+
+    let postalCode: string | undefined;
+    const postalCodeComponent = result.address_components?.find((c: any) =>
+      c.types.includes('postal_code'),
+    );
+    if (postalCodeComponent) {
+      postalCode = postalCodeComponent.long_name;
+    }
+
+    return { lat, lng, postalCode };
   } catch {
     return null;
   }

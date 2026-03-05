@@ -1285,6 +1285,188 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ============================================================
+  // Providers & Territories
+  // ============================================================
+
+  app.get('/api/admin/providers', requireAdmin, requirePermission('operations'), async (_req: Request, res: Response) => {
+    try {
+      const providers = await storage.getProviders();
+      res.json({ providers });
+    } catch (err: any) {
+      console.error('Error fetching providers:', err);
+      res.status(500).json({ error: 'Failed to fetch providers' });
+    }
+  });
+
+  app.get('/api/admin/providers/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+        const provider = await storage.getProviderById(req.params.id);
+        if (!provider) {
+            return res.status(404).json({ error: 'Provider not found' });
+        }
+        res.json({ provider });
+    } catch (err: any) {
+        console.error('Error fetching provider:', err);
+        res.status(500).json({ error: 'Failed to fetch provider' });
+    }
+  });
+
+  app.post('/api/admin/providers', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+        const { name, ownerUserId } = req.body;
+        if (!name || !ownerUserId) {
+            return res.status(400).json({ error: 'name and ownerUserId are required' });
+        }
+        const provider = await storage.createProvider({ name, ownerUserId });
+        await audit(req, 'create_provider', 'provider', provider.id, { name, ownerUserId });
+        res.status(201).json({ provider });
+    } catch (err: any) {
+        console.error('Error creating provider:', err);
+        res.status(500).json({ error: 'Failed to create provider' });
+    }
+  });
+
+  app.put('/api/admin/providers/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { name, status } = req.body;
+        const updatedProvider = await storage.updateProvider(id, { name, status });
+        if (!updatedProvider) {
+            return res.status(404).json({ error: 'Provider not found' });
+        }
+        await audit(req, 'update_provider', 'provider', id, { name, status });
+        res.json({ provider: updatedProvider });
+    } catch (err: any) {
+        console.error('Error updating provider:', err);
+        res.status(500).json({ error: 'Failed to update provider' });
+    }
+  });
+
+  app.get('/api/admin/providers/:providerId/territories', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+        const { providerId } = req.params;
+        const territories = await storage.getTerritoriesForProvider(providerId);
+        res.json({ territories });
+    } catch (err: any) {
+        console.error('Error fetching territories:', err);
+        res.status(500).json({ error: 'Failed to fetch territories' });
+    }
+  });
+
+  app.post('/api/admin/providers/:providerId/territories', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { providerId } = req.params;
+      const data = req.body;
+      const territory = await storage.createProviderTerritory({ providerId, ...data });
+      await audit(req, 'create_provider_territory', 'provider_territory', territory.id, { providerId, name: data.name });
+      res.status(201).json({ territory });
+    } catch (err: any) {
+        console.error('Error creating provider territory:', err);
+        res.status(500).json({ error: 'Failed to create territory' });
+    }
+  });
+
+  app.put('/api/admin/territories/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const data = req.body;
+        const updatedTerritory = await storage.updateProviderTerritory(id, data);
+        if (!updatedTerritory) {
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        await audit(req, 'update_provider_territory', 'provider_territory', id, data);
+        res.json({ territory: updatedTerritory });
+    } catch (err: any) {
+        console.error('Error updating territory:', err);
+        res.status(500).json({ error: 'Failed to update territory' });
+    }
+  });
+
+  app.delete('/api/admin/territories/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const success = await storage.deleteProviderTerritory(id);
+        if (!success) {
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        await audit(req, 'delete_provider_territory', 'provider_territory', id);
+        res.json({ success: true });
+    } catch (err: any) {
+        console.error('Error deleting territory:', err);
+        res.status(500).json({ error: 'Failed to delete territory' });
+    }
+  });
+
+  // --- Swaps ---
+
+  app.post('/api/admin/swaps/generate', requireAdmin, requirePermission('*'), async (req, res) => {
+    try {
+      const { generateSwapRecommendations } = await import('./swapRecommendationService');
+      const recommendations = await generateSwapRecommendations();
+      await audit(req, 'generate_swaps', 'system', undefined, { count: recommendations.length });
+      res.status(201).json({ recommendations });
+    } catch (err: any) {
+      console.error('Error generating swap recommendations:', err);
+      res.status(500).json({ error: 'Failed to generate recommendations' });
+    }
+  });
+
+  app.get('/api/admin/swaps/pending', requireAdmin, requirePermission('operations'), async (_req, res) => {
+    try {
+      const swaps = await storage.getPendingSwaps();
+      res.json({ swaps });
+    } catch (err: any) {
+      console.error('Error fetching pending swaps:', err);
+      res.status(500).json({ error: 'Failed to fetch pending swaps' });
+    }
+  });
+
+  app.put('/api/admin/swaps/:id/decision', requireAdmin, requirePermission('*'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { decision } = req.body; // 'accepted' or 'rejected'
+      if (!['accepted', 'rejected'].includes(decision)) {
+        return res.status(400).json({ error: 'Invalid decision' });
+      }
+
+      const updatedSwap = await storage.updateSwapStatus(id, decision, req.session.userId!);
+      if (!updatedSwap) {
+        return res.status(404).json({ error: 'Swap recommendation not found or already actioned' });
+      }
+
+      // If accepted, perform the location provider change
+      if (decision === 'accepted') {
+        await storage.updateLocation(updatedSwap.location_a_to_b_id, { provider_id: updatedSwap.provider_b_id });
+        await storage.updateLocation(updatedSwap.location_b_to_a_id, { provider_id: updatedSwap.provider_a_id });
+        
+        // Notify customers
+        try {
+            const { sendProviderChangeNotification } = await import('./notificationService');
+            const locA = await storage.getLocationById(updatedSwap.location_a_to_b_id);
+            const locB = await storage.getLocationById(updatedSwap.location_b_to_a_id);
+            const providerA = await storage.getProviderById(updatedSwap.provider_a_id);
+            const providerB = await storage.getProviderById(updatedSwap.provider_b_id);
+
+            if (locA && providerA && providerB) {
+                sendProviderChangeNotification(locA.user_id, locA.address, providerA.name, providerB.name, locA.collection_day || 'their usual day');
+            }
+            if (locB && providerA && providerB) {
+                sendProviderChangeNotification(locB.user_id, locB.address, providerB.name, providerA.name, locB.collection_day || 'their usual day');
+            }
+        } catch (notifyErr) {
+            console.error('[Swap] Failed to send customer notifications:', notifyErr);
+        }
+      }
+
+      await audit(req, `swap_${decision}`, 'swap_recommendation', id, {});
+      res.json({ swap: updatedSwap });
+    } catch (err: any) {
+      console.error('Error actioning swap:', err);
+      res.status(500).json({ error: 'Failed to action swap recommendation' });
+    }
+  });
+
   // Bulk delete zones
   app.post('/api/admin/zones/bulk-delete', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {

@@ -1,5 +1,6 @@
 import { storage } from './storage.ts';
-import { geocodeAddress, findNearestZone, haversineDistanceMiles } from './routeSuggestionService.ts';
+import { geocodeAddress, haversineDistanceMiles } from './routeSuggestionService.ts';
+import { zoneService, type DriverCustomZone } from '../services/zoneService.js';
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -80,14 +81,13 @@ function minInsertionCost(
  * Fallback: when route optimization has no data, check if the address is inside
  * an active zone with a configured pickup_day.
  */
-async function zoneFallback(lat: number, lng: number): Promise<OptimizationResult | null> {
-  const containingZones = await storage.findActiveZonesContainingPoint(lat, lng);
+async function zoneFallback(containingZones: DriverCustomZone[]): Promise<OptimizationResult | null> {
   const zoneWithDay = containingZones.find(z => z.pickup_day);
   if (zoneWithDay) {
     return {
       collection_day: zoneWithDay.pickup_day!,
       zone_name: zoneWithDay.name,
-      driver_name: zoneWithDay.driver_name,
+      // driver_name is not available on the zone object from zoneService, so we omit it
       insertion_cost_miles: 0,
       confidence: 0.5,
       source: 'zone_default',
@@ -117,10 +117,10 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
     await storage.updateLocation(locationId, { latitude: lat, longitude: lng });
   }
 
-  // 2. Find nearest driver zone (for context only)
-  const zone = await findNearestZone(lat, lng);
+  // 2. Find all zones containing the location
+  const containingZones = await zoneService.findZonesForLocation(lat, lng);
 
-  // 3. Get routes from the analysis window
+  // 3. Get routes from the analysis window, filtered by the location's zones
   const windowDays = parseInt(process.env.PICKUP_OPTIMIZATION_WINDOW_DAYS || '7') || 7;
   const metric = (process.env.PICKUP_OPTIMIZATION_METRIC || 'distance') as 'distance' | 'time' | 'both';
   const today = new Date();
@@ -130,6 +130,7 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
   const routes = await storage.getAllRoutes({
     date_from: windowStart.toISOString().split('T')[0],
     date_to: today.toISOString().split('T')[0],
+    zoneIds: containingZones.map(z => z.id),
   });
 
   const activeStatuses = new Set(['open', 'assigned', 'in_progress', 'completed']);
@@ -137,7 +138,7 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
 
   if (activeRoutes.length === 0) {
     // Fallback: check if address is inside a zone with a configured pickup_day
-    const fallback = await zoneFallback(lat, lng);
+    const fallback = await zoneFallback(containingZones);
     if (fallback) return fallback;
     return null;
   }
@@ -170,7 +171,7 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
   }
 
   if (routeResults.length === 0) {
-    const fallback = await zoneFallback(lat, lng);
+    const fallback = await zoneFallback(containingZones);
     if (fallback) return fallback;
     return null;
   }
@@ -213,11 +214,12 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
 
   // Confidence: higher when we have more routes to compare
   const confidence = Math.min(routeResults.length / (windowDays * 0.7), 1);
+  const bestZone = containingZones.length > 0 ? containingZones[0] : null;
 
   return {
     collection_day: bestDay,
-    zone_name: zone?.zone_name,
-    driver_name: zone?.driver_name,
+    zone_name: bestZone?.name,
+    // driver_name is not available here
     insertion_cost_miles: bestAvg,
     best_route_id: bestRouteId,
     confidence,

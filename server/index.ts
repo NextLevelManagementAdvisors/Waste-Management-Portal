@@ -272,6 +272,28 @@ setInterval(processScheduledMessages, 60_000);
   setInterval(checkAndExpireContracts, CONTRACT_CHECK_INTERVAL);
 }
 
+// Automated Swap Engine — checks periodically for and executes high-confidence swaps
+{
+  const SWAP_CHECK_INTERVAL = 6 * 60 * 60 * 1000; // every 6 hours
+  let swapEngineRunning = false;
+
+  async function runSwapEngine() {
+    if (process.env.AUTO_SWAP_ENABLED !== 'true' || swapEngineRunning) return;
+    swapEngineRunning = true;
+    try {
+      const { executeAutomaticSwaps } = await import('./swapRecommendationService');
+      console.log('[SwapEngine] Running automated swap analysis...');
+      await executeAutomaticSwaps();
+    } catch (error: any) {
+      console.error('[SwapEngine] Scheduler error:', error.message);
+    } finally {
+      swapEngineRunning = false;
+    }
+  }
+
+  setInterval(runSwapEngine, SWAP_CHECK_INTERVAL);
+}
+
 // Lifecycle cleanup scheduler — expires stale on-demand requests, opportunities, coverage requests; escalates missed collections
 {
   const LIFECYCLE_CHECK_INTERVAL = 60 * 60 * 1000; // every hour
