@@ -8,6 +8,18 @@ import { detectAndStoreCollectionDays } from './collectionDayDetector';
 import { importRoutesFromOptimo, importRoutesForRange } from './optimoImportService';
 
 export function registerAdminOptimoRoutes(app: Express) {
+  const getOptimoExternalIdBySerial = async (): Promise<Map<string, string>> => {
+    const map = new Map<string, string>();
+    const preview = await optimoSync.previewDriverSync();
+    for (const match of preview.matched || []) {
+      const d = match.optimoDriver;
+      if (d?.serial && d?.externalId) map.set(d.serial, d.externalId);
+    }
+    for (const d of preview.unmatchedOptimo || []) {
+      if (d?.serial && d?.externalId) map.set(d.serial, d.externalId);
+    }
+    return map;
+  };
   // ── Test Connection ──
 
   app.get('/api/admin/optimoroute/test-connection', requireAdmin, async (_req: Request, res: Response) => {
@@ -104,7 +116,7 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   app.get('/api/admin/optimoroute/orders/:identifier', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { identifier } = req.params;
+      const identifier = String(req.params.identifier);
       const isId = /^[0-9a-f]{20,}$/.test(identifier);
       const [orderResult, completionResult] = await Promise.allSettled([
         optimo.getOrders([identifier], isId),
@@ -142,7 +154,7 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   app.delete('/api/admin/optimoroute/orders/:orderNo', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { orderNo } = req.params;
+      const orderNo = String(req.params.orderNo);
       const forceDelete = req.query.force === 'true';
       const result = await optimo.deleteOrder(orderNo, forceDelete);
       res.json(result);
@@ -309,8 +321,20 @@ export function registerAdminOptimoRoutes(app: Express) {
 
   app.put('/api/admin/optimoroute/drivers/:serial/parameters', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { serial } = req.params;
-      const params = { ...req.body, serial };
+      const serial = String(req.params.serial);
+      let externalId = req.body?.externalId as string | undefined;
+      if (!externalId) {
+        const extBySerial = await getOptimoExternalIdBySerial();
+        externalId = extBySerial.get(serial);
+      }
+      if (!externalId) {
+        return res.status(400).json({
+          error: `Unable to resolve OptimoRoute externalId for serial "${serial}". Link or sync this driver first.`,
+          serial,
+        });
+      }
+      const params = { ...req.body, externalId };
+      delete (params as any).serial;
       const result = await optimo.updateDriverParams(params);
       res.json(result);
     } catch (error: any) {
@@ -327,19 +351,54 @@ export function registerAdminOptimoRoutes(app: Express) {
         return res.status(400).json({ error: 'drivers array required' });
       }
 
-      const results: { serial: string; success: boolean; error?: string }[] = [];
+      const needsLookup = drivers.some((d: any) => !!d?.serial && !d?.externalId);
+      const extBySerial = needsLookup ? await getOptimoExternalIdBySerial() : new Map<string, string>();
+      const results: Array<{
+        serial?: string;
+        externalId?: string;
+        success: boolean;
+        code?: string;
+        message?: string;
+        error?: string;
+      }> = [];
+
       for (const driver of drivers) {
+        const serial = driver.serial as string | undefined;
+        const externalId = (driver.externalId as string | undefined) || (serial ? extBySerial.get(serial) : undefined);
+        if (!externalId) {
+          results.push({
+            serial,
+            success: false,
+            error: serial
+              ? `No OptimoRoute externalId found for serial "${serial}". Run driver sync preview/link first.`
+              : 'Driver identifier missing: provide serial or externalId.',
+          });
+          continue;
+        }
         try {
-          const result = await optimo.updateDriverParams(driver);
-          results.push({ serial: driver.serial, success: result.success !== false });
+          const payload = { ...driver, externalId };
+          delete (payload as any).serial;
+          const result = await optimo.updateDriverParams(payload);
+          results.push({
+            serial,
+            externalId,
+            success: result.success !== false,
+            code: result.code,
+            message: result.message,
+          });
         } catch (err: any) {
-          results.push({ serial: driver.serial, success: false, error: err.message });
+          results.push({
+            serial,
+            externalId,
+            success: false,
+            error: err?.message || 'Unknown OptimoRoute error',
+          });
         }
       }
 
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
-      res.json({ success: true, pushed: succeeded, failed, results });
+      res.json({ success: failed === 0, pushed: succeeded, failed, results });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error pushing drivers:', error);
       res.status(500).json({ error: 'Failed to push drivers to OptimoRoute' });
@@ -355,7 +414,14 @@ export function registerAdminOptimoRoutes(app: Express) {
         return res.status(400).json({ error: 'positions array required' });
       }
       const result = await optimo.updateDriverPositions(positions);
-      res.json(result);
+      const updates = Array.isArray((result as any).updates) ? (result as any).updates : [];
+      const failed = updates.filter((u: any) => u?.success === false).length;
+      res.json({
+        success: (result as any).success !== false && failed === 0,
+        processed: updates.length || positions.length,
+        failed,
+        updates,
+      });
     } catch (error: any) {
       console.error('[Admin OptimoRoute] Error updating driver positions:', error);
       res.status(500).json({ error: 'Failed to update driver positions' });
@@ -452,7 +518,7 @@ export function registerAdminOptimoRoutes(app: Express) {
   // PUT /api/admin/locations/:id/collection-schedule — admin sets collection day/frequency
   app.put('/api/admin/locations/:id/collection-schedule', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = String(req.params.id);
       const { collection_day, collection_frequency } = req.body;
 
       const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];

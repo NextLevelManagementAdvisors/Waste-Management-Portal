@@ -3,6 +3,13 @@ import { analyzeTerritoryOverlaps } from './territoryAnalysisService';
 
 const VALUE_TOLERANCE = 5.00; // Allow swaps where monthly value differs by up to $5.00
 
+interface GenerateSummary {
+    generated: number;
+    skippedNoCounterpart: number;
+    skippedMissingValue: number;
+    skippedOutsideTolerance: number;
+}
+
 /**
  * Groups inefficient customers by the direction of potential transfer.
  * @returns A map where keys are "providerA_id:providerB_id" and values are lists of customers.
@@ -23,12 +30,18 @@ function groupCrossoverCustomers(inefficientCustomers: any[]) {
  * Generates 1-to-1 swap recommendations for providers with overlapping territories.
  * This is a "greedy" algorithm that finds the first acceptable match.
  */
-export async function generateSwapRecommendations() {
+export async function generateSwapRecommendations(): Promise<{ recommendations: any[]; summary: GenerateSummary }> {
     const inefficientCustomers = await analyzeTerritoryOverlaps();
     const customerGroups = groupCrossoverCustomers(inefficientCustomers);
 
     const processedProviders = new Set<string>();
     const createdRecommendations: any[] = [];
+    const summary: GenerateSummary = {
+        generated: 0,
+        skippedNoCounterpart: 0,
+        skippedMissingValue: 0,
+        skippedOutsideTolerance: 0,
+    };
 
     for (const [key, groupAtoB] of customerGroups.entries()) {
         const [providerA, providerB] = key.split(':');
@@ -41,21 +54,31 @@ export async function generateSwapRecommendations() {
 
         const groupBtoA = customerGroups.get(reverseKey) || [];
         if (groupBtoA.length === 0) {
+            summary.skippedNoCounterpart += groupAtoB.length;
             continue;
         }
 
-        // Add value to each customer object
+        // Add deterministic monthly value to each customer object.
         for (const cust of groupAtoB) {
-            cust.value = await storage.getLocationValue(cust.locationId);
+            cust.value = await storage.getLocationMonthlyValue(cust.locationId);
         }
         for (const cust of groupBtoA) {
-            cust.value = await storage.getLocationValue(cust.locationId);
+            cust.value = await storage.getLocationMonthlyValue(cust.locationId);
         }
 
-        const unprocessedBtoA = new Set(groupBtoA);
+        const validAtoB = groupAtoB.filter(c => Number(c.value || 0) > 0);
+        const validBtoA = groupBtoA.filter(c => Number(c.value || 0) > 0);
+        summary.skippedMissingValue += (groupAtoB.length - validAtoB.length) + (groupBtoA.length - validBtoA.length);
+        if (validAtoB.length === 0 || validBtoA.length === 0) {
+            summary.skippedNoCounterpart += validAtoB.length + validBtoA.length;
+            processedProviders.add(key);
+            continue;
+        }
+
+        const unprocessedBtoA = new Set(validBtoA);
 
         // For each customer in A->B, find the best match in B->A
-        for (const custA of groupAtoB) {
+        for (const custA of validAtoB) {
             let bestMatch: any | null = null;
             let smallestDiff = Infinity;
 
@@ -65,6 +88,11 @@ export async function generateSwapRecommendations() {
                     smallestDiff = diff;
                     bestMatch = custB;
                 }
+            }
+
+            if (!bestMatch) {
+                summary.skippedNoCounterpart++;
+                continue;
             }
 
             // If a suitable match is found within the tolerance, create a recommendation
@@ -78,9 +106,12 @@ export async function generateSwapRecommendations() {
                     valueBtoA: bestMatch.value,
                 });
                 createdRecommendations.push(recommendation);
+                summary.generated++;
 
                 // Remove the matched customer from the pool
                 unprocessedBtoA.delete(bestMatch);
+            } else {
+                summary.skippedOutsideTolerance++;
             }
         }
 
@@ -88,7 +119,7 @@ export async function generateSwapRecommendations() {
     }
 
     console.log(`[SwapEngine] Generated ${createdRecommendations.length} new swap recommendations.`);
-    return createdRecommendations;
+    return { recommendations: createdRecommendations, summary };
 }
 
 /**
@@ -99,13 +130,24 @@ export async function executeAutomaticSwaps() {
     const pendingSwaps = await storage.getPendingSwaps();
 
     let acceptedCount = 0;
+    let skippedMissingValue = 0;
+    let skippedLowConfidence = 0;
 
     for (const swap of pendingSwaps) {
-        if (Math.abs(swap.net_value_change_a) <= CONFIDENCE_THRESHOLD) {
+        if (Number(swap.value_a_to_b_monthly || 0) <= 0 || Number(swap.value_b_to_a_monthly || 0) <= 0) {
+            skippedMissingValue++;
+            continue;
+        }
+
+        if (Math.abs(Number(swap.net_value_change_a || 0)) <= CONFIDENCE_THRESHOLD) {
             const updatedSwap = await storage.updateSwapStatus(swap.id, 'accepted', null); // null reviewer for automated
             if (updatedSwap) {
-                await storage.updateLocation(updatedSwap.location_a_to_b_id, { provider_id: updatedSwap.provider_b_id });
-                await storage.updateLocation(updatedSwap.location_b_to_a_id, { provider_id: updatedSwap.provider_a_id });
+                await storage.applySwapProviderReassignment({
+                    locationAId: updatedSwap.location_a_to_b_id,
+                    newProviderForLocationA: updatedSwap.provider_b_id,
+                    locationBId: updatedSwap.location_b_to_a_id,
+                    newProviderForLocationB: updatedSwap.provider_a_id,
+                });
                 acceptedCount++;
                 console.log(`[SwapEngine] Automatically accepted swap ${swap.id}.`);
 
@@ -127,6 +169,8 @@ export async function executeAutomaticSwaps() {
                     console.error('[Swap] Failed to send customer notifications for auto-swap:', notifyErr);
                 }
             }
+        } else {
+            skippedLowConfidence++;
         }
     }
 
@@ -134,5 +178,5 @@ export async function executeAutomaticSwaps() {
         console.log(`[SwapEngine] Automatically accepted ${acceptedCount} swaps.`);
     }
 
-    return { acceptedCount };
+    return { acceptedCount, skippedMissingValue, skippedLowConfidence };
 }

@@ -463,9 +463,10 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
 
           {totalPages > 1 && (
             <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
+              total={total}
+              limit={limit}
+              offset={(page - 1) * limit}
+              onChange={newOffset => setPage(Math.floor(newOffset / limit) + 1)}
             />
           )}
         </>

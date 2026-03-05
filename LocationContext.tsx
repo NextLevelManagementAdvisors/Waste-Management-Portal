@@ -19,6 +19,14 @@ export interface LocationContextType {
     postNavAction: PostNavAction | null;
     setPostNavAction: (action: PostNavAction | null) => void;
     setCurrentView: (view: View, queryString?: string) => void;
+    // Backward-compatible aliases
+    properties?: Location[];
+    selectedProperty?: Location | null;
+    selectedPropertyId?: string | null;
+    setSelectedPropertyId?: (id: string) => void;
+    updateProperty?: (locationId: string, details: UpdateLocationInfo) => Promise<void>;
+    cancelPropertyServices?: (locationId: string) => Promise<void>;
+    restartPropertyServices?: (locationId: string) => Promise<void>;
 }
 
 export const LocationContext = createContext<LocationContextType>({
@@ -39,6 +47,13 @@ export const LocationContext = createContext<LocationContextType>({
     postNavAction: null,
     setPostNavAction: () => {},
     setCurrentView: () => {},
+    properties: [],
+    selectedProperty: null,
+    selectedPropertyId: null,
+    setSelectedPropertyId: () => {},
+    updateProperty: async () => {},
+    cancelPropertyServices: async () => {},
+    restartPropertyServices: async () => {},
 });
 
 export const useLocation = () => useContext(LocationContext);

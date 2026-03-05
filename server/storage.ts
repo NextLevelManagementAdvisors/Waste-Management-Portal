@@ -68,6 +68,9 @@ export interface DbLocation {
   latitude: string | null;
   longitude: string | null;
   zone_id: string | null;
+  coverage_flagged_by_zone?: string | null;
+  provider_id?: string | null;
+  provider_territory_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -210,6 +213,53 @@ export class Storage {
       values
     );
     return result.rows[0];
+  }
+
+  async setLocationProviderAssignment(
+    locationId: string,
+    providerId: string | null,
+    providerTerritoryId: string | null,
+  ): Promise<DbLocation | null> {
+    const result = await this.query(
+      `UPDATE locations
+       SET provider_id = $1,
+           provider_territory_id = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [providerId, providerTerritoryId, locationId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async applySwapProviderReassignment(input: {
+    locationAId: string;
+    newProviderForLocationA: string;
+    locationBId: string;
+    newProviderForLocationB: string;
+  }): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE locations
+         SET provider_id = $1, provider_territory_id = NULL, updated_at = NOW()
+         WHERE id = $2`,
+        [input.newProviderForLocationA, input.locationAId]
+      );
+      await client.query(
+        `UPDATE locations
+         SET provider_id = $1, provider_territory_id = NULL, updated_at = NOW()
+         WHERE id = $2`,
+        [input.newProviderForLocationB, input.locationBId]
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
@@ -1820,7 +1870,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateProvider(id: string, data: Partial<{ name: string; status: string; }>) {
+  async updateProvider(id: string, data: Partial<{ name: string; status: string; onboarding_status: string; stripe_account_id: string | null }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1945,32 +1995,62 @@ export class Storage {
     return result.rows[0];
   }
 
-  async getLocationValue(locationId: string): Promise<number> {
-    // In a real implementation, this would fetch subscription data from Stripe
-    // and calculate the monthly value.
-    // For now, we'll use a mock value.
-    // An example of how it might work:
-    /*
-    const location = await this.getLocationById(locationId);
-    if (!location) return 0;
-    const user = await this.getUserById(location.user_id);
-    if (!user?.stripe_customer_id) return 0;
+  async getLocationMonthlyValue(locationId: string): Promise<number> {
+    const locationResult = await this.query(
+      `SELECT l.id, l.user_id, u.stripe_customer_id
+       FROM locations l
+       JOIN users u ON u.id = l.user_id
+       WHERE l.id = $1`,
+      [locationId]
+    );
+    const locationRow = locationResult.rows[0];
+    if (!locationRow?.stripe_customer_id) return 0;
 
-    const stripe = await getUncachableStripeClient();
-    const subscriptions = await stripe.subscriptions.list({ customer: user.stripe_customer_id, status: 'active' });
-    const relevantSub = subscriptions.data.find(s => s.metadata?.locationId === locationId);
-    if (!relevantSub || !relevantSub.items.data[0]?.price) return 0;
-
-    const price = relevantSub.items.data[0].price;
-    const amount = price.unit_amount || 0;
-    // Adjust for interval if not monthly
-    if (price.recurring?.interval === 'year') {
-      return (amount / 12) / 100;
+    let mrrCents = 0;
+    try {
+      const mrrResult = await this.query(
+        `SELECT COALESCE(SUM(
+            CASE
+              WHEN items IS NOT NULL THEN (
+                SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
+                FROM jsonb_array_elements(
+                  CASE jsonb_typeof(items)
+                    WHEN 'array' THEN items
+                    ELSE '[]'::jsonb
+                  END
+                ) AS item
+              )
+              ELSE 0
+            END
+          ), 0)::numeric AS mrr_cents
+         FROM stripe.subscriptions
+         WHERE customer = $1
+           AND status = 'active'`,
+        [locationRow.stripe_customer_id]
+      );
+      mrrCents = Number(mrrResult.rows[0]?.mrr_cents || 0);
+    } catch (error) {
+      console.error('[SwapEngine] Failed to read subscription MRR for location valuation:', error);
+      return 0;
     }
-    return amount / 100;
-    */
-    const mockValues = [25, 30, 35, 40, 50];
-    return mockValues[Math.floor(Math.random() * mockValues.length)];
+
+    if (!Number.isFinite(mrrCents) || mrrCents <= 0) return 0;
+
+    const activeLocationResult = await this.query(
+      `SELECT COUNT(*)::int AS count
+       FROM locations
+       WHERE user_id = $1
+         AND service_status = 'approved'`,
+      [locationRow.user_id]
+    );
+    const activeLocationCount = Number(activeLocationResult.rows[0]?.count || 0);
+    if (!Number.isFinite(activeLocationCount) || activeLocationCount <= 0) return 0;
+
+    return Number((mrrCents / 100 / activeLocationCount).toFixed(2));
+  }
+
+  async getLocationValue(locationId: string): Promise<number> {
+    return this.getLocationMonthlyValue(locationId);
   }
 
   async getDriversForProvider(providerId: string): Promise<DbDriverProfile[]> {
@@ -2140,12 +2220,6 @@ export class Storage {
     );
     return result.rows[0] || null;
   }
-
-
-import { zoneService } from '../services/zoneService';
-
-// ... (other parts of the file)
-
   /**
    * Find all active driver zones that contain a given point.
    * This method is now a lightweight wrapper around the ZoneService.

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ChangeEvent } from 'react';
 import type { SettingItem, IntegrationTestResult } from './types';
 
 export function useIntegrationSettings() {
@@ -100,7 +101,7 @@ export function useIntegrationSettings() {
     setEditValue('');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();

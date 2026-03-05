@@ -1,14 +1,14 @@
-
-import React from 'react';
+import React, { type CSSProperties } from 'react';
 
 // Added onClick to CardProps to support interactivity and resolve prop-not-found errors in parent components
 interface CardProps {
   children: React.ReactNode;
   className?: string;
   onClick?: () => void;
+  style?: CSSProperties;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', onClick }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', onClick, style }) => {
   const hasBg = className.includes('bg-');
   const hasBorder = className.includes('border-');
   const hasShadow = className.includes('shadow-');
@@ -22,8 +22,8 @@ export const Card: React.FC<CardProps> = ({ children, className = '', onClick })
         rounded-[1.5rem] p-4 sm:p-6 lg:p-8 transition-all duration-300
         ${className}
       `}
-      // Pass the optional onClick prop to the container div
       onClick={onClick}
+      style={style}
     >
       {children}
     </div>

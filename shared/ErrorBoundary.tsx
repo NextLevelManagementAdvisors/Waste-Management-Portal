@@ -1,8 +1,8 @@
-import React from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { reportError } from './errorReporter.ts';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
   spa: string;
 }
 
@@ -11,7 +11,7 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
+export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -21,7 +21,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     reportError(error, `React ErrorBoundary (componentStack: ${errorInfo.componentStack})`, this.props.spa);
   }
 

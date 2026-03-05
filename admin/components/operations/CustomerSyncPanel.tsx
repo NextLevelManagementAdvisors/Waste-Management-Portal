@@ -37,6 +37,31 @@ interface SyncLogEntry {
   errorMessage: string | null;
 }
 
+interface RawSyncLogEntry {
+  id?: string;
+  runType?: string;
+  run_type?: string;
+  startedAt?: string;
+  started_at?: string;
+  finishedAt?: string | null;
+  finished_at?: string | null;
+  status?: string;
+  locationsProcessed?: number;
+  locations_processed?: number;
+  ordersCreated?: number;
+  orders_created?: number;
+  ordersSkipped?: number;
+  orders_skipped?: number;
+  ordersErrored?: number;
+  orders_errored?: number;
+  ordersDeleted?: number;
+  orders_deleted?: number;
+  detectionUpdates?: number;
+  detection_updates?: number;
+  errorMessage?: string | null;
+  error_message?: string | null;
+}
+
 interface PreviewLocation {
   location: { id: string; address: string; customer: string };
   collectionDay: string | null;
@@ -74,6 +99,21 @@ const formatShortDate = (dateStr: string) => {
   }
 };
 
+const normalizeSyncLog = (log: RawSyncLogEntry): SyncLogEntry => ({
+  id: String(log.id || ''),
+  runType: log.runType || log.run_type || 'manual',
+  startedAt: log.startedAt || log.started_at || '',
+  finishedAt: log.finishedAt ?? log.finished_at ?? null,
+  status: log.status || 'unknown',
+  locationsProcessed: Number(log.locationsProcessed ?? log.locations_processed ?? 0),
+  ordersCreated: Number(log.ordersCreated ?? log.orders_created ?? 0),
+  ordersSkipped: Number(log.ordersSkipped ?? log.orders_skipped ?? 0),
+  ordersErrored: Number(log.ordersErrored ?? log.orders_errored ?? 0),
+  ordersDeleted: Number(log.ordersDeleted ?? log.orders_deleted ?? 0),
+  detectionUpdates: Number(log.detectionUpdates ?? log.detection_updates ?? 0),
+  errorMessage: log.errorMessage ?? log.error_message ?? null,
+});
+
 const CustomerSyncPanel: React.FC = () => {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [history, setHistory] = useState<SyncLogEntry[]>([]);
@@ -88,7 +128,16 @@ const CustomerSyncPanel: React.FC = () => {
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/admin/optimoroute/sync/status', { credentials: 'include' });
-      if (res.ok) setStatus(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        const normalizedLastRun = data.lastRun ? normalizeSyncLog(data.lastRun) : null;
+        setStatus({
+          enabled: Boolean(data.enabled),
+          syncHour: Number(data.syncHour || 0),
+          nextRunAt: String(data.nextRunAt || ''),
+          lastRun: normalizedLastRun,
+        });
+      }
     } catch {}
   };
 
@@ -97,7 +146,7 @@ const CustomerSyncPanel: React.FC = () => {
       const res = await fetch('/api/admin/optimoroute/sync/history?limit=20', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setHistory(data.logs || []);
+        setHistory(Array.isArray(data.logs) ? data.logs.map((log: RawSyncLogEntry) => normalizeSyncLog(log)) : []);
       }
     } catch {}
   };
@@ -313,10 +362,10 @@ const CustomerSyncPanel: React.FC = () => {
               <tbody>
                 {history.map(log => (
                   <tr key={log.id} className="border-t border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2 text-gray-700">{formatDate(log.started_at)}</td>
+                    <td className="px-4 py-2 text-gray-700">{formatDate(log.startedAt)}</td>
                     <td className="px-4 py-2">
-                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${log.run_type === 'manual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {log.run_type}
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${log.runType === 'manual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {log.runType}
                       </span>
                     </td>
                     <td className="px-4 py-2">
@@ -324,11 +373,11 @@ const CustomerSyncPanel: React.FC = () => {
                         {log.status}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right font-bold text-gray-900">{log.properties_processed}</td>
-                    <td className="px-4 py-2 text-right font-bold text-green-600">{log.orders_created}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{log.orders_skipped}</td>
-                    <td className="px-4 py-2 text-right text-orange-600">{log.orders_deleted}</td>
-                    <td className="px-4 py-2 text-right text-red-600">{log.orders_errored}</td>
+                    <td className="px-4 py-2 text-right font-bold text-gray-900">{log.locationsProcessed}</td>
+                    <td className="px-4 py-2 text-right font-bold text-green-600">{log.ordersCreated}</td>
+                    <td className="px-4 py-2 text-right text-gray-500">{log.ordersSkipped}</td>
+                    <td className="px-4 py-2 text-right text-orange-600">{log.ordersDeleted}</td>
+                    <td className="px-4 py-2 text-right text-red-600">{log.ordersErrored}</td>
                   </tr>
                 ))}
               </tbody>

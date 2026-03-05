@@ -104,7 +104,9 @@ const ServiceAreasListView: React.FC<ServiceAreasListViewProps> = ({
   // Zone selection
   const allOnPageSelected = zones.length > 0 && zones.every(z => selectedZones.has(z.id));
   const someSelected = selectedZones.size > 0;
-  const selectedPendingIds = Array.from(selectedZones.values()).filter(z => z.status === 'pending_approval').map(z => z.id);
+  const selectedPendingIds = Array.from<AdminZone>(selectedZones.values())
+    .filter(z => z.status === 'pending_approval')
+    .map(z => z.id);
   const hasPendingSelected = selectedPendingIds.length > 0;
 
   const toggleSelect = (zone: AdminZone) => {

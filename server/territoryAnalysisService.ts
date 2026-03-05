@@ -1,7 +1,7 @@
 import { storage } from './storage';
 import intersect from '@turf/intersect';
 import area from '@turf/area';
-import { polygon as turfPolygon, multiPolygon, point } from '@turf/helpers';
+import { featureCollection, polygon as turfPolygon, point } from '@turf/helpers';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 
 interface Territory {
@@ -30,7 +30,21 @@ function getGeoJson(territory: Territory) {
     if (!territory.polygon_coords) return null;
 
     try {
-        const ring = territory.polygon_coords.map((c: [number, number]) => [c[1], c[0]]);
+        const coords = territory.polygon_coords;
+        if (coords?.type === 'Polygon' && Array.isArray(coords.coordinates)) {
+            territory.geoJson = coords;
+            return territory.geoJson;
+        }
+        if (coords?.type === 'MultiPolygon' && Array.isArray(coords.coordinates)) {
+            // Use first polygon for overlap heuristics.
+            const firstPolygon = coords.coordinates[0];
+            if (Array.isArray(firstPolygon)) {
+                territory.geoJson = turfPolygon(firstPolygon);
+                return territory.geoJson;
+            }
+        }
+        const ring = Array.isArray(coords) ? coords.map((c: [number, number]) => [c[1], c[0]]) : [];
+        if (ring.length < 3) return null;
         ring.push(ring[0]);
         territory.geoJson = turfPolygon([ring]);
         return territory.geoJson;
@@ -59,7 +73,7 @@ async function findTerritoryOverlaps(territories: Territory[]): Promise<Map<stri
             if (!poly1 || !poly2) continue;
 
             try {
-                const intersection = intersect(poly1, poly2);
+                const intersection = intersect(featureCollection([poly1, poly2]) as any);
                 if (intersection && area(intersection) > 0) {
                     const providerPairKey = [t1.provider_id, t2.provider_id].sort().join(':');
                     if (!overlapMap.has(providerPairKey)) {

@@ -14,8 +14,11 @@ export interface RoleDefinition {
 
 export interface CurrentAdminUser {
   id: string;
-  firstName: string;
-  lastName: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
-  isAdmin: boolean;
+  role?: string;
+  permissions?: string[];
+  isAdmin?: boolean;
 }

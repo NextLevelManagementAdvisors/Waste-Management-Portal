@@ -7,6 +7,14 @@ import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import ToggleSwitch from './ToggleSwitch.tsx';
 
+type ChannelNotificationKey = 'collectionReminders' | 'scheduleChanges' | 'driverUpdates';
+
+const DEFAULT_CHANNEL_PREFS: Pick<NotificationPreferences, ChannelNotificationKey> = {
+    collectionReminders: { email: true, sms: false },
+    scheduleChanges: { email: true, sms: false },
+    driverUpdates: { email: true, sms: false },
+};
+
 const Notifications: React.FC = () => {
     const { selectedLocation, refreshUser } = useLocation();
     const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
@@ -18,11 +26,11 @@ const Notifications: React.FC = () => {
 
     useEffect(() => {
         if (selectedLocation) {
-            const np = selectedLocation.notificationPreferences || {};
+            const np = selectedLocation.notificationPreferences ?? DEFAULT_CHANNEL_PREFS;
             setPrefs({
-                collectionReminders: { email: np.collectionReminders?.email !== false, sms: np.collectionReminders?.sms === true },
-                scheduleChanges: { email: np.scheduleChanges?.email !== false, sms: np.scheduleChanges?.sms === true },
-                driverUpdates: { email: np.driverUpdates?.email !== false, sms: np.driverUpdates?.sms === true },
+                collectionReminders: { email: np.collectionReminders.email !== false, sms: np.collectionReminders.sms === true },
+                scheduleChanges: { email: np.scheduleChanges.email !== false, sms: np.scheduleChanges.sms === true },
+                driverUpdates: { email: np.driverUpdates.email !== false, sms: np.driverUpdates.sms === true },
             });
             setHasChanges(false);
         } else {
@@ -52,11 +60,14 @@ const Notifications: React.FC = () => {
         }
     };
 
-    const handlePrefChange = useCallback((category: keyof NotificationPreferences, type: 'email' | 'sms') => {
+    const handlePrefChange = useCallback((category: ChannelNotificationKey, type: 'email' | 'sms') => {
         setPrefs(prev => {
             if (!prev) return null;
             const newPrefs = { ...prev };
-            newPrefs[category] = { ...newPrefs[category], [type]: !newPrefs[category][type] };
+            newPrefs[category] = {
+                ...newPrefs[category],
+                [type]: !newPrefs[category][type],
+            };
             return newPrefs;
         });
         setHasChanges(true);
@@ -92,7 +103,7 @@ const Notifications: React.FC = () => {
     const NotificationCategory: React.FC<{
         title: string;
         description: string;
-        categoryKey: keyof NotificationPreferences;
+        categoryKey: ChannelNotificationKey;
     }> = ({ title, description, categoryKey }) => (
         <div className="py-4 sm:py-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">

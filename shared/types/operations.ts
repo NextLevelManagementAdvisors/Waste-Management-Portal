@@ -22,6 +22,7 @@ export interface OnDemandRequest {
   serviceName: string;
   servicePrice: number;
   requestedDate: string;
+  pickupDate?: string;
   status: string;
   notes?: string;
   photos?: string[];
@@ -109,7 +110,7 @@ export interface RouteStop {
   id: string;
   routeId: string;
   locationId: string | null;
-  orderType: 'recurring' | 'on_demand' | 'missed_redo';
+  orderType: 'recurring' | 'on_demand' | 'missed_redo' | 'special';
   onDemandRequestId?: string;
   optimoOrderNo?: string;
   optimo_order_no?: string; // snake_case alias from DB queries

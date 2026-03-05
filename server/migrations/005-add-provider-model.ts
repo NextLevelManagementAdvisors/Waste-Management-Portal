@@ -89,6 +89,16 @@ export async function up(client: PoolClient): Promise<void> {
 
   if (driversRes.rows.length > 0) {
     console.log(`Found ${driversRes.rows.length} existing drivers to migrate.`);
+    const coverageZoneColumnRes = await client.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'locations'
+         AND column_name = 'coverage_zone_id'
+       LIMIT 1`
+    );
+    const zoneRefColumn = coverageZoneColumnRes.rowCount ? 'coverage_zone_id' : 'zone_id';
+
     for (const driver of driversRes.rows) {
       // Create a new provider for this driver, treating them as an owner-operator
       const providerRes = await client.query(
@@ -126,7 +136,7 @@ export async function up(client: PoolClient): Promise<void> {
           await client.query(
             `UPDATE locations
              SET provider_id = $1, provider_territory_id = $2
-             WHERE coverage_zone_id = $3`,
+             WHERE ${zoneRefColumn} = $3`,
             [newProviderId, newTerritoryId, zone.id]
           );
         }

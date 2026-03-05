@@ -47,7 +47,8 @@ const DetailModal: React.FC<DetailModalProps> = ({ isOpen, request, drivers, onC
       setStatus(request.status);
       setAdminNotes(request.adminNotes || '');
       setAssignedDriverId(request.assignedDriverId || '');
-      setPickupDate(request.pickupDate ? request.pickupDate.split('T')[0] : '');
+      const scheduledDate = request.pickupDate || request.requestedDate;
+      setPickupDate(scheduledDate ? scheduledDate.split('T')[0] : '');
       setServicePrice(String(Number(request.servicePrice).toFixed(2)));
       setError('');
     }
@@ -64,7 +65,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ isOpen, request, drivers, onC
       if (adminNotes !== (request.adminNotes || '')) body.adminNotes = adminNotes;
       if (assignedDriverId !== (request.assignedDriverId || '')) body.assignedDriverId = assignedDriverId || null;
       const dateVal = pickupDate.split('T')[0];
-      const origDate = (request.pickupDate || '').split('T')[0];
+      const origDate = (request.pickupDate || request.requestedDate || '').split('T')[0];
       if (dateVal !== origDate) body.pickupDate = dateVal;
       const priceNum = parseFloat(servicePrice);
       if (!isNaN(priceNum) && priceNum !== Number(request.servicePrice)) body.servicePrice = priceNum;
@@ -307,7 +308,7 @@ const OnDemandSchedule: React.FC = () => {
                           {hasAi && <div className="text-[10px] text-blue-500 font-medium">AI: ${Number(request.aiEstimate).toFixed(0)}</div>}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-sm text-gray-700">{formatDate(request.pickupDate)}</div>
+                          <div className="text-sm text-gray-700">{formatDate(request.pickupDate || request.requestedDate)}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">

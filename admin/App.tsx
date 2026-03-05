@@ -9,7 +9,6 @@ import AccountingView from './components/accounting/AccountingView.tsx';
 import type { AccountingTabType } from './components/accounting/AccountingView.tsx';
 import OperationsView from './components/operations/OperationsView.tsx';
 import type { OpsTabType } from './components/operations/OperationsView.tsx';
-import Providers from './components/providers/Providers.tsx';
 import SettingsView from './components/system/SettingsView.tsx';
 import type { SettingsTabType } from './components/system/SettingsView.tsx';
 import CommunicationsView from './components/communications/CommunicationsView.tsx';
@@ -737,7 +736,6 @@ const AdminApp: React.FC = () => {
           {currentView === 'contacts' && <PeopleView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} selectedPersonId={selectedPersonId} onSelectPerson={selectPerson} onBack={deselectPerson} />}
           {currentView === 'accounting' && <AccountingView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={acctTab} onTabChange={handleAcctTabChange} />}
           {currentView === 'operations' && <OperationsView navFilter={navFilter} onFilterConsumed={() => setNavFilter(null)} activeTab={opsTab} onTabChange={handleOpsTabChange} missedCollectionsCount={badgeCounts.missedCollections || 0} pendingZonesCount={badgeCounts.pendingZones || 0} contractAlertsCount={(badgeCounts.contractsExpiring || 0) + (badgeCounts.pendingCoverage || 0)} onActionResolved={refreshBadgeCounts} />}
-          {currentView === 'providers' && <Providers />}
           {currentView === 'communications' && <CommunicationsView activeTab={commsTab} onTabChange={handleCommsTabChange} />}
           {currentView === 'settings' && <SettingsView activeTab={settingsTab} onTabChange={handleSettingsTabChange} />}
         </div>

@@ -19,6 +19,11 @@ import { notifyNewAddressReview } from './slackNotifier';
 import { approvalMessage } from './addressReviewMessages';
 import { onDemandUpload, missedCollectionUpload } from './uploadMiddleware';
 
+const toParam = (value: string | string[] | undefined): string => {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+};
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 
 // In-memory failed login tracking for account lockout
@@ -579,10 +584,7 @@ export function registerAuthRoutes(app: Express) {
                         }
           
                         if (bestProviderId && assignedTerritory) {
-                          await storage.updateLocation(location.id, {
-                            provider_id: bestProviderId,
-                            provider_territory_id: assignedTerritory.id,
-                          });
+                          await storage.setLocationProviderAssignment(location.id, bestProviderId, assignedTerritory.id);
                           Object.assign(location, {
                             provider_id: bestProviderId,
                             provider_territory_id: assignedTerritory.id,
@@ -694,7 +696,7 @@ export function registerAuthRoutes(app: Express) {
   app.put('/api/locations/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const locationId = Array.isArray(toParam(req.params.locationId)) ? toParam(req.params.locationId)[0] : toParam(req.params.locationId);
       const existing = await storage.getLocationById(locationId);
 
       if (!existing || existing.user_id !== userId) {
@@ -727,7 +729,7 @@ export function registerAuthRoutes(app: Express) {
   app.delete('/api/locations/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const locationId = Array.isArray(toParam(req.params.locationId)) ? toParam(req.params.locationId)[0] : toParam(req.params.locationId);
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(404).json({ error: 'Location not found' });
@@ -752,7 +754,7 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/locations/:id/request-review', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const locationId = Array.isArray(toParam(req.params.id)) ? toParam(req.params.id)[0] : toParam(req.params.id);
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(404).json({ error: 'Location not found' });
@@ -817,7 +819,7 @@ export function registerAuthRoutes(app: Express) {
   app.post('/api/locations/:locationId/pending-selections', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const locationId = Array.isArray(toParam(req.params.locationId)) ? toParam(req.params.locationId)[0] : toParam(req.params.locationId);
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(404).json({ error: 'Location not found' });
@@ -851,7 +853,7 @@ export function registerAuthRoutes(app: Express) {
   app.get('/api/locations/:locationId/pending-selections', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = Array.isArray(req.params.locationId) ? req.params.locationId[0] : req.params.locationId;
+      const locationId = Array.isArray(toParam(req.params.locationId)) ? toParam(req.params.locationId)[0] : toParam(req.params.locationId);
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(404).json({ error: 'Location not found' });
@@ -1550,7 +1552,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.get('/api/tip-dismissals/:locationId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = req.params.locationId as string;
+      const locationId = toParam(req.params.locationId) as string;
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
@@ -1678,7 +1680,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.put('/api/on-demand-request/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { id } = req.params;
+      const id = toParam(req.params.id);
       const { status, cancellationReason, date } = req.body;
 
       const existing = await storage.getOnDemandRequestById(id);
@@ -1800,8 +1802,8 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.get('/api/collection-intent/:locationId/:date', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = req.params.locationId as string;
-      const date = req.params.date as string;
+      const locationId = toParam(req.params.locationId) as string;
+      const date = toParam(req.params.date) as string;
       if (!date || date === 'undefined') {
         return res.status(400).json({ error: 'Invalid date parameter' });
       }
@@ -1834,7 +1836,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.get('/api/driver-feedback/:locationId/list', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = req.params.locationId as string;
+      const locationId = toParam(req.params.locationId) as string;
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
@@ -1849,8 +1851,8 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.get('/api/driver-feedback/:locationId/:collectionDate', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = req.params.locationId as string;
-      const collectionDate = req.params.collectionDate as string;
+      const locationId = toParam(req.params.locationId) as string;
+      const collectionDate = toParam(req.params.collectionDate) as string;
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
@@ -1982,7 +1984,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
 
   app.get('/api/account-transfer/:token', async (req: Request, res: Response) => {
     try {
-      const location = await storage.getLocationByTransferToken(req.params.token as string);
+      const location = await storage.getLocationByTransferToken(toParam(req.params.token) as string);
       if (!location) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
       const pendingOwner = typeof location.pending_owner === 'string' ? JSON.parse(location.pending_owner) : location.pending_owner;
       res.json({
@@ -2000,7 +2002,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
 
   app.post('/api/account-transfer/:token/accept', requireAuth, async (req: Request, res: Response) => {
     try {
-      const location = await storage.getLocationByTransferToken(req.params.token as string);
+      const location = await storage.getLocationByTransferToken(toParam(req.params.token) as string);
       if (!location) return res.status(404).json({ error: 'Transfer invitation not found or expired' });
 
       const pendingOwner = typeof location.pending_owner === 'string' ? JSON.parse(location.pending_owner) : location.pending_owner;
@@ -2021,7 +2023,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.put('/api/locations/:id/notifications', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const locationId = req.params.id as string;
+      const locationId = toParam(req.params.id) as string;
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
@@ -2082,3 +2084,5 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
     }
   });
 }
+
+

@@ -41,11 +41,13 @@ const ICON_COLOR: Record<ToastType, string> = {
 
 const ToastItem: React.FC<{ toast: Toast; onDismiss: (id: number) => void }> = ({ toast, onDismiss }) => {
     const [exiting, setExiting] = useState(false);
-    const timerRef = useRef<ReturnType<typeof setTimeout>>();
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         timerRef.current = setTimeout(() => setExiting(true), 4000);
-        return () => clearTimeout(timerRef.current);
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
     }, []);
 
     useEffect(() => {

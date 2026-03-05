@@ -7,6 +7,11 @@ import { broadcastToParticipants } from './websocket';
 import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification, sendDriverNotification } from './notificationService';
 import { requireAdmin } from './adminRoutes';
 
+const toParam = (value: string | string[] | undefined): string => {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+};
+
 async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
   const userId = (req.session as any)?.userId;
   if (!userId) {
@@ -155,7 +160,7 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.get('/api/admin/conversations/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const conv = await storage.getConversationById(req.params.id);
+      const conv = await storage.getConversationById(toParam(req.params.id));
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
       const participants = await storage.getConversationParticipants(conv.id);
       res.json({ ...conv, participants });
@@ -166,7 +171,7 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.get('/api/admin/conversations/:id/messages', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const messages = await storage.getMessages(req.params.id, {
+      const messages = await storage.getMessages(toParam(req.params.id), {
         limit: parseInt(req.query.limit as string) || 50,
         before: req.query.before as string,
       });
@@ -182,11 +187,11 @@ export function registerCommunicationRoutes(app: Express) {
       const { body } = req.body;
       if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
 
-      const conv = await storage.getConversationById(req.params.id);
+      const conv = await storage.getConversationById(toParam(req.params.id));
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
       const message = await storage.createMessage({
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         senderId: userId,
         senderType: 'admin',
         body: body.trim(),
@@ -198,12 +203,12 @@ export function registerCommunicationRoutes(app: Express) {
         sender_name: user ? `${user.first_name} ${user.last_name}` : 'Admin',
       };
 
-      await storage.markConversationRead(req.params.id, userId, 'admin');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'admin');
 
-      const participants = await storage.getConversationParticipants(req.params.id);
+      const participants = await storage.getConversationParticipants(toParam(req.params.id));
       const participantKeys = participants.map((p: any) => `${p.participant_type}:${p.participant_id}`);
       broadcastToParticipants(participantKeys, 'message:new', {
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         message: messageWithSender,
       });
 
@@ -228,7 +233,7 @@ export function registerCommunicationRoutes(app: Express) {
   app.put('/api/admin/conversations/:id/read', requireAdmin, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      await storage.markConversationRead(req.params.id, userId, 'admin');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'admin');
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });
@@ -241,7 +246,7 @@ export function registerCommunicationRoutes(app: Express) {
       if (!['open', 'closed', 'archived'].includes(status)) {
         return res.status(400).json({ error: 'Invalid status' });
       }
-      await storage.updateConversationStatus(req.params.id, status);
+      await storage.updateConversationStatus(toParam(req.params.id), status);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to update status' });
@@ -318,10 +323,10 @@ export function registerCommunicationRoutes(app: Express) {
   app.get('/api/conversations/:id/messages', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      const isParticipant = await storage.isParticipant(req.params.id, userId, 'user');
+      const isParticipant = await storage.isParticipant(toParam(req.params.id), userId, 'user');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
-      const messages = await storage.getMessages(req.params.id, {
+      const messages = await storage.getMessages(toParam(req.params.id), {
         limit: parseInt(req.query.limit as string) || 50,
         before: req.query.before as string,
       });
@@ -334,14 +339,14 @@ export function registerCommunicationRoutes(app: Express) {
   app.post('/api/conversations/:id/messages', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      const isParticipant = await storage.isParticipant(req.params.id, userId, 'user');
+      const isParticipant = await storage.isParticipant(toParam(req.params.id), userId, 'user');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
       const { body } = req.body;
       if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
 
       const message = await storage.createMessage({
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         senderId: userId,
         senderType: 'user',
         body: body.trim(),
@@ -353,17 +358,17 @@ export function registerCommunicationRoutes(app: Express) {
         sender_name: user ? `${user.first_name} ${user.last_name}` : 'Customer',
       };
 
-      await storage.markConversationRead(req.params.id, userId, 'user');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'user');
 
-      const participants = await storage.getConversationParticipants(req.params.id);
+      const participants = await storage.getConversationParticipants(toParam(req.params.id));
       const participantKeys = participants.map((p: any) => `${p.participant_type}:${p.participant_id}`);
       broadcastToParticipants(participantKeys, 'message:new', {
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         message: messageWithSender,
       });
 
       // Email opt-in notifications for other participants (drivers only; admins don't opt-in here)
-      const conv2 = await storage.getConversationById(req.params.id);
+      const conv2 = await storage.getConversationById(toParam(req.params.id));
       const senderDisplayName = user ? `${user.first_name} ${user.last_name}` : 'Customer';
       for (const p of participants) {
         if (p.participant_type === 'driver') {
@@ -381,7 +386,7 @@ export function registerCommunicationRoutes(app: Express) {
   app.put('/api/conversations/:id/read', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      await storage.markConversationRead(req.params.id, userId, 'user');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'user');
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });
@@ -396,7 +401,7 @@ export function registerCommunicationRoutes(app: Express) {
       if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
       const result = await storage.query(
         `UPDATE messages SET body = $1, updated_at = NOW() WHERE id = $2 AND sender_id = $3 AND sender_type = 'user' RETURNING *`,
-        [body.trim(), req.params.msgId, userId]
+        [body.trim(), toParam(req.params.msgId), userId]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found or not yours' });
       res.json(result.rows[0]);
@@ -411,7 +416,7 @@ export function registerCommunicationRoutes(app: Express) {
       const userId = (req.session as any).userId;
       const result = await storage.query(
         `DELETE FROM messages WHERE id = $1 AND sender_id = $2 AND sender_type = 'user' RETURNING id`,
-        [req.params.msgId, userId]
+        [toParam(req.params.msgId), userId]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found or not yours' });
       res.json({ success: true });
@@ -427,7 +432,7 @@ export function registerCommunicationRoutes(app: Express) {
       if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
       const result = await storage.query(
         `UPDATE messages SET body = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-        [body.trim(), req.params.msgId]
+        [body.trim(), toParam(req.params.msgId)]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
       res.json(result.rows[0]);
@@ -440,7 +445,7 @@ export function registerCommunicationRoutes(app: Express) {
     try {
       const result = await storage.query(
         `DELETE FROM messages WHERE id = $1 RETURNING id`,
-        [req.params.msgId]
+        [toParam(req.params.msgId)]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
       res.json({ success: true });
@@ -476,10 +481,10 @@ export function registerCommunicationRoutes(app: Express) {
   app.get('/api/team/conversations/:id/messages', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      const isParticipant = await storage.isParticipant(req.params.id, userId, 'driver');
+      const isParticipant = await storage.isParticipant(toParam(req.params.id), userId, 'driver');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
-      const messages = await storage.getMessages(req.params.id, {
+      const messages = await storage.getMessages(toParam(req.params.id), {
         limit: parseInt(req.query.limit as string) || 50,
         before: req.query.before as string,
       });
@@ -539,14 +544,14 @@ export function registerCommunicationRoutes(app: Express) {
   app.post('/api/team/conversations/:id/messages', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      const isParticipant = await storage.isParticipant(req.params.id, userId, 'driver');
+      const isParticipant = await storage.isParticipant(toParam(req.params.id), userId, 'driver');
       if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
 
       const { body } = req.body;
       if (!body?.trim()) return res.status(400).json({ error: 'Message body is required' });
 
       const message = await storage.createMessage({
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         senderId: userId,
         senderType: 'driver',
         body: body.trim(),
@@ -558,17 +563,17 @@ export function registerCommunicationRoutes(app: Express) {
         sender_name: user ? `${user.first_name} ${user.last_name}` : 'Driver',
       };
 
-      await storage.markConversationRead(req.params.id, userId, 'driver');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'driver');
 
-      const participants = await storage.getConversationParticipants(req.params.id);
+      const participants = await storage.getConversationParticipants(toParam(req.params.id));
       const participantKeys = participants.map((p: any) => `${p.participant_type}:${p.participant_id}`);
       broadcastToParticipants(participantKeys, 'message:new', {
-        conversationId: req.params.id,
+        conversationId: toParam(req.params.id),
         message: messageWithSender,
       });
 
       // Email opt-in notifications for user participants
-      const driverConv = await storage.getConversationById(req.params.id);
+      const driverConv = await storage.getConversationById(toParam(req.params.id));
       const senderName = user ? `${user.first_name} ${user.last_name}` : 'Driver';
       for (const p of participants) {
         if (p.participant_type === 'user') {
@@ -586,7 +591,7 @@ export function registerCommunicationRoutes(app: Express) {
   app.put('/api/team/conversations/:id/read', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      await storage.markConversationRead(req.params.id, userId, 'driver');
+      await storage.markConversationRead(toParam(req.params.id), userId, 'driver');
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to mark as read' });
@@ -627,7 +632,7 @@ export function registerCommunicationRoutes(app: Express) {
       const result = await pool.query(
         `UPDATE communication_templates SET name=$1, channel=$2, subject=$3, body=$4, variables=$5, updated_at=NOW()
          WHERE id=$6 RETURNING *`,
-        [name.trim(), channel || 'email', subject?.trim() || null, body.trim(), variables || [], req.params.id]
+        [name.trim(), channel || 'email', subject?.trim() || null, body.trim(), variables || [], toParam(req.params.id)]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
       res.json(result.rows[0]);
@@ -638,7 +643,7 @@ export function registerCommunicationRoutes(app: Express) {
 
   app.delete('/api/admin/templates/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const result = await pool.query('DELETE FROM communication_templates WHERE id=$1 RETURNING id', [req.params.id]);
+      const result = await pool.query('DELETE FROM communication_templates WHERE id=$1 RETURNING id', [toParam(req.params.id)]);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
       res.json({ success: true });
     } catch (e) {
@@ -747,7 +752,7 @@ export function registerCommunicationRoutes(app: Express) {
       const result = await pool.query(
         `SELECT cl.*, u.first_name AS sent_by_first, u.last_name AS sent_by_last
          FROM communication_log cl LEFT JOIN users u ON cl.sent_by = u.id WHERE cl.id = $1`,
-        [req.params.id]
+        [toParam(req.params.id)]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
       res.json(result.rows[0]);
@@ -773,7 +778,7 @@ export function registerCommunicationRoutes(app: Express) {
     try {
       const result = await pool.query(
         `UPDATE communication_log SET status = 'cancelled' WHERE id = $1 AND status = 'scheduled' RETURNING id`,
-        [req.params.id]
+        [toParam(req.params.id)]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Scheduled message not found or already sent' });
       res.json({ success: true });
@@ -783,3 +788,4 @@ export function registerCommunicationRoutes(app: Express) {
   });
 
 }
+
