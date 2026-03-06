@@ -671,6 +671,10 @@ export function registerRoutes(app: Express) {
       const { intent } = req.body;
       const userId = req.session.userId!;
 
+      if (!date || date === 'undefined') {
+        return res.status(400).json({ error: 'Valid date parameter is required' });
+      }
+
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Forbidden' });

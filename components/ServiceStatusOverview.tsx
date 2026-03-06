@@ -82,7 +82,7 @@ const ServiceStatusOverview: React.FC = () => {
     }, [selectedLocationId]);
 
     const handleSetIntent = async (newIntent: 'out' | 'skip') => {
-        if (!selectedLocationId || !state?.nextCollection) return;
+        if (!selectedLocationId || !state?.nextCollection?.date) return;
         setIsSubmitting(true);
         try {
             await setCollectionIntent(selectedLocationId, newIntent, state.nextCollection.date);
