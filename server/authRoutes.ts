@@ -1608,14 +1608,47 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
   app.post('/api/on-demand-request', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { locationId, serviceName, servicePrice, date, notes, photos, aiEstimate, aiReasoning } = req.body;
+      const { locationId, serviceId, serviceName, date, notes, photos, aiEstimate, aiReasoning } = req.body;
+      if (!locationId || !date) {
+        return res.status(400).json({ error: 'locationId and date are required' });
+      }
+
       const location = await storage.getLocationById(locationId);
       if (!location || location.user_id !== userId) {
         return res.status(403).json({ error: 'Location not found or access denied' });
       }
+
+      // Resolve service from server-side catalog to prevent client-side price/name tampering.
+      const services = await storage.getOnDemandServices();
+      const normalizedName = typeof serviceName === 'string' ? serviceName.trim().toLowerCase() : '';
+      const matchedService = services.find((s: any) => s.id === serviceId)
+        || services.find((s: any) => String(s.name || '').trim().toLowerCase() === normalizedName);
+      if (!matchedService) {
+        return res.status(400).json({ error: 'Invalid on-demand service selected' });
+      }
+
+      const canonicalServiceName = String(matchedService.name);
+      const basePrice = Number(matchedService.price);
+      if (!Number.isFinite(basePrice) || basePrice < 0) {
+        return res.status(500).json({ error: 'Service pricing is not configured correctly' });
+      }
+
+      const parsedEstimate = Number(aiEstimate);
+      const approvedEstimate = Number.isFinite(parsedEstimate) && parsedEstimate >= basePrice
+        ? parsedEstimate
+        : null;
+      const finalPrice = approvedEstimate ?? basePrice;
+
       const request = await storage.createOnDemandRequest({
-        userId, locationId, serviceName, servicePrice: aiEstimate || servicePrice, requestedDate: date,
-        notes, photos, aiEstimate, aiReasoning,
+        userId,
+        locationId,
+        serviceName: canonicalServiceName,
+        servicePrice: finalPrice,
+        requestedDate: date,
+        notes,
+        photos,
+        aiEstimate: approvedEstimate ?? undefined,
+        aiReasoning: approvedEstimate ? aiReasoning : undefined,
       });
 
       try {
@@ -1625,9 +1658,9 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
           type: 'D',
           date,
           address: location.address,
-          locationName: `On-Demand Pickup - ${serviceName}`,
+          locationName: `On-Demand Pickup - ${canonicalServiceName}`,
           duration: 20,
-          notes: `On-demand pickup: ${serviceName}${notes ? ` | Customer notes: ${notes}` : ''}`,
+          notes: `On-demand pickup: ${canonicalServiceName}${notes ? ` | Customer notes: ${notes}` : ''}`,
         });
       } catch (optimoErr: any) {
         console.error('OptimoRoute order creation failed (non-blocking):', optimoErr.message);
@@ -1636,7 +1669,6 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
       try {
         const user = await storage.getUserById(userId);
         if (user?.stripe_customer_id) {
-          const finalPrice = aiEstimate || servicePrice;
           const stripe = await getUncachableStripeClient();
           const invoice = await stripe.invoices.create({
             customer: user.stripe_customer_id,
@@ -1648,7 +1680,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
             invoice: invoice.id,
             amount: Math.round(finalPrice * 100),
             currency: 'usd',
-            description: `On-Demand Pickup: ${serviceName}`,
+            description: `On-Demand Pickup: ${canonicalServiceName}`,
           });
           await stripe.invoices.finalizeInvoice(invoice.id);
         }
@@ -1656,7 +1688,7 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
         console.error('Stripe invoice creation failed (non-blocking):', stripeErr.message);
       }
 
-      sendServiceUpdate(userId, 'On-Demand Pickup Scheduled', `Your ${serviceName} pickup has been scheduled for ${date} at ${location.address}.`).catch(e => console.error('Service update email failed:', e));
+      sendServiceUpdate(userId, 'On-Demand Pickup Scheduled', `Your ${canonicalServiceName} pickup has been scheduled for ${date} at ${location.address}.`).catch(e => console.error('Service update email failed:', e));
 
       res.json({ data: request });
     } catch (error: any) {

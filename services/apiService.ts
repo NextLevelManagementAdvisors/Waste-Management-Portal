@@ -523,37 +523,34 @@ const iconMap: Record<string, React.FC<any>> = {
 };
 
 export const getOnDemandServices = async (): Promise<OnDemandService[]> => {
-    try {
-        const res = await fetch('/api/on-demand-services', { credentials: 'include' });
-        const json = await safeJson(res);
-        if (res.ok && json.data) {
-            return json.data.map((s: any) => {
-                const IconComponent = iconMap[s.iconName] || ArchiveBoxIcon;
-                return {
-                    id: s.id,
-                    name: s.name,
-                    description: s.description,
-                    price: s.price,
-                    icon: React.createElement(IconComponent, { className: 'w-12 h-12 text-primary' }),
-                };
-            });
-        }
-    } catch {}
-    return [];
+    const res = await fetch('/api/on-demand-services', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to fetch on-demand services');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch on-demand services');
+    if (!json.data) return [];
+    return json.data.map((s: any) => {
+        const IconComponent = iconMap[s.iconName] || ArchiveBoxIcon;
+        return {
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            price: s.price,
+            icon: React.createElement(IconComponent, { className: 'w-12 h-12 text-primary' }),
+        };
+    });
 };
 export const getSpecialPickupServices = getOnDemandServices;
 
 export const getOnDemandRequests = async (): Promise<OnDemandRequest[]> => {
     try {
-        const res = await fetch('/api/on-demand', { credentials: 'include' });
+        const res = await fetch('/api/on-demand-requests', { credentials: 'include' });
         const json = await safeJson(res);
         if (res.ok && json.data) {
             return json.data.map((r: any) => ({
                 id: r.id,
-                locationId: r.property_id,
+                locationId: r.location_id ?? r.property_id,
                 serviceId: r.id,
                 serviceName: r.service_name,
-                date: r.pickup_date,
+                date: r.requested_date ?? r.pickup_date,
                 status: r.status,
                 price: Number(r.service_price),
                 notes: r.notes || undefined,
@@ -575,12 +572,12 @@ export const requestOnDemandPickup = async (
     const services = await getOnDemandServices();
     const service = services.find(s => s.id === serviceId);
     if (!service) throw new Error("Service not found");
-    const res = await fetch('/api/on-demand', {
+    const res = await fetch('/api/on-demand-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-            locationId, serviceName: service.name, servicePrice: service.price, date,
+            locationId, serviceId, serviceName: service.name, servicePrice: service.price, date,
             notes: opts?.notes, photos: opts?.photos,
             aiEstimate: opts?.aiEstimate, aiReasoning: opts?.aiReasoning,
         }),
@@ -627,7 +624,7 @@ export const estimateOnDemandPickup = async (description: string, photoUrls: str
 export const estimateSpecialPickup = estimateOnDemandPickup;
 
 export const cancelOnDemandPickup = async (requestId: string, reason?: string) => {
-    const res = await fetch(`/api/on-demand/${requestId}`, {
+    const res = await fetch(`/api/on-demand-request/${requestId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -640,7 +637,7 @@ export const cancelOnDemandPickup = async (requestId: string, reason?: string) =
 export const cancelSpecialPickup = cancelOnDemandPickup;
 
 export const rescheduleOnDemandPickup = async (requestId: string, newDate: string) => {
-    const res = await fetch(`/api/on-demand/${requestId}`, {
+    const res = await fetch(`/api/on-demand-request/${requestId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

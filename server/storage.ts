@@ -393,13 +393,14 @@ export class Storage {
   }
 
   async updateOnDemandRequest(id: string, data: {
-    pickupDate?: string; status?: string; cancellationReason?: string;
+    pickupDate?: string; requestedDate?: string; status?: string; cancellationReason?: string;
     adminNotes?: string; assignedDriverId?: string | null; servicePrice?: number;
   }) {
     const sets: string[] = ['updated_at = NOW()'];
     const params: any[] = [];
     let idx = 1;
-    if (data.pickupDate !== undefined) { sets.push(`requested_date = $${idx++}`); params.push(data.pickupDate); }
+    const nextRequestedDate = data.requestedDate ?? data.pickupDate;
+    if (nextRequestedDate !== undefined) { sets.push(`requested_date = $${idx++}`); params.push(nextRequestedDate); }
     if (data.status !== undefined) { sets.push(`status = $${idx++}`); params.push(data.status); }
     if (data.cancellationReason !== undefined) { sets.push(`cancellation_reason = $${idx++}`); params.push(data.cancellationReason); }
     if (data.adminNotes !== undefined) { sets.push(`admin_notes = $${idx++}`); params.push(data.adminNotes); }

@@ -35,6 +35,8 @@ vi.mock('../storage', () => ({
     createMissedCollectionReport: vi.fn(),
     getMissedCollectionReports: vi.fn(),
     createOnDemandRequest: vi.fn(),
+    getOnDemandRequestById: vi.fn(),
+    updateOnDemandRequest: vi.fn(),
     getOnDemandRequests: vi.fn(),
     getActiveServiceAlerts: vi.fn(),
     getOnDemandServices: vi.fn(),
@@ -82,6 +84,8 @@ vi.mock('../notificationService', () => ({
 
 vi.mock('../optimoRouteClient', () => ({
   createOrder: vi.fn(),
+  updateOrder: vi.fn(),
+  deleteOrder: vi.fn(),
 }));
 
 vi.mock('../slackNotifier', () => ({
@@ -564,21 +568,35 @@ describe('GET /api/missed-collections', () => {
 // ===========================================================================
 describe('POST /api/on-demand-request', () => {
   it('returns 401 without authentication', async () => {
-    expect((await supertest(createApp()).post('/api/on-demand-request').send({ propertyId: 'prop-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' })).status).toBe(401);
+    expect((await supertest(createApp()).post('/api/on-demand-request').send({ locationId: 'prop-1', serviceId: 'svc-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' })).status).toBe(401);
   });
 
   it('returns 200 on success', async () => {
     vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty } as any);
+    vi.mocked(storage.getOnDemandServices).mockResolvedValue([{ id: 'svc-1', name: 'Bulk Pickup', price: 49.99 }] as any);
     vi.mocked(storage.createOnDemandRequest).mockResolvedValue({ id: 'sp-1' } as any);
     vi.mocked(storage.getUserById).mockResolvedValue({ ...baseUser } as any);
-    const res = await supertest(createAuthApp()).post('/api/on-demand-request').send({ propertyId: 'prop-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' });
+    const res = await supertest(createAuthApp()).post('/api/on-demand-request').send({ locationId: 'prop-1', serviceId: 'svc-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' });
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe('sp-1');
   });
 
   it('returns 403 when property not owned', async () => {
     vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty, user_id: 'other' } as any);
-    expect((await supertest(createAuthApp()).post('/api/on-demand-request').send({ propertyId: 'prop-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' })).status).toBe(403);
+    expect((await supertest(createAuthApp()).post('/api/on-demand-request').send({ locationId: 'prop-1', serviceId: 'svc-1', serviceName: 'Bulk Pickup', servicePrice: 49.99, date: '2025-02-10' })).status).toBe(403);
+  });
+
+  it('returns 400 when requested service is not in server catalog', async () => {
+    vi.mocked(storage.getLocationById).mockResolvedValue({ ...baseProperty } as any);
+    vi.mocked(storage.getOnDemandServices).mockResolvedValue([{ id: 'svc-2', name: 'Mattress Pickup', price: 75 }] as any);
+    const res = await supertest(createAuthApp()).post('/api/on-demand-request').send({
+      locationId: 'prop-1',
+      serviceId: 'svc-1',
+      serviceName: 'Bulk Pickup',
+      servicePrice: 49.99,
+      date: '2025-02-10',
+    });
+    expect(res.status).toBe(400);
   });
 });
 
@@ -595,6 +613,90 @@ describe('GET /api/on-demand-requests', () => {
     const res = await supertest(createAuthApp()).get('/api/on-demand-requests');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// PUT /api/on-demand-request/:id
+// ===========================================================================
+describe('PUT /api/on-demand-request/:id', () => {
+  it('returns 401 without authentication', async () => {
+    expect((await supertest(createApp()).put('/api/on-demand-request/req-1').send({ date: '2025-02-12' })).status).toBe(401);
+  });
+
+  it('reschedules a pending request', async () => {
+    vi.mocked(storage.getOnDemandRequestById).mockResolvedValue({
+      id: 'req-1',
+      user_id: 'user-1',
+      status: 'pending',
+      service_name: 'Bulk Pickup',
+      address: '123 Main St',
+    } as any);
+    vi.mocked(storage.updateOnDemandRequest).mockResolvedValue({
+      id: 'req-1',
+      requested_date: '2025-02-12',
+      status: 'pending',
+    } as any);
+
+    const res = await supertest(createAuthApp()).put('/api/on-demand-request/req-1').send({ date: '2025-02-12' });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(storage.updateOnDemandRequest)).toHaveBeenCalledWith(
+      'req-1',
+      expect.objectContaining({ requestedDate: '2025-02-12' }),
+    );
+  });
+
+  it('cancels a pending request', async () => {
+    vi.mocked(storage.getOnDemandRequestById).mockResolvedValue({
+      id: 'req-1',
+      user_id: 'user-1',
+      status: 'pending',
+      service_name: 'Bulk Pickup',
+      address: '123 Main St',
+    } as any);
+    vi.mocked(storage.updateOnDemandRequest).mockResolvedValue({
+      id: 'req-1',
+      status: 'cancelled',
+      cancellation_reason: 'Changed plans',
+    } as any);
+
+    const res = await supertest(createAuthApp()).put('/api/on-demand-request/req-1').send({
+      status: 'cancelled',
+      cancellationReason: 'Changed plans',
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(storage.updateOnDemandRequest)).toHaveBeenCalledWith(
+      'req-1',
+      expect.objectContaining({ status: 'cancelled', cancellationReason: 'Changed plans' }),
+    );
+  });
+
+  it('returns 403 when request is not owned by user', async () => {
+    vi.mocked(storage.getOnDemandRequestById).mockResolvedValue({
+      id: 'req-1',
+      user_id: 'other-user',
+      status: 'pending',
+      service_name: 'Bulk Pickup',
+      address: '123 Main St',
+    } as any);
+
+    const res = await supertest(createAuthApp()).put('/api/on-demand-request/req-1').send({ date: '2025-02-12' });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 400 when request is already finalized', async () => {
+    vi.mocked(storage.getOnDemandRequestById).mockResolvedValue({
+      id: 'req-1',
+      user_id: 'user-1',
+      status: 'completed',
+      service_name: 'Bulk Pickup',
+      address: '123 Main St',
+    } as any);
+
+    const res = await supertest(createAuthApp()).put('/api/on-demand-request/req-1').send({ date: '2025-02-12' });
+    expect(res.status).toBe(400);
   });
 });
 

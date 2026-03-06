@@ -59,6 +59,7 @@ const OnDemandPickup: React.FC = () => {
     const [services, setServices] = useState<OnDemandService[]>([]);
     const [allRequests, setAllRequests] = useState<OnDemandRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // Schedule modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,6 +83,7 @@ const OnDemandPickup: React.FC = () => {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const [servicesData, requestsData] = await Promise.all([
                 getOnDemandServices(),
@@ -89,8 +91,9 @@ const OnDemandPickup: React.FC = () => {
             ]);
             setServices(servicesData);
             setAllRequests(requestsData);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to fetch on-demand pickup data:", error);
+            setLoadError(error?.message || 'Failed to load on-demand pickup options.');
         } finally {
             setLoading(false);
         }
@@ -267,24 +270,35 @@ const OnDemandPickup: React.FC = () => {
             {/* Available Services */}
             <Card className="border-none ring-1 ring-base-200">
                 <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Available Specialty Services</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
-                    {services.map(service => (
-                        <div key={service.id} className="group relative flex flex-col p-6 rounded-3xl bg-gray-50 border border-transparent hover:border-primary/20 hover:bg-white hover:shadow-xl transition-all duration-300">
-                            <div className="w-16 h-16 rounded-2xl bg-white shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                                {service.icon}
+                {loadError ? (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+                        <p className="text-sm font-bold text-red-700">{loadError}</p>
+                    </div>
+                ) : services.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-base-300 bg-gray-50 px-5 py-6">
+                        <p className="text-sm font-bold text-gray-700">No specialty services are currently available for this location.</p>
+                        <p className="text-xs text-gray-500 mt-2">Please contact support or check back soon.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
+                        {services.map(service => (
+                            <div key={service.id} className="group relative flex flex-col p-6 rounded-3xl bg-gray-50 border border-transparent hover:border-primary/20 hover:bg-white hover:shadow-xl transition-all duration-300">
+                                <div className="w-16 h-16 rounded-2xl bg-white shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                                    {service.icon}
+                                </div>
+                                <h3 className="text-xl font-black text-gray-900">{service.name}</h3>
+                                <p className="text-sm text-gray-500 mt-2 font-medium leading-relaxed">{service.description}</p>
+                                <div className="mt-8 flex items-baseline gap-1">
+                                    <span className="text-3xl font-black text-gray-900">${Number(service.price).toFixed(0)}</span>
+                                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Starting</span>
+                                </div>
+                                <Button onClick={() => handleScheduleClick(service)} className="w-full mt-6 rounded-2xl font-black uppercase tracking-widest text-xs py-4">
+                                    Schedule Pickup
+                                </Button>
                             </div>
-                            <h3 className="text-xl font-black text-gray-900">{service.name}</h3>
-                            <p className="text-sm text-gray-500 mt-2 font-medium leading-relaxed">{service.description}</p>
-                            <div className="mt-8 flex items-baseline gap-1">
-                                <span className="text-3xl font-black text-gray-900">${Number(service.price).toFixed(0)}</span>
-                                <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Starting</span>
-                            </div>
-                            <Button onClick={() => handleScheduleClick(service)} className="w-full mt-6 rounded-2xl font-black uppercase tracking-widest text-xs py-4">
-                                Schedule Pickup
-                            </Button>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                )}
             </Card>
 
             {/* Upcoming & History */}

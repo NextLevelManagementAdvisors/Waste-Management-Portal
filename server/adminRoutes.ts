@@ -808,7 +808,7 @@ export function registerAdminRoutes(app: Express) {
       // Update OptimoRoute if date changed
       if (pickupDate && pickupDate !== existing.requested_date) {
         try {
-          const orderNo = `SP-${id.substring(0, 8).toUpperCase()}`;
+          const orderNo = `OD-${id.substring(0, 8).toUpperCase()}`;
           await optimo.updateOrder(orderNo, { date: pickupDate });
         } catch (e: any) {
           console.error('OptimoRoute date update failed (non-blocking):', e.message);
