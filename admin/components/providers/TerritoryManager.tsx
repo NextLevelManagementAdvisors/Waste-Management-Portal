@@ -7,7 +7,7 @@ const api = {
     // Replace with: return fetch('/api/admin/providers').then(res => res.json());
     return Promise.resolve({
       providers: [
-        { id: 'prov_1', name: 'Joe's Trash Service', owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
+        { id: 'prov_1', name: "Joe's Trash Service", owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
         { id: 'prov_2', name: 'City Waste Co', owner_name: 'Jane Doe', driver_count: 10, territory_count: 5 },
       ],
     });

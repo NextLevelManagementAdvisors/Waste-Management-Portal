@@ -37,7 +37,7 @@ export const ProviderProvider: React.FC<ProviderProviderProps> = ({ children }) 
   // In a real app, you'd fetch this from your API
   useEffect(() => {
     const mockProviders: Provider[] = [
-      { id: 'prov_1', name: 'Joe's Trash Service', owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
+      { id: 'prov_1', name: "Joe's Trash Service", owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
       { id: 'prov_2', name: 'City Waste Co', owner_name: 'Jane Doe', driver_count: 10, territory_count: 5 },
       { id: 'prov_3', name: 'Green Haulers', owner_name: 'Al Gore', driver_count: 1, territory_count: 1 },
     ];
