@@ -6,8 +6,8 @@ const api = {
     // return fetch('/api/admin/swaps/pending').then(res => res.json());
     return Promise.resolve({
       swaps: [
-        { id: 'swap_1', provider_a_name: 'Joe's Trash Service', provider_b_name: 'City Waste Co', location_a_address: '123 Main St', location_b_address: '456 Oak Ave', net_value_change_a: -2.50, status: 'pending' },
-        { id: 'swap_2', provider_a_name: 'Joe's Trash Service', provider_b_name: 'Green Haulers', location_a_address: '789 Pine St', location_b_address: '101 Maple Dr', net_value_change_a: 1.00, status: 'pending' },
+        { id: 'swap_1', provider_a_name: "Joe's Trash Service", provider_b_name: 'City Waste Co', location_a_address: '123 Main St', location_b_address: '456 Oak Ave', net_value_change_a: -2.50, status: 'pending' },
+        { id: 'swap_2', provider_a_name: "Joe's Trash Service", provider_b_name: 'Green Haulers', location_a_address: '789 Pine St', location_b_address: '101 Maple Dr', net_value_change_a: 1.00, status: 'pending' },
       ]
     });
   },
