@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS on_demand_services (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Seed a default on-demand service for fresh environments
+INSERT INTO on_demand_services (name, description, price, icon_name, active)
+SELECT
+  'Bulk Pickup',
+  'One-time pickup for large or overflow household items.',
+  49.99,
+  'TruckIcon',
+  TRUE
+WHERE NOT EXISTS (SELECT 1 FROM on_demand_services WHERE active = TRUE);
+
 -- On-demand requests
 CREATE TABLE IF NOT EXISTS on_demand_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
