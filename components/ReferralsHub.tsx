@@ -1,27 +1,59 @@
-
 import React, { useState, useEffect } from 'react';
-import { getReferralInfo } from '../services/apiService.ts';
-import { ReferralInfo, Referral } from '../types.ts';
+import { getReferralInfo, redeemCredits } from '../services/apiService.ts';
+import { ReferralInfo, Redemption } from '../types.ts';
 import { Card } from './Card.tsx';
 import { Button } from './Button.tsx';
 import { GiftIcon, CurrencyDollarIcon, ClipboardDocumentIcon, CheckCircleIcon, ClockIcon } from './Icons.tsx';
+import Modal from './Modal.tsx';
 
 const ReferralsHub: React.FC = () => {
     const [referralInfo, setReferralInfo] = useState<ReferralInfo | null>(null);
     const [loading, setLoading] = useState(true);
     const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+    const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false);
+    const [redeemAmount, setRedeemAmount] = useState('');
+    const [redeemError, setRedeemError] = useState('');
+    const [redeemSuccess, setRedeemSuccess] = useState('');
 
-    useEffect(() => {
+    const fetchReferralInfo = () => {
         getReferralInfo().then(data => {
             setReferralInfo(data);
             setLoading(false);
         });
+    };
+
+    useEffect(() => {
+        fetchReferralInfo();
     }, []);
 
     const handleCopy = (text: string, type: 'code' | 'link') => {
         navigator.clipboard.writeText(text);
         setCopied(type);
         setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleRedeem = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setRedeemError('');
+        setRedeemSuccess('');
+        const amount = parseFloat(redeemAmount);
+        if (isNaN(amount) || amount <= 0) {
+            setRedeemError('Please enter a valid amount.');
+            return;
+        }
+        if (referralInfo && amount > referralInfo.totalRewards) {
+            setRedeemError('You cannot redeem more than your available balance.');
+            return;
+        }
+
+        try {
+            await redeemCredits(amount, 'stripe');
+            setRedeemSuccess(`Successfully redeemed $${amount.toFixed(2)}.`);
+            setIsRedeemModalOpen(false);
+            fetchReferralInfo();
+        } catch (error) {
+            setRedeemError(error.message || 'An error occurred while redeeming credits.');
+        }
     };
 
     if (loading || !referralInfo) {
@@ -35,6 +67,7 @@ const ReferralsHub: React.FC = () => {
     const statusConfig = {
         completed: { icon: <CheckCircleIcon className="w-4 h-4 text-green-500" />, text: 'Completed', color: 'text-green-800', bg: 'bg-green-100' },
         pending: { icon: <ClockIcon className="w-4 h-4 text-orange-500" />, text: 'Pending', color: 'text-orange-800', bg: 'bg-orange-100' },
+        failed: { icon: <ClockIcon className="w-4 h-4 text-red-500" />, text: 'Failed', color: 'text-red-800', bg: 'bg-red-100' },
     };
 
     return (
@@ -66,6 +99,7 @@ const ReferralsHub: React.FC = () => {
                                 <p className="text-3xl font-black text-gray-900 leading-none mt-1">${Number(referralInfo.totalRewards).toFixed(2)}</p>
                             </div>
                         </div>
+                        <Button onClick={() => setIsRedeemModalOpen(true)} className="w-full">Redeem Credits</Button>
                     </Card>
                 </div>
 
@@ -113,9 +147,9 @@ const ReferralsHub: React.FC = () => {
                                         <p className="font-bold text-gray-900">{ref.name}</p>
                                         <p className="text-xs text-gray-400 font-medium">Referred on: {new Date(ref.date).toLocaleDateString()}</p>
                                     </div>
-                                    <div className={`px-3 py-1 ${statusConfig[ref.status].bg} ${statusConfig[ref.status].color} rounded-full flex items-center gap-2`}>
-                                        {statusConfig[ref.status].icon}
-                                        <span className="text-[10px] font-black uppercase tracking-widest">{statusConfig[ref.status].text}</span>
+                                    <div className={`px-3 py-1 ${statusConfig[ref.status]?.bg || 'bg-gray-100'} ${statusConfig[ref.status]?.color || 'text-gray-800'} rounded-full flex items-center gap-2`}>
+                                        {statusConfig[ref.status]?.icon}
+                                        <span className="text-[10px] font-black uppercase tracking-widest">{ref.status}</span>
                                     </div>
                                 </div>
                             )) : (
@@ -123,8 +157,54 @@ const ReferralsHub: React.FC = () => {
                             )}
                         </div>
                     </Card>
+
+                    <Card>
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Redemption History</h3>
+                        <div className="space-y-3">
+                            {referralInfo.redemptions && referralInfo.redemptions.length > 0 ? referralInfo.redemptions.map((redemption: Redemption) => (
+                                <div key={redemption.id} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center border border-gray-100">
+                                    <div>
+                                        <p className="font-bold text-gray-900">${Number(redemption.amount).toFixed(2)} redeemed</p>
+                                        <p className="text-xs text-gray-400 font-medium">On: {new Date(redemption.created_at).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className={`px-3 py-1 ${statusConfig[redemption.status]?.bg || 'bg-gray-100'} ${statusConfig[redemption.status]?.color || 'text-gray-800'} rounded-full flex items-center gap-2`}>
+                                        {statusConfig[redemption.status]?.icon}
+                                        <span className="text-[10px] font-black uppercase tracking-widest">{redemption.status}</span>
+                                    </div>
+                                </div>
+                            )) : (
+                                <p className="text-center text-sm text-gray-500 py-8">You haven't redeemed any credits yet.</p>
+                            )}
+                        </div>
+                    </Card>
                 </div>
             </div>
+            <Modal isOpen={isRedeemModalOpen} onClose={() => setIsRedeemModalOpen(false)} title="Redeem Referral Credits">
+                <form onSubmit={handleRedeem} className="p-6">
+                    {redeemError && <p className="text-red-500 text-sm mb-4">{redeemError}</p>}
+                    {redeemSuccess && <p className="text-green-500 text-sm mb-4">{redeemSuccess}</p>}
+                    <div className="mb-4">
+                        <label htmlFor="redeemAmount" className="block text-sm font-medium text-gray-700">Amount to Redeem</label>
+                        <div className="mt-1 relative rounded-md shadow-sm">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <span className="text-gray-500 sm:text-sm">$</span>
+                            </div>
+                            <input
+                                type="number"
+                                name="redeemAmount"
+                                id="redeemAmount"
+                                className="focus:ring-primary focus:border-primary block w-full pl-7 pr-12 sm:text-sm border-gray-300 rounded-md"
+                                placeholder="0.00"
+                                value={redeemAmount}
+                                onChange={(e) => setRedeemAmount(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end">
+                        <Button type="submit">Redeem</Button>
+                    </div>
+                </form>
+            </Modal>
         </div>
     );
 };

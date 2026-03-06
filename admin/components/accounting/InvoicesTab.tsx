@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../../components/Card.tsx';
-import { LoadingSpinner, Pagination, StatusBadge, EmptyState } from '../ui/index.ts';
+import { LoadingSpinner, Pagination, StatusBadge, EmptyState, ConfirmDialog } from '../ui/index.ts';
 import type { InvoiceItem } from './types.ts';
 import { formatCurrency, formatDateTime, formatDate } from './types.ts';
 import type { NavFilter } from '../../../shared/types/index.ts';
@@ -26,6 +26,7 @@ const InvoicesTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
   const [offset, setOffset] = useState(0);
   const [dateRange, setDateRange] = useState<DateRange>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceItem | null>(null);
   const limit = 50;
 
   useEffect(() => {
@@ -63,6 +64,23 @@ const InvoicesTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleMarkAsPaid = async () => {
+    if (!selectedInvoice) return;
+    setLoading(true);
+    try {
+        await fetch(`/api/admin/accounting/invoices/${selectedInvoice.id}/mark-paid`, {
+            method: 'PUT',
+            credentials: 'include',
+        });
+        await fetchData();
+    } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error marking invoice as paid');
+    } finally {
+        setLoading(false);
+        setSelectedInvoice(null);
+    }
+  };
 
   const statusOptions = ['all', 'open', 'paid', 'void', 'draft', 'uncollectible'];
   const dateRanges: { key: DateRange; label: string }[] = [
@@ -141,6 +159,7 @@ const InvoicesTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600 hidden sm:table-cell">Due Date</th>
                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Link</th>
+                    <th className="px-4 py-3 text-left text-xs font-black uppercase text-gray-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -162,6 +181,16 @@ const InvoicesTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-sm">
+                        {item.status === 'open' && (
+                            <button
+                                onClick={() => setSelectedInvoice(item)}
+                                className="text-teal-600 hover:underline text-xs font-semibold"
+                            >
+                                Mark as Paid
+                            </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -174,6 +203,17 @@ const InvoicesTab: React.FC<{ navFilter?: NavFilter | null; onFilterConsumed?: (
           )}
         </>
       )}
+
+        {selectedInvoice && (
+            <ConfirmDialog
+                isOpen={!!selectedInvoice}
+                onCancel={() => setSelectedInvoice(null)}
+                onConfirm={handleMarkAsPaid}
+                title="Mark Invoice as Paid"
+                message={`Are you sure you want to mark invoice ${selectedInvoice.number} as paid?`}
+                confirmLabel="Mark as Paid"
+            />
+        )}
     </div>
   );
 };
