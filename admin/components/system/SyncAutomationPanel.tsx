@@ -4,7 +4,7 @@ import { LoadingSpinner, EmptyState } from '../ui/index.ts';
 import CustomerSyncPanel from '../operations/CustomerSyncPanel.tsx';
 import DriverSyncPanel from '../operations/DriverSyncPanel.tsx';
 
-type SyncSection = 'customer' | 'driver' | 'history' | 'zone-assignments';
+type SyncSection = 'customer' | 'driver' | 'history' | 'zone-assignments' | 'auto-approval';
 
 interface SyncLogEntry {
   id: string;
@@ -267,6 +267,220 @@ const ZoneAssignmentSettingsPanel: React.FC = () => {
   );
 };
 
+// ── Toggle helper ──────────────────────────────────────────────────────────
+
+const SettingToggle: React.FC<{
+  label: string;
+  description: string;
+  settingKey: string;
+  value: boolean;
+  saving: boolean;
+  onToggle: (key: string, val: boolean) => void;
+}> = ({ label, description, settingKey, value, saving, onToggle }) => (
+  <div className="flex items-start justify-between gap-4 py-4 border-b border-gray-100 last:border-0">
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-bold text-gray-900">{label}</p>
+      <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+    </div>
+    <button
+      type="button"
+      disabled={saving}
+      title={value ? `Disable ${label}` : `Enable ${label}`}
+      onClick={() => onToggle(settingKey, !value)}
+      className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+        value ? 'bg-teal-500' : 'bg-gray-300'
+      } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+          value ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  </div>
+);
+
+const SettingText: React.FC<{
+  label: string;
+  description: string;
+  settingKey: string;
+  value: string;
+  placeholder?: string;
+  onSave: (key: string, val: string) => void;
+}> = ({ label, description, settingKey, value: initial, placeholder, onSave }) => {
+  const [val, setVal] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setVal(initial); }, [initial]);
+  const handleSave = async () => {
+    setSaving(true);
+    onSave(settingKey, val);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+  return (
+    <div className="flex items-start gap-4 py-4 border-b border-gray-100 last:border-0">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-gray-900">{label}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <input
+          type="text"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          placeholder={placeholder}
+          className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-teal-400"
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-3 py-1.5 text-xs font-bold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+        >
+          {saved ? 'Saved!' : saving ? '...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const AutoApprovalPanel: React.FC = () => {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/settings', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) return;
+        const map: Record<string, string> = {};
+        for (const s of data) map[s.key] = s.value ?? '';
+        setSettings(map);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const saveSetting = async (key: string, value: string) => {
+    setSaving(key);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ key, value }),
+      });
+      setSettings(prev => ({ ...prev, [key]: value }));
+    } catch {}
+    setSaving(null);
+  };
+
+  const handleToggle = (key: string, val: boolean) => {
+    saveSetting(key, val ? 'true' : 'false');
+  };
+
+  const handleText = (key: string, val: string) => {
+    saveSetting(key, val);
+  };
+
+  const bool = (key: string) => settings[key] === 'true';
+
+  if (!loaded) return <Card className="p-6"><div className="text-sm text-gray-500">Loading settings…</div></Card>;
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <h4 className="text-sm font-black text-gray-900 mb-1">Customer Address Approval</h4>
+        <p className="text-xs text-gray-500 mb-4">
+          Control how new customer addresses are processed. With both options on, addresses inside an
+          active driver zone are approved automatically — no admin review needed.
+        </p>
+        <SettingToggle
+          label="Auto-Assign Collection Day at Signup"
+          description="Runs the route-optimisation algorithm to pick the best collection day for each new address."
+          settingKey="PICKUP_AUTO_ASSIGN"
+          value={bool('PICKUP_AUTO_ASSIGN')}
+          saving={saving === 'PICKUP_AUTO_ASSIGN'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Auto-Approve Addresses Inside a Driver Zone"
+          description="Addresses that fall within an active driver zone are approved without admin review."
+          settingKey="PICKUP_AUTO_APPROVE"
+          value={bool('PICKUP_AUTO_APPROVE')}
+          saving={saving === 'PICKUP_AUTO_APPROVE'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Use Route Feasibility Check (OptimoRoute)"
+          description="Validates schedulability via OptimoRoute before auto-approving. Adds ~60s but catches unserviceable addresses. Requires OptimoRoute API key."
+          settingKey="PICKUP_AUTO_APPROVE_USE_FEASIBILITY"
+          value={bool('PICKUP_AUTO_APPROVE_USE_FEASIBILITY')}
+          saving={saving === 'PICKUP_AUTO_APPROVE_USE_FEASIBILITY'}
+          onToggle={handleToggle}
+        />
+        <SettingText
+          label="Max Distance Threshold (miles)"
+          description="If set, addresses further than this from the nearest route stop won't auto-approve. Leave blank to disable."
+          settingKey="PICKUP_AUTO_APPROVE_MAX_MILES"
+          value={settings['PICKUP_AUTO_APPROVE_MAX_MILES'] ?? ''}
+          placeholder="e.g. 5"
+          onSave={handleText}
+        />
+        <SettingText
+          label="Max Time Threshold (minutes)"
+          description="If set, addresses adding more than this many minutes of drive time won't auto-approve. Leave blank to disable."
+          settingKey="PICKUP_AUTO_APPROVE_MAX_MINUTES"
+          value={settings['PICKUP_AUTO_APPROVE_MAX_MINUTES'] ?? ''}
+          placeholder="e.g. 15"
+          onSave={handleText}
+        />
+      </Card>
+
+      <Card className="p-6">
+        <h4 className="text-sm font-black text-gray-900 mb-1">Waitlist & Zone Coverage</h4>
+        <p className="text-xs text-gray-500 mb-4">
+          Control what happens to waitlisted customers when a new driver zone is approved in their area.
+        </p>
+        <SettingToggle
+          label="Auto-Flag Waitlisted Locations on Zone Approval"
+          description="When a driver zone is approved, waitlisted customers inside that zone are automatically moved to the review queue."
+          settingKey="WAITLIST_AUTO_FLAG_ENABLED"
+          value={bool('WAITLIST_AUTO_FLAG_ENABLED')}
+          saving={saving === 'WAITLIST_AUTO_FLAG_ENABLED'}
+          onToggle={handleToggle}
+        />
+      </Card>
+
+      <Card className="p-6">
+        <h4 className="text-sm font-black text-gray-900 mb-1">Driver Zones & Assignment</h4>
+        <p className="text-xs text-gray-500 mb-4">
+          Control how driver zone submissions are handled and how approved locations are assigned to routes.
+        </p>
+        <SettingToggle
+          label="Require Admin Approval for Driver Zones"
+          description="Driver-submitted zones must be reviewed before becoming active. Turn off to auto-approve non-conflicting zones."
+          settingKey="ZONE_APPROVAL_REQUIRED"
+          value={bool('ZONE_APPROVAL_REQUIRED')}
+          saving={saving === 'ZONE_APPROVAL_REQUIRED'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Auto-Assign Approved Locations to Driver Routes"
+          description="When a location is approved and has an active contract driver for its zone + collection day, it's added to that driver's route automatically."
+          settingKey="AUTO_ASSIGN_NEW_LOCATIONS"
+          value={bool('AUTO_ASSIGN_NEW_LOCATIONS')}
+          saving={saving === 'AUTO_ASSIGN_NEW_LOCATIONS'}
+          onToggle={handleToggle}
+        />
+      </Card>
+    </div>
+  );
+};
+
 const SyncAutomationPanel: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SyncSection>('customer');
 
@@ -287,6 +501,7 @@ const SyncAutomationPanel: React.FC = () => {
           { key: 'driver' as const, label: 'Driver Sync' },
           { key: 'history' as const, label: 'Sync History' },
           { key: 'zone-assignments' as const, label: 'Zone Assignments' },
+          { key: 'auto-approval' as const, label: 'Auto-Approval' },
         ]).map(s => (
           <button
             key={s.key}
@@ -307,6 +522,7 @@ const SyncAutomationPanel: React.FC = () => {
       {activeSection === 'driver' && <DriverSyncPanel />}
       {activeSection === 'history' && <SyncHistoryPanel />}
       {activeSection === 'zone-assignments' && <ZoneAssignmentSettingsPanel />}
+      {activeSection === 'auto-approval' && <AutoApprovalPanel />}
     </div>
   );
 };

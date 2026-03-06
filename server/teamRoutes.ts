@@ -800,6 +800,70 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // ── Assigned Locations ──
+
+  app.get('/api/team/my-assigned-locations', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      // Fetch all locations whose zone_id matches one of this driver's active custom zones
+      const { rows } = await pool.query(
+        `SELECT
+           l.id,
+           l.address,
+           l.collection_day,
+           l.collection_frequency,
+           l.service_type,
+           l.service_status,
+           l.latitude,
+           l.longitude,
+           l.in_hoa,
+           l.gate_code,
+           l.driver_notes,
+           dcz.id   AS zone_id,
+           dcz.name AS zone_name,
+           u.first_name || ' ' || u.last_name AS customer_name,
+           u.email                              AS customer_email,
+           u.phone                              AS customer_phone,
+           (SELECT json_agg(lr.name)
+            FROM location_requirements lr
+            WHERE lr.location_id = l.id)        AS requirements
+         FROM locations l
+         JOIN driver_custom_zones dcz ON dcz.id = l.coverage_zone_id
+         JOIN driver_profiles dp ON dp.id = dcz.driver_id
+         LEFT JOIN users u ON u.id = l.owner_id
+         WHERE dp.id = $1
+           AND dcz.status = 'active'
+           AND l.service_status = 'approved'
+         ORDER BY l.collection_day, l.address`,
+        [driverId]
+      );
+      res.json({
+        locations: rows.map((r: any) => ({
+          id: r.id,
+          address: r.address,
+          collectionDay: r.collection_day,
+          collectionFrequency: r.collection_frequency,
+          serviceType: r.service_type,
+          serviceStatus: r.service_status,
+          latitude: r.latitude ? Number(r.latitude) : null,
+          longitude: r.longitude ? Number(r.longitude) : null,
+          inHoa: r.in_hoa,
+          gateCode: r.gate_code,
+          driverNotes: r.driver_notes,
+          zoneId: r.zone_id,
+          zoneName: r.zone_name,
+          customerName: r.customer_name,
+          customerEmail: r.customer_email,
+          customerPhone: r.customer_phone,
+          requirements: r.requirements || [],
+        })),
+      });
+    } catch (error) {
+      console.error('Get assigned locations error:', error);
+      res.status(500).json({ error: 'Failed to get assigned locations' });
+    }
+  });
+
   // ── Driver Custom Zones ──
 
   app.get('/api/team/my-custom-zones', requireDriverAuth, async (_req: Request, res: Response) => {
@@ -1826,6 +1890,200 @@ export function registerTeamRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to fetch forecast' });
     }
   });
+
+  // ============================================================
+  // Team Messaging
+  // ============================================================
+
+  app.get('/api/team/conversations', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT
+            c.id, c.subject, c.status, c.updated_at as last_message_at,
+            (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count,
+            (SELECT COUNT(*) FROM messages m JOIN conversation_participants cp ON m.conversation_id = cp.conversation_id
+             WHERE cp.conversation_id = c.id AND cp.participant_id = $1 AND cp.participant_type = 'driver'
+               AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')) as unread_count
+         FROM conversations c
+         JOIN conversation_participants cp ON c.id = cp.conversation_id
+         WHERE cp.participant_id = $1 AND cp.participant_type = 'driver'
+         ORDER BY c.updated_at DESC`,
+        [driverId]
+      );
+      res.json(rows);
+    } catch (err: any) {
+      console.error('Error fetching driver conversations:', err);
+      res.status(500).json({ error: 'Failed to fetch conversations' });
+    }
+  });
+
+  app.get('/api/team/conversations/unread-count', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT c.id)
+         FROM conversations c
+         JOIN conversation_participants cp ON c.id = cp.conversation_id
+         JOIN messages m ON c.id = m.conversation_id
+         WHERE cp.participant_id = $1 AND cp.participant_type = 'driver'
+           AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')
+           AND m.sender_id != $1`,
+        [driverId]
+      );
+      res.json({ count: parseInt(rows[0].count, 10) || 0 });
+    } catch (err: any) {
+      console.error('Error fetching driver unread count:', err);
+      res.status(500).json({ error: 'Failed to fetch unread count' });
+    }
+  });
+
+  app.get('/api/team/conversations/:id/messages', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const conversationId = req.params.id;
+      // Verify driver is a participant
+      const participation = await pool.query(
+        'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND participant_id = $2 AND participant_type = $3',
+        [conversationId, driverId, 'driver']
+      );
+      if (participation.rows.length === 0) {
+        return res.status(403).json({ error: 'Not a participant' });
+      }
+      const { rows } = await pool.query(
+        `SELECT
+            m.id, m.conversation_id, m.sender_id, m.sender_type, m.body, m.created_at,
+            CASE
+              WHEN m.sender_type = 'driver' THEN dp.name
+              WHEN m.sender_type = 'admin' THEN u.first_name || ' ' || u.last_name
+              ELSE 'System'
+            END as sender_name
+         FROM messages m
+         LEFT JOIN driver_profiles dp ON m.sender_id = dp.id AND m.sender_type = 'driver'
+         LEFT JOIN users u ON m.sender_id = u.id AND m.sender_type = 'admin'
+         WHERE m.conversation_id = $1
+         ORDER BY m.created_at ASC`,
+        [conversationId]
+      );
+      res.json(rows);
+    } catch (err: any) {
+      console.error('Error fetching messages:', err);
+      res.status(500).json({ error: 'Failed to fetch messages' });
+    }
+  });
+
+  app.post('/api/team/conversations/:id/messages', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const conversationId = req.params.id;
+      const { body } = req.body;
+      if (!body || !body.trim()) {
+        return res.status(400).json({ error: 'Message body is required' });
+      }
+
+      // Verify driver is a participant
+      const participation = await pool.query(
+        'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND participant_id = $2 AND participant_type = $3',
+        [conversationId, driverId, 'driver']
+      );
+      if (participation.rows.length === 0) {
+        return res.status(403).json({ error: 'Not a participant' });
+      }
+
+      const { rows } = await pool.query(
+        'INSERT INTO messages (conversation_id, sender_id, sender_type, body) VALUES ($1, $2, $3, $4) RETURNING *',
+        [conversationId, driverId, 'driver', body.trim()]
+      );
+      const newMessage = rows[0];
+
+      await pool.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId]);
+      
+      const { webSocketManager } = await import('./websocket');
+      webSocketManager.broadcastToConversation(conversationId, { event: 'message:new', data: { conversationId, message: newMessage } });
+
+      res.status(201).json(newMessage);
+    } catch (err: any) {
+      console.error('Error sending message:', err);
+      res.status(500).json({ error: 'Failed to send message' });
+    }
+  });
+
+  app.put('/api/team/conversations/:id/read', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const conversationId = req.params.id;
+      await pool.query(
+        'UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = $1 AND participant_id = $2 AND participant_type = $3',
+        [conversationId, driverId, 'driver']
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error marking conversation as read:', err);
+      res.status(500).json({ error: 'Failed to mark as read' });
+    }
+  });
+
+  app.post('/api/team/conversations/new', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { subject, body } = req.body;
+      if (!body || !body.trim()) {
+        return res.status(400).json({ error: 'Message body is required' });
+      }
+
+      // Find an admin to assign the conversation to
+      const adminResult = await pool.query(`SELECT id FROM users WHERE is_admin = true AND admin_role = 'Super Admin' LIMIT 1`);
+      if (adminResult.rows.length === 0) {
+        return res.status(500).json({ error: 'No support staff available' });
+      }
+      const adminId = adminResult.rows[0].id;
+      
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const convResult = await client.query(
+          'INSERT INTO conversations (subject, created_by_id, created_by_type) VALUES ($1, $2, $3) RETURNING *',
+          [subject || 'Support Request', driverId, 'driver']
+        );
+        const conversation = convResult.rows[0];
+
+        // Add driver as participant
+        await client.query(
+          'INSERT INTO conversation_participants (conversation_id, participant_id, participant_type) VALUES ($1, $2, $3)',
+          [conversation.id, driverId, 'driver']
+        );
+
+        // Add admin as participant
+        await client.query(
+          'INSERT INTO conversation_participants (conversation_id, participant_id, participant_type, role) VALUES ($1, $2, $3, $4)',
+          [conversation.id, adminId, 'admin', 'owner']
+        );
+
+        // Add initial message
+        await client.query(
+          'INSERT INTO messages (conversation_id, sender_id, sender_type, body) VALUES ($1, $2, $3, $4)',
+          [conversation.id, driverId, 'driver', body.trim()]
+        );
+        
+        await client.query('COMMIT');
+
+        const { webSocketManager } = await import('./websocket');
+        webSocketManager.broadcastToAdmins({ event: 'conversation:new', data: { conversation } });
+
+        res.status(201).json({ conversation });
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      console.error('Error creating conversation:', err);
+      res.status(500).json({ error: 'Failed to create conversation' });
+    }
+  });
+
 }
 
 function formatDriverForClient(driverProfile: any, user?: any) {

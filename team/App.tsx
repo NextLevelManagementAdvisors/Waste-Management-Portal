@@ -68,7 +68,7 @@ interface WeatherDay {
   icon: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'locations' | 'contracts' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
@@ -76,6 +76,7 @@ const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   schedule: '/team/schedule',
   pickups: '/team/pickups',
   zones: '/team/zones',
+  locations: '/team/locations',
   contracts: '/team/contracts',
   messages: '/team/messages',
   profile: '/team/profile',
@@ -87,8 +88,6 @@ const TEAM_PATH_TO_VIEW: Record<string, TeamView> = Object.fromEntries(
 
 function getTeamViewFromPath(pathname: string): TeamView {
   const normalized = pathname.replace(/\/+$/, '') || '/team';
-  // Redirect old /team/locations to unified zones/coverage view
-  if (normalized === '/team/locations') return 'zones';
   return TEAM_PATH_TO_VIEW[normalized] || 'dashboard';
 }
 
@@ -2339,6 +2338,126 @@ const COVERAGE_STATUS_COLORS: Record<string, string> = {
   denied: 'bg-red-100 text-red-700',
 };
 
+interface AssignedLocation {
+  id: string;
+  address: string;
+  collectionDay: string;
+  collectionFrequency: string;
+  serviceType: string;
+  serviceStatus: string;
+  zoneName: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  gateCode: string | null;
+  driverNotes: string | null;
+  requirements: string[] | null;
+}
+
+const DAY_ORDER: Record<string, number> = {
+  Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6,
+};
+
+const MyLocations: React.FC = () => {
+  const [locations, setLocations] = useState<AssignedLocation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/team/my-assigned-locations', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(data => setLocations(data.locations || []))
+      .catch(err => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>;
+  if (error) return <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>;
+
+  // Group by collection day
+  const byDay = locations.reduce<Record<string, AssignedLocation[]>>((acc, loc) => {
+    const day = loc.collectionDay || 'Unknown';
+    (acc[day] = acc[day] || []).push(loc);
+    return acc;
+  }, {});
+
+  const sortedDays = Object.keys(byDay).sort((a, b) => (DAY_ORDER[a] ?? 99) - (DAY_ORDER[b] ?? 99));
+
+  if (locations.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <MapPinIcon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+        <p className="text-lg font-semibold">No assigned locations yet</p>
+        <p className="text-sm mt-1">Locations in your active zones will appear here once approved.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">{locations.length} location{locations.length !== 1 ? 's' : ''} across {sortedDays.length} collection day{sortedDays.length !== 1 ? 's' : ''}</p>
+      {sortedDays.map(day => (
+        <div key={day}>
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">{day} — {byDay[day].length} stop{byDay[day].length !== 1 ? 's' : ''}</h3>
+          <div className="space-y-3">
+            {byDay[day].map(loc => (
+              <Card key={loc.id} className="overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full text-left p-4 flex items-start gap-3"
+                  onClick={() => setExpanded(expanded === loc.id ? null : loc.id)}
+                >
+                  <MapPinIcon className="w-5 h-5 text-teal-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{loc.address}</p>
+                    <p className="text-sm text-gray-500">{loc.zoneName} · {loc.collectionFrequency || 'Regular'} · {loc.serviceType}</p>
+                  </div>
+                  <ChevronRightIcon className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${expanded === loc.id ? 'rotate-90' : ''}`} />
+                </button>
+                {expanded === loc.id && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+                    {loc.customerName && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Customer</p>
+                        <p className="text-sm text-gray-900">{loc.customerName}</p>
+                        {loc.customerPhone && <p className="text-sm text-gray-600">{loc.customerPhone}</p>}
+                        {loc.customerEmail && <p className="text-sm text-gray-600">{loc.customerEmail}</p>}
+                      </div>
+                    )}
+                    {loc.gateCode && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Gate Code</p>
+                        <p className="text-sm font-mono bg-yellow-50 text-yellow-800 px-2 py-1 rounded inline-block">{loc.gateCode}</p>
+                      </div>
+                    )}
+                    {loc.driverNotes && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Driver Notes</p>
+                        <p className="text-sm text-gray-700 bg-blue-50 rounded p-2">{loc.driverNotes}</p>
+                      </div>
+                    )}
+                    {loc.requirements && loc.requirements.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Requirements</p>
+                        <div className="flex flex-wrap gap-1">
+                          {loc.requirements.map(req => (
+                            <span key={req} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">{req}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const MyContracts: React.FC = () => {
   const [contracts, setContracts] = useState<DriverContract[]>([]);
   const [opportunities, setOpportunities] = useState<DriverOpportunity[]>([]);
@@ -3875,6 +3994,7 @@ const TeamApp: React.FC = () => {
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
     { view: 'pickups', label: 'On-Demand', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
     { view: 'zones', label: 'Coverage', icon: <MapPinIcon className="w-5 h-5" /> },
+    { view: 'locations', label: 'My Locations', icon: <ListIcon className="w-5 h-5" /> },
     { view: 'contracts', label: 'My Contracts', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
@@ -3976,6 +4096,7 @@ const TeamApp: React.FC = () => {
               <ZoneMapView />
             </React.Suspense>
           )}
+          {currentView === 'locations' && <MyLocations />}
           {currentView === 'contracts' && <MyContracts />}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}

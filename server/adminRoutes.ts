@@ -1232,6 +1232,12 @@ export function registerAdminRoutes(app: Express) {
           if (matched.length > 0) {
             const ids = matched.map((m: any) => m.id);
             await storage.flagWaitlistedLocations(ids, zone.id);
+            // Also advance them into the review queue so they don't stay hidden in waitlist
+            await pool.query(
+              `UPDATE locations SET service_status = 'pending_review', zone_id = $1
+               WHERE id = ANY($2::uuid[]) AND service_status = 'waitlist'`,
+              [zone.id, ids]
+            );
             notifyWaitlistFlagged(matched.length, zone.name, zone.driver_name).catch(() => {});
           }
           res.json({ success: true, decision, flaggedLocations: matched.length });
@@ -1311,6 +1317,11 @@ export function registerAdminRoutes(app: Express) {
               if (matched.length > 0) {
                 const ids = matched.map((m: any) => m.id);
                 await storage.flagWaitlistedLocations(ids, zone.id);
+                await pool.query(
+                  `UPDATE locations SET service_status = 'pending_review', zone_id = $1
+                   WHERE id = ANY($2::uuid[]) AND service_status = 'waitlist'`,
+                  [zone.id, ids]
+                );
                 notifyWaitlistFlagged(matched.length, zone.name, zone.driver_name).catch(() => {});
                 flaggedLocations = matched.length;
               }
@@ -4697,6 +4708,28 @@ export function registerAdminRoutes(app: Express) {
       );
       const o = rows[0];
       await audit(req, 'create_contract_opportunity', 'contract_opportunity', o.id, { zoneId, dayOfWeek });
+
+      // Notify drivers whose active zones match this zone + day
+      try {
+        const { rows: matchingDrivers } = await pool.query(
+          `SELECT DISTINCT dzs.driver_id
+           FROM driver_zone_selections dzs
+           WHERE dzs.zone_id = $1 AND dzs.status = 'active'`,
+          [zoneId]
+        );
+        const rateText = proposedPerStopRate != null ? ` at $${Number(proposedPerStopRate).toFixed(2)}/stop` : '';
+        for (const { driver_id } of matchingDrivers) {
+          sendDriverNotification(
+            driver_id,
+            `New Contract Opportunity — ${dayOfWeek}s`,
+            `<p>A new contract opportunity has been posted for a zone you cover (${dayOfWeek}s${rateText}).</p>
+             <p>Log in to the team portal to review and apply.</p>`
+          ).catch(() => {/* non-blocking */});
+        }
+      } catch {
+        // Notification failure should not block the response
+      }
+
       res.status(201).json({
         opportunity: {
           id: o.id,
