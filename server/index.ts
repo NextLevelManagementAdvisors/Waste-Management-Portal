@@ -243,6 +243,33 @@ setInterval(processScheduledMessages, 60_000);
         console.log(`[ContractExpiry] Expired ${expired.rows.length} contract(s)`);
       }
 
+      // 1b. Auto-create a new contract opportunity when a contract expires (if none already open)
+      if (process.env.AUTO_REOPEN_EXPIRED_CONTRACTS === 'true' && expired.rows.length > 0) {
+        for (const c of expired.rows) {
+          const existing = await dbPool.query(
+            `SELECT id FROM contract_opportunities WHERE zone_id = (SELECT zone_id FROM route_contracts WHERE id = $1) AND day_of_week = $2 AND status = 'open'`,
+            [c.id, c.day_of_week]
+          );
+          if (existing.rows.length === 0) {
+            const zoneId = (await dbPool.query('SELECT zone_id FROM route_contracts WHERE id = $1', [c.id])).rows[0]?.zone_id;
+            if (zoneId) {
+              await dbPool.query(
+                `INSERT INTO contract_opportunities (zone_id, day_of_week, start_date, duration_months, status)
+                 VALUES ($1, $2, CURRENT_DATE + INTERVAL '7 days', 3, 'open')`,
+                [zoneId, c.day_of_week]
+              );
+              console.log(`[ContractExpiry] Auto-created opportunity for ${c.zone_name} ${c.day_of_week}`);
+              // Give the expiring driver priority notification
+              sendDriverNotification(c.driver_id,
+                'Renewal Opportunity Available',
+                `<p>Your contract for <strong>${c.zone_name} - ${c.day_of_week}</strong> has expired, but a new opportunity for the same zone has been posted.</p>
+                 <p>Log in to the team portal to apply.</p>`
+              ).catch(() => {});
+            }
+          }
+        }
+      }
+
       // 2. Warn about contracts expiring within 30 days (notify once)
       const expiringSoon = await dbPool.query(
         `SELECT id, driver_id, day_of_week, end_date,
@@ -292,6 +319,111 @@ setInterval(processScheduledMessages, 60_000);
   }
 
   setInterval(runSwapEngine, SWAP_CHECK_INTERVAL);
+}
+
+// Auto-route generation scheduler — nightly job ensures routes exist 8 weeks ahead for every active contract
+{
+  const ROUTE_GEN_INTERVAL = 24 * 60 * 60 * 1000; // every 24 hours
+  let routeGenRunning = false;
+
+  async function generateContractRoutes() {
+    if (process.env.AUTO_GENERATE_CONTRACT_ROUTES !== 'true' || routeGenRunning) return;
+    routeGenRunning = true;
+    try {
+      const { pool: dbPool } = await import('./db');
+      const { storage: storageModule } = await import('./storage');
+      const { recalculateRouteValue } = await import('./compensationEngine');
+
+      const { rows: contracts } = await dbPool.query(
+        `SELECT rc.id, rc.driver_id, rc.zone_id, rc.day_of_week, rc.per_stop_rate,
+                sz.name AS zone_name
+         FROM route_contracts rc
+         JOIN service_zones sz ON rc.zone_id = sz.id
+         WHERE rc.status = 'active' AND rc.end_date >= CURRENT_DATE`
+      );
+
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const WEEKS_AHEAD = 8;
+      let totalCreated = 0;
+
+      for (const contract of contracts) {
+        const targetDayIndex = dayNames.indexOf(contract.day_of_week.toLowerCase());
+        if (targetDayIndex === -1) continue;
+
+        // Collect matching weekdays for the next 8 weeks
+        const dates: string[] = [];
+        const cursor = new Date();
+        cursor.setHours(12, 0, 0, 0);
+        const limit = new Date();
+        limit.setDate(limit.getDate() + WEEKS_AHEAD * 7);
+        while (cursor <= limit) {
+          if (cursor.getDay() === targetDayIndex) {
+            dates.push(cursor.toISOString().split('T')[0]);
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+
+        if (dates.length === 0) continue;
+
+        // Skip dates that already have a route for this contract
+        const { rows: existing } = await dbPool.query(
+          `SELECT scheduled_date FROM routes WHERE contract_id = $1 AND scheduled_date = ANY($2)`,
+          [contract.id, dates]
+        );
+        const existingSet = new Set(existing.map((r: any) => {
+          const d = r.scheduled_date;
+          return typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0];
+        }));
+        const newDates = dates.filter(d => !existingSet.has(d));
+        if (newDates.length === 0) continue;
+
+        // Fetch approved locations for this zone+day
+        const { rows: locationRows } = await dbPool.query(
+          `SELECT id FROM locations WHERE zone_id = $1 AND collection_day = $2 AND service_status = 'approved' ORDER BY address`,
+          [contract.zone_id, contract.day_of_week]
+        );
+        const locationIds = locationRows.map((l: any) => l.id);
+
+        for (const date of newDates) {
+          const title = `${contract.zone_name} - ${contract.day_of_week.charAt(0).toUpperCase() + contract.day_of_week.slice(1)}`;
+          const route = await storageModule.createRoute({
+            title,
+            scheduled_date: date,
+            assigned_driver_id: contract.driver_id,
+            route_type: 'daily_route',
+            zone_id: contract.zone_id,
+            source: 'contract',
+            status: 'assigned',
+          });
+          await dbPool.query(
+            `UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`,
+            [contract.id, route.id]
+          );
+          let stopNum = 1;
+          for (const locId of locationIds) {
+            await dbPool.query(
+              `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
+              [route.id, locId, stopNum++]
+            );
+          }
+          if (locationIds.length > 0) await recalculateRouteValue(route.id);
+          totalCreated++;
+        }
+      }
+
+      if (totalCreated > 0) {
+        console.log(`[RouteGen] Auto-generated ${totalCreated} route(s) across ${contracts.length} contract(s)`);
+      }
+    } catch (error: any) {
+      console.error('[RouteGen] Scheduler error:', error.message);
+    } finally {
+      routeGenRunning = false;
+    }
+  }
+
+  // Run once at startup (after a short delay to let routes register), then daily
+  setTimeout(generateContractRoutes, 30_000);
+  setInterval(generateContractRoutes, ROUTE_GEN_INTERVAL);
 }
 
 // Lifecycle cleanup scheduler — expires stale on-demand requests, opportunities, coverage requests; escalates missed collections

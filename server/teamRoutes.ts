@@ -1654,7 +1654,7 @@ export function registerTeamRoutes(app: Express) {
         [contractId, driverId, coverageDate, reason, reasonNotes || null]
       );
 
-      // Notify eligible zone drivers about coverage opportunity (US-17)
+      // Broadcast coverage opportunity to other active drivers in the same service zone
       const contractDetail = await pool.query(
         `SELECT rc.zone_id, rc.day_of_week, sz.name AS zone_name, dp.name AS driver_name
          FROM route_contracts rc
@@ -1665,17 +1665,15 @@ export function registerTeamRoutes(app: Express) {
       );
       if (contractDetail.rows.length > 0) {
         const cd = contractDetail.rows[0];
-        // Find other active drivers in the same zone
         pool.query(
-          `SELECT DISTINCT dp.id FROM driver_profiles dp
-           JOIN driver_custom_zones dcz ON dp.id = dcz.driver_id AND dcz.zone_id = $1 AND dcz.status = 'active'
-           WHERE dp.status = 'active' AND dp.id != $2`,
+          `SELECT DISTINCT dzs.driver_id AS id FROM driver_zone_selections dzs
+           WHERE dzs.zone_id = $1 AND dzs.status = 'active' AND dzs.driver_id != $2`,
           [cd.zone_id, driverId]
         ).then(({ rows: drivers }) => {
           for (const d of drivers) {
             sendDriverNotification(d.id, 'Coverage Opportunity',
-              `<p><strong>${cd.driver_name || 'A driver'}</strong> needs coverage for <strong>${cd.zone_name || 'Zone'} - ${cd.day_of_week}</strong> on <strong>${coverageDate}</strong>.</p>
-               <p>Reason: ${reason}. Contact your admin if you're available to cover.</p>`
+              `<p><strong>${cd.driver_name || 'A driver'}</strong> needs coverage for <strong>${cd.zone_name || 'Zone'} — ${cd.day_of_week}</strong> on <strong>${coverageDate}</strong>.</p>
+               <p>Log in to the team portal to claim this shift.</p>`
             ).catch(() => {});
           }
         }).catch(() => {});
@@ -1735,6 +1733,122 @@ export function registerTeamRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error withdrawing coverage request:', err);
       res.status(500).json({ error: 'Failed to withdraw coverage request' });
+    }
+  });
+
+  // Self-claim an open coverage request (substitute driver volunteers)
+  app.post('/api/team/coverage-requests/:id/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+
+      // Fetch the request to validate it's open and in a zone this driver covers
+      const { rows: crRows } = await pool.query(
+        `SELECT cr.id, cr.requesting_driver_id, cr.coverage_date, cr.status,
+                rc.zone_id, rc.day_of_week, sz.name AS zone_name,
+                dp.name AS requestor_name
+         FROM coverage_requests cr
+         JOIN route_contracts rc ON cr.contract_id = rc.id
+         LEFT JOIN service_zones sz ON rc.zone_id = sz.id
+         LEFT JOIN driver_profiles dp ON cr.requesting_driver_id = dp.id
+         WHERE cr.id = $1`,
+        [req.params.id]
+      );
+      if (crRows.length === 0) return res.status(404).json({ error: 'Coverage request not found' });
+      const cr = crRows[0];
+      if (cr.status !== 'pending') return res.status(409).json({ error: `Request is already ${cr.status}` });
+      if (cr.requesting_driver_id === driverId) return res.status(400).json({ error: 'Cannot claim your own coverage request' });
+
+      // Verify the claiming driver has an active zone selection for this service zone
+      const { rows: selRows } = await pool.query(
+        `SELECT id FROM driver_zone_selections WHERE driver_id = $1 AND zone_id = $2 AND status = 'active'`,
+        [driverId, cr.zone_id]
+      );
+      if (selRows.length === 0) return res.status(403).json({ error: 'You do not cover this zone' });
+
+      // Assign the substitute
+      await pool.query(
+        `UPDATE coverage_requests SET substitute_driver_id = $1, status = 'approved' WHERE id = $2`,
+        [driverId, req.params.id]
+      );
+
+      // Notify the requestor
+      sendDriverNotification(cr.requesting_driver_id,
+        'Coverage Confirmed',
+        `<p>Your coverage request for <strong>${cr.zone_name} — ${cr.day_of_week}</strong> on <strong>${cr.coverage_date}</strong> has been claimed by another driver.</p>
+         <p>You're all set — no further action needed.</p>`
+      ).catch(() => {});
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error claiming coverage request:', err);
+      res.status(500).json({ error: 'Failed to claim coverage request' });
+    }
+  });
+
+  // ============================================================
+  // Outcome Visibility — drivers can see why things were approved/rejected
+  // ============================================================
+
+  // Single custom zone with rejection reason from audit log
+  app.get('/api/team/my-custom-zones/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT dcz.*,
+                (SELECT al.details->>'notes'
+                 FROM audit_log al
+                 WHERE al.entity_type = 'driver_custom_zones'
+                   AND al.entity_id = dcz.id::text
+                   AND al.action = 'zone_rejected'
+                 ORDER BY al.created_at DESC LIMIT 1) AS rejection_reason
+         FROM driver_custom_zones dcz
+         WHERE dcz.id = $1 AND dcz.driver_id = $2`,
+        [req.params.id, driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Zone not found' });
+      res.json({ data: rows[0] });
+    } catch (err: any) {
+      console.error('Error fetching custom zone:', err);
+      res.status(500).json({ error: 'Failed to fetch zone' });
+    }
+  });
+
+  // Driver's own application for a contract opportunity (with outcome)
+  app.get('/api/team/contract-opportunities/:id/my-application', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT ca.id, ca.status, ca.proposed_rate, ca.message, ca.driver_rating_at_application, ca.created_at,
+                co.zone_id, co.day_of_week, co.start_date, co.status AS opportunity_status,
+                sz.name AS zone_name
+         FROM contract_applications ca
+         JOIN contract_opportunities co ON ca.opportunity_id = co.id
+         LEFT JOIN service_zones sz ON co.zone_id = sz.id
+         WHERE ca.opportunity_id = $1 AND ca.driver_id = $2`,
+        [req.params.id, driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'No application found' });
+      const a = rows[0];
+      res.json({
+        application: {
+          id: a.id,
+          status: a.status,
+          proposedRate: a.proposed_rate != null ? Number(a.proposed_rate) : null,
+          message: a.message,
+          driverRatingAtApplication: a.driver_rating_at_application != null ? Number(a.driver_rating_at_application) : null,
+          createdAt: a.created_at,
+          opportunity: {
+            zoneId: a.zone_id,
+            zoneName: a.zone_name,
+            dayOfWeek: a.day_of_week,
+            startDate: a.start_date,
+            status: a.opportunity_status,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('Error fetching application:', err);
+      res.status(500).json({ error: 'Failed to fetch application' });
     }
   });
 
