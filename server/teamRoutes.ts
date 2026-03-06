@@ -1,11 +1,11 @@
 import { type Express, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { storage } from './storage';
+import { storage, detectZoneConflicts } from './storage';
 import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
-import { notifyWaitlistFlagged } from './slackNotifier';
+import { notifyWaitlistFlagged, notifyZoneConflict, notifyQualificationsUpdated, notifyNewZoneProposal, notifyContractRenewalRequest } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { sendDriverNotification } from './notificationService';
 
@@ -904,6 +904,23 @@ export function registerTeamRoutes(app: Express) {
         return res.status(400).json({ error: 'zone_type must be circle, polygon, or zip' });
       }
       const approvalRequired = process.env.ZONE_APPROVAL_REQUIRED !== 'false';
+
+      // Conflict check: even when approval is required, auto-approve if no zone overlaps
+      let zoneStatus: string;
+      let conflicts: string[] = [];
+      if (!approvalRequired) {
+        zoneStatus = 'active'; // explicitly disabled
+      } else {
+        conflicts = await detectZoneConflicts(
+          { zone_type: type, center_lat: center_lat != null ? Number(center_lat) : null,
+            center_lng: center_lng != null ? Number(center_lng) : null,
+            radius_miles: radius_miles != null ? Number(radius_miles) : null,
+            polygon_coords },
+          driverId
+        );
+        zoneStatus = conflicts.length === 0 ? 'active' : 'pending_approval';
+      }
+
       const zone = await storage.createDriverCustomZone(driverId, {
         name,
         zone_type: type,
@@ -913,14 +930,20 @@ export function registerTeamRoutes(app: Express) {
         polygon_coords,
         zip_codes,
         color,
-        status: approvalRequired ? 'pending_approval' : 'active',
+        status: zoneStatus,
       });
-      // If auto-approved, trigger waitlist flagging
-      if (!approvalRequired) {
+
+      if (zoneStatus === 'active') {
+        // Auto-approved — trigger waitlist flagging
         const fullZone = await storage.getZoneById(zone.id);
         if (fullZone) triggerWaitlistAutoFlag(fullZone);
+      } else if (conflicts.length > 0) {
+        // Conflicts found — alert admin
+        const dp = res.locals.driverProfile;
+        notifyZoneConflict(name, dp.name || dp.email || 'Unknown driver', conflicts.length).catch(() => {});
       }
-      res.json({ data: zone });
+
+      res.json({ data: zone, autoApproved: zoneStatus === 'active', conflicts: conflicts.length });
     } catch (error) {
       console.error('Create custom zone error:', error);
       res.status(500).json({ error: 'Failed to create custom zone' });
@@ -1455,7 +1478,8 @@ export function registerTeamRoutes(app: Express) {
     try {
       const driverId = res.locals.driverProfile.id;
       const { rows } = await pool.query(
-        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment
+        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment,
+                qualifications_verified, qualifications_updated_at
          FROM driver_profiles WHERE id = $1`,
         [driverId]
       );
@@ -1467,11 +1491,63 @@ export function registerTeamRoutes(app: Express) {
           certifications: d.certifications || [],
           maxStopsPerDay: d.max_stops_per_day,
           minRatingForAssignment: Number(d.min_rating_for_assignment),
+          verified: d.qualifications_verified ?? false,
+          updatedAt: d.qualifications_updated_at,
         },
       });
     } catch (err: any) {
       console.error('Error fetching qualifications:', err);
       res.status(500).json({ error: 'Failed to fetch qualifications' });
+    }
+  });
+
+  // Driver self-declaration of qualifications (marks as unverified until admin confirms)
+  app.put('/api/team/profile/qualifications', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { equipmentTypes, certifications, maxStopsPerDay } = req.body;
+
+      if (equipmentTypes !== undefined && !Array.isArray(equipmentTypes)) {
+        return res.status(400).json({ error: 'equipmentTypes must be an array' });
+      }
+      if (certifications !== undefined && !Array.isArray(certifications)) {
+        return res.status(400).json({ error: 'certifications must be an array' });
+      }
+      if (maxStopsPerDay !== undefined && (typeof maxStopsPerDay !== 'number' || maxStopsPerDay < 1 || maxStopsPerDay > 500)) {
+        return res.status(400).json({ error: 'maxStopsPerDay must be a number between 1 and 500' });
+      }
+
+      const updates: string[] = ['qualifications_verified = FALSE', 'qualifications_updated_at = NOW()'];
+      const params: any[] = [];
+      let idx = 1;
+      if (equipmentTypes !== undefined) { updates.push(`equipment_types = $${idx++}`); params.push(equipmentTypes); }
+      if (certifications !== undefined) { updates.push(`certifications = $${idx++}`); params.push(certifications); }
+      if (maxStopsPerDay !== undefined) { updates.push(`max_stops_per_day = $${idx++}`); params.push(maxStopsPerDay); }
+      params.push(driverId);
+
+      const { rows } = await pool.query(
+        `UPDATE driver_profiles SET ${updates.join(', ')} WHERE id = $${idx}
+         RETURNING equipment_types, certifications, max_stops_per_day, qualifications_verified, qualifications_updated_at`,
+        params
+      );
+
+      // Notify admin via Slack
+      const dp = res.locals.driverProfile;
+      notifyQualificationsUpdated(dp.name || dp.email || 'Unknown driver').catch(() => {});
+
+      const d = rows[0];
+      res.json({
+        qualifications: {
+          equipmentTypes: d.equipment_types || [],
+          certifications: d.certifications || [],
+          maxStopsPerDay: d.max_stops_per_day,
+          verified: d.qualifications_verified,
+          updatedAt: d.qualifications_updated_at,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error updating qualifications:', err);
+      res.status(500).json({ error: 'Failed to update qualifications' });
     }
   });
 
@@ -1853,6 +1929,76 @@ export function registerTeamRoutes(app: Express) {
   });
 
   // ============================================================
+  // Zone Expansion Proposals (Sprint 3, Task 9)
+  // ============================================================
+
+  app.post('/api/team/zone-expansion-proposals', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { proposedZoneName, zoneType, centerLat, centerLng, radiusMiles, polygonCoords, zipCodes, daysOfWeek, proposedRate, notes } = req.body;
+
+      if (!proposedZoneName || !proposedZoneName.trim()) return res.status(400).json({ error: 'proposedZoneName is required' });
+      const type = zoneType || 'circle';
+      if (!['circle', 'polygon', 'zip'].includes(type)) return res.status(400).json({ error: 'zoneType must be circle, polygon, or zip' });
+
+      const { rows } = await pool.query(
+        `INSERT INTO zone_expansion_proposals
+           (driver_id, proposed_zone_name, zone_type, center_lat, center_lng, radius_miles, polygon_coords, zip_codes, days_of_week, proposed_rate, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        [driverId, proposedZoneName.trim(), type,
+          centerLat != null ? Number(centerLat) : null,
+          centerLng != null ? Number(centerLng) : null,
+          radiusMiles != null ? Number(radiusMiles) : null,
+          polygonCoords ? JSON.stringify(polygonCoords) : null,
+          zipCodes || null,
+          daysOfWeek || [],
+          proposedRate != null ? Number(proposedRate) : null,
+          notes || null]
+      );
+
+      const dp = res.locals.driverProfile;
+      notifyNewZoneProposal(dp.name || dp.email || 'Unknown driver', proposedZoneName.trim(), daysOfWeek || []).catch(() => {});
+
+      res.status(201).json({ proposal: mapProposal(rows[0]) });
+    } catch (err: any) {
+      console.error('Error creating zone expansion proposal:', err);
+      res.status(500).json({ error: 'Failed to create proposal' });
+    }
+  });
+
+  app.get('/api/team/zone-expansion-proposals', requireDriverAuth, requireOnboarded, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `SELECT zep.*, dp.name AS driver_name
+         FROM zone_expansion_proposals zep
+         JOIN driver_profiles dp ON dp.id = zep.driver_id
+         WHERE zep.driver_id = $1 ORDER BY zep.created_at DESC`,
+        [driverId]
+      );
+      res.json({ proposals: rows.map(mapProposal) });
+    } catch (err: any) {
+      console.error('Error fetching zone proposals:', err);
+      res.status(500).json({ error: 'Failed to fetch proposals' });
+    }
+  });
+
+  app.delete('/api/team/zone-expansion-proposals/:id', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { rows } = await pool.query(
+        `DELETE FROM zone_expansion_proposals WHERE id = $1 AND driver_id = $2 AND status = 'pending' RETURNING id`,
+        [req.params.id, driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Proposal not found or not withdrawable' });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error withdrawing zone proposal:', err);
+      res.status(500).json({ error: 'Failed to withdraw proposal' });
+    }
+  });
+
+  // ============================================================
   // Zone Assignment Requests — driver approves/denies location assignments
   // ============================================================
 
@@ -2002,6 +2148,140 @@ export function registerTeamRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error fetching contract forecast:', err);
       res.status(500).json({ error: 'Failed to fetch forecast' });
+    }
+  });
+
+  // ============================================================
+  // Contract Renewal Requests
+  // ============================================================
+
+  // Submit a renewal request
+  app.post('/api/team/contracts/:id/renewal-request', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const contractId = req.params.id;
+
+      // Verify contract belongs to driver
+      const { rows: contractRows } = await pool.query(
+        `SELECT rc.id, rc.status, dp.name as driver_name
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON dp.id = $2
+         WHERE rc.id = $1 AND rc.driver_id = $2`,
+        [contractId, driverId]
+      );
+      if (contractRows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = contractRows[0];
+      if (!['active', 'expired'].includes(contract.status)) {
+        return res.status(400).json({ error: 'Can only request renewal for active or expired contracts' });
+      }
+
+      // Check for existing pending request
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM contract_renewal_requests WHERE contract_id = $1 AND driver_id = $2 AND status = 'pending'`,
+        [contractId, driverId]
+      );
+      if (existing.length > 0) return res.status(409).json({ error: 'A pending renewal request already exists for this contract' });
+
+      const { proposedRate, proposedEndDate, message } = req.body;
+
+      const { rows } = await pool.query(
+        `INSERT INTO contract_renewal_requests (contract_id, driver_id, proposed_rate, proposed_end_date, message)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, contract_id, proposed_rate, proposed_end_date, message, status, created_at`,
+        [contractId, driverId, proposedRate ?? null, proposedEndDate ?? null, message ?? null]
+      );
+
+      notifyContractRenewalRequest(contract.driver_name, contractId, proposedRate ?? null, proposedEndDate ?? null).catch(() => {});
+      res.status(201).json({ renewalRequest: rows[0] });
+    } catch (err: any) {
+      console.error('Error submitting renewal request:', err);
+      res.status(500).json({ error: 'Failed to submit renewal request' });
+    }
+  });
+
+  // Get latest renewal request for a contract
+  app.get('/api/team/contracts/:id/renewal-request', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const contractId = req.params.id;
+
+      const { rows } = await pool.query(
+        `SELECT crr.id, crr.contract_id, crr.proposed_rate, crr.proposed_end_date, crr.message,
+                crr.status, crr.admin_notes, crr.counter_rate, crr.counter_end_date, crr.created_at, crr.updated_at
+         FROM contract_renewal_requests crr
+         JOIN route_contracts rc ON rc.id = crr.contract_id
+         WHERE crr.contract_id = $1 AND crr.driver_id = $2
+         ORDER BY crr.created_at DESC
+         LIMIT 1`,
+        [contractId, driverId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'No renewal request found' });
+      res.json({ renewalRequest: rows[0] });
+    } catch (err: any) {
+      console.error('Error fetching renewal request:', err);
+      res.status(500).json({ error: 'Failed to fetch renewal request' });
+    }
+  });
+
+  // Driver accepts admin counter offer
+  app.post('/api/team/contracts/:id/renewal-request/accept-counter', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const contractId = req.params.id;
+
+      // Get the countered request
+      const { rows: rqRows } = await pool.query(
+        `SELECT crr.id, crr.counter_rate, crr.counter_end_date
+         FROM contract_renewal_requests crr
+         WHERE crr.contract_id = $1 AND crr.driver_id = $2 AND crr.status = 'countered'
+         ORDER BY crr.created_at DESC LIMIT 1`,
+        [contractId, driverId]
+      );
+      if (rqRows.length === 0) return res.status(404).json({ error: 'No counter offer found' });
+      const rq = rqRows[0];
+
+      // Get contract details for renewal
+      const { rows: contractRows } = await pool.query(
+        `SELECT rc.*, dp.user_id as driver_user_id
+         FROM route_contracts rc
+         JOIN driver_profiles dp ON dp.id = rc.driver_id
+         WHERE rc.id = $1 AND rc.driver_id = $2`,
+        [contractId, driverId]
+      );
+      if (contractRows.length === 0) return res.status(404).json({ error: 'Contract not found' });
+      const contract = contractRows[0];
+
+      // Compute new end date
+      const currentEnd = new Date(contract.end_date);
+      const currentStart = new Date(contract.start_date);
+      const durationMs = currentEnd.getTime() - currentStart.getTime();
+      const newStartDate = rq.counter_end_date ? new Date(contract.end_date) : currentEnd;
+      const newEndDate = rq.counter_end_date
+        ? new Date(rq.counter_end_date)
+        : new Date(currentEnd.getTime() + durationMs);
+      const newRate = rq.counter_rate ?? contract.per_stop_rate;
+
+      // Create renewed contract
+      const { rows: newContractRows } = await pool.query(
+        `INSERT INTO route_contracts (driver_id, zone_id, custom_zone_id, day_of_week, per_stop_rate,
+           start_date, end_date, status, renewed_from_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
+         RETURNING id`,
+        [contract.driver_id, contract.zone_id, contract.custom_zone_id, contract.day_of_week,
+         newRate, newStartDate.toISOString().split('T')[0], newEndDate.toISOString().split('T')[0], contractId]
+      );
+
+      // Mark old contract renewed, update renewal request
+      await pool.query(`UPDATE route_contracts SET status = 'renewed' WHERE id = $1`, [contractId]);
+      await pool.query(
+        `UPDATE contract_renewal_requests SET status = 'approved', updated_at = NOW() WHERE id = $1`,
+        [rq.id]
+      );
+
+      res.json({ success: true, newContractId: newContractRows[0].id });
+    } catch (err: any) {
+      console.error('Error accepting counter offer:', err);
+      res.status(500).json({ error: 'Failed to accept counter offer' });
     }
   });
 
@@ -2198,6 +2478,26 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+}
+
+function mapProposal(r: any) {
+  return {
+    id: r.id,
+    proposedZoneName: r.proposed_zone_name,
+    zoneType: r.zone_type,
+    centerLat: r.center_lat != null ? Number(r.center_lat) : null,
+    centerLng: r.center_lng != null ? Number(r.center_lng) : null,
+    radiusMiles: r.radius_miles != null ? Number(r.radius_miles) : null,
+    polygonCoords: r.polygon_coords,
+    zipCodes: r.zip_codes,
+    daysOfWeek: r.days_of_week,
+    proposedRate: r.proposed_rate != null ? Number(r.proposed_rate) : null,
+    notes: r.notes,
+    status: r.status,
+    adminNotes: r.admin_notes,
+    convertedOpportunityId: r.converted_opportunity_id,
+    createdAt: r.created_at,
+  };
 }
 
 function formatDriverForClient(driverProfile: any, user?: any) {

@@ -981,7 +981,88 @@ CREATE INDEX IF NOT EXISTS idx_zar_status ON zone_assignment_requests(status);
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_zone_id UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_locations_coverage_zone ON locations(coverage_zone_id);
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS total_referral_credits NUMERIC(10,2) DEFAULT 0;
+
+-- Referral credits
+CREATE TABLE IF NOT EXISTS referral_credits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  referral_id UUID NOT NULL REFERENCES referrals(id) ON DELETE CASCADE,
+  amount NUMERIC(10,2) NOT NULL,
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Redemptions
+CREATE TABLE IF NOT EXISTS redemptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount NUMERIC(10,2) NOT NULL,
+  method VARCHAR(50) NOT NULL,
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Skip credit amount (in cents, default $1.00)
 INSERT INTO system_settings (key, value, category, is_secret)
 VALUES ('SKIP_CREDIT_AMOUNT_CENTS', '100', 'billing', FALSE)
 ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
+-- Sprint 3: Self-Service Growth
+-- ============================================================
+
+-- Task 12: Zone auto-approval conflict tracking (no new table — logic is in app layer)
+
+-- Task 11: Driver qualifications self-declaration verification
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS qualifications_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS qualifications_updated_at TIMESTAMP;
+
+-- Task 10: Auto-renew flag on contracts
+ALTER TABLE route_contracts ADD COLUMN IF NOT EXISTS auto_renew BOOLEAN DEFAULT FALSE;
+
+-- Task 10: Contract renewal requests (driver-initiated)
+CREATE TABLE IF NOT EXISTS contract_renewal_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_id UUID NOT NULL REFERENCES route_contracts(id) ON DELETE CASCADE,
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  proposed_rate NUMERIC(10,2),
+  proposed_end_date DATE,
+  message TEXT,
+  status VARCHAR(20) DEFAULT 'pending',
+  admin_notes TEXT,
+  counter_rate NUMERIC(10,2),
+  counter_end_date DATE,
+  reviewed_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_crr_contract ON contract_renewal_requests(contract_id);
+CREATE INDEX IF NOT EXISTS idx_crr_driver ON contract_renewal_requests(driver_id);
+CREATE INDEX IF NOT EXISTS idx_crr_status ON contract_renewal_requests(status);
+
+-- Task 9: Zone expansion proposals (driver proposes new territory)
+CREATE TABLE IF NOT EXISTS zone_expansion_proposals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id) ON DELETE CASCADE,
+  proposed_zone_name VARCHAR(100) NOT NULL,
+  zone_type VARCHAR(20) NOT NULL DEFAULT 'circle',
+  center_lat NUMERIC(10,7),
+  center_lng NUMERIC(10,7),
+  radius_miles NUMERIC(6,2),
+  polygon_coords JSONB,
+  zip_codes TEXT[],
+  days_of_week TEXT[],
+  proposed_rate NUMERIC(10,2),
+  notes TEXT,
+  status VARCHAR(20) DEFAULT 'pending',
+  converted_opportunity_id UUID REFERENCES contract_opportunities(id),
+  admin_notes TEXT,
+  reviewed_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_zep_driver ON zone_expansion_proposals(driver_id);
+CREATE INDEX IF NOT EXISTS idx_zep_status ON zone_expansion_proposals(status);

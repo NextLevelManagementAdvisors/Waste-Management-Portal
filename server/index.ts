@@ -270,6 +270,38 @@ setInterval(processScheduledMessages, 60_000);
         }
       }
 
+      // 1c. Auto-renew contracts within 7 days of expiry when auto_renew=true (and no pending renewal request)
+      const autoRenewCandidates = await dbPool.query(
+        `SELECT rc.id, rc.driver_id, rc.zone_id, rc.custom_zone_id, rc.day_of_week, rc.per_stop_rate,
+                rc.start_date, rc.end_date,
+                (SELECT name FROM service_zones WHERE id = rc.zone_id) AS zone_name
+         FROM route_contracts rc
+         WHERE rc.status = 'active'
+           AND rc.auto_renew = TRUE
+           AND rc.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM contract_renewal_requests crr
+             WHERE crr.contract_id = rc.id AND crr.status IN ('pending', 'countered')
+           )`
+      );
+      for (const c of autoRenewCandidates.rows) {
+        const durationMs = new Date(c.end_date).getTime() - new Date(c.start_date).getTime();
+        const newEnd = new Date(new Date(c.end_date).getTime() + durationMs).toISOString().split('T')[0];
+        await dbPool.query(
+          `UPDATE route_contracts SET end_date = $1, expiry_warned_at = NULL, updated_at = NOW()
+           WHERE id = $2`,
+          [newEnd, c.id]
+        );
+        console.log(`[ContractExpiry] Auto-renewed contract ${c.id} (${c.zone_name} ${c.day_of_week}) → ${newEnd}`);
+        sendDriverNotification(c.driver_id,
+          'Contract Auto-Renewed',
+          `<p>Your contract for <strong>${c.zone_name || 'Zone'} - ${c.day_of_week}</strong> has been automatically renewed to <strong>${newEnd}</strong> at the same rate.</p>`
+        ).catch(() => {});
+      }
+      if (autoRenewCandidates.rows.length > 0) {
+        console.log(`[ContractExpiry] Auto-renewed ${autoRenewCandidates.rows.length} contract(s)`);
+      }
+
       // 2. Warn about contracts expiring within 30 days (notify once)
       const expiringSoon = await dbPool.query(
         `SELECT id, driver_id, day_of_week, end_date,

@@ -477,6 +477,45 @@ const AutoApprovalPanel: React.FC = () => {
           onToggle={handleToggle}
         />
       </Card>
+
+      <Card className="p-6">
+        <h4 className="text-sm font-black text-gray-900 mb-1">Contract & Route Automation</h4>
+        <p className="text-xs text-gray-500 mb-4">
+          Scheduled jobs that run automatically in the background. Changes take effect on the next scheduler cycle.
+        </p>
+        <SettingToggle
+          label="Auto-Expire Past-Due Contracts"
+          description="Contracts past their end date are automatically marked expired and their future routes unassigned. Runs every 6 hours."
+          settingKey="AUTO_EXPIRE_CONTRACTS"
+          value={bool('AUTO_EXPIRE_CONTRACTS')}
+          saving={saving === 'AUTO_EXPIRE_CONTRACTS'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Auto-Generate Routes from Active Contracts"
+          description="Ensures routes exist 8 weeks ahead for every active contract. Runs nightly. Skips dates that already have a route."
+          settingKey="AUTO_GENERATE_CONTRACT_ROUTES"
+          value={bool('AUTO_GENERATE_CONTRACT_ROUTES')}
+          saving={saving === 'AUTO_GENERATE_CONTRACT_ROUTES'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Auto-Post Opportunity When Contract Expires"
+          description="When a contract expires, a new open opportunity is automatically created for the same zone and day so coverage isn't lost."
+          settingKey="AUTO_REOPEN_EXPIRED_CONTRACTS"
+          value={bool('AUTO_REOPEN_EXPIRED_CONTRACTS')}
+          saving={saving === 'AUTO_REOPEN_EXPIRED_CONTRACTS'}
+          onToggle={handleToggle}
+        />
+        <SettingToggle
+          label="Enable Automated Route Swap Recommendations"
+          description="The swap engine analyses route efficiency and automatically executes high-confidence driver swaps. Runs every 6 hours."
+          settingKey="AUTO_SWAP_ENABLED"
+          value={bool('AUTO_SWAP_ENABLED')}
+          saving={saving === 'AUTO_SWAP_ENABLED'}
+          onToggle={handleToggle}
+        />
+      </Card>
     </div>
   );
 };

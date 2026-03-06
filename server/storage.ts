@@ -123,8 +123,8 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string; auth_provider: string }>): Promise<DbUser> {
-    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id', 'auth_provider'];
+  async updateUser(id: string, data: Partial<{ first_name: string; last_name: string; phone: string; email: string; password_hash: string; autopay_enabled: boolean; stripe_customer_id: string; auth_provider: string; total_referral_credits: number }>): Promise<DbUser> {
+    const ALLOWED_COLUMNS = ['first_name', 'last_name', 'phone', 'email', 'password_hash', 'autopay_enabled', 'stripe_customer_id', 'auth_provider', 'total_referral_credits'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -513,6 +513,40 @@ export class Storage {
   }
 
   async getReferralsByUser(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getRedemptionsForUser(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM redemptions WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async createRedemption(data: { userId: string; amount: number; method: string; status: string; }) {
+    const result = await this.query(
+      `INSERT INTO redemptions (user_id, amount, method, status)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [data.userId, data.amount, data.method, data.status]
+    );
+    return result.rows[0];
+  }
+
+  async getReferralCodeForUser(userId: string) {
+    const result = await this.query(
+      'SELECT * FROM referral_codes WHERE user_id = $1',
+      [userId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getReferralsForUser(userId: string) {
     const result = await this.query(
       'SELECT * FROM referrals WHERE referrer_user_id = $1 ORDER BY created_at DESC',
       [userId]
@@ -3000,3 +3034,88 @@ export class Storage {
 }
 
 export const storage = new Storage();
+
+// ── Zone conflict detection (Sprint 3, Task 12) ──────────────────────────────
+// Returns IDs of active driver_custom_zones (owned by other drivers) that
+// overlap with the proposed zone geometry.
+function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export async function detectZoneConflicts(
+  newZone: {
+    zone_type: string;
+    center_lat?: number | null;
+    center_lng?: number | null;
+    radius_miles?: number | null;
+    polygon_coords?: Array<[number, number]> | null;
+  },
+  excludeDriverId: string
+): Promise<string[]> {
+  const { rows: candidates } = await pool.query(
+    `SELECT id, zone_type, center_lat, center_lng, radius_miles, polygon_coords
+     FROM driver_custom_zones
+     WHERE status = 'active' AND driver_id != $1`,
+    [excludeDriverId]
+  );
+
+  const conflicting: string[] = [];
+
+  for (const z of candidates) {
+    let overlaps = false;
+
+    if (newZone.zone_type === 'circle' && newZone.center_lat != null && newZone.center_lng != null && newZone.radius_miles != null) {
+      if (z.zone_type === 'circle' && z.center_lat != null && z.center_lng != null && z.radius_miles != null) {
+        // Circle–circle: overlap when distance < sum of radii
+        const dist = haversineDistanceMiles(newZone.center_lat, newZone.center_lng, Number(z.center_lat), Number(z.center_lng));
+        overlaps = dist < (newZone.radius_miles + Number(z.radius_miles));
+      } else if (z.polygon_coords) {
+        // Circle center inside existing polygon (fast approximation)
+        try {
+          const coords = Array.isArray(z.polygon_coords) ? z.polygon_coords : JSON.parse(z.polygon_coords);
+          const ring = coords.map((c: any) => [Number(c[1] ?? c.lng), Number(c[0] ?? c.lat)]);
+          if (ring.length >= 3) {
+            if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) ring.push(ring[0]);
+            const poly = turfPolygon([ring]);
+            const pt = point([newZone.center_lng, newZone.center_lat]);
+            overlaps = booleanPointInPolygon(pt, poly);
+          }
+        } catch { /* ignore malformed geometry */ }
+      }
+    } else if (newZone.polygon_coords && Array.isArray(newZone.polygon_coords) && newZone.polygon_coords.length >= 3) {
+      // Bounding-box pre-check for polygon zones
+      const lats = newZone.polygon_coords.map(c => c[0]);
+      const lngs = newZone.polygon_coords.map(c => c[1]);
+      const newMinLat = Math.min(...lats), newMaxLat = Math.max(...lats);
+      const newMinLng = Math.min(...lngs), newMaxLng = Math.max(...lngs);
+
+      if (z.zone_type === 'circle' && z.center_lat != null && z.center_lng != null) {
+        // Rough bbox check: existing circle center inside new polygon's bbox
+        overlaps = Number(z.center_lat) >= newMinLat && Number(z.center_lat) <= newMaxLat &&
+                   Number(z.center_lng) >= newMinLng && Number(z.center_lng) <= newMaxLng;
+      } else if (z.polygon_coords) {
+        try {
+          const coords = Array.isArray(z.polygon_coords) ? z.polygon_coords : JSON.parse(z.polygon_coords);
+          const zLats = coords.map((c: any) => Number(c[0] ?? c.lat));
+          const zLngs = coords.map((c: any) => Number(c[1] ?? c.lng));
+          const zMinLat = Math.min(...zLats), zMaxLat = Math.max(...zLats);
+          const zMinLng = Math.min(...zLngs), zMaxLng = Math.max(...zLngs);
+          // Bbox intersection check
+          overlaps = !(newMaxLat < zMinLat || newMinLat > zMaxLat || newMaxLng < zMinLng || newMinLng > zMaxLng);
+        } catch { /* ignore malformed geometry */ }
+      }
+    }
+
+    if (overlaps) conflicting.push(z.id as string);
+  }
+
+  return conflicting;
+}

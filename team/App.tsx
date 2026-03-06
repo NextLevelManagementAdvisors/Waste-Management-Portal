@@ -68,7 +68,7 @@ interface WeatherDay {
   icon: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'locations' | 'contracts' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
@@ -76,7 +76,6 @@ const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   schedule: '/team/schedule',
   pickups: '/team/pickups',
   zones: '/team/zones',
-  locations: '/team/locations',
   contracts: '/team/contracts',
   messages: '/team/messages',
   profile: '/team/profile',
@@ -793,6 +792,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   }, []);
 
   useEffect(() => {
+    console.log('Fetching weather data...');
     const today = new Date().toISOString().split('T')[0];
     const end = new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0];
     fetch(`/api/team/weather?from=${today}&to=${end}`, { credentials: 'include' })
@@ -2458,6 +2458,179 @@ const MyLocations: React.FC = () => {
   );
 };
 
+type ZoneExpansionProposal = {
+  id: string;
+  proposedZoneName: string;
+  zoneType: string;
+  daysOfWeek: string[];
+  proposedRate: number | null;
+  notes: string | null;
+  status: 'pending' | 'converted' | 'rejected';
+  adminNotes: string | null;
+  createdAt: string;
+};
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const ZoneExpansionProposalsPanel: React.FC = () => {
+  const [proposals, setProposals] = useState<ZoneExpansionProposal[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const [zoneName, setZoneName] = useState('');
+  const [zoneType, setZoneType] = useState<'circle' | 'polygon' | 'zip'>('circle');
+  const [centerLat, setCenterLat] = useState('');
+  const [centerLng, setCenterLng] = useState('');
+  const [radiusMiles, setRadiusMiles] = useState('');
+  const [zipCodes, setZipCodes] = useState('');
+  const [days, setDays] = useState<string[]>([]);
+  const [rate, setRate] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const load = () => {
+    fetch('/api/team/zone-expansion-proposals', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { proposals: [] })
+      .then(d => setProposals(d.proposals ?? []))
+      .catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const toggleDay = (d: string) =>
+    setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setMsg('');
+    const body: Record<string, unknown> = { proposedZoneName: zoneName, zoneType, daysOfWeek: days, proposedRate: rate ? parseFloat(rate) : null, notes };
+    if (zoneType === 'circle') { body.centerLat = parseFloat(centerLat); body.centerLng = parseFloat(centerLng); body.radiusMiles = parseFloat(radiusMiles); }
+    if (zoneType === 'zip') { body.zipCodes = zipCodes.split(',').map(z => z.trim()).filter(Boolean); }
+    try {
+      const r = await fetch('/api/team/zone-expansion-proposals', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) {
+        setMsg('Proposal submitted!');
+        setShowForm(false);
+        setZoneName(''); setCenterLat(''); setCenterLng(''); setRadiusMiles(''); setZipCodes(''); setDays([]); setRate(''); setNotes('');
+        load();
+      } else {
+        const d = await r.json();
+        setMsg(d.error || 'Failed to submit');
+      }
+    } catch { setMsg('Network error'); }
+    setSubmitting(false);
+  };
+
+  const withdraw = async (id: string) => {
+    if (!confirm('Withdraw this proposal?')) return;
+    const r = await fetch(`/api/team/zone-expansion-proposals/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (r.ok) load();
+  };
+
+  const statusBadge = (s: string) => {
+    const cls = s === 'pending' ? 'bg-yellow-100 text-yellow-800' : s === 'converted' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+    return <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cls}`}>{s}</span>;
+  };
+
+  return (
+    <Card className="p-6 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-900">Zone Expansion Proposals</h3>
+        {!showForm && (
+          <button onClick={() => { setShowForm(true); setMsg(''); }} className="text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700">
+            + Propose New Zone
+          </button>
+        )}
+      </div>
+
+      {msg && <p className={`text-sm mb-3 ${msg.includes('!') ? 'text-green-600' : 'text-red-600'}`}>{msg}</p>}
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="space-y-4 mb-6 border border-gray-200 rounded-lg p-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Zone Name *</label>
+            <input required value={zoneName} onChange={e => setZoneName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. North Hillside" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Zone Type</label>
+            <div className="flex gap-2">
+              {(['circle', 'polygon', 'zip'] as const).map(t => (
+                <button key={t} type="button" onClick={() => setZoneType(t)}
+                  className={`px-3 py-1 text-sm rounded-full border ${zoneType === t ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-300 text-gray-700'}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          {zoneType === 'circle' && (
+            <div className="grid grid-cols-3 gap-2">
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Center Lat</label><input type="number" step="any" value={centerLat} onChange={e => setCenterLat(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="39.7" /></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Center Lng</label><input type="number" step="any" value={centerLng} onChange={e => setCenterLng(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="-104.9" /></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Radius (mi)</label><input type="number" step="any" value={radiusMiles} onChange={e => setRadiusMiles(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5" /></div>
+            </div>
+          )}
+          {zoneType === 'zip' && (
+            <div><label className="block text-xs font-medium text-gray-700 mb-1">ZIP Codes (comma-separated)</label><input value={zipCodes} onChange={e => setZipCodes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="80202, 80203, 80204" /></div>
+          )}
+          {zoneType === 'polygon' && (
+            <p className="text-xs text-gray-500">Polygon geometry will be defined by admin when converting this proposal to an opportunity.</p>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Preferred Days</label>
+            <div className="flex flex-wrap gap-2">
+              {DAYS.map(d => (
+                <button key={d} type="button" onClick={() => toggleDay(d)}
+                  className={`px-2 py-1 text-xs rounded-full border ${days.includes(d) ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-300 text-gray-700'}`}>
+                  {d.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="block text-xs font-medium text-gray-700 mb-1">Proposed Rate ($/stop)</label><input type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="12.00" /></div>
+          </div>
+          <div><label className="block text-xs font-medium text-gray-700 mb-1">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Any additional context..." /></div>
+          <div className="flex gap-2">
+            <button type="submit" disabled={submitting} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">{submitting ? 'Submitting…' : 'Submit Proposal'}</button>
+            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {proposals.length === 0 && !showForm ? (
+        <p className="text-sm text-gray-500">No proposals yet. Use the button above to propose a new service zone.</p>
+      ) : (
+        <div className="space-y-3">
+          {proposals.map(p => (
+            <div key={p.id} className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-medium text-sm text-gray-900">{p.proposedZoneName}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{p.zoneType} zone{p.daysOfWeek?.length ? ` · ${p.daysOfWeek.join(', ')}` : ''}{p.proposedRate ? ` · $${p.proposedRate}/stop` : ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {statusBadge(p.status)}
+                  {p.status === 'pending' && (
+                    <button onClick={() => withdraw(p.id)} className="text-xs text-red-600 hover:underline">Withdraw</button>
+                  )}
+                </div>
+              </div>
+              {p.status === 'rejected' && p.adminNotes && (
+                <p className="mt-2 text-xs text-red-700 bg-red-50 rounded p-2">Admin note: {p.adminNotes}</p>
+              )}
+              {p.status === 'converted' && (
+                <p className="mt-2 text-xs text-green-700 bg-green-50 rounded p-2">Converted to a contract opportunity — check the Opportunities tab.</p>
+              )}
+              {p.notes && <p className="mt-1 text-xs text-gray-500 italic">{p.notes}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const MyContracts: React.FC = () => {
   const [contracts, setContracts] = useState<DriverContract[]>([]);
   const [opportunities, setOpportunities] = useState<DriverOpportunity[]>([]);
@@ -3030,6 +3203,119 @@ const MyContracts: React.FC = () => {
   );
 };
 
+const QualificationsCard: React.FC = () => {
+  const [quals, setQuals] = useState<{ equipmentTypes: string[]; certifications: string[]; maxStopsPerDay: number; verified: boolean; updatedAt: string | null } | null>(null);
+  const [equipInput, setEquipInput] = useState('');
+  const [certInput, setCertInput] = useState('');
+  const [maxStops, setMaxStops] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    fetch('/api/team/my-qualifications', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.qualifications) {
+          setQuals(data.qualifications);
+          setEquipInput(data.qualifications.equipmentTypes.join(', '));
+          setCertInput(data.qualifications.certifications.join(', '));
+          setMaxStops(String(data.qualifications.maxStopsPerDay ?? ''));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMsg('');
+    try {
+      const equipmentTypes = equipInput.split(',').map(s => s.trim()).filter(Boolean);
+      const certifications = certInput.split(',').map(s => s.trim()).filter(Boolean);
+      const body: any = { equipmentTypes, certifications };
+      const ms = parseInt(maxStops);
+      if (!isNaN(ms) && ms > 0) body.maxStopsPerDay = ms;
+      const res = await fetch('/api/team/profile/qualifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to save');
+      const data = await res.json();
+      setQuals(data.qualifications);
+      setMsg('Saved — admin will verify your qualifications shortly.');
+    } catch (err: any) {
+      setMsg(err.message || 'Error saving qualifications');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">Qualifications</h3>
+          <p className="text-sm text-gray-500 mt-1">Declare your equipment and certifications so you're matched to the right stops.</p>
+        </div>
+        {quals && (
+          <span className={`px-2 py-1 rounded-full text-xs font-bold ${quals.verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+            {quals.verified ? 'Verified' : 'Unverified'}
+          </span>
+        )}
+      </div>
+      {!quals?.verified && (
+        <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg px-3 py-2 mb-4">Your qualifications are unverified. An admin will review and confirm them.</p>
+      )}
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-bold text-gray-700 mb-1">Equipment Types</label>
+          <input
+            type="text"
+            title="Equipment types (comma separated)"
+            value={equipInput}
+            onChange={e => setEquipInput(e.target.value)}
+            placeholder="e.g. rear-loader, side-loader, recycling"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+          <p className="text-xs text-gray-400 mt-0.5">Comma-separated list</p>
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-gray-700 mb-1">Certifications</label>
+          <input
+            type="text"
+            title="Certifications (comma separated)"
+            value={certInput}
+            onChange={e => setCertInput(e.target.value)}
+            placeholder="e.g. hazmat, CDL-B"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+          <p className="text-xs text-gray-400 mt-0.5">Comma-separated list</p>
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-gray-700 mb-1">Max Stops Per Day</label>
+          <input
+            type="number"
+            title="Max stops per day"
+            value={maxStops}
+            onChange={e => setMaxStops(e.target.value)}
+            min={1}
+            max={500}
+            placeholder="e.g. 50"
+            className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+        {msg && (
+          <p className={`text-xs rounded-lg px-3 py-2 ${msg.includes('Saved') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{msg}</p>
+        )}
+        <Button onClick={handleSave} disabled={saving} className="text-sm">
+          {saving ? 'Saving…' : 'Save Qualifications'}
+        </Button>
+      </div>
+    </Card>
+  );
+};
+
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -3402,6 +3688,8 @@ const Profile: React.FC = () => {
               </button>
             </div>
           </Card>
+
+          <QualificationsCard />
 
         </div>
       </div>
@@ -3994,7 +4282,6 @@ const TeamApp: React.FC = () => {
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
     { view: 'pickups', label: 'On-Demand', icon: <ArchiveBoxIcon className="w-5 h-5" /> },
     { view: 'zones', label: 'Coverage', icon: <MapPinIcon className="w-5 h-5" /> },
-    { view: 'locations', label: 'My Locations', icon: <ListIcon className="w-5 h-5" /> },
     { view: 'contracts', label: 'My Contracts', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
@@ -4092,11 +4379,13 @@ const TeamApp: React.FC = () => {
           {currentView === 'schedule' && <Schedule onNavigate={(view) => setCurrentView(view as TeamView)} />}
           {currentView === 'pickups' && <OnDemandPickups />}
           {currentView === 'zones' && (
-            <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
-              <ZoneMapView />
-            </React.Suspense>
+            <>
+              <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
+                <ZoneMapView />
+              </React.Suspense>
+              <ZoneExpansionProposalsPanel />
+            </>
           )}
-          {currentView === 'locations' && <MyLocations />}
           {currentView === 'contracts' && <MyContracts />}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}

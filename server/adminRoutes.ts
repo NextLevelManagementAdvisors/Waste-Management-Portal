@@ -5114,8 +5114,9 @@ export function registerAdminRoutes(app: Express) {
            certifications = COALESCE($2, certifications),
            max_stops_per_day = COALESCE($3, max_stops_per_day),
            min_rating_for_assignment = COALESCE($4, min_rating_for_assignment),
+           qualifications_verified = TRUE,
            updated_at = NOW()
-         WHERE id = $5 RETURNING id, equipment_types, certifications, max_stops_per_day, min_rating_for_assignment`,
+         WHERE id = $5 RETURNING id, equipment_types, certifications, max_stops_per_day, min_rating_for_assignment, qualifications_verified, qualifications_updated_at`,
         [equipmentTypes ?? null, certifications ?? null, maxStopsPerDay ?? null, minRatingForAssignment ?? null, req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: 'Driver not found' });
@@ -5126,6 +5127,8 @@ export function registerAdminRoutes(app: Express) {
           certifications: d.certifications || [],
           maxStopsPerDay: d.max_stops_per_day,
           minRatingForAssignment: Number(d.min_rating_for_assignment),
+          verified: d.qualifications_verified,
+          updatedAt: d.qualifications_updated_at,
         },
       });
     } catch (err: any) {
@@ -5137,7 +5140,8 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/drivers/:id/qualifications', requireAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment
+        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment,
+                qualifications_verified, qualifications_updated_at
          FROM driver_profiles WHERE id = $1`,
         [req.params.id]
       );
@@ -5149,11 +5153,259 @@ export function registerAdminRoutes(app: Express) {
           certifications: d.certifications || [],
           maxStopsPerDay: d.max_stops_per_day,
           minRatingForAssignment: Number(d.min_rating_for_assignment),
+          verified: d.qualifications_verified ?? false,
+          updatedAt: d.qualifications_updated_at,
         },
       });
     } catch (err: any) {
       console.error('Error fetching driver qualifications:', err);
       res.status(500).json({ error: 'Failed to fetch driver qualifications' });
+    }
+  });
+
+  // ============================================================
+  // Zone Expansion Proposals (Sprint 3, Task 9)
+  // ============================================================
+
+  app.get('/api/admin/zone-expansion-proposals', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const params: any[] = [];
+      let where = '';
+      if (status) { where = 'WHERE zep.status = $1'; params.push(status); }
+      const { rows } = await pool.query(
+        `SELECT zep.*, dp.name AS driver_name, dp.id AS driver_id
+         FROM zone_expansion_proposals zep
+         JOIN driver_profiles dp ON dp.id = zep.driver_id
+         ${where} ORDER BY zep.created_at DESC`,
+        params
+      );
+      res.json({ proposals: rows.map((r: any) => ({
+        id: r.id, driverId: r.driver_id, driverName: r.driver_name,
+        proposedZoneName: r.proposed_zone_name, zoneType: r.zone_type,
+        centerLat: r.center_lat != null ? Number(r.center_lat) : null,
+        centerLng: r.center_lng != null ? Number(r.center_lng) : null,
+        radiusMiles: r.radius_miles != null ? Number(r.radius_miles) : null,
+        polygonCoords: r.polygon_coords, zipCodes: r.zip_codes,
+        daysOfWeek: r.days_of_week, proposedRate: r.proposed_rate != null ? Number(r.proposed_rate) : null,
+        notes: r.notes, status: r.status, adminNotes: r.admin_notes,
+        convertedOpportunityId: r.converted_opportunity_id, createdAt: r.created_at,
+      })) });
+    } catch (err: any) {
+      console.error('Error listing zone proposals:', err);
+      res.status(500).json({ error: 'Failed to list proposals' });
+    }
+  });
+
+  // Convert proposal to contract opportunity (one-click)
+  app.post('/api/admin/zone-expansion-proposals/:id/convert', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { rows: propRows } = await pool.query(
+        `SELECT * FROM zone_expansion_proposals WHERE id = $1 AND status = 'pending'`,
+        [req.params.id]
+      );
+      if (propRows.length === 0) return res.status(404).json({ error: 'Proposal not found or not pending' });
+      const p = propRows[0];
+
+      // Need a service zone for the opportunity — use the driver's first active zone selection or require zoneId in body
+      const { zoneId, startDate, durationMonths } = req.body;
+      if (!zoneId) return res.status(400).json({ error: 'zoneId is required to create an opportunity (select the service zone this proposal maps to)' });
+
+      const userId = (req.session as any).userId;
+      const { rows: oppRows } = await pool.query(
+        `INSERT INTO contract_opportunities (zone_id, day_of_week, start_date, duration_months, proposed_per_stop_rate, status, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'open', $6) RETURNING id`,
+        [zoneId, (p.days_of_week?.[0] || 'monday'), startDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+          durationMonths || 3, p.proposed_rate, userId]
+      );
+      const opportunityId = oppRows[0].id;
+
+      await pool.query(
+        `UPDATE zone_expansion_proposals SET status = 'converted', converted_opportunity_id = $1, reviewed_by = $2, updated_at = NOW() WHERE id = $3`,
+        [opportunityId, userId, req.params.id]
+      );
+
+      await audit(req, 'convert_zone_proposal', 'zone_expansion_proposals', req.params.id, { opportunityId });
+
+      // Notify the proposing driver
+      sendDriverNotification(p.driver_id, 'Zone Proposal Converted to Opportunity',
+        `<p>Your zone expansion proposal "<strong>${p.proposed_zone_name}</strong>" has been accepted and converted to an open contract opportunity.</p>
+         <p>Log in to the team portal to apply.</p>`
+      ).catch(() => {});
+
+      res.json({ opportunityId });
+    } catch (err: any) {
+      console.error('Error converting zone proposal:', err);
+      res.status(500).json({ error: 'Failed to convert proposal' });
+    }
+  });
+
+  app.put('/api/admin/zone-expansion-proposals/:id/reject', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { adminNotes } = req.body;
+      const userId = (req.session as any).userId;
+      const { rows } = await pool.query(
+        `UPDATE zone_expansion_proposals SET status = 'rejected', admin_notes = $1, reviewed_by = $2, updated_at = NOW()
+         WHERE id = $3 AND status = 'pending' RETURNING driver_id, proposed_zone_name`,
+        [adminNotes || null, userId, req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Proposal not found or not pending' });
+      sendDriverNotification(rows[0].driver_id, 'Zone Expansion Proposal Update',
+        `<p>Your zone proposal "<strong>${rows[0].proposed_zone_name}</strong>" was not approved at this time.</p>
+         ${adminNotes ? `<p>Admin note: ${adminNotes}</p>` : ''}`
+      ).catch(() => {});
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error rejecting zone proposal:', err);
+      res.status(500).json({ error: 'Failed to reject proposal' });
+    }
+  });
+
+  // ============================================================
+  // Contract Renewal Requests (admin)
+  // ============================================================
+
+  app.get('/api/admin/contract-renewal-requests', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const { rows } = await pool.query(
+        `SELECT crr.id, crr.contract_id, crr.proposed_rate, crr.proposed_end_date, crr.message,
+                crr.status, crr.admin_notes, crr.counter_rate, crr.counter_end_date,
+                crr.created_at, crr.updated_at,
+                dp.name AS driver_name, dp.email AS driver_email,
+                sz.name AS zone_name, rc.day_of_week, rc.end_date AS contract_end_date, rc.per_stop_rate AS current_rate
+         FROM contract_renewal_requests crr
+         JOIN driver_profiles dp ON dp.id = crr.driver_id
+         JOIN route_contracts rc ON rc.id = crr.contract_id
+         LEFT JOIN service_zones sz ON sz.id = rc.zone_id
+         ${statusFilter ? 'WHERE crr.status = $1' : ''}
+         ORDER BY crr.created_at DESC`,
+        statusFilter ? [statusFilter] : []
+      );
+      res.json({ renewalRequests: rows });
+    } catch (err: any) {
+      console.error('Error fetching renewal requests:', err);
+      res.status(500).json({ error: 'Failed to fetch renewal requests' });
+    }
+  });
+
+  app.post('/api/admin/contract-renewal-requests/:id/approve', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { rows: rqRows } = await pool.query(
+        `SELECT crr.*, rc.zone_id, rc.custom_zone_id, rc.day_of_week, rc.per_stop_rate,
+                rc.start_date, rc.end_date, rc.driver_id,
+                sz.name AS zone_name
+         FROM contract_renewal_requests crr
+         JOIN route_contracts rc ON rc.id = crr.contract_id
+         LEFT JOIN service_zones sz ON sz.id = rc.zone_id
+         WHERE crr.id = $1`,
+        [req.params.id]
+      );
+      if (rqRows.length === 0) return res.status(404).json({ error: 'Renewal request not found' });
+      const rq = rqRows[0];
+      if (rq.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+      const newRate = rq.proposed_rate ?? rq.per_stop_rate;
+      let newEndDate = rq.proposed_end_date;
+      if (!newEndDate) {
+        const dur = new Date(rq.end_date).getTime() - new Date(rq.start_date).getTime();
+        newEndDate = new Date(new Date(rq.end_date).getTime() + dur).toISOString().split('T')[0];
+      }
+
+      // Extend the existing contract (same pattern as POST /api/admin/contracts/:id/renew)
+      await pool.query(
+        `UPDATE route_contracts SET end_date = $1, per_stop_rate = $2, expiry_warned_at = NULL, status = 'active', updated_at = NOW()
+         WHERE id = $3`,
+        [newEndDate, newRate, rq.contract_id]
+      );
+      await pool.query(
+        `UPDATE contract_renewal_requests SET status = 'approved', reviewed_by = $1, updated_at = NOW() WHERE id = $2`,
+        [req.session.userId, req.params.id]
+      );
+
+      sendDriverNotification(rq.driver_id,
+        'Contract Renewed',
+        `<p>Your renewal request for <strong>${rq.zone_name || 'Zone'} - ${rq.day_of_week}</strong> has been approved. New end date: <strong>${newEndDate}</strong>.</p>`
+      ).catch(() => {});
+      await audit(req, 'approve_renewal_request', 'contract_renewal_request', req.params.id, { newEndDate, newRate });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error approving renewal request:', err);
+      res.status(500).json({ error: 'Failed to approve' });
+    }
+  });
+
+  app.post('/api/admin/contract-renewal-requests/:id/counter', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { counterRate, counterEndDate, adminNotes } = req.body;
+      if (!counterRate && !counterEndDate) return res.status(400).json({ error: 'Provide at least counterRate or counterEndDate' });
+
+      const { rows: rqRows } = await pool.query(
+        `SELECT crr.*, dp.name AS driver_name, dp.id AS driver_id, sz.name AS zone_name, rc.day_of_week
+         FROM contract_renewal_requests crr
+         JOIN route_contracts rc ON rc.id = crr.contract_id
+         JOIN driver_profiles dp ON dp.id = crr.driver_id
+         LEFT JOIN service_zones sz ON sz.id = rc.zone_id
+         WHERE crr.id = $1`,
+        [req.params.id]
+      );
+      if (rqRows.length === 0) return res.status(404).json({ error: 'Renewal request not found' });
+      const rq = rqRows[0];
+      if (rq.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+      await pool.query(
+        `UPDATE contract_renewal_requests SET status = 'countered', counter_rate = $1, counter_end_date = $2,
+          admin_notes = $3, reviewed_by = $4, updated_at = NOW()
+         WHERE id = $5`,
+        [counterRate ?? null, counterEndDate ?? null, adminNotes ?? null, req.session.userId, req.params.id]
+      );
+
+      sendDriverNotification(rq.driver_id,
+        'Counter Offer on Renewal Request',
+        `<p>Admin has made a counter offer on your renewal request for <strong>${rq.zone_name || 'Zone'} - ${rq.day_of_week}</strong>.` +
+        `${counterRate ? ` Proposed rate: <strong>$${counterRate}/stop</strong>.` : ''}` +
+        `${counterEndDate ? ` Proposed end date: <strong>${counterEndDate}</strong>.` : ''}` +
+        `</p><p>Log in to accept or negotiate further.</p>`
+      ).catch(() => {});
+      await audit(req, 'counter_renewal_request', 'contract_renewal_request', req.params.id, { counterRate, counterEndDate });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error countering renewal request:', err);
+      res.status(500).json({ error: 'Failed to counter' });
+    }
+  });
+
+  app.post('/api/admin/contract-renewal-requests/:id/reject', requireAdmin, requirePermission('operations'), async (req, res) => {
+    try {
+      const { adminNotes } = req.body;
+      const { rows: rqRows } = await pool.query(
+        `SELECT crr.driver_id, dp.name AS driver_name, sz.name AS zone_name, rc.day_of_week
+         FROM contract_renewal_requests crr
+         JOIN route_contracts rc ON rc.id = crr.contract_id
+         JOIN driver_profiles dp ON dp.id = crr.driver_id
+         LEFT JOIN service_zones sz ON sz.id = rc.zone_id
+         WHERE crr.id = $1`,
+        [req.params.id]
+      );
+      if (rqRows.length === 0) return res.status(404).json({ error: 'Renewal request not found' });
+      const rq = rqRows[0];
+
+      await pool.query(
+        `UPDATE contract_renewal_requests SET status = 'rejected', admin_notes = $1, reviewed_by = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [adminNotes ?? null, req.session.userId, req.params.id]
+      );
+
+      sendDriverNotification(rq.driver_id,
+        'Renewal Request Rejected',
+        `<p>Your renewal request for <strong>${rq.zone_name || 'Zone'} - ${rq.day_of_week}</strong> was not approved.` +
+        `${adminNotes ? ` Admin note: ${adminNotes}` : ''}</p>`
+      ).catch(() => {});
+      await audit(req, 'reject_renewal_request', 'contract_renewal_request', req.params.id, { adminNotes });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error rejecting renewal request:', err);
+      res.status(500).json({ error: 'Failed to reject' });
     }
   });
 
