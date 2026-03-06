@@ -100,6 +100,10 @@ class WebSocketManager {
 
 export const webSocketManager = new WebSocketManager();
 
+export function broadcastToParticipants(participantKeys: string[], event: string, data: any) {
+  webSocketManager.broadcastTo(participantKeys, { event, data });
+}
+
 
 export function setupWebSocket(server: Server, sessionMiddleware: any) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
