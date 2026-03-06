@@ -191,9 +191,18 @@ export interface Referral {
     date: string;
 }
 
+export interface Redemption {
+    id: string;
+    amount: number;
+    status: 'pending' | 'completed' | 'failed';
+    created_at: string;
+    method: string;
+}
+
 export interface ReferralInfo {
     referralCode: string;
     shareLink: string;
     referrals: Referral[];
     totalRewards: number; // in dollars
+    redemptions: Redemption[];
 }

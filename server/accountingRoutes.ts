@@ -296,6 +296,33 @@ export function registerAccountingRoutes(app: Express) {
     }
   });
 
+  app.put('/api/admin/accounting/invoices/:id/mark-paid', requireAdmin, requirePermission('billing'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const stripe = await getUncachableStripeClient();
+      
+      // First, retrieve the invoice to ensure it exists and is open
+      const invoice = await stripe.invoices.retrieve(id);
+      if (invoice.status !== 'open') {
+        return res.status(400).json({ error: `Invoice is not open. Current status: ${invoice.status}` });
+      }
+
+      // Stripe doesn't have a direct "mark as paid" for out-of-band payments.
+      // The correct flow is to finalize the invoice (if it's a draft) and then pay it.
+      // For an open invoice, we can pay it with an out-of-band payment.
+      const paidInvoice = await stripe.invoices.pay(id, {
+        paid_out_of_band: true,
+      });
+
+      await audit(req, 'mark_invoice_paid', 'invoice', id, { number: paidInvoice.number });
+
+      res.json({ success: true, invoice: paidInvoice });
+    } catch (error: any) {
+      console.error('Mark invoice paid error:', error);
+      res.status(500).json({ error: error.message || 'Failed to mark invoice as paid' });
+    }
+  });
+
   // ========================================================================
   // GET /api/admin/accounting/expenses — Paginated expenses
   // ========================================================================

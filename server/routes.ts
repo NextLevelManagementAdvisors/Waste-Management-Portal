@@ -665,6 +665,31 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.put('/api/collection-intent/:locationId/:date', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { locationId, date } = req.params;
+      const { intent } = req.body;
+      const userId = req.session.userId!;
+
+      const location = await storage.getLocationById(locationId);
+      if (!location || location.user_id !== userId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const result = await storage.upsertCollectionIntent({
+        userId,
+        locationId,
+        intent,
+        collectionDate: date,
+      });
+
+      res.json({ data: result });
+    } catch (error) {
+      console.error('Error updating collection intent:', error);
+      res.status(500).json({ error: 'Failed to update collection intent' });
+    }
+  });
+
   app.get('/api/optimoroute/history', requireAuth, async (req: Request, res: Response) => {
     try {
       const address = req.query.address as string;
@@ -773,6 +798,70 @@ export function registerRoutes(app: Express) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'AI service error' });
       }
+    }
+  });
+
+  app.post('/api/redeem-credits', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { amount, method } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ error: 'Invalid amount' });
+      }
+
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      if (user.total_referral_credits < amount) {
+        return res.status(400).json({ error: 'Insufficient credits' });
+      }
+
+      await storage.query('BEGIN');
+      const redemption = await storage.createRedemption({
+        userId,
+        amount,
+        method,
+        status: 'pending',
+      });
+
+      await storage.updateUser(userId, {
+        total_referral_credits: user.total_referral_credits - amount,
+      });
+      await storage.query('COMMIT');
+
+      res.json({ success: true, redemption });
+    } catch (error) {
+      await storage.query('ROLLBACK');
+      console.error('Error redeeming credits:', error);
+      res.status(500).json({ error: 'Failed to redeem credits' });
+    }
+  });
+
+  app.get('/api/referral-info', requireAuth, async (req: Request, res: Response) => {
+    try {
+        const userId = req.session.userId!;
+        const user = await storage.getUserById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const [referralCode, referrals, redemptions] = await Promise.all([
+            storage.getReferralCodeForUser(userId),
+            storage.getReferralsForUser(userId),
+            storage.getRedemptionsForUser(userId),
+        ]);
+        res.json({
+            referralCode: referralCode?.code,
+            shareLink: `https://www.theruralconsumer.com/register?ref=${referralCode?.code}`,
+            totalRewards: user.total_referral_credits || 0,
+            referrals,
+            redemptions,
+        });
+    } catch (error) {
+        console.error('Error getting referral info:', error);
+        res.status(500).json({ error: 'Failed to get referral info' });
     }
   });
 

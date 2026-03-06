@@ -768,14 +768,26 @@ export const getReferralInfo = async (): Promise<ReferralInfo> => {
     return { referralCode: '', shareLink: '', totalRewards: 0, referrals: [] };
 };
 
-// --- DRIVER COMMUNICATION FUNCTIONS (DB-BACKED) ---
-
-export const setCollectionIntent = async (locationId: string, intent: 'out' | 'skip', date: string) => {
-    const res = await fetch('/api/collection-intent', {
+export const redeemCredits = async (amount: number, method: string) => {
+    const res = await fetch('/api/redeem-credits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ locationId, intent, date }),
+        body: JSON.stringify({ amount, method }),
+    });
+    const json = await safeJson(res, 'Failed to redeem credits');
+    if (!res.ok) throw new Error(json.error || 'Failed to redeem credits');
+    return json;
+};
+
+// --- DRIVER COMMUNICATION FUNCTIONS (DB-BACKED) ---
+
+export const setCollectionIntent = async (locationId: string, intent: 'out' | 'skip', date: string) => {
+    const res = await fetch(`/api/collection-intent/${locationId}/${date}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ intent }),
     });
     const json = await safeJson(res, 'Failed to save collection intent');
     if (!res.ok) throw new Error(json.error || 'Failed to save collection intent');
