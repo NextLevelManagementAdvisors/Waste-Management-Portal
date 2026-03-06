@@ -682,8 +682,9 @@ export function registerAdminRoutes(app: Express) {
   // On-Demand Requests (Schedule Overview)
   app.get('/api/admin/on-demand', requireAdmin, async (req: Request, res: Response) => {
     try {
+      const rawStatus = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : undefined;
       const options = {
-        status: (req.query.status as string) || undefined,
+        status: rawStatus && rawStatus !== 'all' ? rawStatus : undefined,
         limit: parseInt(req.query.limit as string) || 50,
         offset: parseInt(req.query.offset as string) || 0,
       };
@@ -916,7 +917,24 @@ export function registerAdminRoutes(app: Express) {
         route_type, accepted_bid_id, actual_pay, payment_status,
         ...(markOutOfSync ? { optimo_synced: false } : {}),
       });
-      await audit(req, 'update_route', 'route', routeId, req.body);
+      let linkedOnDemandSynced = 0;
+      if (assigned_driver_id !== undefined) {
+        const syncResult = await pool.query(
+          `UPDATE on_demand_requests odr
+           SET assigned_driver_id = $1,
+               status = CASE WHEN $1 IS NOT NULL AND odr.status = 'pending' THEN 'scheduled' ELSE odr.status END,
+               updated_at = NOW()
+           WHERE odr.id IN (
+             SELECT DISTINCT rs.on_demand_request_id
+             FROM route_stops rs
+             WHERE rs.route_id = $2 AND rs.on_demand_request_id IS NOT NULL
+           )
+             AND odr.status IN ('pending', 'scheduled')`,
+          [assigned_driver_id || null, routeId]
+        );
+        linkedOnDemandSynced = syncResult.rowCount || 0;
+      }
+      await audit(req, 'update_route', 'route', routeId, { ...req.body, linkedOnDemandSynced });
 
       // When a route is cancelled, cancel all non-terminal stops and notify affected customers
       if (status === 'cancelled' && existing.status !== 'cancelled') {
@@ -1056,7 +1074,23 @@ export function registerAdminRoutes(app: Express) {
         accepted_bid_id: bidId || undefined,
         actual_pay: actualPay || route.base_pay,
       });
-      await audit(req, 'assign_route', 'route', routeId, { driverId, bidId, actualPay });
+
+      // Keep on-demand assignments in sync when route contains linked on-demand stops.
+      const syncResult = await pool.query(
+        `UPDATE on_demand_requests odr
+         SET assigned_driver_id = $1,
+             status = CASE WHEN odr.status = 'pending' THEN 'scheduled' ELSE odr.status END,
+             updated_at = NOW()
+         WHERE odr.id IN (
+           SELECT DISTINCT rs.on_demand_request_id
+           FROM route_stops rs
+           WHERE rs.route_id = $2 AND rs.on_demand_request_id IS NOT NULL
+         )
+           AND odr.status IN ('pending', 'scheduled')`,
+        [driverId, routeId]
+      );
+      const linkedOnDemandSynced = syncResult.rowCount || 0;
+      await audit(req, 'assign_route', 'route', routeId, { driverId, bidId, actualPay, linkedOnDemandSynced });
 
       // Update bid statuses: accept winning bid, reject others
       if (bidId) {

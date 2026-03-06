@@ -22,8 +22,12 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
     errors: [],
   };
 
-  // Fetch routes from OptimoRoute API
-  const apiResult = await optimo.getRoutes(date);
+  // Fetch routes from OptimoRoute API (with polyline data for map display)
+  const apiResult = await optimo.getRoutes({
+    date,
+    includeRoutePolyline: true,
+    includeRouteStartEnd: true,
+  });
   const routes = apiResult.routes || [];
 
   for (const optimoRoute of routes) {
@@ -66,6 +70,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       route_type: 'daily_route',
       source: 'optimo_import',
       status: assignedDriverId ? 'assigned' : 'open',
+      polyline: optimoRoute.routePolyline || undefined,
     });
 
     // Set the dedup key and mark synced

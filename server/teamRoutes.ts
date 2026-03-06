@@ -1333,6 +1333,7 @@ export function registerTeamRoutes(app: Express) {
           address: p.address,
           serviceName: p.service_name,
           servicePrice: Number(p.service_price),
+          requestedDate: p.requested_date,
           pickupDate: p.requested_date,
           status: p.status,
           notes: p.notes,

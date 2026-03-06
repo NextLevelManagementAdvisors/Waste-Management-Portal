@@ -219,7 +219,7 @@ const OnDemandSchedule: React.FC = () => {
     setLoading(true);
     try {
       const query = new URLSearchParams();
-      query.set('status', statusFilter);
+      if (statusFilter !== 'all') query.set('status', statusFilter);
       query.set('limit', String(limit));
       query.set('offset', String(offset));
       const res = await fetch(`/api/admin/on-demand?${query}`, { credentials: 'include' });

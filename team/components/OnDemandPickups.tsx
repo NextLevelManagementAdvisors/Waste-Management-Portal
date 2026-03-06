@@ -6,17 +6,19 @@ interface OnDemandPickup {
   serviceName: string;
   servicePrice: number;
   requestedDate: string;
+  pickupDate?: string;
   status: string;
   notes?: string;
   photos?: string[];
 }
 
 const formatDate = (dateStr: string) => {
-  try {
-    return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  } catch {
+  if (!dateStr) return 'Date unavailable';
+  const parsed = new Date(dateStr + 'T00:00:00Z');
+  if (Number.isNaN(parsed.getTime())) {
     return dateStr;
   }
+  return parsed.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -80,9 +82,10 @@ const OnDemandPickups: React.FC = () => {
 
   // Group by date
   const today = new Date().toISOString().split('T')[0];
-  const todayRequests = requests.filter(r => r.requestedDate.split('T')[0] === today);
-  const upcomingRequests = requests.filter(r => r.requestedDate.split('T')[0] > today);
-  const pastRequests = requests.filter(r => r.requestedDate.split('T')[0] < today);
+  const requestDate = (r: OnDemandPickup) => (r.requestedDate || r.pickupDate || '').split('T')[0];
+  const todayRequests = requests.filter(r => requestDate(r) === today);
+  const upcomingRequests = requests.filter(r => requestDate(r) > today);
+  const pastRequests = requests.filter(r => requestDate(r) < today);
 
   const renderRequestCard = (request: OnDemandPickup) => (
     <div key={request.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
@@ -90,7 +93,7 @@ const OnDemandPickups: React.FC = () => {
         <div className="flex-1">
           <p className="text-xs font-bold text-teal-600 uppercase tracking-widest">{request.serviceName}</p>
           <p className="text-sm font-bold text-gray-900 mt-1">{request.address}</p>
-          <p className="text-sm text-gray-500 mt-0.5">{formatDate(request.requestedDate)}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{formatDate(request.requestedDate || request.pickupDate || '')}</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${STATUS_COLORS[request.status] || STATUS_COLORS.pending}`}>

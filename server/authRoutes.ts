@@ -28,6 +28,23 @@ const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
 
+/**
+ * Admin Pricing Overrides
+ * Defines mandatory surcharges for specific items that require special handling or disposal fees.
+ * These overrides are applied in both the AI estimation prompt and the deterministic fallback logic.
+ * TODO: In a production environment, fetch these from a database table (e.g., pricing_rules).
+ */
+const ADMIN_PRICING_OVERRIDES = [
+  { keyword: 'piano', surcharge: 150 },
+  { keyword: 'refrigerator', surcharge: 35 },
+  { keyword: 'fridge', surcharge: 35 },
+  { keyword: 'mattress', surcharge: 25 },
+  { keyword: 'sofa', surcharge: 40 },
+  { keyword: 'couch', surcharge: 40 },
+  { keyword: 'tire', surcharge: 15 },
+  { keyword: 'paint', surcharge: 10 },
+];
+
 declare module 'express-session' {
   interface SessionData {
     userId: string;
@@ -73,11 +90,19 @@ function formatLocationForClient(loc: DbLocation) {
     notificationPreferences: loc.notification_preferences,
     transferStatus: loc.transfer_status || undefined,
     pendingOwner: loc.pending_owner || undefined,
-    collectionDay: loc.collection_day || undefined,
-    collectionFrequency: loc.collection_frequency || undefined,
   };
 }
 
+/**
+ * Calculates a fallback price estimate when AI services are unavailable.
+ * 
+ * The estimation logic combines:
+ * 1. A base price (lowest available service price).
+ * 2. Mandatory surcharges found in the description (from ADMIN_PRICING_OVERRIDES).
+ * 3. A complexity multiplier based on keywords, description length, and photo count.
+ * 
+ * Formula: (Base Price * Multiplier) + Surcharges
+ */
 function buildFallbackOnDemandEstimate(
   description: string,
   photoUrls: string[],
@@ -89,9 +114,18 @@ function buildFallbackOnDemandEstimate(
 
   const basePrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 49.99;
   const normalized = description.toLowerCase();
+
+  // Calculate surcharges from Admin Overrides
+  let surchargeTotal = 0;
+  for (const rule of ADMIN_PRICING_OVERRIDES) {
+    if (normalized.includes(rule.keyword)) {
+      surchargeTotal += rule.surcharge;
+    }
+  }
+
+  // General complexity keywords (excluding specific surcharge items)
   const bulkyKeywords = [
-    'mattress', 'sofa', 'couch', 'appliance', 'refrigerator', 'fridge',
-    'washer', 'dryer', 'piano', 'construction', 'debris', 'furniture', 'junk',
+    'appliance', 'washer', 'dryer', 'construction', 'debris', 'furniture', 'junk',
   ];
   const keywordHits = bulkyKeywords.filter(k => normalized.includes(k)).length;
 
@@ -101,10 +135,11 @@ function buildFallbackOnDemandEstimate(
   if (photoUrls.length >= 5) multiplier += 0.1;
   if (description.length > 140) multiplier += 0.15;
 
-  const estimate = Math.round((basePrice * multiplier + Number.EPSILON) * 100) / 100;
+  // Formula: (Base * Multiplier) + Surcharges
+  const estimate = Math.round(((basePrice * multiplier) + surchargeTotal + Number.EPSILON) * 100) / 100;
   return {
     estimate: Math.max(basePrice, estimate),
-    reasoning: 'AI pricing is temporarily unavailable. This estimate uses your details and our standard starting pickup price.',
+    reasoning: 'AI pricing is temporarily unavailable. This estimate uses your details, standard base price, and item-specific surcharges.',
   };
 }
 
@@ -1446,6 +1481,7 @@ export function registerAuthRoutes(app: Express) {
       const ai = new GoogleGenAI({ apiKey });
 
       const catalogContext = services.map(s => `${s.name}: $${parseFloat(s.price).toFixed(2)} - ${s.description || ''}`).join('\n');
+      const overridesContext = ADMIN_PRICING_OVERRIDES.map(r => `- ${r.keyword}: +$${r.surcharge}`).join('\n');
 
       // Build content parts: text + optional images
       const parts: any[] = [];
@@ -1470,6 +1506,9 @@ Consider: item type and count, approximate size and weight, disposal complexity 
 
 Our service catalog for reference:
 ${catalogContext}
+
+Mandatory Surcharges (Admin Overrides) - YOU MUST APPLY THESE IF APPLICABLE:
+${overridesContext}
 
 Customer description: ${safeDescription || '(no description provided — estimate from photos only)'}
 
@@ -1833,33 +1872,6 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
           }
         } catch (err) {
           console.error('[CollectionIntent] Failed to delete OptimoRoute order:', err);
-        }
-
-        // Mark internal route_stop as skipped
-        try {
-          await storage.skipRouteStopForLocation(locationId, date);
-        } catch (err) {
-          console.error('[CollectionIntent] Failed to mark route stop as skipped:', err);
-        }
-
-        // Credit customer's Stripe account for skipping
-        try {
-          const user = await storage.getUserById(userId);
-          if (user?.stripe_customer_id) {
-            const stripe = await getUncachableStripeClient();
-            const settingResult = await pool.query(
-              `SELECT value FROM system_settings WHERE key = 'SKIP_CREDIT_AMOUNT_CENTS'`
-            );
-            const creditCents = parseInt(settingResult.rows[0]?.value || '100', 10);
-            await stripe.customers.createBalanceTransaction(user.stripe_customer_id, {
-              amount: -creditCents, // negative = credit
-              currency: 'usd',
-              description: `Skip credit for pickup on ${date}`,
-            });
-            console.log(`[CollectionIntent] Applied ${creditCents}¢ skip credit to customer ${user.stripe_customer_id}`);
-          }
-        } catch (err) {
-          console.error('[CollectionIntent] Failed to apply skip credit:', err);
         }
       }
 

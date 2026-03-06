@@ -743,6 +743,11 @@ ALTER TABLE routes ADD COLUMN IF NOT EXISTS computed_value NUMERIC(10,2);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS contract_id UUID REFERENCES route_contracts(id);
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS pay_mode VARCHAR(20) DEFAULT 'dynamic';
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS pay_premium NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS polyline TEXT;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS start_latitude NUMERIC;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS start_longitude NUMERIC;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS end_latitude NUMERIC;
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS end_longitude NUMERIC;
 CREATE INDEX IF NOT EXISTS idx_routes_contract ON routes(contract_id);
 
 -- Route stop compensation

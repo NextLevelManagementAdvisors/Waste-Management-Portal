@@ -1041,7 +1041,7 @@ export class Storage {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
-    if (options.status) { conditions.push(`s.status = $${idx++}`); params.push(options.status); }
+    if (options.status && options.status !== 'all') { conditions.push(`s.status = $${idx++}`); params.push(options.status); }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const limit = options.limit || 50;
     const offset = options.offset || 0;
