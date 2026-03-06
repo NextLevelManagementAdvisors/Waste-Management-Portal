@@ -693,7 +693,7 @@ const AdminApp: React.FC = () => {
               {pzCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('operations', { tab: 'zones' })}
+                  onClick={() => navigateTo('operations', { tab: 'service-areas' })}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-blue-200 hover:bg-blue-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

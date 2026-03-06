@@ -3849,20 +3849,20 @@ export function registerAdminRoutes(app: Express) {
       const error = req.query.error as string;
 
       if (error || !code) {
-        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=denied');
+        return res.redirect('/admin/settings?gmail_auth=denied');
       }
 
       const expectedState = req.session.gmailOAuthState;
       delete req.session.gmailOAuthState;
 
       if (!expectedState || state !== expectedState) {
-        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=state_mismatch');
+        return res.redirect('/admin/settings?gmail_auth=state_mismatch');
       }
 
       const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        return res.redirect('/admin?tab=system&subtab=integrations&gmail_auth=missing_credentials');
+        return res.redirect('/admin/settings?gmail_auth=missing_credentials');
       }
 
       const redirectUri = getGmailRedirectUri(req);
@@ -3870,7 +3870,7 @@ export function registerAdminRoutes(app: Express) {
 
       const { tokens } = await oauth2Client.getToken(code);
       if (!tokens.refresh_token) {
-        return res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=no_refresh_token');
+        return res.redirect('/admin/settings?gmail_auth=no_refresh_token');
       }
 
       // Save the refresh token via settings system
@@ -3878,11 +3878,11 @@ export function registerAdminRoutes(app: Express) {
       await saveSetting('GMAIL_REFRESH_TOKEN', tokens.refresh_token, 'gmail', true, userId);
 
       req.session.save(() => {
-        res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=success');
+        res.redirect('/admin/settings?gmail_auth=success');
       });
     } catch (error) {
       console.error('Gmail callback error:', error);
-      res.redirect('/admin/settings/?tab=system&subtab=integrations&gmail_auth=error');
+      res.redirect('/admin/settings?gmail_auth=error');
     }
   });
 
