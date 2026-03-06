@@ -661,7 +661,7 @@ const AdminApp: React.FC = () => {
               {arCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('dashboard')}
+                  onClick={() => navigateTo('dashboard', { filter: 'addresses' })}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-amber-200 hover:bg-amber-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -707,7 +707,7 @@ const AdminApp: React.FC = () => {
               {fwCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => navigateTo('dashboard')}
+                  onClick={() => navigateTo('operations', { tab: 'service-areas' })}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-emerald-200 hover:bg-emerald-50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

@@ -121,13 +121,23 @@ const DashboardView: React.FC<{
     fetchPendingCollections();
   }, [fetchPendingCollections]);
 
-  // Auto-expand the first action section that has items
+  // Auto-expand based on navFilter or first action section with items
   useEffect(() => {
+    if (navFilter?.filter === 'addresses') {
+      setExpandedAction('addresses');
+      onFilterConsumed?.();
+      return;
+    }
+    if (navFilter?.filter === 'pickups') {
+      setExpandedAction('pickups');
+      onFilterConsumed?.();
+      return;
+    }
     if (stats && expandedAction === null) {
       if (stats.pendingMissedCollections > 0) setExpandedAction('pickups');
       else if (stats.pendingReviews > 0) setExpandedAction('addresses');
     }
-  }, [stats, expandedAction]);
+  }, [stats, expandedAction, navFilter]);
 
   useEffect(() => {
     if (navFilter?.tab) {
