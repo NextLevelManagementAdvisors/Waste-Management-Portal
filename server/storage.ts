@@ -2784,7 +2784,20 @@ export class Storage {
        FROM on_demand_requests spr
        JOIN locations p ON spr.location_id = p.id
        JOIN users u ON spr.user_id = u.id
-       WHERE spr.requested_date = $1 AND spr.status IN ('pending', 'scheduled')
+        WHERE spr.requested_date = $1 AND spr.status IN ('pending', 'scheduled')
+         AND NOT EXISTS (
+           SELECT 1
+           FROM route_stops rs
+           JOIN routes r ON r.id = rs.route_id
+           WHERE rs.on_demand_request_id = spr.id
+             AND COALESCE(r.status, '') != 'cancelled'
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM routes r2
+           WHERE r2.on_demand_request_id = spr.id
+             AND COALESCE(r2.status, '') != 'cancelled'
+         )
        ORDER BY spr.service_price DESC`,
       [date]
     );

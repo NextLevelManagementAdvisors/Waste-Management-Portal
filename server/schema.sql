@@ -458,6 +458,21 @@ ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
 ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
 ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS assigned_driver_id UUID REFERENCES driver_profiles(id);
 ALTER TABLE on_demand_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'on_demand_requests'
+      AND c.contype = 'f'
+      AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (assigned_driver_id)%REFERENCES driver_profiles(id)%'
+  ) THEN
+    ALTER TABLE on_demand_requests
+      ADD CONSTRAINT fk_on_demand_requests_assigned_driver
+      FOREIGN KEY (assigned_driver_id) REFERENCES driver_profiles(id);
+  END IF;
+END $$;
 ALTER TABLE on_demand_services ADD COLUMN IF NOT EXISTS icon_name VARCHAR(100);
 
 -- Collection scheduling fields on locations

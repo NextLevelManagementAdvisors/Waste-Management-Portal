@@ -313,9 +313,10 @@ const OnDemandSchedule: React.FC = () => {
                           <div className="flex items-center gap-1">
                             <StatusBadge status={request.status} />
                             {request.status === 'scheduled' && (() => {
-                              const created = new Date(request.createdAt);
+                              const anchor = new Date(request.updatedAt || request.createdAt);
+                              if (Number.isNaN(anchor.getTime())) return null;
                               const now = new Date();
-                              const daysSince = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+                              const daysSince = Math.floor((now.getTime() - anchor.getTime()) / (1000 * 60 * 60 * 24));
                               return daysSince > 5 ? (
                                 <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={`Approved ${daysSince} days ago, not yet completed`}>
                                   Overdue

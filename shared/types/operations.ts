@@ -31,6 +31,7 @@ export interface OnDemandRequest {
   assignedDriverId?: string;
   cancellationReason?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Driver {

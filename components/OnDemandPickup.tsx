@@ -23,6 +23,13 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
     </span>
 );
 
+const toLocalDateInputValue = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const PortfolioPickupCard: React.FC<{
     location: Location;
     requests: OnDemandRequest[];
@@ -117,7 +124,7 @@ const OnDemandPickup: React.FC = () => {
         setSelectedService(service);
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        setPickupDate(tomorrow.toISOString().split('T')[0]);
+        setPickupDate(toLocalDateInputValue(tomorrow));
         setIsModalOpen(true);
     };
 
@@ -251,7 +258,11 @@ const OnDemandPickup: React.FC = () => {
     const requests = allRequests.filter(r => r.locationId === selectedLocation.id);
     const upcomingRequests = requests.filter(r => r.status === 'pending' || r.status === 'scheduled').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const pastRequests = requests.filter(r => r.status === 'completed' || r.status === 'cancelled').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const minDate = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
+    const minDate = (() => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return toLocalDateInputValue(tomorrow);
+    })();
 
     return (
         <div className="space-y-8 max-w-6xl mx-auto">

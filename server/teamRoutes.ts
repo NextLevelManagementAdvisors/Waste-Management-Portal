@@ -1360,6 +1360,18 @@ export function registerTeamRoutes(app: Express) {
       }
       const updated = await storage.updateOnDemandRequest(id, { status: 'completed' });
 
+      // Sync linked route stop(s) so planner/live status views stay consistent.
+      await pool.query(
+        `UPDATE route_stops rs
+         SET status = 'completed'
+         FROM routes r
+         WHERE rs.on_demand_request_id = $1
+           AND rs.route_id = r.id
+           AND COALESCE(r.status, '') != 'cancelled'
+           AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
+        [id]
+      );
+
       // Notify customer
       const { sendServiceUpdate } = await import('./notificationService');
       sendServiceUpdate(onDemandRequest.user_id, 'On-Demand Pickup Completed', `Your ${onDemandRequest.service_name} pickup at ${onDemandRequest.address} has been completed. Thank you!`).catch(e => console.error('Completion notification failed:', e));

@@ -708,6 +708,7 @@ export function registerAdminRoutes(app: Express) {
           assignedDriverId: r.assigned_driver_id,
           cancellationReason: r.cancellation_reason,
           createdAt: r.created_at,
+          updatedAt: r.updated_at,
         })),
         total: result.total,
       });
@@ -740,6 +741,7 @@ export function registerAdminRoutes(app: Express) {
         assignedDriverId: record.assigned_driver_id,
         cancellationReason: record.cancellation_reason,
         createdAt: record.created_at,
+        updatedAt: record.updated_at,
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch on-demand request' });
@@ -787,6 +789,21 @@ export function registerAdminRoutes(app: Express) {
       if (servicePrice !== undefined) updates.servicePrice = servicePrice;
 
       const updated = await storage.updateOnDemandRequest(id, updates);
+
+      // Keep linked route stops aligned when admin force-updates terminal status.
+      if (status === 'completed' || status === 'cancelled') {
+        const stopStatus = status;
+        await pool.query(
+          `UPDATE route_stops rs
+           SET status = $1
+           FROM routes r
+           WHERE rs.on_demand_request_id = $2
+             AND rs.route_id = r.id
+             AND COALESCE(r.status, '') != 'cancelled'
+             AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
+          [stopStatus, id]
+        );
+      }
 
       // Send customer notification on status change
       if (status && status !== existing.status) {
@@ -2145,6 +2162,43 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
+      const onDemandIds = Array.from(new Set(
+        stops
+          .map((s: any) => s.on_demand_request_id)
+          .filter((id: any) => typeof id === 'string' && id.length > 0)
+      ));
+      if (onDemandIds.length > 0) {
+        await storage.query(
+          `WITH derived AS (
+             SELECT odr.id,
+                    CASE
+                      WHEN EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status = 'completed'
+                      ) THEN 'completed'
+                      WHEN odr.status != 'completed' AND EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status = 'cancelled'
+                      ) THEN 'cancelled'
+                      WHEN odr.status = 'pending' AND EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status IN ('scheduled', 'in_progress', 'pending')
+                      ) THEN 'scheduled'
+                      ELSE odr.status
+                    END AS next_status
+             FROM on_demand_requests odr
+             WHERE odr.id = ANY($1::uuid[])
+           )
+           UPDATE on_demand_requests odr
+           SET status = d.next_status,
+               updated_at = NOW()
+           FROM derived d
+           WHERE odr.id = d.id
+             AND odr.status IS DISTINCT FROM d.next_status`,
+          [onDemandIds]
+        );
+      }
+
       // If all stops are completed, update route status
       const updatedStops = await storage.getRouteStops(routeId);
       const allCompleted = updatedStops.length > 0 && updatedStops.every((s: any) => s.status === 'completed');
@@ -2176,7 +2230,7 @@ export function registerAdminRoutes(app: Express) {
 
       // Gather all order numbers across all routes
       const allStopsResult = await storage.query(
-        `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status
+        `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status, rs.on_demand_request_id
          FROM route_stops rs
          WHERE rs.route_id = ANY($1) AND rs.optimo_order_no IS NOT NULL`,
         [routes.map((r: any) => r.id)]
@@ -2222,6 +2276,43 @@ export function registerAdminRoutes(app: Express) {
           // Status unchanged but POD data available — store it
           await storage.updateRouteStop(stop.id, { pod_data: JSON.stringify(data.completionForm) });
         }
+      }
+
+      const onDemandIds = Array.from(new Set(
+        allStops
+          .map((s: any) => s.on_demand_request_id)
+          .filter((id: any) => typeof id === 'string' && id.length > 0)
+      ));
+      if (onDemandIds.length > 0) {
+        await storage.query(
+          `WITH derived AS (
+             SELECT odr.id,
+                    CASE
+                      WHEN EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status = 'completed'
+                      ) THEN 'completed'
+                      WHEN odr.status != 'completed' AND EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status = 'cancelled'
+                      ) THEN 'cancelled'
+                      WHEN odr.status = 'pending' AND EXISTS (
+                        SELECT 1 FROM route_stops rs
+                        WHERE rs.on_demand_request_id = odr.id AND rs.status IN ('scheduled', 'in_progress', 'pending')
+                      ) THEN 'scheduled'
+                      ELSE odr.status
+                    END AS next_status
+             FROM on_demand_requests odr
+             WHERE odr.id = ANY($1::uuid[])
+           )
+           UPDATE on_demand_requests odr
+           SET status = d.next_status,
+               updated_at = NOW()
+           FROM derived d
+           WHERE odr.id = d.id
+             AND odr.status IS DISTINCT FROM d.next_status`,
+          [onDemandIds]
+        );
       }
 
       // Auto-complete routes where all stops are done

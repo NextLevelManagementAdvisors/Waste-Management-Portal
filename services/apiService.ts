@@ -542,27 +542,24 @@ export const getOnDemandServices = async (): Promise<OnDemandService[]> => {
 export const getSpecialPickupServices = getOnDemandServices;
 
 export const getOnDemandRequests = async (): Promise<OnDemandRequest[]> => {
-    try {
-        const res = await fetch('/api/on-demand-requests', { credentials: 'include' });
-        const json = await safeJson(res);
-        if (res.ok && json.data) {
-            return json.data.map((r: any) => ({
-                id: r.id,
-                locationId: r.location_id ?? r.property_id,
-                serviceId: r.id,
-                serviceName: r.service_name,
-                date: r.requested_date ?? r.pickup_date,
-                status: r.status,
-                price: Number(r.service_price),
-                notes: r.notes || undefined,
-                photos: r.photos || [],
-                aiEstimate: r.ai_estimate ? Number(r.ai_estimate) : undefined,
-                aiReasoning: r.ai_reasoning || undefined,
-                cancellationReason: r.cancellation_reason || undefined,
-            }));
-        }
-    } catch {}
-    return [];
+    const res = await fetch('/api/on-demand-requests', { credentials: 'include' });
+    const json = await safeJson(res, 'Failed to fetch on-demand pickup requests');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch on-demand pickup requests');
+    if (!json.data) return [];
+    return json.data.map((r: any) => ({
+        id: r.id,
+        locationId: r.location_id ?? r.property_id,
+        serviceId: r.id,
+        serviceName: r.service_name,
+        date: r.requested_date ?? r.pickup_date,
+        status: r.status,
+        price: Number(r.service_price),
+        notes: r.notes || undefined,
+        photos: r.photos || [],
+        aiEstimate: r.ai_estimate ? Number(r.ai_estimate) : undefined,
+        aiReasoning: r.ai_reasoning || undefined,
+        cancellationReason: r.cancellation_reason || undefined,
+    }));
 };
 export const getSpecialPickupRequests = getOnDemandRequests;
 
