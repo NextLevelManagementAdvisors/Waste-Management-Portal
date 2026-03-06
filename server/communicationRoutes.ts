@@ -5,7 +5,7 @@ import { pool } from './db';
 import { requireAuth } from './middleware';
 import { broadcastToParticipants } from './websocket';
 import { sendMessageNotificationEmail, logCommunication, renderTemplate, sendAndLogNotification, sendDriverNotification } from './notificationService';
-import { requireAdmin } from './adminRoutes';
+import { requireAdmin, requirePermission } from './adminRoutes';
 
 async function requireDriverAuth(req: Request, res: Response, next: NextFunction) {
   const userId = (req.session as any)?.userId;
@@ -604,7 +604,7 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/templates', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/templates', requireAdmin, requirePermission('communications'), async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
       const { name, channel, subject, body, variables } = req.body;
@@ -620,7 +620,7 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/templates/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/templates/:id', requireAdmin, requirePermission('communications'), async (req: Request, res: Response) => {
     try {
       const { name, channel, subject, body, variables } = req.body;
       if (!name?.trim() || !body?.trim()) return res.status(400).json({ error: 'Name and body are required' });
@@ -636,7 +636,7 @@ export function registerCommunicationRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/admin/templates/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.delete('/api/admin/templates/:id', requireAdmin, requirePermission('communications'), async (req: Request, res: Response) => {
     try {
       const result = await pool.query('DELETE FROM communication_templates WHERE id=$1 RETURNING id', [req.params.id]);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });

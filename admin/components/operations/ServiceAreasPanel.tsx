@@ -100,8 +100,12 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
       if (res.ok) {
         const j = await res.json();
         setZones(j.zones || []);
+      } else {
+        setToast('Failed to load service zones');
       }
-    } catch {}
+    } catch {
+      setToast('Failed to load service zones');
+    }
   }, []);
 
   const loadLocations = useCallback(async () => {
@@ -113,8 +117,12 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
       if (res.ok) {
         const j = await res.json();
         setLocations(j.locations || []);
+      } else {
+        setToast('Failed to load locations');
       }
-    } catch {}
+    } catch {
+      setToast('Failed to load locations');
+    }
   }, [search, locationStatusFilter]);
 
   const loadRequests = useCallback(async () => {
@@ -123,8 +131,12 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
       if (res.ok) {
         const j = await res.json();
         setPendingRequests(j.requests || []);
+      } else {
+        setToast('Failed to load assignment requests');
       }
-    } catch {}
+    } catch {
+      setToast('Failed to load assignment requests');
+    }
   }, []);
 
   const loadAll = useCallback(async () => {

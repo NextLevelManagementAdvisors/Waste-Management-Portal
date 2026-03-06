@@ -171,8 +171,8 @@ export function registerAdminRoutes(app: Express) {
         sortDir: (req.query.sortDir as string) || 'desc',
         serviceType: (req.query.serviceType as string) || '',
         hasStripe: (req.query.hasStripe as string) || '',
-        limit: parseInt(req.query.limit as string) || 50,
-        offset: parseInt(req.query.offset as string) || 0,
+        limit: Math.min(parseInt(req.query.limit as string) || 50, 500),
+        offset: Math.max(parseInt(req.query.offset as string) || 0, 0),
       };
 
       const { users, total } = await storage.getAllUsersPaginated(options);
@@ -416,7 +416,13 @@ export function registerAdminRoutes(app: Express) {
       if (firstName !== undefined) updateData.first_name = firstName;
       if (lastName !== undefined) updateData.last_name = lastName;
       if (phone !== undefined) updateData.phone = phone;
-      if (email !== undefined) updateData.email = email;
+      if (email !== undefined) {
+        const existing = await storage.getUserByEmail(email);
+        if (existing && existing.id !== req.params.id) {
+          return res.status(409).json({ error: 'Email already in use by another account' });
+        }
+        updateData.email = email;
+      }
 
       await storage.updateUserAdmin(req.params.id, updateData);
       if (isAdmin !== undefined) {
@@ -460,7 +466,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete('/api/admin/notes/:noteId', requireAdmin, requirePermission('customers'), async (req: Request, res: Response) => {
     try {
-      await storage.deleteAdminNote(parseInt(req.params.noteId), getAdminId(req));
+      const noteId = parseInt(req.params.noteId, 10);
+      if (isNaN(noteId)) return res.status(400).json({ error: 'Invalid note ID' });
+      await storage.deleteAdminNote(noteId, getAdminId(req));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete note' });
@@ -470,7 +478,7 @@ export function registerAdminRoutes(app: Express) {
   // Analytics
   app.get('/api/admin/analytics/signups', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const days = parseInt(req.query.days as string) || 90;
+      const days = Math.min(parseInt(req.query.days as string) || 90, 365);
       const trends = await storage.getSignupTrends(days);
       res.json(trends);
     } catch (error) {
@@ -481,7 +489,7 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/analytics/revenue', requireAdmin, async (req: Request, res: Response) => {
     try {
       const stripe = await getUncachableStripeClient();
-      const months = parseInt(req.query.months as string) || 6;
+      const months = Math.min(parseInt(req.query.months as string) || 6, 24);
       const now = new Date();
       const revenueData: { month: string; revenue: number }[] = [];
 
@@ -553,8 +561,8 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/audit-log', requireAdmin, async (req: Request, res: Response) => {
     try {
       const options = {
-        limit: parseInt(req.query.limit as string) || 50,
-        offset: parseInt(req.query.offset as string) || 0,
+        limit: Math.min(parseInt(req.query.limit as string) || 50, 500),
+        offset: Math.max(parseInt(req.query.offset as string) || 0, 0),
         adminId: (req.query.adminId as string) || undefined,
         action: (req.query.action as string) || undefined,
         entityType: (req.query.entityType as string) || undefined,
@@ -585,8 +593,8 @@ export function registerAdminRoutes(app: Express) {
       const statusParam = req.query.status as string | undefined;
       const options = {
         status: statusParam && statusParam !== 'all' ? statusParam : undefined,
-        limit: parseInt(req.query.limit as string) || 50,
-        offset: parseInt(req.query.offset as string) || 0,
+        limit: Math.min(parseInt(req.query.limit as string) || 50, 500),
+        offset: Math.max(parseInt(req.query.offset as string) || 0, 0),
       };
       const result = await storage.getMissedCollectionReportsAdmin(options);
       res.json({
@@ -685,8 +693,8 @@ export function registerAdminRoutes(app: Express) {
       const rawStatus = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : undefined;
       const options = {
         status: rawStatus && rawStatus !== 'all' ? rawStatus : undefined,
-        limit: parseInt(req.query.limit as string) || 50,
-        offset: parseInt(req.query.offset as string) || 0,
+        limit: Math.min(parseInt(req.query.limit as string) || 50, 500),
+        offset: Math.max(parseInt(req.query.offset as string) || 0, 0),
       };
       const result = await storage.getOnDemandRequestsAdmin(options);
       res.json({
@@ -877,7 +885,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/routes', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const { title, scheduled_date, ...rest } = req.body;
       if (!title || !scheduled_date) {
@@ -891,7 +899,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/routes/:id', requireAdmin, async (req: Request, res: Response) => {
+  app.put('/api/admin/routes/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
       const existing = await storage.getRouteById(routeId);
@@ -1016,7 +1024,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes/:id/stops', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
       const { locationIds, onDemandIds, missedRedoLocationIds } = req.body;
@@ -1048,7 +1056,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/admin/routes/:id/stops/:stopId', requireAdmin, async (req: Request, res: Response) => {
+  app.delete('/api/admin/routes/:id/stops/:stopId', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
       const stopId = req.params.stopId as string;
@@ -1075,7 +1083,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post('/api/admin/routes/:id/assign', requireAdmin, async (req: Request, res: Response) => {
+  app.post('/api/admin/routes/:id/assign', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
       const { driverId, bidId, actualPay } = req.body;
@@ -1229,7 +1237,7 @@ export function registerAdminRoutes(app: Express) {
           res.json({ success: true, decision, flaggedLocations: matched.length });
         } catch (flagErr) {
           console.error('[AutoFlag] Error during zone approval flagging:', flagErr);
-          res.json({ success: true, decision, flaggedLocations: 0 });
+          res.status(207).json({ success: true, decision, flaggedLocations: 0, warning: 'Zone approved but waitlist auto-flagging failed' });
         }
       } else {
         res.json({ success: true, decision });
@@ -1526,19 +1534,32 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: 'zoneIds must be a non-empty array' });
       }
 
-      const results: { id: string; success: boolean }[] = [];
-      for (const zoneId of zoneIds) {
-        try {
-          const zone = await storage.getZoneById(zoneId);
-          if (!zone) { results.push({ id: zoneId, success: false }); continue; }
-          await storage.adminDeleteZone(zoneId);
-          await audit(req, 'zone_deleted', 'driver_custom_zones', zoneId, { zone_name: zone.name, driver_name: zone.driver_name });
-          results.push({ id: zoneId, success: true });
-        } catch {
-          results.push({ id: zoneId, success: false });
-        }
+      // Validate all zones exist before deleting any
+      const zones = await Promise.all(zoneIds.map((id: string) => storage.getZoneById(id)));
+      const notFound = zoneIds.filter((_: string, i: number) => !zones[i]);
+      if (notFound.length > 0) {
+        return res.status(404).json({ error: `Zones not found: ${notFound.join(', ')}` });
       }
-      res.json({ results });
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const zoneId of zoneIds) {
+          await client.query(`UPDATE locations SET zone_id = NULL WHERE zone_id = $1`, [zoneId]);
+          await client.query(`DELETE FROM driver_custom_zones WHERE id = $1`, [zoneId]);
+        }
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
+
+      for (let i = 0; i < zoneIds.length; i++) {
+        await audit(req, 'zone_deleted', 'driver_custom_zones', zoneIds[i], { zone_name: zones[i].name, driver_name: zones[i].driver_name });
+      }
+      res.json({ results: zoneIds.map((id: string) => ({ id, success: true })) });
     } catch (error) {
       console.error('Bulk zone delete error:', error);
       res.status(500).json({ error: 'Failed to process bulk zone deletion' });
@@ -2511,8 +2532,8 @@ export function registerAdminRoutes(app: Express) {
         search: (req.query.search as string) || undefined,
         sortBy: (req.query.sortBy as string) || 'bid_date',
         sortDir: (req.query.sortDir as string) || 'desc',
-        limit: parseInt(req.query.limit as string) || 50,
-        offset: parseInt(req.query.offset as string) || 0,
+        limit: Math.min(parseInt(req.query.limit as string) || 50, 500),
+        offset: Math.max(parseInt(req.query.offset as string) || 0, 0),
       };
       const result = await storage.getAllBidsPaginated(options);
       res.json({
@@ -2875,12 +2896,17 @@ export function registerAdminRoutes(app: Express) {
 
       switch (action) {
         case 'grant_admin':
-          await storage.bulkUpdateAdminStatus(userIds, true);
-          await audit(req, 'bulk_grant_admin', 'system', undefined, { count: userIds.length });
-          break;
         case 'revoke_admin':
-          await storage.bulkUpdateAdminStatus(userIds, false);
-          await audit(req, 'bulk_revoke_admin', 'system', undefined, { count: userIds.length });
+          if (!hasPermission((req as any).adminRole, '*')) {
+            return res.status(403).json({ error: 'Only full admins can change admin status' });
+          }
+          if (action === 'grant_admin') {
+            await storage.bulkUpdateAdminStatus(userIds, true);
+            await audit(req, 'bulk_grant_admin', 'system', undefined, { count: userIds.length });
+          } else {
+            await storage.bulkUpdateAdminStatus(userIds, false);
+            await audit(req, 'bulk_revoke_admin', 'system', undefined, { count: userIds.length });
+          }
           break;
         case 'export': {
           const users = await storage.getUsersForExport({});
@@ -3020,7 +3046,7 @@ export function registerAdminRoutes(app: Express) {
       const sortBy = req.query.sortBy as string | undefined;
       const sortDir = req.query.sortDir as string | undefined;
       const collectionDay = req.query.collectionDay as string | undefined;
-      const limit = parseInt(req.query.limit as string) || 50;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 500);
       const page = parseInt(req.query.page as string) || 1;
       const offset = (page - 1) * limit;
 

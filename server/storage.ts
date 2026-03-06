@@ -2114,6 +2114,8 @@ export class Storage {
   }
 
   async adminDeleteZone(zoneId: string) {
+    // Clear zone assignment from locations before deleting to avoid orphaned references
+    await this.query(`UPDATE locations SET zone_id = NULL WHERE zone_id = $1`, [zoneId]);
     const result = await this.query(
       `DELETE FROM driver_custom_zones WHERE id = $1 RETURNING id`,
       [zoneId]

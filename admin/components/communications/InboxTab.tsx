@@ -107,28 +107,48 @@ const InboxTab: React.FC = () => {
 
   // WebSocket for real-time updates
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    wsRef.current = ws;
+    let ws: WebSocket;
+    let retryTimeout: ReturnType<typeof setTimeout>;
+    let stopped = false;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.event === 'conversation:new') {
-          loadConversations();
-        } else if (data.event === 'message:new') {
-          loadConversations();
-          if (expandedId && data.data?.conversationId === expandedId) {
-            setMessages(prev => {
-              if (prev.find(m => m.id === data.data.message.id)) return prev;
-              return [...prev, data.data.message];
-            });
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'conversation:new') {
+            loadConversations();
+          } else if (data.event === 'message:new') {
+            loadConversations();
+            if (expandedId && data.data?.conversationId === expandedId) {
+              setMessages(prev => {
+                if (prev.find(m => m.id === data.data.message.id)) return prev;
+                return [...prev, data.data.message];
+              });
+            }
           }
-        }
-      } catch {}
-    };
+        } catch {}
+      };
 
-    return () => { ws.close(); };
+      ws.onerror = () => { ws.close(); };
+
+      ws.onclose = () => {
+        if (!stopped) {
+          retryTimeout = setTimeout(connect, 5000);
+        }
+      };
+    }
+
+    connect();
+
+    return () => {
+      stopped = true;
+      clearTimeout(retryTimeout);
+      ws?.close();
+    };
   }, [loadConversations, expandedId]);
 
   // Scroll to bottom when messages update
