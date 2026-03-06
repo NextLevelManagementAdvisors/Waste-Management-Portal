@@ -1,26 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-// Mock API functions - replace with actual calls to your new endpoints
 const api = {
   getPendingSwaps: async () => {
-    // return fetch('/api/admin/swaps/pending').then(res => res.json());
-    return Promise.resolve({
-      swaps: [
-        { id: 'swap_1', provider_a_name: "Joe's Trash Service", provider_b_name: 'City Waste Co', location_a_address: '123 Main St', location_b_address: '456 Oak Ave', net_value_change_a: -2.50, status: 'pending' },
-        { id: 'swap_2', provider_a_name: "Joe's Trash Service", provider_b_name: 'Green Haulers', location_a_address: '789 Pine St', location_b_address: '101 Maple Dr', net_value_change_a: 1.00, status: 'pending' },
-      ]
-    });
+    const res = await fetch('/api/admin/swaps/pending', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to fetch pending swaps');
+    return res.json();
   },
   generateSwaps: async () => {
-    // return fetch('/api/admin/swaps/generate', { method: 'POST' }).then(res => res.json());
-    console.log('Generating new swap recommendations...');
-    return Promise.resolve({ recommendations: [] });
+    const res = await fetch('/api/admin/swaps/generate', { method: 'POST', credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to generate swaps');
+    return res.json();
   },
   decideSwap: async (id: string, decision: 'accepted' | 'rejected') => {
-    // return fetch(`/api/admin/swaps/${id}/decision`, { method: 'PUT', body: JSON.stringify({ decision }), headers: {'Content-Type': 'application/json'} }).then(res => res.json());
-    console.log(`Submitting decision: ${decision} for swap ${id}`);
-    return Promise.resolve({ success: true });
-  }
+    const res = await fetch(`/api/admin/swaps/${id}/decision`, {
+      method: 'PUT',
+      body: JSON.stringify({ decision }),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to submit decision');
+    return res.json();
+  },
 };
 
 export const SwapDashboard: React.FC = () => {

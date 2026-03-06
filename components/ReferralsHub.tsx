@@ -14,10 +14,15 @@ const ReferralsHub: React.FC = () => {
     const [redeemAmount, setRedeemAmount] = useState('');
     const [redeemError, setRedeemError] = useState('');
     const [redeemSuccess, setRedeemSuccess] = useState('');
+    const [loadError, setLoadError] = useState('');
 
     const fetchReferralInfo = () => {
+        setLoadError('');
         getReferralInfo().then(data => {
             setReferralInfo(data);
+        }).catch(() => {
+            setLoadError('Failed to load referral information. Please try again later.');
+        }).finally(() => {
             setLoading(false);
         });
     };
@@ -51,15 +56,26 @@ const ReferralsHub: React.FC = () => {
             setRedeemSuccess(`Successfully redeemed $${amount.toFixed(2)}.`);
             setIsRedeemModalOpen(false);
             fetchReferralInfo();
-        } catch (error) {
-            setRedeemError(error.message || 'An error occurred while redeeming credits.');
+        } catch (error: any) {
+            setRedeemError(error?.message || 'An error occurred while redeeming credits.');
         }
     };
 
-    if (loading || !referralInfo) {
+    if (loading) {
         return (
             <div className="flex justify-center items-center h-96">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary/20 border-t-primary"></div>
+            </div>
+        );
+    }
+
+    if (loadError || !referralInfo) {
+        return (
+            <div className="flex flex-col justify-center items-center h-96 text-gray-500">
+                <p>{loadError || 'Unable to load referral information.'}</p>
+                <button onClick={fetchReferralInfo} className="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">
+                    Try Again
+                </button>
             </div>
         );
     }

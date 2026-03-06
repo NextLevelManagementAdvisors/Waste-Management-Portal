@@ -1,26 +1,15 @@
 import React, { useState, useEffect } from 'react';
 
-// Mock API functions - replace with actual calls to your new endpoints
 const api = {
   getProviders: async () => {
-    console.log('Fetching providers...');
-    // Replace with: return fetch('/api/admin/providers').then(res => res.json());
-    return Promise.resolve({
-      providers: [
-        { id: 'prov_1', name: "Joe's Trash Service", owner_name: 'Joe Smith', driver_count: 2, territory_count: 1 },
-        { id: 'prov_2', name: 'City Waste Co', owner_name: 'Jane Doe', driver_count: 10, territory_count: 5 },
-      ],
-    });
+    const res = await fetch('/api/admin/providers', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to fetch providers');
+    return res.json();
   },
   getTerritories: async (providerId: string) => {
-    console.log(`Fetching territories for ${providerId}...`);
-    // Replace with: return fetch(`/api/admin/providers/${providerId}/territories`).then(res => res.json());
-    if (providerId === 'prov_1') {
-      return Promise.resolve({
-        territories: [{ id: 'terr_1', name: 'North Boston', zone_type: 'polygon', status: 'active' }],
-      });
-    }
-    return Promise.resolve({ territories: [] });
+    const res = await fetch(`/api/admin/providers/${providerId}/territories`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to fetch territories');
+    return res.json();
   },
 };
 
@@ -90,14 +79,18 @@ export const TerritoryManager: React.FC = () => {
       if (data.providers.length > 0) {
         setSelectedProviderId(data.providers[0].id);
       }
-      setLoading(false);
-    });
+    }).catch(err => {
+      console.error('Failed to load providers:', err);
+    }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     if (selectedProviderId) {
       api.getTerritories(selectedProviderId).then(data => {
         setTerritories(data.territories);
+      }).catch(err => {
+        console.error('Failed to load territories:', err);
+        setTerritories([]);
       });
     } else {
       setTerritories([]);

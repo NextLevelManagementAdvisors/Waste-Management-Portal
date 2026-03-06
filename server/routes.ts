@@ -840,31 +840,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get('/api/referral-info', requireAuth, async (req: Request, res: Response) => {
-    try {
-        const userId = req.session.userId!;
-        const user = await storage.getUserById(userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        const [referralCode, referrals, redemptions] = await Promise.all([
-            storage.getReferralCodeForUser(userId),
-            storage.getReferralsForUser(userId),
-            storage.getRedemptionsForUser(userId),
-        ]);
-        res.json({
-            referralCode: referralCode?.code,
-            shareLink: `https://www.theruralconsumer.com/register?ref=${referralCode?.code}`,
-            totalRewards: user.total_referral_credits || 0,
-            referrals,
-            redemptions,
-        });
-    } catch (error) {
-        console.error('Error getting referral info:', error);
-        res.status(500).json({ error: 'Failed to get referral info' });
-    }
-  });
-
   // Message email opt-in for customers
   app.get('/api/profile/message-notifications', requireAuth, async (req: Request, res: Response) => {
     try {
