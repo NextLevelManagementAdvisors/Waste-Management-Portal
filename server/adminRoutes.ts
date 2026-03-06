@@ -3547,6 +3547,8 @@ export function registerAdminRoutes(app: Express) {
     AUTO_EXPIRE_CONTRACTS:    { category: 'operations', isSecret: false, label: 'Auto-Expire Contracts Past End Date', displayType: 'toggle' },
     ZONE_ASSIGNMENT_DEADLINE_HOURS:     { category: 'operations', isSecret: false, label: 'Zone Assignment Deadline (hours)',  displayType: 'text' },
     ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY: { category: 'operations', isSecret: false, label: 'Multi-Zone Conflict Strategy',     displayType: 'text' },
+    // Billing
+    SKIP_CREDIT_AMOUNT_CENTS:   { category: 'billing', isSecret: false, label: 'Skip Credit Amount (cents)', displayType: 'text' },
     // App Config
     APP_DOMAIN:                 { category: 'app', isSecret: false, label: 'App Domain',                   displayType: 'text' },
     CORS_ORIGIN:                { category: 'app', isSecret: false, label: 'CORS Origin',                  displayType: 'text' },

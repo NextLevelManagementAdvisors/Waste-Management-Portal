@@ -622,7 +622,43 @@ export function registerRoutes(app: Express) {
         return res.status(403).json({ error: 'Address not found in your properties' });
       }
       const result = await optimoRoute.getNextPickupForAddress(address);
-      res.json({ data: result });
+      if (result) {
+        return res.json({ data: result });
+      }
+
+      // Fallback: use internal route_stops / collection_day data
+      const userId = req.session?.userId;
+      if (!userId) return res.json({ data: null });
+
+      const locations = await storage.getLocationsForUser(userId);
+      const loc = locations.find((p: any) => p.address.toLowerCase().trim() === address.toLowerCase().trim());
+      if (!loc) return res.json({ data: null });
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Try next scheduled route stop first
+      const nextStop = await storage.getNextRouteStopForLocation(loc.id, todayStr);
+      if (nextStop) {
+        const d = new Date(nextStop.scheduled_date + 'T00:00:00');
+        return res.json({ data: { date: d.toISOString().split('T')[0], source: 'internal' } });
+      }
+
+      // Fall back to collection_day recurring schedule
+      if (loc.collection_day) {
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const targetDay = dayNames.indexOf(loc.collection_day.toLowerCase());
+        if (targetDay !== -1) {
+          const today = new Date();
+          const currentDay = today.getDay();
+          let daysUntil = (targetDay - currentDay + 7) % 7;
+          if (daysUntil === 0) daysUntil = 7; // next week if today is pickup day
+          const nextDate = new Date(today);
+          nextDate.setDate(today.getDate() + daysUntil);
+          return res.json({ data: { date: nextDate.toISOString().split('T')[0], source: 'schedule' } });
+        }
+      }
+
+      res.json({ data: null });
     } catch (error: any) {
       console.error('OptimoRoute next-pickup error:', error);
       res.status(500).json({ error: 'Internal server error' });

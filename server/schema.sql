@@ -960,3 +960,8 @@ CREATE INDEX IF NOT EXISTS idx_zar_status ON zone_assignment_requests(status);
 -- Confirmed zone assignment (set when driver approves assignment request)
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS coverage_zone_id UUID REFERENCES driver_custom_zones(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_locations_coverage_zone ON locations(coverage_zone_id);
+
+-- Skip credit amount (in cents, default $1.00)
+INSERT INTO system_settings (key, value, category, is_secret)
+VALUES ('SKIP_CREDIT_AMOUNT_CENTS', '100', 'billing', FALSE)
+ON CONFLICT (key) DO NOTHING;

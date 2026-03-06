@@ -2631,6 +2631,34 @@ export class Storage {
     return result.rows[0] || null;
   }
 
+  async getNextRouteStopForLocation(locationId: string, afterDate: string): Promise<{ route_id: string; scheduled_date: string; route_title: string } | null> {
+    const result = await this.query(
+      `SELECT rs.id, rs.route_id, r.scheduled_date, r.title AS route_title
+       FROM route_stops rs
+       JOIN routes r ON rs.route_id = r.id
+       WHERE rs.location_id = $1
+         AND r.scheduled_date >= $2
+         AND rs.status NOT IN ('cancelled', 'skipped')
+         AND r.status NOT IN ('cancelled')
+       ORDER BY r.scheduled_date ASC
+       LIMIT 1`,
+      [locationId, afterDate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async skipRouteStopForLocation(locationId: string, collectionDate: string): Promise<void> {
+    await this.query(
+      `UPDATE route_stops rs SET status = 'skipped'
+       FROM routes r
+       WHERE rs.route_id = r.id
+         AND rs.location_id = $1
+         AND r.scheduled_date = $2
+         AND rs.status NOT IN ('cancelled', 'skipped')`,
+      [locationId, collectionDate]
+    );
+  }
+
   async cancelFutureStopsForLocation(locationId: string, afterDate?: string): Promise<number> {
     const dateFilter = afterDate ? `AND r.scheduled_date >= $2` : '';
     const params: any[] = [locationId];

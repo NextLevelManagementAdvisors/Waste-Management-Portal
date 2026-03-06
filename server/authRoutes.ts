@@ -73,6 +73,8 @@ function formatLocationForClient(loc: DbLocation) {
     notificationPreferences: loc.notification_preferences,
     transferStatus: loc.transfer_status || undefined,
     pendingOwner: loc.pending_owner || undefined,
+    collectionDay: loc.collection_day || undefined,
+    collectionFrequency: loc.collection_frequency || undefined,
   };
 }
 
@@ -1831,6 +1833,33 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
           }
         } catch (err) {
           console.error('[CollectionIntent] Failed to delete OptimoRoute order:', err);
+        }
+
+        // Mark internal route_stop as skipped
+        try {
+          await storage.skipRouteStopForLocation(locationId, date);
+        } catch (err) {
+          console.error('[CollectionIntent] Failed to mark route stop as skipped:', err);
+        }
+
+        // Credit customer's Stripe account for skipping
+        try {
+          const user = await storage.getUserById(userId);
+          if (user?.stripe_customer_id) {
+            const stripe = await getUncachableStripeClient();
+            const settingResult = await pool.query(
+              `SELECT value FROM system_settings WHERE key = 'SKIP_CREDIT_AMOUNT_CENTS'`
+            );
+            const creditCents = parseInt(settingResult.rows[0]?.value || '100', 10);
+            await stripe.customers.createBalanceTransaction(user.stripe_customer_id, {
+              amount: -creditCents, // negative = credit
+              currency: 'usd',
+              description: `Skip credit for pickup on ${date}`,
+            });
+            console.log(`[CollectionIntent] Applied ${creditCents}¢ skip credit to customer ${user.stripe_customer_id}`);
+          }
+        } catch (err) {
+          console.error('[CollectionIntent] Failed to apply skip credit:', err);
         }
       }
 

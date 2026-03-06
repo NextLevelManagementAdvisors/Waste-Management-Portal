@@ -115,7 +115,8 @@ export const getDashboardState = async (selectedLocationId: string | 'all') => {
             const isToday = collectionDate === todayStr;
             const collectionDateObj = new Date(collectionDate + 'T00:00:00');
             const diffDays = Math.round((collectionDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-            let label = isToday ? 'TODAY' : diffDays === 1 ? 'Tomorrow' : collectionDate;
+            const dayName = collectionDateObj.toLocaleDateString('en-US', { weekday: 'long' });
+            let label = isToday ? 'TODAY' : diffDays === 1 ? 'Tomorrow' : diffDays <= 6 ? dayName : collectionDate;
             let collectionStatus: string = isPaused ? 'paused' : isToday ? 'in-progress' : 'upcoming';
 
             let intent: string | null = null;
