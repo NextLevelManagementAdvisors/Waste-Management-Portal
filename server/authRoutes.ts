@@ -130,12 +130,15 @@ function buildFallbackOnDemandEstimate(
   const keywordHits = bulkyKeywords.filter(k => normalized.includes(k)).length;
 
   let multiplier = 1;
+  // Cap keyword multiplier impact at 0.72 (equivalent to 6 keywords) to prevent excessive pricing
   multiplier += Math.min(keywordHits * 0.12, 0.72);
+  // Fallback logic uses photo count as a proxy for volume/complexity since it cannot analyze image content
   if (photoUrls.length >= 3) multiplier += 0.2;
   if (photoUrls.length >= 5) multiplier += 0.1;
   if (description.length > 140) multiplier += 0.15;
 
   // Formula: (Base * Multiplier) + Surcharges
+  // Use Number.EPSILON to ensure accurate rounding of floating point numbers
   const estimate = Math.round(((basePrice * multiplier) + surchargeTotal + Number.EPSILON) * 100) / 100;
   return {
     estimate: Math.max(basePrice, estimate),
@@ -173,6 +176,7 @@ async function checkOrphanedSubscriptions(
   }
 }
 
+/** Idempotently ensures a Stripe customer exists for the user, creating one if necessary. */
 async function ensureStripeCustomer(user: DbUser): Promise<DbUser> {
   if (user.stripe_customer_id) return user;
   try {
@@ -1456,6 +1460,10 @@ export function registerAuthRoutes(app: Express) {
   });
 
   // AI cost estimation for on-demand pickups
+  // Strategy:
+  // 1. Try to use Gemini AI to analyze photos and description for a precise estimate.
+  // 2. Inject Admin Overrides (mandatory surcharges) into the AI prompt.
+  // 3. Fallback to deterministic logic (buildFallbackOnDemandEstimate) if AI is unconfigured or fails.
   app.post('/api/on-demand/estimate', requireAuth, async (req: Request, res: Response) => {
     const { description, photoUrls } = req.body || {};
     const safeDescription = typeof description === 'string' ? description.trim() : '';
@@ -1474,16 +1482,20 @@ export function registerAuthRoutes(app: Express) {
 
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
+        // AI not configured, return deterministic fallback immediately
         return res.json(fallbackEstimate);
       }
 
+      // Dynamically import GoogleGenAI to avoid load-time errors if the package isn't installed or needed immediately
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
 
       const catalogContext = services.map(s => `${s.name}: $${parseFloat(s.price).toFixed(2)} - ${s.description || ''}`).join('\n');
+      // Format overrides for the AI prompt to ensure it applies mandatory surcharges
       const overridesContext = ADMIN_PRICING_OVERRIDES.map(r => `- ${r.keyword}: +$${r.surcharge}`).join('\n');
 
       // Build content parts: text + optional images
+      // Images are included to allow the AI to visually identify items (like pianos/fridges) and estimate volume
       const parts: any[] = [];
 
       if (safePhotoUrls.length > 0) {
@@ -1541,6 +1553,7 @@ Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "re
       });
     } catch (error: any) {
       console.error('AI estimation failed:', error.message);
+      // On AI failure (API error, rate limit, etc.), return the deterministic fallback
       const fallbackEstimate = buildFallbackOnDemandEstimate(safeDescription, safePhotoUrls);
       res.json(fallbackEstimate);
     }
@@ -1725,6 +1738,8 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
       }
 
       const parsedEstimate = Number(aiEstimate);
+      // Only accept the AI estimate if it is valid and meets the minimum base price for the service.
+      // Otherwise, default to the catalog base price to ensure profitability.
       const approvedEstimate = Number.isFinite(parsedEstimate) && parsedEstimate >= basePrice
         ? parsedEstimate
         : null;

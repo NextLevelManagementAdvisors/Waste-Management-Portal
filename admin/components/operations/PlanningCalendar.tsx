@@ -9,6 +9,7 @@ import CreateRouteModal from './CreateRouteModal.tsx';
 import OptimoStatusBanner from './OptimoStatusBanner.tsx';
 import CompletionDetailModal from './CompletionDetailModal.tsx';
 import RouteOptimizerModal from './RouteOptimizerModal.tsx';
+import RouteMapModal from './RouteMapModal.tsx';
 import BidSection from './BidSection.tsx';
 
 // ── Local icon components (matching team portal style) ──
@@ -177,6 +178,7 @@ const PlanningCalendar: React.FC = () => {
   const [completionStop, setCompletionStop] = useState<{ id?: string; orderNo?: string } | null>(null);
   const [showCreateRoute, setShowCreateRoute] = useState(false);
   const [showOptimizer, setShowOptimizer] = useState(false);
+  const [showRouteMap, setShowRouteMap] = useState(false);
   const [expandedBidRouteId, setExpandedBidRouteId] = useState<string | null>(null);
   const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
   const [importingFromOptimo, setImportingFromOptimo] = useState(false);
@@ -636,6 +638,13 @@ const PlanningCalendar: React.FC = () => {
                 <button type="button" onClick={() => setShowOptimizer(true)}
                   className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors">
                   Optimize
+                </button>
+              )}
+
+              {selectedDate && dayRoutes.length > 0 && (
+                <button type="button" onClick={() => setShowRouteMap(true)}
+                  className="px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg transition-colors">
+                  View Map
                 </button>
               )}
 
@@ -1180,6 +1189,11 @@ const PlanningCalendar: React.FC = () => {
       {/* Route Optimizer Modal */}
       {showOptimizer && selectedDate && (
         <RouteOptimizerModal date={selectedDate} onClose={() => setShowOptimizer(false)} onComplete={() => { setShowOptimizer(false); refreshDay(); }} />
+      )}
+
+      {/* Route Map Modal */}
+      {showRouteMap && selectedDate && (
+        <RouteMapModal date={selectedDate} onClose={() => setShowRouteMap(false)} />
       )}
 
       {/* Completion Detail Modal */}
