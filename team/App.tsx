@@ -68,7 +68,7 @@ interface WeatherDay {
   icon: string;
 }
 
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages';
+type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages' | 'provider';
 
 const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   dashboard: '/team',
@@ -79,6 +79,7 @@ const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
   contracts: '/team/contracts',
   messages: '/team/messages',
   profile: '/team/profile',
+  provider: '/team/provider',
 };
 
 const TEAM_PATH_TO_VIEW: Record<string, TeamView> = Object.fromEntries(
@@ -99,6 +100,12 @@ const US_STATES = [
 const BriefcaseIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0M12 12.75h.008v.008H12v-.008Z" />
+  </svg>
+);
+
+const BuildingOfficeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
   </svg>
 );
 
@@ -2458,6 +2465,214 @@ const MyLocations: React.FC = () => {
   );
 };
 
+// ============================================================
+// ProviderDashboard — visible only to provider owners
+// ============================================================
+
+type ProviderTerritory = {
+  id: string; name: string; zone_type: string; default_pickup_day: string | null;
+  color: string | null; status: string; created_at: string;
+};
+
+type ProviderDriver = {
+  id: string; name: string; email: string; status: string; rating: number | null;
+  active_contracts: number; routes_30d: number; earnings_30d: number; active_zones: number;
+};
+
+const ProviderDashboard: React.FC = () => {
+  const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [providerName, setProviderName] = useState('');
+  const [drivers, setDrivers] = useState<ProviderDriver[]>([]);
+  const [territories, setTerritories] = useState<ProviderTerritory[]>([]);
+  const [showTerritoryForm, setShowTerritoryForm] = useState(false);
+  const [editingTerritory, setEditingTerritory] = useState<ProviderTerritory | null>(null);
+  const [tName, setTName] = useState('');
+  const [tType, setTType] = useState('polygon');
+  const [tDay, setTDay] = useState('');
+  const [tColor, setTColor] = useState('#3B82F6');
+  const [tSaving, setTSaving] = useState(false);
+
+  const load = () => {
+    fetch('/api/team/my-provider/dashboard', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setStats(d.stats); setProviderName(d.providerName || ''); } })
+      .catch(() => {});
+    fetch('/api/team/my-provider/drivers', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { drivers: [] })
+      .then(d => setDrivers(d.drivers || []))
+      .catch(() => {});
+    fetch('/api/team/my-provider/territories', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { territories: [] })
+      .then(d => setTerritories(d.territories || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const resetForm = () => { setTName(''); setTType('polygon'); setTDay(''); setTColor('#3B82F6'); setEditingTerritory(null); setShowTerritoryForm(false); };
+
+  const handleSaveTerritory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTSaving(true);
+    const body = { name: tName, zoneType: tType, defaultPickupDay: tDay || null, color: tColor };
+    const url = editingTerritory ? `/api/team/my-provider/territories/${editingTerritory.id}` : '/api/team/my-provider/territories';
+    const method = editingTerritory ? 'PUT' : 'POST';
+    try {
+      const r = await fetch(url, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) { resetForm(); load(); }
+    } catch {}
+    setTSaving(false);
+  };
+
+  const startEdit = (t: ProviderTerritory) => {
+    setEditingTerritory(t); setTName(t.name); setTType(t.zone_type);
+    setTDay(t.default_pickup_day || ''); setTColor(t.color || '#3B82F6');
+    setShowTerritoryForm(true);
+  };
+
+  const deleteTerritory = async (id: string) => {
+    if (!confirm('Delete this territory?')) return;
+    await fetch(`/api/team/my-provider/territories/${id}`, { method: 'DELETE', credentials: 'include' });
+    load();
+  };
+
+  const statusColor = (s: string) =>
+    s === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600';
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-black text-gray-900">{providerName || 'My Company'}</h2>
+        <p className="text-sm text-gray-500 mt-1">Provider dashboard — manage your team and service territories</p>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Active Drivers', value: stats.active_driver_count ?? 0 },
+            { label: 'Territories', value: stats.territory_count ?? 0 },
+            { label: 'Covered Locations', value: stats.covered_locations ?? 0 },
+            { label: '30-Day Earnings', value: `$${Number(stats.total_earnings_30d || 0).toFixed(2)}` },
+          ].map(s => (
+            <Card key={s.label} className="p-5">
+              <p className="text-xs text-gray-500 font-medium">{s.label}</p>
+              <p className="text-2xl font-black text-gray-900 mt-1">{s.value}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Sub-drivers */}
+      <Card className="p-6">
+        <h3 className="font-semibold text-gray-900 mb-4">Drivers ({drivers.length})</h3>
+        {drivers.length === 0 ? (
+          <p className="text-sm text-gray-500">No drivers assigned to this provider yet. Assign drivers via the admin portal.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-600">Driver</th>
+                  <th className="text-left py-2 pr-4 font-medium text-gray-600">Status</th>
+                  <th className="text-right py-2 pr-4 font-medium text-gray-600">Contracts</th>
+                  <th className="text-right py-2 pr-4 font-medium text-gray-600">Routes (30d)</th>
+                  <th className="text-right py-2 font-medium text-gray-600">Earnings (30d)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {drivers.map(d => (
+                  <tr key={d.id}>
+                    <td className="py-3 pr-4">
+                      <p className="font-medium text-gray-900">{d.name}</p>
+                      <p className="text-xs text-gray-500">{d.email}</p>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(d.status)}`}>{d.status}</span>
+                    </td>
+                    <td className="py-3 pr-4 text-right text-gray-700">{d.active_contracts}</td>
+                    <td className="py-3 pr-4 text-right text-gray-700">{d.routes_30d}</td>
+                    <td className="py-3 text-right text-gray-700">${Number(d.earnings_30d || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Territories */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Service Territories ({territories.length})</h3>
+          {!showTerritoryForm && (
+            <button onClick={() => { resetForm(); setShowTerritoryForm(true); }} className="text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700">
+              + Add Territory
+            </button>
+          )}
+        </div>
+
+        {showTerritoryForm && (
+          <form onSubmit={handleSaveTerritory} className="border border-gray-200 rounded-lg p-4 mb-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
+                <input required value={tName} onChange={e => setTName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="North District" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+                <select value={tType} onChange={e => setTType(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="polygon">Polygon</option>
+                  <option value="zip">ZIP Codes</option>
+                  <option value="circle">Circle</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Default Pickup Day</label>
+                <select value={tDay} onChange={e => setTDay(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">— None —</option>
+                  {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Color</label>
+                <input type="color" value={tColor} onChange={e => setTColor(e.target.value)} className="h-9 w-full rounded-lg border border-gray-300 cursor-pointer" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={tSaving} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">{tSaving ? 'Saving…' : editingTerritory ? 'Update' : 'Create'}</button>
+              <button type="button" onClick={resetForm} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+            </div>
+          </form>
+        )}
+
+        {territories.length === 0 && !showTerritoryForm ? (
+          <p className="text-sm text-gray-500">No territories defined yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {territories.map(t => (
+              <div key={t.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: t.color || '#3B82F6' }} />
+                  <div>
+                    <p className="font-medium text-sm text-gray-900">{t.name}</p>
+                    <p className="text-xs text-gray-500">{t.zone_type}{t.default_pickup_day ? ` · ${t.default_pickup_day}` : ''}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(t.status)}`}>{t.status}</span>
+                  <button onClick={() => startEdit(t)} className="text-xs text-blue-600 hover:underline">Edit</button>
+                  <button onClick={() => deleteTerritory(t.id)} className="text-xs text-red-600 hover:underline">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
 type ZoneExpansionProposal = {
   id: string;
   proposedZoneName: string;
@@ -3691,6 +3906,24 @@ const Profile: React.FC = () => {
 
           <QualificationsCard />
 
+          {profile?.providerName && (
+            <Card className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-3">Provider</h3>
+              <div className="flex items-center gap-3">
+                <BuildingOfficeIcon className="w-8 h-8 text-teal-600 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-900">{profile.providerName}</p>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${profile.isProviderOwner ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {profile.isProviderOwner ? 'Owner' : 'Member'}
+                  </span>
+                </div>
+              </div>
+              {profile.isProviderOwner && (
+                <p className="text-xs text-gray-500 mt-3">As the owner, you can manage your company's drivers and territories from the <strong>My Company</strong> section in the sidebar.</p>
+              )}
+            </Card>
+          )}
+
         </div>
       </div>
 
@@ -4095,6 +4328,7 @@ const TeamApp: React.FC = () => {
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const [isProviderOwner, setIsProviderOwner] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonatedBy, setImpersonatedBy] = useState('');
   const [msgUnreadCount, setMsgUnreadCount] = useState(0);
@@ -4132,7 +4366,9 @@ const TeamApp: React.FC = () => {
       const res = await fetch('/api/team/auth/me', { credentials: 'include' });
       if (!res.ok) throw new Error('Not authenticated');
       const json = await res.json();
-      setCurrentDriver(normalizeDriver(json.data || json.driver));
+      const driverData = json.data || json.driver;
+      setCurrentDriver(normalizeDriver(driverData));
+      if (driverData?.isProviderOwner) setIsProviderOwner(true);
       if (json.impersonating) {
         setImpersonating(true);
         setImpersonatedBy(json.impersonatedBy || 'Admin');
@@ -4285,6 +4521,7 @@ const TeamApp: React.FC = () => {
     { view: 'contracts', label: 'My Contracts', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
+    ...(isProviderOwner ? [{ view: 'provider' as TeamView, label: 'My Company', icon: <BuildingOfficeIcon className="w-5 h-5" /> }] : []),
   ];
 
   return (
@@ -4389,6 +4626,7 @@ const TeamApp: React.FC = () => {
           {currentView === 'contracts' && <MyContracts />}
           {currentView === 'messages' && <DriverMessages />}
           {currentView === 'profile' && <Profile />}
+          {currentView === 'provider' && <ProviderDashboard />}
         </div>
       </main>
       </div>

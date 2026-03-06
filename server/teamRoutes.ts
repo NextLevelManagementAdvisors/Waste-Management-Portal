@@ -1324,10 +1324,48 @@ export function registerTeamRoutes(app: Express) {
     try {
       const driverProfile = res.locals.driverProfile;
       const user = await storage.getUserById(req.session.userId!);
-      res.json({ data: formatDriverForClient(driverProfile, user) });
+
+      // Fetch provider context if driver belongs to one
+      let providerInfo: { id: string; name: string; isOwner: boolean } | null = null;
+      if (driverProfile.provider_id) {
+        const { rows } = await pool.query(
+          `SELECT id, name, owner_user_id FROM providers WHERE id = $1`,
+          [driverProfile.provider_id]
+        );
+        if (rows[0]) {
+          providerInfo = {
+            id: rows[0].id,
+            name: rows[0].name,
+            isOwner: rows[0].owner_user_id === req.session.userId,
+          };
+        }
+      }
+
+      res.json({ data: formatDriverForClient(driverProfile, user, providerInfo) });
     } catch (error: any) {
       console.error('Get profile error:', error);
       res.status(500).json({ error: 'Failed to get profile' });
+    }
+  });
+
+  // Get current driver's provider details
+  app.get('/api/team/my-provider', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverProfile = res.locals.driverProfile;
+      if (!driverProfile.provider_id) return res.status(404).json({ error: 'Not part of a provider' });
+
+      const { rows } = await pool.query(
+        `SELECT p.id, p.name, p.status, p.created_at,
+                (SELECT COUNT(*) FROM driver_profiles dp WHERE dp.provider_id = p.id)::int AS driver_count,
+                (SELECT COUNT(*) FROM provider_territories pt WHERE pt.provider_id = p.id)::int AS territory_count
+         FROM providers p WHERE p.id = $1`,
+        [driverProfile.provider_id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Provider not found' });
+      res.json({ provider: { ...rows[0], isOwner: rows[0].id && true } });
+    } catch (error: any) {
+      console.error('Get provider error:', error);
+      res.status(500).json({ error: 'Failed to get provider' });
     }
   });
 
@@ -2152,6 +2190,142 @@ export function registerTeamRoutes(app: Express) {
   });
 
   // ============================================================
+  // Provider (My Company) — Dashboard, Sub-drivers, Territory Management
+  // ============================================================
+
+  // Middleware: driver must be the owner_user_id of a provider
+  const requireProviderOwner: import('express').RequestHandler = async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT p.* FROM providers p WHERE p.owner_user_id = $1 AND p.status = 'active'`,
+        [req.session.userId]
+      );
+      if (rows.length === 0) return res.status(403).json({ error: 'Not a provider owner' });
+      res.locals.provider = rows[0];
+      next();
+    } catch (err: any) {
+      console.error('requireProviderOwner error:', err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  };
+
+  // Summary stats for provider dashboard
+  app.get('/api/team/my-provider/dashboard', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const providerId = res.locals.provider.id;
+      const { rows } = await pool.query(
+        `SELECT
+           COUNT(DISTINCT dp.id) FILTER (WHERE dp.status = 'active') AS active_driver_count,
+           COUNT(DISTINCT dp.id) AS total_driver_count,
+           COUNT(DISTINCT pt.id) AS territory_count,
+           COUNT(DISTINCT l.id) FILTER (WHERE l.service_status = 'approved') AS covered_locations,
+           COALESCE(SUM(r.computed_value) FILTER (WHERE r.status = 'completed'), 0) AS total_earnings_30d
+         FROM providers p
+         LEFT JOIN driver_profiles dp ON dp.provider_id = p.id
+         LEFT JOIN provider_territories pt ON pt.provider_id = p.id
+         LEFT JOIN locations l ON l.provider_id = p.id
+         LEFT JOIN routes r ON r.assigned_driver_id = dp.id
+           AND r.scheduled_date >= NOW() - INTERVAL '30 days'
+         WHERE p.id = $1`,
+        [providerId]
+      );
+      res.json({ stats: rows[0], providerName: res.locals.provider.name });
+    } catch (err: any) {
+      console.error('Error fetching provider dashboard:', err);
+      res.status(500).json({ error: 'Failed to fetch dashboard' });
+    }
+  });
+
+  // List sub-drivers under this provider
+  app.get('/api/team/my-provider/drivers', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const providerId = res.locals.provider.id;
+      const { rows } = await pool.query(
+        `SELECT dp.id, dp.name, dp.status, dp.rating,
+                u.email,
+                (SELECT COUNT(*) FROM route_contracts rc WHERE rc.driver_id = dp.id AND rc.status = 'active')::int AS active_contracts,
+                (SELECT COUNT(*) FROM routes r WHERE r.assigned_driver_id = dp.id AND r.status = 'completed'
+                  AND r.scheduled_date >= NOW() - INTERVAL '30 days')::int AS routes_30d,
+                (SELECT COALESCE(SUM(r2.computed_value), 0) FROM routes r2
+                  WHERE r2.assigned_driver_id = dp.id AND r2.status = 'completed'
+                  AND r2.scheduled_date >= NOW() - INTERVAL '30 days') AS earnings_30d,
+                (SELECT COUNT(*) FROM driver_custom_zones dcz WHERE dcz.driver_id = dp.id AND dcz.status = 'active')::int AS active_zones
+         FROM driver_profiles dp
+         JOIN users u ON u.id = dp.user_id
+         WHERE dp.provider_id = $1
+         ORDER BY dp.name`,
+        [providerId]
+      );
+      res.json({ drivers: rows });
+    } catch (err: any) {
+      console.error('Error fetching provider drivers:', err);
+      res.status(500).json({ error: 'Failed to fetch drivers' });
+    }
+  });
+
+  // Territory CRUD (provider owner only)
+  app.get('/api/team/my-provider/territories', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const territories = await storage.getTerritoriesForProvider(res.locals.provider.id);
+      res.json({ territories });
+    } catch (err: any) {
+      console.error('Error fetching territories:', err);
+      res.status(500).json({ error: 'Failed to fetch territories' });
+    }
+  });
+
+  app.post('/api/team/my-provider/territories', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { name, zoneType, defaultPickupDay, color, polygonCoords, zipCodes } = req.body;
+      if (!name) return res.status(400).json({ error: 'name is required' });
+      const territory = await storage.createProviderTerritory({
+        providerId: res.locals.provider.id,
+        name,
+        zone_type: zoneType || 'polygon',
+        default_pickup_day: defaultPickupDay,
+        color,
+        polygon_coords: polygonCoords,
+        zip_codes: zipCodes,
+      });
+      res.status(201).json({ territory });
+    } catch (err: any) {
+      console.error('Error creating territory:', err);
+      res.status(500).json({ error: 'Failed to create territory' });
+    }
+  });
+
+  app.put('/api/team/my-provider/territories/:id', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      // Verify ownership
+      const { rows } = await pool.query(
+        `SELECT id FROM provider_territories WHERE id = $1 AND provider_id = $2`,
+        [req.params.id, res.locals.provider.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Territory not found' });
+      const updated = await storage.updateProviderTerritory(req.params.id, req.body);
+      res.json({ territory: updated });
+    } catch (err: any) {
+      console.error('Error updating territory:', err);
+      res.status(500).json({ error: 'Failed to update territory' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/territories/:id', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id FROM provider_territories WHERE id = $1 AND provider_id = $2`,
+        [req.params.id, res.locals.provider.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Territory not found' });
+      await storage.deleteProviderTerritory(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting territory:', err);
+      res.status(500).json({ error: 'Failed to delete territory' });
+    }
+  });
+
+  // ============================================================
   // Contract Renewal Requests
   // ============================================================
 
@@ -2500,7 +2674,7 @@ function mapProposal(r: any) {
   };
 }
 
-function formatDriverForClient(driverProfile: any, user?: any) {
+function formatDriverForClient(driverProfile: any, user?: any, provider?: { id: string; name: string; isOwner: boolean } | null) {
   return {
     id: driverProfile.id,
     userId: driverProfile.user_id,
@@ -2519,5 +2693,8 @@ function formatDriverForClient(driverProfile: any, user?: any) {
     certifications: driverProfile.certifications || [],
     max_stops_per_day: driverProfile.max_stops_per_day || 50,
     created_at: driverProfile.created_at,
+    providerId: provider?.id ?? null,
+    providerName: provider?.name ?? null,
+    isProviderOwner: provider?.isOwner ?? false,
   };
 }
