@@ -76,6 +76,36 @@ function formatLocationForClient(loc: DbLocation) {
   };
 }
 
+function buildFallbackOnDemandEstimate(
+  description: string,
+  photoUrls: string[],
+  services: Array<{ price: number | string }> = [],
+) {
+  const priceCandidates = services
+    .map(s => Number(s.price))
+    .filter(p => Number.isFinite(p) && p > 0);
+
+  const basePrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 49.99;
+  const normalized = description.toLowerCase();
+  const bulkyKeywords = [
+    'mattress', 'sofa', 'couch', 'appliance', 'refrigerator', 'fridge',
+    'washer', 'dryer', 'piano', 'construction', 'debris', 'furniture', 'junk',
+  ];
+  const keywordHits = bulkyKeywords.filter(k => normalized.includes(k)).length;
+
+  let multiplier = 1;
+  multiplier += Math.min(keywordHits * 0.12, 0.72);
+  if (photoUrls.length >= 3) multiplier += 0.2;
+  if (photoUrls.length >= 5) multiplier += 0.1;
+  if (description.length > 140) multiplier += 0.15;
+
+  const estimate = Math.round((basePrice * multiplier + Number.EPSILON) * 100) / 100;
+  return {
+    estimate: Math.max(basePrice, estimate),
+    reasoning: 'AI pricing is temporarily unavailable. This estimate uses your details and our standard starting pickup price.',
+  };
+}
+
 // requireAuth is imported from ./middleware (single source of truth)
 export { requireAuth };
 
@@ -1390,29 +1420,36 @@ export function registerAuthRoutes(app: Express) {
 
   // AI cost estimation for on-demand pickups
   app.post('/api/on-demand/estimate', requireAuth, async (req: Request, res: Response) => {
+    const { description, photoUrls } = req.body || {};
+    const safeDescription = typeof description === 'string' ? description.trim() : '';
+    const safePhotoUrls = Array.isArray(photoUrls)
+      ? photoUrls.filter((u: any) => typeof u === 'string')
+      : [];
+
     try {
-      const { description, photoUrls } = req.body;
-      if (!description && (!photoUrls || photoUrls.length === 0)) {
+      if (!safeDescription && safePhotoUrls.length === 0) {
         return res.status(400).json({ error: 'Provide a description and/or photos' });
       }
 
+      // Load service catalog for pricing context and graceful fallback.
+      const services = await storage.getOnDemandServices();
+      const fallbackEstimate = buildFallbackOnDemandEstimate(safeDescription, safePhotoUrls, services as any);
+
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        return res.status(503).json({ error: 'AI estimation is not configured' });
+        return res.json(fallbackEstimate);
       }
 
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
 
-      // Load service catalog for pricing context
-      const services = await storage.getOnDemandServices();
       const catalogContext = services.map(s => `${s.name}: $${parseFloat(s.price).toFixed(2)} - ${s.description || ''}`).join('\n');
 
       // Build content parts: text + optional images
       const parts: any[] = [];
 
-      if (photoUrls && photoUrls.length > 0) {
-        for (const url of photoUrls.slice(0, 5)) {
+      if (safePhotoUrls.length > 0) {
+        for (const url of safePhotoUrls.slice(0, 5)) {
           try {
             const filePath = path.resolve(__dirname, '..', url.replace(/^\//, ''));
             const imageData = fs.readFileSync(filePath);
@@ -1432,7 +1469,7 @@ Consider: item type and count, approximate size and weight, disposal complexity 
 Our service catalog for reference:
 ${catalogContext}
 
-Customer description: ${description || '(no description provided — estimate from photos only)'}
+Customer description: ${safeDescription || '(no description provided — estimate from photos only)'}
 
 Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "reasoning": "<1-2 sentence explanation>"}` });
 
@@ -1445,13 +1482,26 @@ Respond ONLY with valid JSON, no markdown: {"estimate": <number as dollars>, "re
       // Parse JSON from response, handling possible markdown code fences
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return res.status(500).json({ error: 'AI returned an unparseable response' });
+        return res.json(fallbackEstimate);
       }
-      const parsed = JSON.parse(jsonMatch[0]);
-      res.json({ estimate: Number(parsed.estimate), reasoning: String(parsed.reasoning || '') });
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        return res.json(fallbackEstimate);
+      }
+      const parsedEstimate = Number(parsed.estimate);
+      if (!Number.isFinite(parsedEstimate) || parsedEstimate <= 0) {
+        return res.json(fallbackEstimate);
+      }
+      res.json({
+        estimate: Math.round((parsedEstimate + Number.EPSILON) * 100) / 100,
+        reasoning: String(parsed.reasoning || 'Estimated from provided description and photos.'),
+      });
     } catch (error: any) {
       console.error('AI estimation failed:', error.message);
-      res.status(500).json({ error: 'AI estimation failed. Please try again.' });
+      const fallbackEstimate = buildFallbackOnDemandEstimate(safeDescription, safePhotoUrls);
+      res.json(fallbackEstimate);
     }
   });
 

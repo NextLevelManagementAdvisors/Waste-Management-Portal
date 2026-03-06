@@ -601,6 +601,40 @@ describe('POST /api/on-demand-request', () => {
 });
 
 // ===========================================================================
+// POST /api/on-demand/estimate
+// ===========================================================================
+describe('POST /api/on-demand/estimate', () => {
+  it('returns 401 without authentication', async () => {
+    expect((await supertest(createApp()).post('/api/on-demand/estimate').send({ description: 'old couch' })).status).toBe(401);
+  });
+
+  it('returns 400 when no description or photos are provided', async () => {
+    const res = await supertest(createAuthApp()).post('/api/on-demand/estimate').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('returns fallback estimate when AI key is not configured', async () => {
+    const original = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    vi.mocked(storage.getOnDemandServices).mockResolvedValue([
+      { id: 'svc-1', name: 'Bulk Pickup', description: 'Large items', price: 49.99, icon_name: 'truck' },
+    ] as any);
+
+    try {
+      const res = await supertest(createAuthApp()).post('/api/on-demand/estimate').send({
+        description: 'One old mattress and broken couch',
+        photoUrls: [],
+      });
+      expect(res.status).toBe(200);
+      expect(Number(res.body.estimate)).toBeGreaterThanOrEqual(49.99);
+      expect(String(res.body.reasoning)).toContain('AI pricing is temporarily unavailable');
+    } finally {
+      if (original) process.env.GEMINI_API_KEY = original;
+    }
+  });
+});
+
+// ===========================================================================
 // GET /api/on-demand-requests
 // ===========================================================================
 describe('GET /api/on-demand-requests', () => {
