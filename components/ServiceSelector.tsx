@@ -13,19 +13,19 @@ export const QuantitySelector: React.FC<{
     isUpdating: boolean;
 }> = ({ quantity, onIncrement, onDecrement, isUpdating }) => {
     return (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
             <Button
                 size="sm"
                 variant="secondary"
                 onClick={onDecrement}
                 disabled={isUpdating || quantity <= 0}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
+                className="w-7 h-7 sm:w-8 sm:h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Decrease quantity"
             >
                 {quantity > 1 ? <span className="text-xl font-thin">-</span> : <TrashIcon className="w-4 h-4 text-red-500" /> }
             </Button>
             <div
-                className="w-10 h-8 flex items-center justify-center text-base font-bold text-neutral"
+                className="w-8 sm:w-10 h-8 flex items-center justify-center text-sm sm:text-base font-bold text-neutral"
                 aria-live="polite"
             >
                 {isUpdating ? <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-primary"></div> : quantity}
@@ -35,7 +35,7 @@ export const QuantitySelector: React.FC<{
                 variant="secondary"
                 onClick={onIncrement}
                 disabled={isUpdating}
-                className="w-8 h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
+                className="w-7 h-7 sm:w-8 sm:h-8 p-0 bg-gray-200 hover:bg-gray-300 rounded-full"
                 aria-label="Increase quantity"
             >
                 <span className="text-xl font-thin">+</span>
@@ -138,25 +138,28 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
                     {baseServices.map(service => {
                         const quantity = getQuantity(service.id);
                         return (
-                            <div key={service.id} className="p-6 flex justify-between items-center gap-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
-                                    <div>
-                                        <h3 className="font-bold text-gray-900">{service.name}</h3>
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Weekly Collection</p>
+                            <div key={service.id} className="p-4 sm:p-6">
+                                {/* Stack row content on mobile so price and quantity controls do not clip. */}
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
+                                        <div className="w-10 h-10 bg-gray-100 rounded-full flex-shrink-0"></div>
+                                        <div className="min-w-0">
+                                            <h3 className="font-bold text-gray-900 leading-tight">{service.name}</h3>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Weekly Collection</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                    <div className="text-right">
-                                        <p className="font-bold text-lg text-gray-900 leading-none">${Number(service.price).toFixed(2)}</p>
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Per Can</p>
+                                    <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
+                                        <div className="text-left sm:text-right shrink-0">
+                                            <p className="font-bold text-lg text-gray-900 leading-none">${Number(service.price).toFixed(2)}</p>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Per Can</p>
+                                        </div>
+                                        <QuantitySelector
+                                            quantity={quantity}
+                                            onIncrement={() => onIncrement(service)}
+                                            onDecrement={() => onDecrement(service)}
+                                            isUpdating={isUpdating(service.id)}
+                                        />
                                     </div>
-                                    <QuantitySelector
-                                        quantity={quantity}
-                                        onIncrement={() => onIncrement(service)}
-                                        onDecrement={() => onDecrement(service)}
-                                        isUpdating={isUpdating(service.id)}
-                                    />
                                 </div>
                             </div>
                         );
@@ -167,12 +170,12 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
                         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-6 pt-6">Service Upgrades</h2>
                         <div className="divide-y divide-base-200">
                             {atHouseService && (
-                                <div className="p-6 flex justify-between items-center">
-                                    <div className="flex-1 pr-4">
+                                <div className="p-4 sm:p-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+                                    <div className="flex-1 sm:pr-4">
                                         <h4 className="font-bold">{atHouseService.name}</h4>
                                         <p className="text-xs text-gray-500">{atHouseService.description}</p>
                                     </div>
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
                                         <p className="text-sm font-bold text-primary shrink-0">+${Number(atHouseService.price).toFixed(2)}/mo</p>
                                         <ToggleSwitch
                                             checked={isAtHouseActive}
@@ -183,12 +186,12 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
                                 </div>
                             )}
                             {linerService && (
-                                <div className="p-6 flex justify-between items-center">
-                                    <div className="flex-1 pr-4">
+                                <div className="p-4 sm:p-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+                                    <div className="flex-1 sm:pr-4">
                                         <h4 className="font-bold">{linerService.name}</h4>
                                         <p className="text-xs text-gray-500">{linerService.description}</p>
                                     </div>
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
                                         <p className="text-sm font-bold text-primary shrink-0" aria-live="polite">
                                             +${(Number(linerService.price) * totalBaseServiceCans).toFixed(2)}/mo
                                         </p>
@@ -211,8 +214,8 @@ const ServiceSelector: React.FC<ServiceSelectorProps> = ({
                             {upgradeServices.map(service => {
                                 const quantity = getQuantity(service.id);
                                 return (
-                                    <div key={service.id} className="p-6 flex justify-between items-center">
-                                        <div>
+                                    <div key={service.id} className="p-4 sm:p-6 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+                                        <div className="min-w-0">
                                             <h4 className="font-bold">{service.name}</h4>
                                             <p className="text-xs text-gray-500">{service.description}</p>
                                             <p className="text-sm font-bold text-primary mt-1">${Number(service.price).toFixed(2)}/mo</p>
