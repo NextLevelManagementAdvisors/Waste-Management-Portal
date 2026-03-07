@@ -43,10 +43,14 @@ CREATE TABLE IF NOT EXISTS locations (
   pending_owner JSONB,
   transfer_token VARCHAR(255),
   transfer_token_expires TIMESTAMP,
+  provider_id UUID,
+  provider_territory_id UUID,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_locations_user_id ON locations(user_id);
+CREATE INDEX IF NOT EXISTS idx_locations_provider ON locations(provider_id);
+CREATE INDEX IF NOT EXISTS idx_locations_territory ON locations(provider_territory_id);
 
 -- Password reset tokens
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -240,10 +244,45 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
+-- Providers (business entities that own territories and employ drivers)
+CREATE TABLE IF NOT EXISTS providers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(50) DEFAULT 'active' NOT NULL,
+  stripe_account_id VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Provider territories
+CREATE TABLE IF NOT EXISTS provider_territories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  zone_type VARCHAR(20) NOT NULL DEFAULT 'polygon',
+  polygon_coords JSONB,
+  zip_codes TEXT[],
+  color VARCHAR(7) DEFAULT '#3B82F6',
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  default_pickup_day VARCHAR(10),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_territories_provider ON provider_territories(provider_id);
+
+-- Add FK constraints from locations to providers (deferred since locations created earlier)
+DO $$ BEGIN
+  ALTER TABLE locations ADD CONSTRAINT fk_locations_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL;
+  ALTER TABLE locations ADD CONSTRAINT fk_locations_territory FOREIGN KEY (provider_territory_id) REFERENCES provider_territories(id) ON DELETE SET NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
 -- Driver profiles (role-specific extension of users)
 CREATE TABLE IF NOT EXISTS driver_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id),
+  provider_id UUID REFERENCES providers(id) ON DELETE SET NULL,
   name VARCHAR(255) NOT NULL,
   optimoroute_driver_id VARCHAR(255),
   status VARCHAR(50) DEFAULT 'active',
@@ -259,6 +298,7 @@ CREATE TABLE IF NOT EXISTS driver_profiles (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_profiles_user_id ON driver_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_driver_profiles_provider ON driver_profiles(provider_id);
 
 -- Driver W9
 CREATE TABLE IF NOT EXISTS driver_w9 (
