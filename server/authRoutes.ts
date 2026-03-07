@@ -603,7 +603,7 @@ export function registerAuthRoutes(app: Express) {
       }
 
       // Auto-approve if address is inside an active driver zone (independent of auto-assign)
-      if (process.env.PICKUP_AUTO_APPROVE === 'true') {
+      if (process.env.PICKUP_AUTO_APPROVE !== 'false') {
         try {
           // Ensure we have geocoded coordinates
           let lat = location.latitude ? Number(location.latitude) : null;
@@ -1795,6 +1795,11 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
       }
 
       sendServiceUpdate(userId, 'On-Demand Pickup Scheduled', `Your ${canonicalServiceName} pickup has been scheduled for ${date} at ${location.address}.`).catch(e => console.error('Service update email failed:', e));
+
+      // Auto-match to nearest available driver (non-blocking)
+      import('./onDemandMatchingEngine').then(({ autoMatchAndAssign }) => {
+        autoMatchAndAssign(request.id).catch(() => {});
+      }).catch(() => {});
 
       res.json({ data: request });
     } catch (error: any) {

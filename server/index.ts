@@ -479,7 +479,46 @@ setInterval(processScheduledMessages, 60_000);
         console.log(`[Lifecycle] Auto-expired ${expiredOD.rowCount} stale on-demand request(s)`);
       }
 
-      // US-6: Flag aging missed collection reports (> 48 hours unresolved)
+      // Auto-resolve missed collections: create on-demand pickup for next available date
+      const pendingMissed = await dbPool.query(
+        `SELECT mcr.id, mcr.location_id, mcr.user_id, p.address
+         FROM missed_collection_reports mcr
+         JOIN locations p ON p.id = mcr.location_id
+         WHERE mcr.status = 'pending' AND mcr.created_at < NOW() - INTERVAL '2 hours'
+           AND mcr.created_at > NOW() - INTERVAL '48 hours'`
+      );
+      for (const mc of pendingMissed.rows) {
+        try {
+          // Schedule a makeup pickup for the next business day
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          if (tomorrow.getDay() === 0) tomorrow.setDate(tomorrow.getDate() + 1); // skip Sunday
+          const makeupDate = tomorrow.toISOString().split('T')[0];
+
+          await dbPool.query(
+            `INSERT INTO on_demand_requests (user_id, location_id, service_name, service_price, requested_date, notes, status)
+             VALUES ($1, $2, 'Missed Collection Makeup', 0, $3, $4, 'scheduled')`,
+            [mc.user_id, mc.location_id, makeupDate, `Auto-scheduled makeup for missed collection report ${mc.id}`]
+          );
+          await dbPool.query(
+            `UPDATE missed_collection_reports SET status = 'resolved', resolution_notes = 'Auto-rescheduled makeup pickup', updated_at = NOW()
+             WHERE id = $1`,
+            [mc.id]
+          );
+
+          // Notify customer
+          try {
+            const { sendCustomNotification } = await import('./notificationService');
+            sendCustomNotification(mc.user_id, `Your missed collection at ${mc.address} has been rescheduled for ${makeupDate}.`).catch(() => {});
+          } catch {}
+
+          console.log(`[Lifecycle] Auto-resolved missed collection ${mc.id} — makeup scheduled for ${makeupDate}`);
+        } catch (err: any) {
+          console.error(`[Lifecycle] Failed to auto-resolve missed collection ${mc.id}:`, err.message);
+        }
+      }
+
+      // US-6: Escalate remaining unresolved missed collections (> 48 hours)
       const escalated = await dbPool.query(
         `UPDATE missed_collection_reports SET status = 'escalated', updated_at = NOW()
          WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours'
@@ -527,6 +566,30 @@ setInterval(processScheduledMessages, 60_000);
   }
 
   setInterval(runLifecycleCleanup, LIFECYCLE_CHECK_INTERVAL);
+}
+
+// Bid auto-accept scheduler — checks every 5 minutes for bids past their window
+{
+  const BID_CHECK_INTERVAL = 5 * 60 * 1000;
+  let bidAutoAcceptRunning = false;
+
+  async function checkAndAutoAcceptBids() {
+    if (bidAutoAcceptRunning) return;
+    bidAutoAcceptRunning = true;
+    try {
+      const { runBidAutoAccept } = await import('./bidAutoAcceptEngine');
+      const result = await runBidAutoAccept();
+      if (result.accepted > 0 || result.expired > 0) {
+        console.log(`[BidAutoAccept] Accepted: ${result.accepted}, Expired: ${result.expired}`);
+      }
+    } catch (error: any) {
+      console.error('[BidAutoAccept] Scheduler error:', error.message);
+    } finally {
+      bidAutoAcceptRunning = false;
+    }
+  }
+
+  setInterval(checkAndAutoAcceptBids, BID_CHECK_INTERVAL);
 }
 
 app.use('/api/team/auth/login', authRateLimit);

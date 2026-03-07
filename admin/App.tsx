@@ -50,6 +50,7 @@ const OPS_TAB_TO_PATH: Record<OpsTabType, string> = {
   contracts: '/admin/operations/contracts',
   opportunities: '/admin/operations/opportunities',
   issues: '/admin/operations/issues',
+  exceptions: '/admin/operations/exceptions',
   // Backward compat aliases
   locations: '/admin/operations/service-areas',
   zones: '/admin/operations/service-areas',
@@ -66,6 +67,7 @@ const OPS_PATH_TO_TAB: Record<string, OpsTabType> = {
   '/admin/operations/contracts': 'contracts',
   '/admin/operations/opportunities': 'opportunities',
   '/admin/operations/issues': 'issues',
+  '/admin/operations/exceptions': 'exceptions',
   // Backward compat: old tab paths
   '/admin/operations/locations': 'service-areas',
   '/admin/operations/zones': 'service-areas',

@@ -1874,6 +1874,76 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Planning
+  // Exception dashboard — surfaces items requiring admin attention
+  app.get('/api/admin/exceptions', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const [unmatchedOnDemand, escalatedMissed, expiredBids, failedAssignments, staleDraftRoutes] = await Promise.all([
+        // On-demand requests pending > 1 hour without a driver
+        pool.query(
+          `SELECT odr.id, odr.service_name, odr.requested_date, p.address, odr.created_at
+           FROM on_demand_requests odr
+           JOIN locations p ON p.id = odr.location_id
+           WHERE odr.status = 'pending' AND odr.assigned_driver_id IS NULL
+             AND odr.created_at < NOW() - INTERVAL '1 hour'
+           ORDER BY odr.created_at ASC LIMIT 50`
+        ),
+        // Escalated missed collections
+        pool.query(
+          `SELECT mcr.id, mcr.reported_date, mcr.status, p.address, mcr.created_at
+           FROM missed_collection_reports mcr
+           JOIN locations p ON p.id = mcr.location_id
+           WHERE mcr.status IN ('pending', 'escalated')
+           ORDER BY mcr.created_at ASC LIMIT 50`
+        ),
+        // Routes with expired/no bids (open > 24h with no pending bids)
+        pool.query(
+          `SELECT r.id, r.title, r.scheduled_date, r.status, r.created_at
+           FROM routes r
+           WHERE r.status IN ('open', 'bidding') AND r.assigned_driver_id IS NULL
+             AND r.created_at < NOW() - INTERVAL '24 hours'
+             AND r.scheduled_date >= CURRENT_DATE
+             AND NOT EXISTS (SELECT 1 FROM route_bids rb WHERE rb.route_id = r.id AND rb.status = 'pending')
+           ORDER BY r.scheduled_date ASC LIMIT 50`
+        ),
+        // Failed auto-assignments (from log)
+        pool.query(
+          `SELECT aal.id, aal.location_id, aal.failure_reason, aal.created_at, p.address
+           FROM auto_assignment_log aal
+           JOIN locations p ON p.id = aal.location_id
+           WHERE aal.success = false AND aal.created_at > NOW() - INTERVAL '7 days'
+           ORDER BY aal.created_at DESC LIMIT 50`
+        ).catch(() => ({ rows: [] })),
+        // Stale draft routes for upcoming dates
+        pool.query(
+          `SELECT r.id, r.title, r.scheduled_date, r.created_at,
+                  COALESCE(sc.stop_count, 0)::int AS stop_count
+           FROM routes r
+           LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
+           WHERE r.status = 'draft' AND r.scheduled_date >= CURRENT_DATE
+             AND r.scheduled_date <= CURRENT_DATE + INTERVAL '3 days'
+           ORDER BY r.scheduled_date ASC LIMIT 50`
+        ),
+      ]);
+
+      res.json({
+        unmatchedOnDemand: unmatchedOnDemand.rows,
+        escalatedMissed: escalatedMissed.rows,
+        expiredBids: expiredBids.rows,
+        failedAssignments: failedAssignments.rows,
+        staleDraftRoutes: staleDraftRoutes.rows,
+        totalExceptions:
+          unmatchedOnDemand.rows.length +
+          escalatedMissed.rows.length +
+          expiredBids.rows.length +
+          failedAssignments.rows.length +
+          staleDraftRoutes.rows.length,
+      });
+    } catch (error) {
+      console.error('Failed to fetch exceptions:', error);
+      res.status(500).json({ error: 'Failed to fetch exceptions' });
+    }
+  });
+
   app.get('/api/admin/planning/calendar', requireAdmin, async (req: Request, res: Response) => {
     try {
       const from = req.query.from as string | undefined;
@@ -3832,6 +3902,12 @@ export function registerAdminRoutes(app: Express) {
     WAITLIST_AUTO_FLAG_ENABLED: { category: 'operations', isSecret: false, label: 'Auto-Flag Waitlisted Locations on Zone Approval', displayType: 'toggle' },
     AUTO_ASSIGN_NEW_LOCATIONS: { category: 'operations', isSecret: false, label: 'Auto-Assign New Locations to Contract Drivers', displayType: 'toggle' },
     AUTO_EXPIRE_CONTRACTS:    { category: 'operations', isSecret: false, label: 'Auto-Expire Contracts Past End Date', displayType: 'toggle' },
+    AUTO_REOPEN_EXPIRED_CONTRACTS: { category: 'operations', isSecret: false, label: 'Auto-Reopen Expired Contracts as Opportunities', displayType: 'toggle' },
+    AUTO_GENERATE_CONTRACT_ROUTES: { category: 'operations', isSecret: false, label: 'Auto-Generate Routes for Active Contracts', displayType: 'toggle' },
+    AUTO_SWAP_ENABLED:             { category: 'operations', isSecret: false, label: 'Auto-Swap Providers for Efficiency', displayType: 'toggle' },
+    AUTO_ACCEPT_BIDS:              { category: 'operations', isSecret: false, label: 'Auto-Accept Best Bid After Window', displayType: 'toggle' },
+    BID_WINDOW_HOURS:              { category: 'operations', isSecret: false, label: 'Bid Window for Advance Routes (hours)', displayType: 'text' },
+    SAME_DAY_BID_WINDOW_MINUTES:   { category: 'operations', isSecret: false, label: 'Bid Window for Same-Day Routes (minutes)', displayType: 'text' },
     ZONE_ASSIGNMENT_DEADLINE_HOURS:     { category: 'operations', isSecret: false, label: 'Zone Assignment Deadline (hours)',  displayType: 'text' },
     ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY: { category: 'operations', isSecret: false, label: 'Multi-Zone Conflict Strategy',     displayType: 'text' },
     // Billing
