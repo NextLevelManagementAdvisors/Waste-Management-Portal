@@ -1117,6 +1117,30 @@ CREATE TABLE IF NOT EXISTS zone_expansion_proposals (
 CREATE INDEX IF NOT EXISTS idx_zep_driver ON zone_expansion_proposals(driver_id);
 CREATE INDEX IF NOT EXISTS idx_zep_status ON zone_expansion_proposals(status);
 
+-- Demand clusters for geographic expansion (Phase 4E)
+CREATE TABLE IF NOT EXISTS demand_clusters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  center_lat NUMERIC(10,7) NOT NULL,
+  center_lng NUMERIC(10,7) NOT NULL,
+  radius_miles NUMERIC(6,2) DEFAULT 5.0,
+  location_count INTEGER DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'identified',
+  opportunity_id UUID REFERENCES contract_opportunities(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_demand_cluster_status ON demand_clusters(status);
+
+-- Consumption-based billing (Phase 4C)
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS billing_model VARCHAR(20) DEFAULT 'subscription';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS per_collection_price NUMERIC(10,2);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS stripe_metered_subscription_id VARCHAR(255);
+
+-- Driver reliability tracking (Phase 4B)
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS reliability_score NUMERIC(4,2) DEFAULT 1.00;
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS total_declines INTEGER DEFAULT 0;
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS total_no_shows INTEGER DEFAULT 0;
+
 -- Push notification subscriptions (Phase 3D)
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1325,6 +1325,43 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Surge pricing: current zone surge status
+  app.get('/api/admin/surge-status', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { getCurrentSurges } = await import('./surgePricingEngine');
+      const surges = await getCurrentSurges();
+      res.json({ data: surges });
+    } catch (error) {
+      console.error('Surge status error:', error);
+      res.status(500).json({ error: 'Failed to get surge status' });
+    }
+  });
+
+  // Demand clusters: view identified expansion opportunities
+  app.get('/api/admin/demand-clusters', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT id, center_lat, center_lng, radius_miles, location_count, status, opportunity_id, created_at
+         FROM demand_clusters ORDER BY created_at DESC LIMIT 50`
+      );
+      res.json({ data: result.rows });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get demand clusters' });
+    }
+  });
+
+  // Surge pricing: manually trigger recalculation
+  app.post('/api/admin/surge-recalculate', requireAdmin, requirePermission('operations'), async (_req: Request, res: Response) => {
+    try {
+      const { applySurgePricing } = await import('./surgePricingEngine');
+      const result = await applySurgePricing();
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Surge recalculate error:', error);
+      res.status(500).json({ error: 'Failed to recalculate surge pricing' });
+    }
+  });
+
   // Driver Zones (read-only aggregate of all driver-created zones)
   app.get('/api/admin/driver-zones', requireAdmin, async (_req: Request, res: Response) => {
     try {
@@ -3983,6 +4020,8 @@ export function registerAdminRoutes(app: Express) {
     AUTO_FIX_ERRORS:            { category: 'app', isSecret: false, label: 'Auto-Fix Errors (Claude)',     displayType: 'toggle' },
     // Slack
     SLACK_WEBHOOK_URL:          { category: 'slack', isSecret: true,  label: 'Webhook URL',                  displayType: 'secret' },
+    // Marketplace
+    SURGE_PRICING_ENABLED:      { category: 'operations', isSecret: false, label: 'Surge Pricing',              displayType: 'toggle' },
     // Weather
     OPENWEATHERMAP_API_KEY:     { category: 'weather', isSecret: true,  label: 'API Key',                    displayType: 'secret' },
     WEATHER_LOCATION:           { category: 'weather', isSecret: false, label: 'Location (lat,lon)',          displayType: 'text' },

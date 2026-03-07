@@ -1333,6 +1333,11 @@ export function registerTeamRoutes(app: Express) {
         broadcastToZoneDrivers(route.zone_id, 'route:available', { routeId, title: route.title, scheduledDate: route.scheduled_date }, driverId);
       }
 
+      // Update reliability score (non-blocking)
+      import('./driverMatchingService').then(({ updateReliabilityScore }) => {
+        updateReliabilityScore(driverId).catch(() => {});
+      }).catch(() => {});
+
       res.json({ success: true });
     } catch (error: any) {
       console.error('Decline route error:', error);
@@ -1435,6 +1440,31 @@ export function registerTeamRoutes(app: Express) {
 
       // Broadcast stop update to admins
       broadcastToAdmins('stop:updated', { routeId, stopId, status, driverId });
+
+      // Report metered usage for per-collection billing (non-blocking)
+      if (status === 'completed') {
+        (async () => {
+          try {
+            const locResult = await pool.query(
+              `SELECT l.billing_model, l.stripe_metered_subscription_id, l.per_collection_price
+               FROM route_stops rs JOIN locations l ON l.id = rs.location_id
+               WHERE rs.id = $1`,
+              [stopId]
+            );
+            const loc = locResult.rows[0];
+            if (loc?.billing_model === 'per_collection' && loc.stripe_metered_subscription_id) {
+              const { getUncachableStripeClient } = await import('./stripeClient');
+              const stripe = getUncachableStripeClient();
+              await stripe.subscriptionItems.createUsageRecord(
+                loc.stripe_metered_subscription_id,
+                { quantity: 1, timestamp: Math.floor(Date.now() / 1000), action: 'increment' }
+              );
+            }
+          } catch (e: any) {
+            console.error('[MeteredBilling] Usage report failed:', e.message);
+          }
+        })();
+      }
 
       // If stop failed, notify the customer
       if (status === 'failed') {
@@ -2894,6 +2924,67 @@ export function registerTeamRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error creating conversation:', err);
       res.status(500).json({ error: 'Failed to create conversation' });
+    }
+  });
+
+  // Driver leaderboard — weekly/monthly rankings
+  app.get('/api/team/leaderboard', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const period = (req.query.period as string) || 'weekly';
+      const interval = period === 'monthly' ? '30 days' : '7 days';
+
+      const result = await pool.query(
+        `SELECT
+           dp.id AS driver_id,
+           dp.name,
+           dp.rating,
+           dp.reliability_score,
+           COUNT(r.id) FILTER (WHERE r.status = 'completed')::int AS completed_routes,
+           COUNT(rs.id) FILTER (WHERE rs.status = 'completed')::int AS completed_stops,
+           COALESCE(SUM(r.computed_value) FILTER (WHERE r.status = 'completed'), 0)::numeric(10,2) AS total_earnings,
+           COALESCE(AVG(df.rating), dp.rating)::numeric(3,2) AS period_rating
+         FROM driver_profiles dp
+         LEFT JOIN routes r ON r.assigned_driver_id = dp.id
+           AND r.scheduled_date >= CURRENT_DATE - $1::interval
+         LEFT JOIN route_stops rs ON rs.route_id = r.id
+         LEFT JOIN driver_feedback df ON df.driver_id = dp.id
+           AND df.created_at >= CURRENT_DATE - $1::interval
+         WHERE dp.onboarding_status = 'completed'
+         GROUP BY dp.id
+         HAVING COUNT(r.id) FILTER (WHERE r.status = 'completed') > 0
+         ORDER BY completed_stops DESC, period_rating DESC
+         LIMIT 25`,
+        [interval]
+      );
+
+      const driverId = res.locals.driverProfile.id;
+      const leaderboard = result.rows.map((r: any, i: number) => ({
+        rank: i + 1,
+        driverId: r.driver_id,
+        name: r.driver_id === driverId ? r.name : r.name.split(' ')[0] + ' ' + (r.name.split(' ')[1]?.[0] || '') + '.',
+        rating: parseFloat(r.period_rating) || 0,
+        reliabilityScore: parseFloat(r.reliability_score) || 0,
+        completedRoutes: r.completed_routes,
+        completedStops: r.completed_stops,
+        totalEarnings: r.driver_id === driverId ? parseFloat(r.total_earnings) : undefined, // Only show own earnings
+        isYou: r.driver_id === driverId,
+      }));
+
+      res.json({ data: leaderboard, period });
+    } catch (error: any) {
+      console.error('Leaderboard error:', error);
+      res.status(500).json({ error: 'Failed to get leaderboard' });
+    }
+  });
+
+  // Surge pricing: current surges visible to drivers
+  app.get('/api/team/surge-zones', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const { getCurrentSurges } = await import('./surgePricingEngine');
+      const surges = await getCurrentSurges();
+      res.json({ data: surges.map(s => ({ zoneId: s.zoneId, zoneName: s.zoneName, multiplier: s.multiplier })) });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get surge zones' });
     }
   });
 

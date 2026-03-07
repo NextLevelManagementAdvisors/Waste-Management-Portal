@@ -607,6 +607,110 @@ setInterval(processScheduledMessages, 60_000);
   setInterval(pruneOldLocations, 24 * 60 * 60 * 1000);
 }
 
+// Surge pricing recalculation — runs every 15 minutes
+{
+  const SURGE_INTERVAL = 15 * 60 * 1000;
+  async function recalcSurge() {
+    if (process.env.SURGE_PRICING_ENABLED === 'false') return;
+    try {
+      const { applySurgePricing } = await import('./surgePricingEngine');
+      const result = await applySurgePricing();
+      if (result.updated > 0) {
+        console.log(`[SurgePricing] Updated ${result.updated} route(s) with surge premiums`);
+        const { broadcastToAdmins } = await import('./websocket');
+        broadcastToAdmins('surge:updated', { updated: result.updated });
+      }
+    } catch (error: any) {
+      console.error('[SurgePricing] Error:', error.message);
+    }
+  }
+  setInterval(recalcSurge, SURGE_INTERVAL);
+}
+
+// Geographic expansion — analyze waitlisted demand clusters daily
+{
+  const EXPANSION_INTERVAL = 24 * 60 * 60 * 1000;
+  const DEMAND_THRESHOLD = 5; // min waitlisted locations to trigger cluster
+
+  async function analyzeExpansionDemand() {
+    try {
+      // Find waitlisted/pending locations without a zone that cluster geographically
+      const waitlisted = await pool.query(
+        `SELECT id, latitude, longitude, address
+         FROM locations
+         WHERE status IN ('waitlisted', 'pending_review')
+           AND zone_id IS NULL
+           AND latitude IS NOT NULL AND longitude IS NOT NULL`
+      );
+
+      if (waitlisted.rows.length < DEMAND_THRESHOLD) return;
+
+      // Simple clustering: group by 5-mile radius around each point
+      const clusters: Array<{ centerLat: number; centerLng: number; locations: any[] }> = [];
+      const used = new Set<string>();
+
+      for (const loc of waitlisted.rows) {
+        if (used.has(loc.id)) continue;
+        const cluster = { centerLat: parseFloat(loc.latitude), centerLng: parseFloat(loc.longitude), locations: [loc] };
+        for (const other of waitlisted.rows) {
+          if (other.id === loc.id || used.has(other.id)) continue;
+          const dist = haversine(cluster.centerLat, cluster.centerLng, parseFloat(other.latitude), parseFloat(other.longitude));
+          if (dist <= 5) {
+            cluster.locations.push(other);
+            used.add(other.id);
+          }
+        }
+        used.add(loc.id);
+        if (cluster.locations.length >= DEMAND_THRESHOLD) {
+          // Recalculate center
+          cluster.centerLat = cluster.locations.reduce((s: number, l: any) => s + parseFloat(l.latitude), 0) / cluster.locations.length;
+          cluster.centerLng = cluster.locations.reduce((s: number, l: any) => s + parseFloat(l.longitude), 0) / cluster.locations.length;
+          clusters.push(cluster);
+        }
+      }
+
+      for (const cluster of clusters) {
+        // Check if cluster already exists nearby
+        const existing = await pool.query(
+          `SELECT id FROM demand_clusters
+           WHERE status IN ('identified', 'opportunity_created')
+             AND ABS(center_lat - $1) < 0.05 AND ABS(center_lng - $2) < 0.05`,
+          [cluster.centerLat, cluster.centerLng]
+        );
+        if (existing.rows.length > 0) continue;
+
+        await pool.query(
+          `INSERT INTO demand_clusters (center_lat, center_lng, location_count, status)
+           VALUES ($1, $2, $3, 'identified')`,
+          [cluster.centerLat, cluster.centerLng, cluster.locations.length]
+        );
+
+        console.log(`[Expansion] New demand cluster: ${cluster.locations.length} locations near (${cluster.centerLat.toFixed(4)}, ${cluster.centerLng.toFixed(4)})`);
+
+        // Notify admins
+        const { broadcastToAdmins } = await import('./websocket');
+        broadcastToAdmins('expansion:cluster_found', {
+          locationCount: cluster.locations.length,
+          centerLat: cluster.centerLat,
+          centerLng: cluster.centerLng,
+        });
+      }
+    } catch (error: any) {
+      console.error('[Expansion] Error:', error.message);
+    }
+  }
+
+  function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 3959;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  setInterval(analyzeExpansionDemand, EXPANSION_INTERVAL);
+}
+
 app.use('/api/team/auth/login', authRateLimit);
 app.use('/api/team/auth/register', authRateLimit);
 const { registerTeamRoutes } = await import('./teamRoutes');
