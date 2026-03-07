@@ -123,8 +123,10 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
           body: JSON.stringify({ locationIds: [...selectedIds] }),
         });
         if (!stopsRes.ok) {
-          // Route was created but stops failed — still close, user can add stops later
           console.error('Route created but failed to add stops');
+          setError('Route created but failed to add stops. You can add them by editing the route.');
+          setSubmitting(false);
+          return;
         }
       }
 

@@ -11,6 +11,7 @@ import CompletionDetailModal from './CompletionDetailModal.tsx';
 import RouteOptimizerModal from './RouteOptimizerModal.tsx';
 import RouteMapModal from './RouteMapModal.tsx';
 import BidSection from './BidSection.tsx';
+import { useToast } from '../../../components/Toast.tsx';
 
 // ── Local icon components (matching team portal style) ──
 
@@ -148,6 +149,7 @@ function getSyncIndicator(route: Route): { label: string; className: string } | 
 // ── Component ──
 
 const PlanningCalendar: React.FC = () => {
+  const { showToast } = useToast();
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -182,6 +184,7 @@ const PlanningCalendar: React.FC = () => {
   const [expandedBidRouteId, setExpandedBidRouteId] = useState<string | null>(null);
   const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
   const [importingFromOptimo, setImportingFromOptimo] = useState(false);
+  const [publishingAll, setPublishingAll] = useState(false);
   const [importResult, setImportResult] = useState<{ routesImported: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
 
   // Weather state
@@ -246,9 +249,17 @@ const PlanningCalendar: React.FC = () => {
         onDemandByDate.set(s.requested_date, s.on_demand_count);
       }
 
-      const countsByDay = new Map<string, number>();
-      for (const pc of data.locationCounts ?? []) {
-        countsByDay.set(pc.collection_day, (countsByDay.get(pc.collection_day) || 0) + Number(pc.location_count));
+      // Per-date location counts (respects bi-weekly/monthly frequency)
+      const countsByDate = new Map<string, number>();
+      if (data.locationCountsByDate) {
+        for (const [date, count] of Object.entries(data.locationCountsByDate)) {
+          countsByDate.set(date, count as number);
+        }
+      } else {
+        // Fallback for old API response format (day-of-week based)
+        for (const pc of data.locationCounts ?? []) {
+          countsByDate.set(pc.collection_day, (countsByDate.get(pc.collection_day) || 0) + Number(pc.location_count));
+        }
       }
 
       const routesByDate = new Map<string, Record<string, number>>();
@@ -260,9 +271,7 @@ const PlanningCalendar: React.FC = () => {
       }
 
       for (const day of days) {
-        const dt = new Date(day.date + 'T12:00:00');
-        const dayName = DAY_NAME_MAP[dt.getDay()];
-        day.locationCount = countsByDay.get(dayName) ?? 0;
+        day.locationCount = countsByDate.get(day.date) ?? 0;
         day.onDemandCount = onDemandByDate.get(day.date) ?? 0;
         day.routesByStatus = routesByDate.get(day.date) ?? {};
       }
@@ -351,6 +360,7 @@ const PlanningCalendar: React.FC = () => {
       return;
     }
     setSelectedDate(date);
+    setLiveStopStatuses({});
     try {
       await fetch('/api/admin/optimoroute/import-routes', {
         method: 'POST',
@@ -426,11 +436,17 @@ const PlanningCalendar: React.FC = () => {
   };
 
   const handlePublishAllDrafts = async () => {
-    const drafts = dayRoutes.filter(r => r.status === 'draft');
-    for (const draft of drafts) {
-      await fetch(`/api/admin/routes/${draft.id}/publish`, { method: 'POST', credentials: 'include' });
+    if (publishingAll) return;
+    setPublishingAll(true);
+    try {
+      const drafts = dayRoutes.filter(r => r.status === 'draft');
+      for (const draft of drafts) {
+        await fetch(`/api/admin/routes/${draft.id}/publish`, { method: 'POST', credentials: 'include' });
+      }
+      await refreshDay();
+    } finally {
+      setPublishingAll(false);
     }
-    await refreshDay();
   };
 
   const toggleExpandRoute = async (routeId: string) => {
@@ -461,15 +477,15 @@ const PlanningCalendar: React.FC = () => {
       const res = await fetch(`/api/admin/routes/${routeId}/sync-to-optimo`, { method: 'POST', credentials: 'include' });
       if (res.ok) {
         const result = await res.json();
-        alert(`Synced ${result.ordersSynced} orders to OptimoRoute.${result.errors.length > 0 ? ` Errors: ${result.errors.length}` : ''}`);
+        showToast(result.errors.length > 0 ? 'warning' : 'success', `Synced ${result.ordersSynced} orders to OptimoRoute.${result.errors.length > 0 ? ` ${result.errors.length} error(s).` : ''}`);
         await refreshDay();
       } else {
         const err = await res.json().catch(() => null);
-        alert(`Failed to sync route: ${err?.error || res.statusText}`);
+        showToast('error', `Failed to sync route: ${err?.error || res.statusText}`);
       }
     } catch (e) {
       console.error('Failed to sync route:', e);
-      alert('Failed to sync route to OptimoRoute. Check console for details.');
+      showToast('error', 'Failed to sync route to OptimoRoute.');
     } finally {
       setSyncing(null);
     }
@@ -487,15 +503,15 @@ const PlanningCalendar: React.FC = () => {
       });
       if (res.ok) {
         const result = await res.json();
-        alert(`Synced ${result.routesSynced} routes (${result.ordersSynced} orders) to OptimoRoute.${result.errors.length > 0 ? ` Errors: ${result.errors.length}` : ''}`);
+        showToast(result.errors.length > 0 ? 'warning' : 'success', `Synced ${result.routesSynced} routes (${result.ordersSynced} orders) to OptimoRoute.${result.errors.length > 0 ? ` ${result.errors.length} error(s).` : ''}`);
         await refreshDay();
       } else {
         const err = await res.json().catch(() => null);
-        alert(`Failed to sync day: ${err?.error || res.statusText}`);
+        showToast('error', `Failed to sync day: ${err?.error || res.statusText}`);
       }
     } catch (e) {
       console.error('Failed to sync day:', e);
-      alert('Failed to sync day to OptimoRoute. Check console for details.');
+      showToast('error', 'Failed to sync day to OptimoRoute.');
     } finally {
       setSyncingDay(false);
     }
@@ -518,7 +534,7 @@ const PlanningCalendar: React.FC = () => {
         await refreshDay();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(`Import failed: ${err.error || 'Unknown error'}`);
+        showToast('error', `Import failed: ${err.error || 'Unknown error'}`);
       }
     } catch (e) {
       console.error('Failed to import from OptimoRoute:', e);
@@ -541,6 +557,7 @@ const PlanningCalendar: React.FC = () => {
 
   const draftCount = dayRoutes.filter(r => r.status === 'draft').length;
   const publishedUnsyncedCount = dayRoutes.filter(r => r.status !== 'draft' && r.status !== 'cancelled' && !r.optimoSynced).length;
+  const isBusy = autoPlanning || syncingDay || importingFromOptimo || publishingAll;
 
   const weeks = useMemo(() => groupIntoWeeks(calendarDays), [calendarDays]);
   const selectedWeekIdx = useMemo(() => {
@@ -609,21 +626,21 @@ const PlanningCalendar: React.FC = () => {
             {/* Action Buttons */}
             <div className="flex flex-wrap gap-2">
               {dayLocations.length > 0 && dayRoutes.filter(j => j.status === 'draft').length === 0 && (
-                <button type="button" onClick={handlePlanRoutes} disabled={autoPlanning}
+                <button type="button" onClick={handlePlanRoutes} disabled={isBusy}
                   className="flex-1 px-3 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white text-xs font-bold rounded-lg transition-colors">
                   {autoPlanning ? 'Planning...' : 'Plan Routes'}
                 </button>
               )}
 
               {draftCount > 0 && (
-                <button type="button" onClick={handlePublishAllDrafts}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors">
-                  Publish All ({draftCount})
+                <button type="button" onClick={handlePublishAllDrafts} disabled={isBusy}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-xs font-bold rounded-lg transition-colors">
+                  {publishingAll ? 'Publishing...' : `Publish All (${draftCount})`}
                 </button>
               )}
 
               {publishedUnsyncedCount > 0 && (
-                <button type="button" onClick={handleSyncDay} disabled={syncingDay}
+                <button type="button" onClick={handleSyncDay} disabled={isBusy}
                   className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-colors">
                   {syncingDay ? 'Syncing...' : `Sync to Optimo (${publishedUnsyncedCount})`}
                 </button>
@@ -635,8 +652,8 @@ const PlanningCalendar: React.FC = () => {
               </button>
 
               {selectedDate && (
-                <button type="button" onClick={() => setShowOptimizer(true)}
-                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors">
+                <button type="button" onClick={() => setShowOptimizer(true)} disabled={isBusy}
+                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white text-xs font-bold rounded-lg transition-colors">
                   Optimize
                 </button>
               )}
@@ -648,7 +665,7 @@ const PlanningCalendar: React.FC = () => {
                 </button>
               )}
 
-              <button type="button" onClick={handleImportFromOptimo} disabled={importingFromOptimo}
+              <button type="button" onClick={handleImportFromOptimo} disabled={isBusy}
                 className="px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white text-xs font-bold rounded-lg transition-colors">
                 {importingFromOptimo ? 'Importing...' : 'Import from Optimo'}
               </button>
@@ -767,8 +784,39 @@ const PlanningCalendar: React.FC = () => {
                               </div>
                             )}
                             {overCapacity && (
-                              <div className="mt-1 text-xs font-bold text-amber-600">
-                                {stopCount} stops (max {ROUTE_MAX_STOPS}) — consider rebalancing
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="text-xs font-bold text-amber-600">
+                                  {stopCount} stops (max {ROUTE_MAX_STOPS}) — over capacity
+                                </span>
+                                {route.status === 'draft' && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        const res = await fetch(`/api/admin/routes/${route.id}/split`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          credentials: 'include',
+                                          body: JSON.stringify({ maxStops: ROUTE_MAX_STOPS }),
+                                        });
+                                        if (res.ok) {
+                                          const result = await res.json();
+                                          showToast('success', `Split into ${result.totalRoutes} routes`);
+                                          await refreshDay();
+                                        } else {
+                                          const err = await res.json().catch(() => ({}));
+                                          showToast('error', err.error || 'Failed to split route');
+                                        }
+                                      } catch {
+                                        showToast('error', 'Failed to split route');
+                                      }
+                                    }}
+                                    className="text-[10px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded transition-colors"
+                                  >
+                                    Split Route
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -937,14 +985,53 @@ const PlanningCalendar: React.FC = () => {
                   Unassigned Locations ({dayLocations.length})
                 </h4>
                 <div className="max-h-[200px] overflow-y-auto space-y-1">
-                  {dayLocations.map(prop => (
-                    <div key={prop.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-gray-900 font-medium truncate">{prop.address}</div>
-                        <div className="text-gray-400 truncate">{prop.customerName}</div>
+                  {dayLocations.map(prop => {
+                    const draftRoutes = dayRoutes.filter(r => r.status === 'draft');
+                    return (
+                      <div key={prop.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-gray-900 font-medium truncate">{prop.address}</div>
+                          <div className="text-gray-400 truncate">{prop.customerName}</div>
+                        </div>
+                        {draftRoutes.length > 0 ? (
+                          <button
+                            type="button"
+                            title={`Add to ${draftRoutes[0].title}`}
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/admin/routes/${draftRoutes[0].id}/stops`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ locationIds: [prop.id] }),
+                                });
+                                if (res.ok) {
+                                  showToast('success', `Added to ${draftRoutes[0].title}`);
+                                  await refreshDay();
+                                } else {
+                                  showToast('error', 'Failed to add stop to route.');
+                                }
+                              } catch {
+                                showToast('error', 'Failed to add stop to route.');
+                              }
+                            }}
+                            className="flex-shrink-0 px-2 py-1 text-[10px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors"
+                          >
+                            + Route
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            title="Create a new route with this location"
+                            onClick={() => setShowCreateRoute(true)}
+                            className="flex-shrink-0 px-2 py-1 text-[10px] font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                          >
+                            + New
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

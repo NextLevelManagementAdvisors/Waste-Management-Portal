@@ -2774,7 +2774,16 @@ export class Storage {
        ORDER BY p.address`,
       [dayOfWeek]
     );
-    return result.rows;
+    // Filter by collection_frequency (bi-weekly/monthly use anchor-based alignment)
+    const { isLocationDueOnDate } = await import('./autoAssignmentEngine');
+    return result.rows.filter((loc: any) => {
+      const freq = loc.collection_frequency || 'weekly';
+      if (freq === 'weekly') return true;
+      const anchor = loc.collection_start_date
+        ? (typeof loc.collection_start_date === 'string' ? loc.collection_start_date.split('T')[0] : new Date(loc.collection_start_date).toISOString().split('T')[0])
+        : null;
+      return isLocationDueOnDate(freq, anchor, date, loc.collection_day);
+    });
   }
 
   async getPlanningCalendarData(fromDate: string, toDate: string) {
@@ -2799,18 +2808,41 @@ export class Storage {
       [fromDate, toDate]
     );
 
-    // Get location counts by collection day
-    const locationCountsResult = await this.query(
-      `SELECT p.collection_day, COUNT(*)::int AS location_count
+    // Get location counts per actual date (respecting bi-weekly/monthly frequency)
+    const locationsResult = await this.query(
+      `SELECT p.collection_day, p.collection_frequency, p.collection_start_date
        FROM locations p
-       WHERE p.service_status = 'approved' AND p.collection_day IS NOT NULL
-       GROUP BY p.collection_day`
+       WHERE p.service_status = 'approved' AND p.collection_day IS NOT NULL`
     );
+    const { isLocationDueOnDate } = await import('./autoAssignmentEngine');
+    const DAY_NAME_MAP: Record<number, string> = {
+      0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday',
+      4: 'thursday', 5: 'friday', 6: 'saturday',
+    };
+    // Build per-date counts
+    const locationCountsByDate: Record<string, number> = {};
+    const from = new Date(fromDate + 'T12:00:00');
+    const to = new Date(toDate + 'T12:00:00');
+    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      const dayName = DAY_NAME_MAP[d.getDay()];
+      let count = 0;
+      for (const loc of locationsResult.rows) {
+        if (loc.collection_day !== dayName) continue;
+        const freq = loc.collection_frequency || 'weekly';
+        if (freq === 'weekly') { count++; continue; }
+        const anchor = loc.collection_start_date
+          ? (typeof loc.collection_start_date === 'string' ? loc.collection_start_date.split('T')[0] : new Date(loc.collection_start_date).toISOString().split('T')[0])
+          : null;
+        if (isLocationDueOnDate(freq, anchor, dateStr, loc.collection_day)) count++;
+      }
+      if (count > 0) locationCountsByDate[dateStr] = count;
+    }
 
     return {
       routes: routesResult.rows,
       onDemand: onDemandResult.rows,
-      locationCounts: locationCountsResult.rows,
+      locationCountsByDate,
     };
   }
 

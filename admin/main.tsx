@@ -4,6 +4,7 @@ import '../app.css';
 import AdminApp from './App.tsx';
 import { ErrorBoundary } from '../shared/ErrorBoundary.tsx';
 import { installGlobalErrorHandlers } from '../shared/errorReporter.ts';
+import { ToastProvider } from '../components/Toast.tsx';
 
 installGlobalErrorHandlers('admin');
 
@@ -16,7 +17,9 @@ const root = createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary spa="admin">
-      <AdminApp />
+      <ToastProvider>
+        <AdminApp />
+      </ToastProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );

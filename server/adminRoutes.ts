@@ -1068,6 +1068,72 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Split an over-capacity route into chunks of maxStops
+  app.post('/api/admin/routes/:id/split', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.id as string;
+      const maxStops = parseInt(req.body.maxStops || process.env.ROUTE_MAX_STOPS || '50', 10);
+
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (route.status !== 'draft') return res.status(400).json({ error: 'Only draft routes can be split' });
+
+      const stops = await storage.getRouteStops(routeId);
+      if (stops.length <= maxStops) return res.status(400).json({ error: 'Route does not exceed capacity' });
+
+      // Chunk stops beyond maxStops into new routes
+      const chunks: typeof stops[] = [];
+      for (let c = 0; c < stops.length; c += maxStops) {
+        chunks.push(stops.slice(c, c + maxStops));
+      }
+
+      // Keep first chunk in original route, create new routes for the rest
+      const newRoutes: any[] = [];
+      for (let i = 1; i < chunks.length; i++) {
+        const suffix = ` (${String.fromCharCode(65 + i)})`;
+        const baseTitle = route.title.replace(/ \([A-Z]\)$/, '');
+        const newRoute = await storage.createRoute({
+          title: `${baseTitle}${suffix}`,
+          scheduled_date: route.scheduled_date,
+          start_time: route.start_time ?? undefined,
+          end_time: route.end_time ?? undefined,
+          estimated_stops: chunks[i].length,
+          route_type: route.route_type ?? 'daily_route',
+          source: 'split',
+          status: 'draft',
+        });
+
+        await storage.addRouteStops(
+          newRoute.id,
+          chunks[i].map((s: any) => ({
+            location_id: s.location_id,
+            order_type: s.order_type,
+            on_demand_request_id: s.on_demand_request_id,
+          }))
+        );
+
+        // Remove these stops from original route
+        for (const s of chunks[i]) {
+          await storage.removeRouteStop(s.id);
+        }
+
+        newRoutes.push(newRoute);
+      }
+
+      // Rename original if multiple chunks
+      if (chunks.length > 1) {
+        const baseTitle = route.title.replace(/ \([A-Z]\)$/, '');
+        await storage.updateRoute(routeId, { title: `${baseTitle} (A)`, estimated_stops: chunks[0].length });
+      }
+
+      await audit(req, 'split_route', 'route', routeId, { newRouteCount: newRoutes.length, maxStops });
+      res.json({ originalRouteId: routeId, newRoutes: newRoutes.map(formatRouteForClient), totalRoutes: chunks.length });
+    } catch (error) {
+      console.error('Failed to split route:', error);
+      res.status(500).json({ error: 'Failed to split route' });
+    }
+  });
+
   // Route Actions
   app.post('/api/admin/routes/:id/publish', requireAdmin, async (req: Request, res: Response) => {
     try {
