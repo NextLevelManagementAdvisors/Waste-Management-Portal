@@ -1134,6 +1134,30 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Delete a route (only draft/open routes that haven't been synced)
+  app.delete('/api/admin/routes/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const routeId = req.params.id as string;
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (!['draft', 'open'].includes(route.status)) {
+        return res.status(400).json({ error: 'Only draft or open routes can be deleted' });
+      }
+
+      // Remove all stops first, then the route itself
+      const stops = await storage.getRouteStops(routeId);
+      for (const s of stops) {
+        await storage.removeRouteStop(s.id);
+      }
+      await storage.deleteRoute(routeId);
+      await audit(req, 'delete_route', 'route', routeId, { title: route.title });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to delete route:', error);
+      res.status(500).json({ error: 'Failed to delete route' });
+    }
+  });
+
   // Route Actions
   app.post('/api/admin/routes/:id/publish', requireAdmin, async (req: Request, res: Response) => {
     try {
@@ -1855,6 +1879,21 @@ export function registerAdminRoutes(app: Express) {
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
       if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+
+      // Auto-complete stale past-date routes that have no pending stops
+      await storage.query(
+        `UPDATE routes SET status = 'completed', completed_at = NOW()
+         WHERE scheduled_date >= $1 AND scheduled_date <= $2
+           AND scheduled_date < CURRENT_DATE
+           AND status IN ('assigned', 'in_progress')
+           AND NOT EXISTS (
+             SELECT 1 FROM route_stops rs
+             WHERE rs.route_id = routes.id
+               AND rs.status NOT IN ('completed', 'failed', 'cancelled')
+           )`,
+        [from, to]
+      );
+
       const data = await storage.getPlanningCalendarData(from, to);
       res.json(data);
     } catch (error) {
@@ -2413,18 +2452,36 @@ export function registerAdminRoutes(app: Express) {
         );
       }
 
-      // Auto-complete routes where all stops are done
+      // Auto-complete routes where all stops are terminal (completed or failed)
       let routesUpdated = 0;
       for (const routeId of routeIdsToCheck) {
         const stopsResult = await storage.query(
           `SELECT status FROM route_stops WHERE route_id = $1`,
           [routeId]
         );
-        const allCompleted = stopsResult.rows.length > 0 && stopsResult.rows.every((s: any) => s.status === 'completed');
-        if (allCompleted) {
+        const allTerminal = stopsResult.rows.length > 0 && stopsResult.rows.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
+        if (allTerminal) {
           await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
           routesUpdated++;
         }
+      }
+
+      // Also mark stale past-date routes as completed if they have no pending stops
+      const staleResult = await storage.query(
+        `SELECT r.id FROM routes r
+         WHERE r.scheduled_date::text LIKE $1
+           AND r.status IN ('assigned', 'in_progress')
+           AND r.scheduled_date < CURRENT_DATE
+           AND NOT EXISTS (
+             SELECT 1 FROM route_stops rs
+             WHERE rs.route_id = r.id
+               AND rs.status NOT IN ('completed', 'failed', 'cancelled')
+           )`,
+        [`${date}%`]
+      );
+      for (const row of staleResult.rows) {
+        await storage.updateRoute(row.id, { status: 'completed', completed_at: new Date().toISOString() });
+        routesUpdated++;
       }
 
       res.json({ routesUpdated, stopsUpdated });

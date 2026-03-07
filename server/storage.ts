@@ -1543,6 +1543,11 @@ export class Storage {
     return result.rows[0];
   }
 
+  async deleteRoute(routeId: string) {
+    await this.query('DELETE FROM route_bids WHERE route_id = $1', [routeId]);
+    await this.query('DELETE FROM routes WHERE id = $1', [routeId]);
+  }
+
   async deleteRouteBid(routeId: string, driverId: string) {
     await this.query('DELETE FROM route_bids WHERE route_id = $1 AND driver_id = $2', [routeId, driverId]);
   }

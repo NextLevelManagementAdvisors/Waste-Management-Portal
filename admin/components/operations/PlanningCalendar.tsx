@@ -218,19 +218,37 @@ const PlanningCalendar: React.FC = () => {
     }
   };
 
-  const handleDeleteRoute = async (routeId: string) => {
-    if (!confirm('Cancel this route?')) return;
+  const handleDeleteRoute = async (routeId: string, hardDelete: boolean) => {
+    const msg = hardDelete
+      ? 'Permanently delete this route and all its stops? This cannot be undone.'
+      : 'Cancel this route?';
+    if (!confirm(msg)) return;
     setDeletingRoute(routeId);
     try {
-      await fetch(`/api/admin/routes/${routeId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status: 'cancelled' }),
-      });
+      if (hardDelete) {
+        const res = await fetch(`/api/admin/routes/${routeId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          showToast('error', data.error || 'Failed to delete route.');
+          return;
+        }
+        showToast('success', 'Route deleted.');
+      } else {
+        await fetch(`/api/admin/routes/${routeId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ status: 'cancelled' }),
+        });
+        showToast('success', 'Route cancelled.');
+      }
       await refreshDay();
     } catch (e) {
-      console.error('Failed to cancel route:', e);
+      console.error('Failed to delete/cancel route:', e);
+      showToast('error', 'Network error. Please try again.');
     } finally {
       setDeletingRoute(null);
     }
@@ -873,10 +891,14 @@ const PlanningCalendar: React.FC = () => {
                                 Edit
                               </button>
                               {route.status !== 'completed' && route.status !== 'cancelled' && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteRoute(route.id); }}
+                                <button type="button" onClick={(e) => {
+                                    e.stopPropagation();
+                                    const canHardDelete = route.status === 'draft' || route.status === 'open';
+                                    handleDeleteRoute(route.id, canHardDelete);
+                                  }}
                                   disabled={deletingRoute === route.id}
                                   className="px-2.5 py-1 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
-                                  {deletingRoute === route.id ? 'Cancelling...' : 'Cancel'}
+                                  {deletingRoute === route.id ? 'Deleting...' : (route.status === 'draft' || route.status === 'open') ? 'Delete' : 'Cancel'}
                                 </button>
                               )}
                             </div>
