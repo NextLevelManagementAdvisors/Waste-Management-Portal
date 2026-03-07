@@ -1,0 +1,20 @@
+{
+  "name": "Rural Waste Management - Team Portal",
+  "short_name": "RWM Team",
+  "description": "Driver team portal for route management, collections, and earnings",
+  "start_url": "/team/",
+  "scope": "/team/",
+  "display": "standalone",
+  "background_color": "#0d9488",
+  "theme_color": "#0d9488",
+  "orientation": "portrait-primary",
+  "categories": ["business", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

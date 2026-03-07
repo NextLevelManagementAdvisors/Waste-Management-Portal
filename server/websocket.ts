@@ -96,12 +96,53 @@ class WebSocketManager {
     const adminKeys = Array.from(this.adminUserIds).map(id => this.getClientKey(id, 'admin'));
     this.broadcastTo(adminKeys, payload);
   }
+
+  broadcastToDriver(driverId: string, payload: any) {
+    this.broadcastTo([this.getClientKey(driverId, 'driver')], payload);
+  }
+
+  async broadcastToZoneDrivers(zoneId: string, payload: any, excludeDriverId?: string) {
+    try {
+      const res = await pool.query(
+        `SELECT DISTINCT driver_id FROM driver_zone_selections WHERE zone_id = $1
+         UNION
+         SELECT DISTINCT driver_id FROM route_contracts WHERE zone_id = $1 AND status = 'active'`,
+        [zoneId]
+      );
+      const driverKeys = res.rows
+        .filter(r => r.driver_id !== excludeDriverId)
+        .map(r => this.getClientKey(r.driver_id, 'driver'));
+      this.broadcastTo(driverKeys, payload);
+    } catch (error) {
+      console.error(`Failed to broadcast to zone ${zoneId} drivers:`, error);
+    }
+  }
+
+  broadcastToUser(userId: string, payload: any) {
+    this.broadcastTo([this.getClientKey(userId, 'user')], payload);
+  }
 }
 
 export const webSocketManager = new WebSocketManager();
 
 export function broadcastToParticipants(participantKeys: string[], event: string, data: any) {
   webSocketManager.broadcastTo(participantKeys, { event, data });
+}
+
+export function broadcastToDriver(driverId: string, event: string, data: any) {
+  webSocketManager.broadcastToDriver(driverId, { event, data });
+}
+
+export function broadcastToZoneDrivers(zoneId: string, event: string, data: any, excludeDriverId?: string) {
+  webSocketManager.broadcastToZoneDrivers(zoneId, { event, data }, excludeDriverId);
+}
+
+export function broadcastToUser(userId: string, event: string, data: any) {
+  webSocketManager.broadcastToUser(userId, { event, data });
+}
+
+export function broadcastToAdmins(event: string, data: any) {
+  webSocketManager.broadcastToAdmins({ event, data });
 }
 
 

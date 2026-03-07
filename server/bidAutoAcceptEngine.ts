@@ -151,6 +151,18 @@ export async function runBidAutoAccept(): Promise<{ accepted: number; expired: n
         }
       } catch {}
 
+      // Real-time WebSocket broadcasts
+      try {
+        const { broadcastToDriver, broadcastToAdmins } = await import('./websocket');
+        broadcastToDriver(winner.driver_id, 'route:assigned', { routeId: route.id, title: route.title, scheduledDate: route.scheduled_date, autoAccepted: true });
+        broadcastToAdmins('bid:auto_accepted', { routeId: route.id, title: route.title, driverId: winner.driver_id, score: winner.score });
+        for (const bid of scoredBids) {
+          if (bid.id !== winner.id) {
+            broadcastToDriver(bid.driver_id, 'bid:rejected', { routeId: route.id, title: route.title });
+          }
+        }
+      } catch {}
+
       console.log(`[BidAutoAccept] Accepted bid ${winner.id} (score: ${winner.score.toFixed(2)}) for route "${route.title}"`);
       result.accepted++;
     } catch (err: any) {

@@ -181,6 +181,13 @@ export async function autoMatchAndAssign(requestId: string): Promise<boolean> {
       }
     } catch {}
 
+    // Real-time WebSocket broadcasts
+    try {
+      const { broadcastToDriver, broadcastToAdmins } = await import('./websocket');
+      broadcastToDriver(match.driverId, 'ondemand:assigned', { requestId, driverName: match.driverName, autoMatched: true });
+      broadcastToAdmins('ondemand:matched', { requestId, driverId: match.driverId, driverName: match.driverName, score: match.score });
+    } catch {}
+
     console.log(`[OnDemandMatch] Matched request ${requestId} to driver ${match.driverName} (score: ${match.score.toFixed(2)})`);
     return true;
   } catch (error: any) {

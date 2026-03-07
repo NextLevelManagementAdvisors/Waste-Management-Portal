@@ -286,6 +286,11 @@ export async function sendServiceUpdate(userId: string, updateType: string, deta
   if (smsEnabled && user.phone) {
     await trySendSms(user.phone, `${APP_NAME}: ${updateType} - ${details}`);
   }
+
+  // Push notification (non-blocking)
+  import('./pushService').then(({ sendPushToUser }) => {
+    sendPushToUser(userId, updateType, details).catch(() => {});
+  }).catch(() => {});
 }
 
 export async function sendMissedCollectionConfirmation(userId: string, locationAddress: string, collectionDate: string) {
@@ -496,6 +501,14 @@ export async function sendDriverNotification(driverId: string, subject: string, 
   try {
     await sendEmail(driver.email, subject, baseTemplate(subject, htmlBody));
     logCommunication({ recipientId: driverId, recipientType: 'driver', recipientName: driver.name, recipientContact: driver.email, channel: 'email', subject, body: subject, status: 'sent' }).catch(() => {});
+
+    // Push notification to driver's user account (non-blocking)
+    if (driver.user_id) {
+      import('./pushService').then(({ sendPushToUser }) => {
+        sendPushToUser(driver.user_id, subject, subject).catch(() => {});
+      }).catch(() => {});
+    }
+
     return true;
   } catch (e: any) {
     console.error(`Failed to send driver notification to ${driver.email}:`, e);

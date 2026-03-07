@@ -5,6 +5,8 @@ import { getUncachableStripeClient, getStripePublishableKey } from './stripeClie
 import * as optimoRoute from './optimoRouteClient';
 import { requireAuth } from './middleware';
 import { sendPauseResumeConfirmation } from './notificationService';
+import { pool } from './db';
+import { getVapidPublicKey, saveSubscription, removeSubscription } from './pushService';
 
 function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
@@ -943,6 +945,206 @@ export function registerRoutes(app: Express) {
       res.json(disputes);
     } catch (e) {
       res.status(500).json({ error: 'Failed to fetch disputes' });
+    }
+  });
+
+  // Live collection tracking: customer checks if their location has an active route today
+  app.get('/api/locations/:locationId/collection-status', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { locationId } = req.params;
+
+      // Verify ownership
+      const loc = await storage.getLocationById(locationId);
+      if (!loc || loc.user_id !== userId) {
+        return res.status(404).json({ error: 'Location not found' });
+      }
+
+      // Find today's route that includes this location
+      const routeResult = await pool.query(
+        `SELECT r.id, r.title, r.status, r.assigned_driver_id, r.scheduled_date,
+                dp.name AS driver_name,
+                rs.id AS stop_id, rs.sequence_number, rs.status AS stop_status
+         FROM route_stops rs
+         JOIN routes r ON r.id = rs.route_id
+         LEFT JOIN driver_profiles dp ON dp.id = r.assigned_driver_id
+         WHERE rs.location_id = $1
+           AND r.scheduled_date = CURRENT_DATE
+           AND r.status IN ('assigned', 'in_progress')
+         ORDER BY r.scheduled_date DESC
+         LIMIT 1`,
+        [locationId]
+      );
+
+      if (routeResult.rows.length === 0) {
+        return res.json({ data: null });
+      }
+
+      const route = routeResult.rows[0];
+
+      // Count stops ahead of this one
+      const stopsAheadResult = await pool.query(
+        `SELECT COUNT(*)::int AS stops_ahead
+         FROM route_stops
+         WHERE route_id = $1
+           AND sequence_number < $2
+           AND status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
+        [route.id, route.sequence_number]
+      );
+      const stopsAhead = stopsAheadResult.rows[0]?.stops_ahead || 0;
+
+      // Get driver's latest position if route is in progress
+      let driverPosition = null;
+      if (route.status === 'in_progress' && route.assigned_driver_id) {
+        const posResult = await pool.query(
+          `SELECT latitude, longitude, heading, speed, recorded_at
+           FROM driver_locations
+           WHERE driver_id = $1 AND route_id = $2
+           ORDER BY recorded_at DESC LIMIT 1`,
+          [route.assigned_driver_id, route.id]
+        );
+        if (posResult.rows.length > 0) {
+          driverPosition = posResult.rows[0];
+        }
+      }
+
+      res.json({
+        data: {
+          routeId: route.id,
+          routeTitle: route.title,
+          routeStatus: route.status,
+          driverName: route.driver_name,
+          stopStatus: route.stop_status,
+          stopsAhead,
+          estimatedMinutes: stopsAhead * 5, // rough estimate: 5 min per stop
+          driverPosition,
+        },
+      });
+    } catch (error) {
+      console.error('Collection status error:', error);
+      res.status(500).json({ error: 'Failed to get collection status' });
+    }
+  });
+
+  // On-demand availability: show available dates based on driver capacity in zone
+  app.get('/api/on-demand/availability', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const locationId = req.query.locationId as string;
+      if (!locationId) return res.status(400).json({ error: 'locationId required' });
+
+      const loc = await storage.getLocationById(locationId);
+      if (!loc) return res.status(404).json({ error: 'Location not found' });
+
+      const zoneId = loc.zone_id;
+      const dates: Array<{ date: string; available: boolean; slots: number }> = [];
+
+      // Check next 14 days
+      for (let i = 0; i < 14; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() + i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+
+        // Count available drivers with capacity on this date
+        const capacityResult = await pool.query(
+          `SELECT COUNT(DISTINCT dp.id)::int AS available_drivers
+           FROM driver_profiles dp
+           JOIN route_contracts rc ON rc.driver_id = dp.id AND rc.status = 'active' AND rc.day_of_week = $1
+             AND (rc.zone_id = $2 OR $2 IS NULL)
+           WHERE dp.onboarding_status = 'completed'
+             AND NOT EXISTS (
+               SELECT 1 FROM driver_availability da WHERE da.driver_id = dp.id AND da.date = $3 AND da.available = false
+             )
+             AND (
+               SELECT COUNT(*)::int FROM route_stops rs
+               JOIN routes r ON r.id = rs.route_id
+               WHERE r.assigned_driver_id = dp.id AND r.scheduled_date = $3
+                 AND r.status NOT IN ('cancelled', 'completed')
+             ) < COALESCE(dp.max_stops_per_day, 60)`,
+          [dayName, zoneId, dateStr]
+        );
+
+        const slots = capacityResult.rows[0]?.available_drivers || 0;
+        dates.push({ date: dateStr, available: slots > 0, slots });
+      }
+
+      res.json({ data: dates });
+    } catch (error) {
+      console.error('On-demand availability error:', error);
+      res.status(500).json({ error: 'Failed to check availability' });
+    }
+  });
+
+  // Push notifications: get VAPID public key
+  app.get('/api/push/vapid-key', (_req: Request, res: Response) => {
+    res.json({ key: getVapidPublicKey() });
+  });
+
+  // Push notifications: subscribe
+  app.post('/api/push/subscribe', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { subscription } = req.body;
+      if (!subscription?.endpoint || !subscription?.keys) {
+        return res.status(400).json({ error: 'Invalid subscription' });
+      }
+      await saveSubscription(userId, subscription, req.headers['user-agent']);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Push subscribe error:', error);
+      res.status(500).json({ error: 'Failed to subscribe' });
+    }
+  });
+
+  // Push notifications: unsubscribe
+  app.post('/api/push/unsubscribe', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { endpoint } = req.body;
+      if (endpoint) await removeSubscription(endpoint);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to unsubscribe' });
+    }
+  });
+
+  // Customer submits a rating after collection
+  app.post('/api/feedback', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { routeId, stopId, driverId, rating, comment } = req.body;
+
+      if (!rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+      }
+      if (!driverId) {
+        return res.status(400).json({ error: 'driverId required' });
+      }
+
+      // Store feedback
+      await pool.query(
+        `INSERT INTO driver_feedback (id, driver_id, user_id, route_id, stop_id, rating, comment, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())`,
+        [driverId, userId, routeId || null, stopId || null, rating, comment || null]
+      );
+
+      // Recalculate driver's average rating (weighted moving average — recent ratings count more)
+      const ratingResult = await pool.query(
+        `SELECT AVG(rating)::numeric(3,2) AS avg_rating, COUNT(*)::int AS total_ratings
+         FROM driver_feedback WHERE driver_id = $1`,
+        [driverId]
+      );
+      const avgRating = ratingResult.rows[0]?.avg_rating || 5.0;
+      const totalRatings = ratingResult.rows[0]?.total_ratings || 0;
+
+      await pool.query(
+        `UPDATE driver_profiles SET rating = $1, total_ratings = $2, updated_at = NOW() WHERE id = $3`,
+        [avgRating, totalRatings, driverId]
+      );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Feedback error:', error);
+      res.status(500).json({ error: 'Failed to submit feedback' });
     }
   });
 }

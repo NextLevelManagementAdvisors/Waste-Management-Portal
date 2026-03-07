@@ -8,6 +8,7 @@ import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validat
 import { notifyWaitlistFlagged, notifyZoneConflict, notifyQualificationsUpdated, notifyNewZoneProposal, notifyContractRenewalRequest } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { sendDriverNotification } from './notificationService';
+import { broadcastToDriver, broadcastToAdmins, broadcastToUser, broadcastToZoneDrivers } from './websocket';
 
 /** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
 async function triggerWaitlistAutoFlag(zone: any) {
@@ -1164,6 +1165,8 @@ export function registerTeamRoutes(app: Express) {
         await storage.updateRoute(routeId, { status: 'bidding' });
       }
 
+      broadcastToAdmins('bid:placed', { routeId, driverId, bidAmount: bid_amount, title: route.title });
+
       res.status(201).json({ data: bid });
     } catch (error: any) {
       console.error('Place bid error:', error);
@@ -1190,6 +1193,90 @@ export function registerTeamRoutes(app: Express) {
     }
   });
 
+  // Driver claims an open route (same-day/next-day instant claim — no bidding).
+  // Uses SELECT ... FOR UPDATE for atomic locking to prevent double-claim.
+  app.post('/api/team/routes/:routeId/claim', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    const client = await pool.connect();
+    try {
+      const routeId = req.params.routeId;
+      const driverId = res.locals.driverProfile.id;
+      const driver = res.locals.driverProfile;
+
+      await client.query('BEGIN');
+
+      // Lock the route row atomically
+      const routeResult = await client.query(
+        `SELECT * FROM routes WHERE id = $1 FOR UPDATE`,
+        [routeId]
+      );
+      const route = routeResult.rows[0];
+      if (!route) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Route not found' });
+      }
+      if (!['open', 'bidding'].includes(route.status)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Route is no longer available' });
+      }
+
+      // Verify route is within claim window (scheduled within next 48 hours)
+      const scheduledDate = new Date(route.scheduled_date);
+      const hoursUntil = (scheduledDate.getTime() - Date.now()) / (1000 * 60 * 60);
+      if (hoursUntil > 48) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Route is too far out for instant claim. Use bidding instead.' });
+      }
+
+      // Check driver qualification: zone membership
+      if (route.zone_id) {
+        const zoneCheck = await client.query(
+          `SELECT 1 FROM driver_zone_selections WHERE driver_id = $1 AND zone_id = $2
+           UNION
+           SELECT 1 FROM route_contracts WHERE driver_id = $1 AND zone_id = $2 AND status = 'active'`,
+          [driverId, route.zone_id]
+        );
+        if (zoneCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'You are not qualified for this route\'s zone' });
+        }
+      }
+
+      // Assign the route
+      await client.query(
+        `UPDATE routes SET status = 'assigned', assigned_driver_id = $1, updated_at = NOW() WHERE id = $2`,
+        [driverId, routeId]
+      );
+
+      // Reject any pending bids from other drivers
+      await client.query(
+        `UPDATE route_bids SET status = 'rejected' WHERE route_id = $1 AND driver_id != $2 AND status = 'pending'`,
+        [routeId, driverId]
+      );
+
+      // Accept this driver's bid if they had one
+      await client.query(
+        `UPDATE route_bids SET status = 'accepted' WHERE route_id = $1 AND driver_id = $2 AND status = 'pending'`,
+        [routeId, driverId]
+      );
+
+      await client.query('COMMIT');
+
+      // Broadcasts (non-blocking, outside transaction)
+      broadcastToAdmins('route:claimed', { routeId, driverId, driverName: driver.name, title: route.title });
+      if (route.zone_id) {
+        broadcastToZoneDrivers(route.zone_id, 'route:claimed', { routeId }, driverId);
+      }
+
+      res.json({ success: true, route: formatRouteForClient({ ...route, status: 'assigned', assigned_driver_id: driverId }) });
+    } catch (error: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('Claim route error:', error);
+      res.status(500).json({ error: 'Failed to claim route' });
+    } finally {
+      client.release();
+    }
+  });
+
   // Driver starts an assigned route, transitioning it to in_progress.
   app.post('/api/team/routes/:routeId/start', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
@@ -1210,6 +1297,9 @@ export function registerTeamRoutes(app: Express) {
       }
 
       await storage.updateRoute(routeId, { status: 'in_progress' });
+
+      broadcastToAdmins('route:started', { routeId, driverId, title: route.title });
+
       res.json({ success: true });
     } catch (error: any) {
       console.error('Start route error:', error);
@@ -1237,6 +1327,11 @@ export function registerTeamRoutes(app: Express) {
         accepted_bid_id: null,
         notes: route.notes ? `${route.notes}\n\n${declineNote}` : declineNote,
       });
+
+      broadcastToAdmins('route:declined', { routeId, driverId, driverName, reason, title: route.title });
+      if (route.zone_id) {
+        broadcastToZoneDrivers(route.zone_id, 'route:available', { routeId, title: route.title, scheduledDate: route.scheduled_date }, driverId);
+      }
 
       res.json({ success: true });
     } catch (error: any) {
@@ -1299,10 +1394,157 @@ export function registerTeamRoutes(app: Express) {
       const stops = await storage.getRouteStops(routeId);
       const incompleteStops = stops.filter((s: any) => !['completed', 'failed', 'skipped', 'cancelled'].includes(s.status));
 
+      broadcastToAdmins('route:completed', { routeId, driverId, title: route.title });
+
       res.json({ success: true, incompleteStops: incompleteStops.length > 0 ? incompleteStops.map((s: any) => ({ id: s.id, address: s.address, status: s.status })) : [] });
     } catch (error: any) {
       console.error('Complete route error:', error);
       res.status(500).json({ error: 'Failed to complete route' });
+    }
+  });
+
+  // Driver updates a stop status with proof of collection data.
+  // Accepts status, notes, failure reason, and optional photo upload.
+  app.put('/api/team/routes/:routeId/stops/:stopId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const { routeId, stopId } = req.params;
+      const driverId = res.locals.driverProfile.id;
+      const { status, notes, failureReason, photoUrl } = req.body;
+
+      const route = await storage.getRouteById(routeId);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+      if (route.assigned_driver_id !== driverId) return res.status(403).json({ error: 'Not your route' });
+      if (!['assigned', 'in_progress'].includes(route.status)) return res.status(400).json({ error: 'Route is not active' });
+
+      const validStatuses = ['completed', 'failed', 'skipped'];
+      if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Status must be one of: ${validStatuses.join(', ')}` });
+      }
+
+      // Build pod_data
+      const podData: any = { updatedBy: driverId, updatedAt: new Date().toISOString() };
+      if (notes) podData.notes = notes;
+      if (failureReason) podData.failureReason = failureReason;
+      if (photoUrl) podData.photoUrl = photoUrl;
+
+      await pool.query(
+        `UPDATE route_stops SET status = $1, pod_data = $2, updated_at = NOW()
+         WHERE id = $3 AND route_id = $4`,
+        [status, JSON.stringify(podData), stopId, routeId]
+      );
+
+      // Broadcast stop update to admins
+      broadcastToAdmins('stop:updated', { routeId, stopId, status, driverId });
+
+      // If stop failed, notify the customer
+      if (status === 'failed') {
+        const stopResult = await pool.query(
+          `SELECT rs.*, l.user_id FROM route_stops rs LEFT JOIN locations l ON l.id = rs.location_id WHERE rs.id = $1`,
+          [stopId]
+        );
+        const stop = stopResult.rows[0];
+        if (stop?.user_id) {
+          const { sendServiceUpdate } = await import('./notificationService');
+          sendServiceUpdate(
+            stop.user_id,
+            'Collection Issue',
+            `Your collection at ${stop.address || 'your location'} could not be completed. Reason: ${failureReason || 'Not specified'}. We'll work to reschedule.`
+          ).catch(() => {});
+          broadcastToUser(stop.user_id, 'stop:failed', { stopId, address: stop.address, reason: failureReason });
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Update stop error:', error);
+      res.status(500).json({ error: 'Failed to update stop' });
+    }
+  });
+
+  // Upload proof-of-collection photo for a stop
+  app.post('/api/team/routes/:routeId/stops/:stopId/photo', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+    try {
+      const { podUpload } = await import('./uploadMiddleware');
+      podUpload.single('photo')(req, res, async (err: any) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+
+        const { routeId, stopId } = req.params;
+        const driverId = res.locals.driverProfile.id;
+
+        const route = await storage.getRouteById(routeId);
+        if (!route || route.assigned_driver_id !== driverId) {
+          return res.status(403).json({ error: 'Not your route' });
+        }
+
+        const photoUrl = `/uploads/pod/${req.file.filename}`;
+
+        // Merge photo into existing pod_data
+        await pool.query(
+          `UPDATE route_stops SET pod_data = COALESCE(pod_data, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+           WHERE id = $2 AND route_id = $3`,
+          [JSON.stringify({ photoUrl, photoUploadedAt: new Date().toISOString() }), stopId, routeId]
+        );
+
+        res.json({ success: true, photoUrl });
+      });
+    } catch (error: any) {
+      console.error('Upload POD photo error:', error);
+      res.status(500).json({ error: 'Failed to upload photo' });
+    }
+  });
+
+  // Driver submits GPS location while route is in progress.
+  // Accepts batch of points for efficiency (mobile sends every 30s).
+  app.post('/api/team/location', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const { routeId, points } = req.body;
+
+      // Accept single point or batch
+      const locations: Array<{ latitude: number; longitude: number; heading?: number; speed?: number; accuracy?: number; timestamp?: string }> =
+        Array.isArray(points) ? points : [{ latitude: req.body.latitude, longitude: req.body.longitude, heading: req.body.heading, speed: req.body.speed, accuracy: req.body.accuracy }];
+
+      if (locations.length === 0 || !locations[0].latitude) {
+        return res.status(400).json({ error: 'latitude and longitude required' });
+      }
+
+      // Cap batch size to prevent abuse
+      const batch = locations.slice(0, 20);
+
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      let idx = 1;
+      for (const pt of batch) {
+        placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+        values.push(driverId, routeId || null, pt.latitude, pt.longitude, pt.heading || null, pt.speed || null, pt.accuracy || null, pt.timestamp || new Date().toISOString());
+      }
+
+      await pool.query(
+        `INSERT INTO driver_locations (driver_id, route_id, latitude, longitude, heading, speed, accuracy, recorded_at)
+         VALUES ${placeholders.join(', ')}`,
+        values
+      );
+
+      res.json({ success: true, count: batch.length });
+    } catch (error: any) {
+      console.error('Location submit error:', error);
+      res.status(500).json({ error: 'Failed to save location' });
+    }
+  });
+
+  // Driver gets their own latest location (for debugging/display)
+  app.get('/api/team/location/latest', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const result = await pool.query(
+        `SELECT latitude, longitude, heading, speed, accuracy, recorded_at, route_id
+         FROM driver_locations WHERE driver_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+        [driverId]
+      );
+      res.json({ data: result.rows[0] || null });
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to get location' });
     }
   });
 
@@ -1500,6 +1742,9 @@ export function registerTeamRoutes(app: Express) {
       // Notify customer
       const { sendServiceUpdate } = await import('./notificationService');
       sendServiceUpdate(onDemandRequest.user_id, 'On-Demand Pickup Completed', `Your ${onDemandRequest.service_name} pickup at ${onDemandRequest.address} has been completed. Thank you!`).catch(e => console.error('Completion notification failed:', e));
+
+      broadcastToUser(onDemandRequest.user_id, 'ondemand:completed', { requestId: id });
+      broadcastToAdmins('ondemand:completed', { requestId: id, driverId });
 
       res.json({ success: true, data: updated });
     } catch (error: any) {
@@ -2649,6 +2894,69 @@ export function registerTeamRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error creating conversation:', err);
       res.status(500).json({ error: 'Failed to create conversation' });
+    }
+  });
+
+  // Push notifications: subscribe (driver)
+  app.post('/api/team/push/subscribe', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = res.locals.driverProfile.user_id;
+      const { subscription } = req.body;
+      if (!subscription?.endpoint || !subscription?.keys) {
+        return res.status(400).json({ error: 'Invalid subscription' });
+      }
+      const { saveSubscription } = await import('./pushService');
+      await saveSubscription(userId, subscription, req.headers['user-agent']);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Push subscribe error:', error);
+      res.status(500).json({ error: 'Failed to subscribe' });
+    }
+  });
+
+  // Push notifications: unsubscribe (driver)
+  app.post('/api/team/push/unsubscribe', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const { endpoint } = req.body;
+      if (endpoint) {
+        const { removeSubscription } = await import('./pushService');
+        await removeSubscription(endpoint);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to unsubscribe' });
+    }
+  });
+
+  // Driver views their rating history
+  app.get('/api/team/ratings', requireDriverAuth, async (_req: Request, res: Response) => {
+    try {
+      const driverId = res.locals.driverProfile.id;
+      const result = await pool.query(
+        `SELECT df.rating, df.comment, df.created_at,
+                r.title AS route_title, r.scheduled_date
+         FROM driver_feedback df
+         LEFT JOIN routes r ON r.id = df.route_id
+         WHERE df.driver_id = $1
+         ORDER BY df.created_at DESC
+         LIMIT 50`,
+        [driverId]
+      );
+      const avgResult = await pool.query(
+        `SELECT AVG(rating)::numeric(3,2) AS avg_rating, COUNT(*)::int AS total
+         FROM driver_feedback WHERE driver_id = $1`,
+        [driverId]
+      );
+      res.json({
+        data: result.rows,
+        summary: {
+          averageRating: parseFloat(avgResult.rows[0]?.avg_rating) || 0,
+          totalRatings: avgResult.rows[0]?.total || 0,
+        },
+      });
+    } catch (error: any) {
+      console.error('Get ratings error:', error);
+      res.status(500).json({ error: 'Failed to get ratings' });
     }
   });
 

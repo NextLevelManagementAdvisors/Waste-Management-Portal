@@ -173,6 +173,16 @@ CREATE TABLE IF NOT EXISTS driver_feedback (
   UNIQUE (location_id, collection_date)
 );
 
+ALTER TABLE driver_feedback ADD COLUMN IF NOT EXISTS driver_id UUID REFERENCES driver_profiles(id);
+ALTER TABLE driver_feedback ADD COLUMN IF NOT EXISTS route_id UUID REFERENCES routes(id);
+ALTER TABLE driver_feedback ADD COLUMN IF NOT EXISTS stop_id UUID;
+ALTER TABLE driver_feedback ADD COLUMN IF NOT EXISTS comment TEXT;
+ALTER TABLE driver_feedback ALTER COLUMN location_id DROP NOT NULL;
+ALTER TABLE driver_feedback ALTER COLUMN collection_date DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_driver_feedback_driver ON driver_feedback(driver_id);
+
+ALTER TABLE driver_profiles ADD COLUMN IF NOT EXISTS total_ratings INTEGER DEFAULT 0;
+
 -- Tip dismissals
 CREATE TABLE IF NOT EXISTS tip_dismissals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1106,3 +1116,30 @@ CREATE TABLE IF NOT EXISTS zone_expansion_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_zep_driver ON zone_expansion_proposals(driver_id);
 CREATE INDEX IF NOT EXISTS idx_zep_status ON zone_expansion_proposals(status);
+
+-- Push notification subscriptions (Phase 3D)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  keys_p256dh TEXT NOT NULL,
+  keys_auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_push_sub_user ON push_subscriptions(user_id);
+
+-- Driver GPS location tracking (Phase 2C)
+CREATE TABLE IF NOT EXISTS driver_locations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL REFERENCES driver_profiles(id),
+  route_id UUID REFERENCES routes(id),
+  latitude NUMERIC(10,7) NOT NULL,
+  longitude NUMERIC(10,7) NOT NULL,
+  heading NUMERIC(5,1),
+  speed NUMERIC(6,2),
+  accuracy NUMERIC(8,2),
+  recorded_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_driver_loc_driver ON driver_locations(driver_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_loc_route ON driver_locations(route_id, recorded_at DESC);

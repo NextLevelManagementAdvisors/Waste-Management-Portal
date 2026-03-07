@@ -592,6 +592,21 @@ setInterval(processScheduledMessages, 60_000);
   setInterval(checkAndAutoAcceptBids, BID_CHECK_INTERVAL);
 }
 
+// GPS location cleanup — prune location data older than 30 days (runs daily)
+{
+  async function pruneOldLocations() {
+    try {
+      const result = await pool.query(`DELETE FROM driver_locations WHERE recorded_at < NOW() - INTERVAL '30 days'`);
+      if ((result.rowCount || 0) > 0) {
+        console.log(`[LocationCleanup] Pruned ${result.rowCount} old location records`);
+      }
+    } catch (error: any) {
+      console.error('[LocationCleanup] Error:', error.message);
+    }
+  }
+  setInterval(pruneOldLocations, 24 * 60 * 60 * 1000);
+}
+
 app.use('/api/team/auth/login', authRateLimit);
 app.use('/api/team/auth/register', authRateLimit);
 const { registerTeamRoutes } = await import('./teamRoutes');

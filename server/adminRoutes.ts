@@ -20,6 +20,7 @@ import { approvalMessage, denialMessage, waitlistMessage } from './addressReview
 import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateStopCompensation } from './compensationEngine';
+import { broadcastToDriver, broadcastToZoneDrivers, broadcastToAdmins, broadcastToUser } from './websocket';
 
 declare module 'express-session' {
   interface SessionData {
@@ -842,6 +843,16 @@ export function registerAdminRoutes(app: Express) {
       }
 
       await audit(req, 'update_on_demand_request', 'on_demand_request', id, { status, adminNotes, assignedDriverId, pickupDate, servicePrice });
+
+      // Real-time WebSocket broadcasts
+      if (assignedDriverId) {
+        broadcastToDriver(assignedDriverId, 'ondemand:assigned', { requestId: id, status: status || existing.status });
+      }
+      if (status && status !== existing.status) {
+        broadcastToUser(existing.user_id, 'ondemand:updated', { requestId: id, status });
+        broadcastToAdmins('ondemand:updated', { requestId: id, status });
+      }
+
       res.json({ success: true, data: updated });
     } catch (error) {
       res.status(500).json({ error: 'Failed to update on-demand request' });
@@ -1242,10 +1253,64 @@ export function registerAdminRoutes(app: Express) {
         }
       }).catch(() => {});
 
+      // Real-time WebSocket broadcasts
+      broadcastToDriver(driverId, 'route:assigned', { routeId, title: route.title, scheduledDate: route.scheduled_date });
+      broadcastToAdmins('route:updated', { routeId, status: 'assigned', driverId });
+      if (route.zone_id) {
+        broadcastToZoneDrivers(route.zone_id, 'route:claimed', { routeId }, driverId);
+      }
+
       res.json({ route: formatRouteForClient(updated) });
     } catch (error) {
       console.error('Failed to assign route:', error);
       res.status(500).json({ error: 'Failed to assign route' });
+    }
+  });
+
+  // GPS tracking: get driver's latest location
+  app.get('/api/admin/drivers/:driverId/location', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT latitude, longitude, heading, speed, accuracy, recorded_at, route_id
+         FROM driver_locations WHERE driver_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+        [req.params.driverId]
+      );
+      res.json({ data: result.rows[0] || null });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get driver location' });
+    }
+  });
+
+  // GPS tracking: get location trail for a route
+  app.get('/api/admin/routes/:id/track', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT latitude, longitude, heading, speed, accuracy, recorded_at
+         FROM driver_locations WHERE route_id = $1 ORDER BY recorded_at ASC`,
+        [req.params.id]
+      );
+      res.json({ data: result.rows });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get route track' });
+    }
+  });
+
+  // GPS tracking: get all active driver positions (for live map)
+  app.get('/api/admin/drivers/live-positions', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(
+        `SELECT DISTINCT ON (dl.driver_id)
+           dl.driver_id, dl.latitude, dl.longitude, dl.heading, dl.speed, dl.recorded_at, dl.route_id,
+           dp.name AS driver_name, r.title AS route_title, r.status AS route_status
+         FROM driver_locations dl
+         JOIN driver_profiles dp ON dp.id = dl.driver_id
+         LEFT JOIN routes r ON r.id = dl.route_id
+         WHERE dl.recorded_at > NOW() - INTERVAL '10 minutes'
+         ORDER BY dl.driver_id, dl.recorded_at DESC`
+      );
+      res.json({ data: result.rows });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get live positions' });
     }
   });
 

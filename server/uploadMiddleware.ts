@@ -45,3 +45,4 @@ function createUpload(subdir: string) {
 
 export const onDemandUpload = createUpload('on-demand');
 export const missedCollectionUpload = createUpload('missed-collection');
+export const podUpload = createUpload('pod');
