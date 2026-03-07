@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { AdminZone, ServiceAreaLocation, AssignmentRequest } from './ServiceAreasPanel.tsx';
 import { StatusBadge, EmptyState, ConfirmDialog } from '../ui/index.ts';
 
@@ -19,6 +20,15 @@ const relativeTime = (dateStr: string) => {
   if (hours < 24) return `${hours}h left`;
   return `${Math.floor(hours / 24)}d left`;
 };
+
+const ASSIGN_MENU_WIDTH = 240;
+const ASSIGN_MENU_OFFSET = 6;
+const ASSIGN_MENU_VIEWPORT_PADDING = 8;
+
+interface AssignMenuPosition {
+  top: number;
+  left: number;
+}
 
 interface ServiceAreasListViewProps {
   zones: AdminZone[];
@@ -70,7 +80,10 @@ const ServiceAreasListView: React.FC<ServiceAreasListViewProps> = ({
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkRejectNotes, setBulkRejectNotes] = useState('');
-  const [assignDropdown, setAssignDropdown] = useState<string | null>(null);
+  const [openLocationId, setOpenLocationId] = useState<string | null>(null);
+  const [assignMenuPosition, setAssignMenuPosition] = useState<AssignMenuPosition>({ top: 0, left: 0 });
+  const assignTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const assignMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Group locations by zone
   const { unassigned, grouped } = useMemo(() => {
@@ -143,6 +156,108 @@ const ServiceAreasListView: React.FC<ServiceAreasListViewProps> = ({
   };
 
   const activeZones = zones.filter(z => z.status === 'active');
+  const openLocation = openLocationId ? locations.find(loc => loc.id === openLocationId) || null : null;
+
+  const setAssignTriggerRef = (locationId: string, node: HTMLButtonElement | null) => {
+    if (node) assignTriggerRefs.current.set(locationId, node);
+    else assignTriggerRefs.current.delete(locationId);
+  };
+
+  const getAssignMenuPosition = useCallback((locationId: string) => {
+    if (typeof window === 'undefined') return null;
+    const trigger = assignTriggerRefs.current.get(locationId);
+    if (!trigger) return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = assignMenuRef.current?.offsetHeight ?? 0;
+    const maxLeft = Math.max(
+      ASSIGN_MENU_VIEWPORT_PADDING,
+      window.innerWidth - ASSIGN_MENU_WIDTH - ASSIGN_MENU_VIEWPORT_PADDING,
+    );
+    const left = Math.min(
+      Math.max(rect.left, ASSIGN_MENU_VIEWPORT_PADDING),
+      maxLeft,
+    );
+
+    let top = rect.bottom + ASSIGN_MENU_OFFSET;
+    if (menuHeight > 0) {
+      const fitsBelow = top + menuHeight <= window.innerHeight - ASSIGN_MENU_VIEWPORT_PADDING;
+      const fitsAbove = rect.top - ASSIGN_MENU_OFFSET - menuHeight >= ASSIGN_MENU_VIEWPORT_PADDING;
+
+      if (!fitsBelow && fitsAbove) {
+        top = rect.top - menuHeight - ASSIGN_MENU_OFFSET;
+      } else {
+        top = Math.max(
+          ASSIGN_MENU_VIEWPORT_PADDING,
+          Math.min(top, window.innerHeight - menuHeight - ASSIGN_MENU_VIEWPORT_PADDING),
+        );
+      }
+    }
+
+    return { top, left };
+  }, []);
+
+  const toggleAssignMenu = (locationId: string) => {
+    if (openLocationId === locationId) {
+      setOpenLocationId(null);
+      return;
+    }
+
+    const nextPosition = getAssignMenuPosition(locationId);
+    if (!nextPosition) return;
+
+    setAssignMenuPosition(nextPosition);
+    setOpenLocationId(locationId);
+  };
+
+  useEffect(() => {
+    if (!openLocationId) return;
+
+    const location = locations.find(loc => loc.id === openLocationId);
+    if (!location || location.coverage_zone_id || requestsByLocation.has(openLocationId)) {
+      setOpenLocationId(null);
+    }
+  }, [locations, openLocationId, requestsByLocation]);
+
+  useEffect(() => {
+    if (!openLocationId) return;
+
+    const repositionMenu = () => {
+      const nextPosition = getAssignMenuPosition(openLocationId);
+      if (!nextPosition) {
+        setOpenLocationId(null);
+        return;
+      }
+      setAssignMenuPosition(nextPosition);
+    };
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      const trigger = assignTriggerRefs.current.get(openLocationId);
+      if (!target) return;
+      if (assignMenuRef.current?.contains(target) || trigger?.contains(target)) return;
+      setOpenLocationId(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenLocationId(null);
+    };
+
+    repositionMenu();
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', repositionMenu);
+    window.addEventListener('scroll', repositionMenu, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', repositionMenu);
+      window.removeEventListener('scroll', repositionMenu, true);
+    };
+  }, [getAssignMenuPosition, openLocationId]);
 
   const renderLocationRow = (loc: ServiceAreaLocation) => {
     const pendingReq = requestsByLocation.get(loc.id);
@@ -187,29 +302,17 @@ const ServiceAreasListView: React.FC<ServiceAreasListViewProps> = ({
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setAssignDropdown(assignDropdown === loc.id ? null : loc.id)}
+                ref={node => setAssignTriggerRef(loc.id, node)}
+                onClick={e => {
+                  e.stopPropagation();
+                  toggleAssignMenu(loc.id);
+                }}
+                aria-haspopup="menu"
+                aria-expanded={openLocationId === loc.id}
                 className="text-[10px] font-bold text-teal-600 hover:text-teal-800 underline"
               >
                 Assign to zone
               </button>
-              {assignDropdown === loc.id && (
-                <div className="absolute top-5 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[200px]">
-                  {activeZones.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-gray-400">No active zones</p>
-                  ) : activeZones.map(z => (
-                    <button
-                      key={z.id}
-                      type="button"
-                      onClick={() => { setAssignDropdown(null); onCreateAssignmentRequest(loc.id, z.id); }}
-                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: z.color }} />
-                      <span className="font-bold">{z.name}</span>
-                      <span className="text-gray-400 ml-auto">{z.driver_name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           ) : null}
         </td>
@@ -506,6 +609,36 @@ const ServiceAreasListView: React.FC<ServiceAreasListViewProps> = ({
         onConfirm={() => { if (confirmDelete?.bulk) doBulkDelete(); else if (confirmDelete?.single) doDelete(confirmDelete.single); }}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {/* Render the assign menu at the document root so card overflow does not clip it. */}
+      {openLocation && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={assignMenuRef}
+          role="menu"
+          aria-label={`Assign ${openLocation.owner_name || 'location'} to zone`}
+          className="fixed z-40 w-[240px] max-h-[280px] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          style={{ top: assignMenuPosition.top, left: assignMenuPosition.left }}
+        >
+          {activeZones.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-gray-400">No active zones</p>
+          ) : activeZones.map(z => (
+            <button
+              key={z.id}
+              type="button"
+              onClick={() => {
+                setOpenLocationId(null);
+                void onCreateAssignmentRequest(openLocation.id, z.id);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-50"
+            >
+              <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: z.color }} />
+              <span className="truncate font-bold">{z.name}</span>
+              <span className="ml-auto truncate text-gray-400">{z.driver_name}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 };
