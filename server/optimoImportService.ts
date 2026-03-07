@@ -114,9 +114,43 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       });
     }
 
-    await storage.addRouteStops(localRoute.id, stopData);
+    const insertedStops = await storage.addRouteStops(localRoute.id, stopData);
     result.stopsImported += stopData.length;
     result.routesImported++;
+
+    // Pull completion statuses for imported stops so they don't stay as 'pending'
+    const orderNos = insertedStops
+      .filter((s: any) => s.optimo_order_no)
+      .map((s: any) => s.optimo_order_no);
+    if (orderNos.length > 0) {
+      try {
+        const completionData = await optimo.getCompletionDetails(orderNos);
+        const completionOrders = completionData?.orders || [];
+        const STATUS_MAP: Record<string, string> = {
+          success: 'completed', failed: 'failed', rejected: 'failed',
+          cancelled: 'cancelled', on_route: 'in_progress', servicing: 'in_progress',
+          scheduled: 'scheduled', unscheduled: 'pending',
+        };
+        let allTerminal = insertedStops.length > 0;
+        for (const order of completionOrders) {
+          if (!order.orderNo || !order.data?.status) continue;
+          const portalStatus = STATUS_MAP[order.data.status] ?? order.data.status;
+          const stop = insertedStops.find((s: any) => s.optimo_order_no === order.orderNo);
+          if (stop) {
+            const updateFields: any = { status: portalStatus };
+            if (order.data.completionForm) updateFields.pod_data = JSON.stringify(order.data.completionForm);
+            await storage.updateRouteStop(stop.id, updateFields);
+            if (!['completed', 'failed', 'cancelled'].includes(portalStatus)) allTerminal = false;
+          }
+        }
+        // If all stops are terminal, mark route completed
+        if (allTerminal && insertedStops.length > 0) {
+          await storage.updateRoute(localRoute.id, { status: 'completed', completed_at: new Date().toISOString() });
+        }
+      } catch {
+        // Non-fatal: completion pull failed, stops stay as pending
+      }
+    }
   }
 
   return result;

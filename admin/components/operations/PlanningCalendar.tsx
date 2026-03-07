@@ -387,13 +387,15 @@ const PlanningCalendar: React.FC = () => {
         body: JSON.stringify({ date }),
       });
     } catch {}
-    // Pull completion statuses from OptimoRoute (non-blocking)
-    fetch('/api/admin/routes/pull-completion-for-date', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ date }),
-    }).catch(() => {});
+    // Pull completion statuses from OptimoRoute before loading day detail
+    try {
+      await fetch('/api/admin/routes/pull-completion-for-date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date }),
+      });
+    } catch {}
     fetchDayDetail(date);
   };
 

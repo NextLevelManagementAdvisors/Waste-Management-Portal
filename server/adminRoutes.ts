@@ -2336,10 +2336,10 @@ export function registerAdminRoutes(app: Express) {
         );
       }
 
-      // If all stops are completed, update route status
+      // If all stops are terminal (completed/failed/cancelled), mark route completed
       const updatedStops = await storage.getRouteStops(routeId);
-      const allCompleted = updatedStops.length > 0 && updatedStops.every((s: any) => s.status === 'completed');
-      if (allCompleted && route.status !== 'completed') {
+      const allTerminal = updatedStops.length > 0 && updatedStops.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
+      if (allTerminal && route.status !== 'completed') {
         await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
       }
 
