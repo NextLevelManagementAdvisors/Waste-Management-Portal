@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { ConfirmDialog } from '../ui/ConfirmDialog.tsx';
 
 const api = {
   getPendingSwaps: async () => {
@@ -27,11 +28,16 @@ export const SwapDashboard: React.FC = () => {
   const [swaps, setSwaps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmState, setConfirmState] = useState<{ id: string; decision: 'accepted' | 'rejected' } | null>(null);
+  const [deciding, setDeciding] = useState(false);
 
   const fetchSwaps = useCallback(() => {
     setLoading(true);
+    setError('');
     api.getPendingSwaps()
       .then(data => setSwaps(data.swaps))
+      .catch(() => setError('Failed to load swap recommendations.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -41,14 +47,30 @@ export const SwapDashboard: React.FC = () => {
 
   const handleGenerate = async () => {
     setGenerating(true);
-    await api.generateSwaps();
-    setGenerating(false);
-    fetchSwaps(); // Refresh the list
+    setError('');
+    try {
+      await api.generateSwaps();
+      fetchSwaps();
+    } catch {
+      setError('Failed to generate swap recommendations.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  const handleDecision = async (id: string, decision: 'accepted' | 'rejected') => {
-    await api.decideSwap(id, decision);
-    fetchSwaps(); // Refresh the list
+  const handleDecision = async () => {
+    if (!confirmState) return;
+    setDeciding(true);
+    try {
+      await api.decideSwap(confirmState.id, confirmState.decision);
+      setConfirmState(null);
+      fetchSwaps();
+    } catch {
+      setError(`Failed to ${confirmState.decision === 'accepted' ? 'accept' : 'reject'} swap.`);
+      setConfirmState(null);
+    } finally {
+      setDeciding(false);
+    }
   };
 
   return (
@@ -63,8 +85,18 @@ export const SwapDashboard: React.FC = () => {
           {generating ? 'Generating...' : 'Generate New Swaps'}
         </button>
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 ml-3 font-bold">&times;</button>
+        </div>
+      )}
+
       {loading ? (
-        <p>Loading swaps...</p>
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+        </div>
       ) : (
         <div className="space-y-4">
           {swaps.map(swap => (
@@ -94,13 +126,13 @@ export const SwapDashboard: React.FC = () => {
               </div>
               <div className="flex justify-end items-center gap-2 mt-4 pt-4 border-t border-gray-100">
                 <button
-                  onClick={() => handleDecision(swap.id, 'rejected')}
+                  onClick={() => setConfirmState({ id: swap.id, decision: 'rejected' })}
                   className="px-3 py-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
                   Reject
                 </button>
                 <button
-                  onClick={() => handleDecision(swap.id, 'accepted')}
+                  onClick={() => setConfirmState({ id: swap.id, decision: 'accepted' })}
                   className="px-3 py-1 text-sm font-semibold text-white bg-green-600 border border-green-600 rounded-md hover:bg-green-700"
                 >
                   Accept
@@ -116,6 +148,19 @@ export const SwapDashboard: React.FC = () => {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!confirmState}
+        title={confirmState?.decision === 'accepted' ? 'Accept Territory Swap' : 'Reject Territory Swap'}
+        message={confirmState?.decision === 'accepted'
+          ? 'This will reassign the territories between both providers. This action cannot be undone.'
+          : 'This will permanently reject this swap recommendation. This action cannot be undone.'}
+        confirmLabel={confirmState?.decision === 'accepted' ? 'Accept Swap' : 'Reject Swap'}
+        isDangerous={confirmState?.decision === 'rejected'}
+        onConfirm={handleDecision}
+        onCancel={() => setConfirmState(null)}
+        isLoading={deciding}
+      />
     </div>
   );
 };

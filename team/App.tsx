@@ -44,8 +44,17 @@ interface OnboardingStatus {
   direct_deposit_completed: boolean;
 }
 
+interface RouteStop {
+  address?: string;
+  customer_name?: string;
+  pickup_type?: string;
+  sequence_number?: number;
+  status?: string;
+}
+
 interface Route extends SharedRoute {
   bids?: Bid[];
+  stops?: RouteStop[];
 }
 
 interface Bid {
@@ -774,7 +783,7 @@ const OnboardingFlow: React.FC<{ status: OnboardingStatus; onRefresh: () => void
   );
 };
 
-const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }> = ({ driver, onNavigate }) => {
+const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void; showToast?: (msg: string, type: 'success' | 'error') => void }> = ({ driver, onNavigate, showToast }) => {
   const [availableRoutes, setAvailableRoutes] = useState<Route[]>([]);
   const [myRoutes, setMyRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
@@ -815,8 +824,9 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
     setCompletingRouteId(routeId);
     try {
       const res = await fetch(`/api/team/routes/${routeId}/complete`, { method: 'POST', credentials: 'include' });
-      if (res.ok) await loadData();
-    } catch {}
+      if (res.ok) { await loadData(); showToast?.('Route marked as complete.', 'success'); }
+      else showToast?.('Failed to complete route.', 'error');
+    } catch { showToast?.('Failed to complete route.', 'error'); }
     setCompletingRouteId(null);
   };
 
@@ -1014,7 +1024,7 @@ const Dashboard: React.FC<{ driver: Driver; onNavigate: (view: string) => void }
   );
 };
 
-const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
+const RouteBoard: React.FC<{ onNavigate?: (view: string) => void; showToast?: (msg: string, type: 'success' | 'error') => void }> = ({ onNavigate, showToast }) => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRoute, setSelectedRoute] = useState<(Route & { bids?: Bid[] }) | null>(null);
@@ -1257,6 +1267,34 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
                   })()}
                 </div>
 
+                {selectedRoute.stops && selectedRoute.stops.length > 0 && (
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-sm mb-2">Stops ({selectedRoute.stops.length})</h4>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {selectedRoute.stops
+                        .sort((a, b) => (a.sequence_number || 0) - (b.sequence_number || 0))
+                        .map((stop, idx) => (
+                        <div key={idx} className="flex items-start gap-3 p-2.5 bg-gray-50 rounded-lg text-sm">
+                          <span className="flex-shrink-0 w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-600">
+                            {stop.sequence_number || idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            {stop.address ? (
+                              <>
+                                <p className="font-medium text-gray-900 truncate">{stop.address}</p>
+                                {stop.customer_name && <p className="text-xs text-gray-500">{stop.customer_name}</p>}
+                              </>
+                            ) : (
+                              <p className="text-gray-400 italic">Address hidden</p>
+                            )}
+                            {stop.pickup_type && <span className="text-[10px] text-gray-400 capitalize">{stop.pickup_type}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {selectedRoute.bids && selectedRoute.bids.length > 0 && (
                   <div>
                     <h4 className="font-bold text-gray-900 text-sm mb-2">Bids ({selectedRoute.bids.length})</h4>
@@ -1339,7 +1377,7 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavig
   );
 };
 
-const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
+const Schedule: React.FC<{ onNavigate?: (view: string) => void; showToast?: (msg: string, type: 'success' | 'error') => void }> = ({ onNavigate, showToast }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1409,23 +1447,26 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
   }, [year, month]);
 
   const handleStartRoute = useCallback(async (routeId: string) => {
+    if (!window.confirm('Start this route?')) return;
     setStartingRouteId(routeId);
     try {
       const res = await fetch(`/api/team/routes/${routeId}/start`, { method: 'POST', credentials: 'include' });
-      if (res.ok) await fetchSchedule();
-    } catch {}
+      if (res.ok) { await fetchSchedule(); showToast?.('Route started.', 'success'); }
+      else showToast?.('Failed to start route.', 'error');
+    } catch { showToast?.('Failed to start route.', 'error'); }
     setStartingRouteId(null);
-  }, [fetchSchedule]);
+  }, [fetchSchedule, showToast]);
 
   const handleCompleteRoute = useCallback(async (routeId: string) => {
     if (!window.confirm('Mark this route as complete?')) return;
     setCompletingRouteId(routeId);
     try {
       const res = await fetch(`/api/team/routes/${routeId}/complete`, { method: 'POST', credentials: 'include' });
-      if (res.ok) await fetchSchedule();
-    } catch {}
+      if (res.ok) { await fetchSchedule(); showToast?.('Route marked as complete.', 'success'); }
+      else showToast?.('Failed to complete route.', 'error');
+    } catch { showToast?.('Failed to complete route.', 'error'); }
     setCompletingRouteId(null);
-  }, [fetchSchedule]);
+  }, [fetchSchedule, showToast]);
 
   const [decliningRouteId, setDecliningRouteId] = useState<string | null>(null);
 
@@ -1440,10 +1481,11 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
         credentials: 'include',
         body: JSON.stringify({ reason: reason || undefined }),
       });
-      if (res.ok) await fetchSchedule();
-    } catch {}
+      if (res.ok) { await fetchSchedule(); showToast?.('Route declined.', 'success'); }
+      else showToast?.('Failed to decline route.', 'error');
+    } catch { showToast?.('Failed to decline route.', 'error'); }
     setDecliningRouteId(null);
-  }, [fetchSchedule]);
+  }, [fetchSchedule, showToast]);
 
   const handleContactAdmin = useCallback(async (dateStr: string, routeTitle: string) => {
     setContactingAdmin(true);
@@ -1473,10 +1515,11 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigat
         credentials: 'include',
         body: JSON.stringify({ reason: `Schedule conflict: ${dayLabel} is outside my availability` }),
       });
-      if (res.ok) await fetchSchedule();
-    } catch {}
+      if (res.ok) { await fetchSchedule(); showToast?.('Conflict declined.', 'success'); }
+      else showToast?.('Failed to decline route.', 'error');
+    } catch { showToast?.('Failed to decline route.', 'error'); }
     setDecliningRouteId(null);
-  }, [fetchSchedule]);
+  }, [fetchSchedule, showToast]);
 
   const handleAddDayToAvailability = useCallback((dateStr: string) => {
     const dow = new Date(dateStr + 'T12:00:00').getDay();
@@ -4338,6 +4381,15 @@ const TeamApp: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [googleSsoEnabled, setGoogleSsoEnabled] = useState<boolean | null>(null);
 
+  // Toast notifications for action feedback
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const showToast = useCallback((message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  }, []);
+
   useEffect(() => {
     fetch('/api/auth/sso-config')
       .then(r => r.json())
@@ -4611,9 +4663,9 @@ const TeamApp: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} />}
-          {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} />}
-          {currentView === 'schedule' && <Schedule onNavigate={(view) => setCurrentView(view as TeamView)} />}
+          {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
+          {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
+          {currentView === 'schedule' && <Schedule onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
           {currentView === 'pickups' && <OnDemandPickups />}
           {currentView === 'zones' && (
             <>
@@ -4630,6 +4682,16 @@ const TeamApp: React.FC = () => {
         </div>
       </main>
       </div>
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-teal-600 text-white'
+        }`}>
+          <span>{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 opacity-70 hover:opacity-100">&times;</button>
+        </div>
+      )}
     </div>
   );
 };

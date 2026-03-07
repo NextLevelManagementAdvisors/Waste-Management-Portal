@@ -60,8 +60,10 @@ const ServiceStatusOverview: React.FC = () => {
     const { selectedLocationId } = useLocation();
     const [state, setState] = useState<LocationState | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [intent, setIntent] = useState<'out' | 'skip' | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [intentError, setIntentError] = useState('');
 
     const fetchData = () => {
         if (!selectedLocationId || selectedLocationId === 'all') {
@@ -69,12 +71,14 @@ const ServiceStatusOverview: React.FC = () => {
             return;
         }
         setLoading(true);
+        setError('');
         getDashboardState(selectedLocationId).then(res => {
             const currentState = res.states[0] || null;
             setState(currentState);
             setIntent(currentState?.collectionIntent || null);
-            setLoading(false);
-        });
+        }).catch(() => {
+            setError('Unable to load your service status. Please try again.');
+        }).finally(() => setLoading(false));
     }
 
     useEffect(() => {
@@ -84,16 +88,27 @@ const ServiceStatusOverview: React.FC = () => {
     const handleSetIntent = async (newIntent: 'out' | 'skip') => {
         if (!selectedLocationId || !state?.nextCollection?.date) return;
         setIsSubmitting(true);
+        setIntentError('');
         try {
             await setCollectionIntent(selectedLocationId, newIntent, state.nextCollection.date);
             setIntent(newIntent);
-        } catch (e) {
-            console.error("Failed to set intent", e);
+        } catch {
+            setIntentError('Failed to update collection status. Please try again.');
         } finally {
             setIsSubmitting(false);
         }
     };
-    
+
+    if (error) {
+        return (
+            <Card className="p-8 text-center">
+                <XCircleIcon className="w-10 h-10 text-red-400 mx-auto mb-3" />
+                <p className="text-sm font-bold text-gray-700 mb-4">{error}</p>
+                <Button variant="secondary" onClick={fetchData}>Retry</Button>
+            </Card>
+        );
+    }
+
     if (loading || !state) {
         return (
             <div className="flex flex-col justify-center items-center h-48 gap-4">
@@ -129,16 +144,19 @@ const ServiceStatusOverview: React.FC = () => {
                                 <Button variant="secondary" onClick={() => setIntent(null)} className="text-xs font-black uppercase tracking-widest">Change Status</Button>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Button onClick={() => handleSetIntent('out')} disabled={isSubmitting} variant="secondary" className="h-20 rounded-2xl flex flex-col gap-1 items-center justify-center hover:bg-teal-50 hover:border-primary/20 border-2 border-transparent">
-                                    <CheckCircleIcon className="w-6 h-6 text-primary"/>
-                                    <span className="font-black uppercase tracking-widest text-xs text-neutral">Putting Can Out</span>
-                                </Button>
-                                <Button onClick={() => handleSetIntent('skip')} disabled={isSubmitting} variant="secondary" className="h-20 rounded-2xl flex flex-col gap-1 items-center justify-center hover:bg-red-50 hover:border-red-200 border-2 border-transparent">
-                                    <XCircleIcon className="w-6 h-6 text-red-500"/>
-                                    <span className="font-black uppercase tracking-widest text-xs text-neutral">Skipping This Week</span>
-                                </Button>
-                            </div>
+                            <>
+                                {intentError && <p className="text-sm text-red-600 mb-3">{intentError}</p>}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Button onClick={() => handleSetIntent('out')} disabled={isSubmitting} variant="secondary" className="h-20 rounded-2xl flex flex-col gap-1 items-center justify-center hover:bg-teal-50 hover:border-primary/20 border-2 border-transparent">
+                                        <CheckCircleIcon className="w-6 h-6 text-primary"/>
+                                        <span className="font-black uppercase tracking-widest text-xs text-neutral">Putting Can Out</span>
+                                    </Button>
+                                    <Button onClick={() => handleSetIntent('skip')} disabled={isSubmitting} variant="secondary" className="h-20 rounded-2xl flex flex-col gap-1 items-center justify-center hover:bg-red-50 hover:border-red-200 border-2 border-transparent">
+                                        <XCircleIcon className="w-6 h-6 text-red-500"/>
+                                        <span className="font-black uppercase tracking-widest text-xs text-neutral">Skipping This Week</span>
+                                    </Button>
+                                </div>
+                            </>
                         )}
                     </Card>
                 </>

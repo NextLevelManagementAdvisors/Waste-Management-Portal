@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { EmptyState } from '../ui/EmptyState.tsx';
 
 const api = {
   getProviders: async () => {
@@ -33,10 +34,13 @@ const ProviderList: React.FC<{ providers: any[], onSelectProvider: (id: string) 
   </div>
 );
 
-const TerritoryList: React.FC<{ territories: any[] }> = ({ territories }) => (
+const TerritoryList: React.FC<{ territories: any[]; error: string }> = ({ territories, error }) => (
   <div>
     <h3 className="text-lg font-semibold mb-2">Service Territories</h3>
-     <div className="bg-white rounded-lg shadow-md">
+    {error ? (
+      <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{error}</div>
+    ) : (
+      <div className="bg-white rounded-lg shadow-md">
         <ul className="divide-y divide-gray-200">
             {territories.map(t => (
             <li key={t.id} className="p-3 flex justify-between items-center">
@@ -51,12 +55,10 @@ const TerritoryList: React.FC<{ territories: any[] }> = ({ territories }) => (
                 </span>
             </li>
             ))}
-            {territories.length === 0 && <li className="p-4 text-center text-gray-500">No territories found.</li>}
+            {territories.length === 0 && <li className="p-4 text-center text-gray-500">No territories found for this provider.</li>}
         </ul>
-     </div>
-     <button className="mt-4 w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700">
-        Add New Territory
-     </button>
+      </div>
+    )}
   </div>
 );
 
@@ -72,24 +74,33 @@ export const TerritoryManager: React.FC = () => {
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [territories, setTerritories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [territoriesError, setTerritoriesError] = useState('');
 
-  useEffect(() => {
+  const loadProviders = () => {
+    setLoading(true);
+    setError('');
     api.getProviders().then(data => {
       setProviders(data.providers);
       if (data.providers.length > 0) {
         setSelectedProviderId(data.providers[0].id);
       }
-    }).catch(err => {
-      console.error('Failed to load providers:', err);
+    }).catch(() => {
+      setError('Failed to load providers.');
     }).finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadProviders();
   }, []);
 
   useEffect(() => {
     if (selectedProviderId) {
+      setTerritoriesError('');
       api.getTerritories(selectedProviderId).then(data => {
         setTerritories(data.territories);
-      }).catch(err => {
-        console.error('Failed to load territories:', err);
+      }).catch(() => {
+        setTerritoriesError('Failed to load territories.');
         setTerritories([]);
       });
     } else {
@@ -98,7 +109,31 @@ export const TerritoryManager: React.FC = () => {
   }, [selectedProviderId]);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
+        <p className="text-red-700 font-medium mb-3">{error}</p>
+        <button onClick={loadProviders} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-semibold">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (providers.length === 0) {
+    return (
+      <EmptyState
+        title="No Providers"
+        message="No service providers have been created yet. Providers are created when drivers register and form a company."
+      />
+    );
   }
 
   return (
@@ -106,7 +141,7 @@ export const TerritoryManager: React.FC = () => {
       <ProviderList providers={providers} onSelectProvider={setSelectedProviderId} selectedProviderId={selectedProviderId} />
       <div className="w-2/3 flex flex-col">
         <div className="w-full md:w-1/2 lg:w-1/3 flex-shrink-0 pr-4">
-            {selectedProviderId && <TerritoryList territories={territories} />}
+            {selectedProviderId && <TerritoryList territories={territories} error={territoriesError} />}
         </div>
         <div className="flex-grow h-full mt-4 md:mt-0">
              <MapEditor />
