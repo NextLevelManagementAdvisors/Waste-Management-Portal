@@ -616,13 +616,14 @@ export async function getCompletionHistoryForAddress(address: string, weeks = 12
 
     return orders.map(order => {
       const completion = completionMap.get(order.orderNo);
+      const cStatus = completion?.data?.status;
       let status = 'scheduled';
-      if (completion?.status === 'completed' || completion?.status === 'success') {
+      if (cStatus === 'success') {
         status = 'completed';
-      } else if (completion?.status === 'failed' || completion?.status === 'rejected') {
+      } else if (cStatus === 'failed' || cStatus === 'rejected') {
         status = 'missed';
       } else if (new Date(order.date) < today) {
-        status = completion ? (completion.status || 'completed') : 'completed';
+        status = cStatus || 'completed';
       }
 
       return {
@@ -630,7 +631,7 @@ export async function getCompletionHistoryForAddress(address: string, weeks = 12
         date: order.date,
         status,
         driverName: completion?.driverName,
-        completionTime: completion?.completionTime || completion?.completionTimeDt,
+        completionTime: completion?.data?.endTime?.localTime || completion?.data?.endTime?.utcTime,
         notes: completion?.notes,
       };
     }).sort((a, b) => b.date.localeCompare(a.date));

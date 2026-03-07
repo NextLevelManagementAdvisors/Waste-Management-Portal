@@ -25,6 +25,7 @@ export interface CollectionHistoryLog {
     event: string;
     status: 'completed' | 'skipped' | 'missed';
     driver: string;
+    completionTime?: string;
 }
 
 const safeJson = async (res: Response) => {
@@ -74,6 +75,7 @@ export const getPastPickups = async (address: string): Promise<CollectionHistory
                      : 'Skipped',
                 status: item.status as 'completed' | 'skipped' | 'missed',
                 driver: item.driverName || 'N/A',
+                completionTime: item.completionTime ? formatTime(item.completionTime) : undefined,
             }));
         }
     } catch (err) {

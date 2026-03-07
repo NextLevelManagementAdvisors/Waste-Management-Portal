@@ -159,7 +159,10 @@ const CollectionHistory: React.FC = () => {
                         <div key={log.date} className="p-5 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-gray-50/50 transition-colors">
                             <div className="flex-1">
                                 <p className="text-sm font-bold text-gray-900">{log.event}</p>
-                                <p className="text-[10px] text-gray-400 font-black uppercase mt-1">{new Date(log.date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}</p>
+                                <p className="text-[10px] text-gray-400 font-black uppercase mt-1">
+                                    {new Date(log.date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}
+                                    {log.status === 'completed' && log.completionTime && <span className="ml-2 text-gray-500">Picked up at {log.completionTime}</span>}
+                                </p>
                             </div>
                             <div className="flex items-center gap-6 w-full sm:w-auto">
                                 {log.status === 'completed' && (
