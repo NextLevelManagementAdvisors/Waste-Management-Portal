@@ -3057,6 +3057,7 @@ export function registerAdminRoutes(app: Express) {
       const sortBy = req.query.sortBy as string | undefined;
       const sortDir = req.query.sortDir as string | undefined;
       const collectionDay = req.query.collectionDay as string | undefined;
+      const transferStatus = req.query.transferStatus as string | undefined;
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 500);
       const page = parseInt(req.query.page as string) || 1;
       const offset = (page - 1) * limit;
@@ -3069,6 +3070,7 @@ export function registerAdminRoutes(app: Express) {
         limit,
         offset,
         pickupDay: collectionDay || undefined,
+        transferStatus: transferStatus || undefined,
       });
 
       res.json({

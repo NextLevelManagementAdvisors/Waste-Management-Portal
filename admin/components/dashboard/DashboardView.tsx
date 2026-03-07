@@ -462,7 +462,7 @@ const DashboardView: React.FC<{
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Total Referrals" value={stats.totalReferrals} icon={<UsersIcon className="w-8 h-8" />} onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
             <StatCard label="Pending Referrals" value={stats.pendingReferrals} icon={<ClockIcon className="w-8 h-8" />} accent="text-yellow-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
-            <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('dashboard', { tab: 'activity' })} />
+            <StatCard label="Active Transfers" value={stats.activeTransfers} icon={<ArrowRightIcon className="w-8 h-8" />} accent="text-blue-600" onClick={() => onNavigate('contacts', { filter: 'pending-transfers' })} />
             <StatCard label="No Collection Day" value={stats.locationsWithoutCollectionDay} icon={<CalendarDaysIcon className="w-8 h-8" />} accent={stats.locationsWithoutCollectionDay > 0 ? 'text-orange-500' : undefined} onClick={() => onNavigate('contacts', { filter: 'no-collection-day' })} />
           </div>
         </div>

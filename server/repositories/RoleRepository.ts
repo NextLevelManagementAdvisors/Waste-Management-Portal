@@ -97,6 +97,7 @@ export class RoleRepository {
     limit?: number;
     offset?: number;
     pickupDay?: string;
+    transferStatus?: string;
   } = {}): Promise<{ users: any[]; total: number }> {
     const conditions: string[] = [];
     const params: any[] = [];
@@ -122,6 +123,12 @@ export class RoleRepository {
         params.push(options.pickupDay);
         idx++;
       }
+    }
+
+    if (options.transferStatus) {
+      conditions.push(`EXISTS (SELECT 1 FROM locations p WHERE p.user_id = u.id AND p.transfer_status = $${idx})`);
+      params.push(options.transferStatus);
+      idx++;
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

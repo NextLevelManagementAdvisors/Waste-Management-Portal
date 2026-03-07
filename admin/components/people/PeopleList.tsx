@@ -44,6 +44,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState('newest');
   const [collectionDayFilter, setPickupDayFilter] = useState('');
+  const [transferFilter, setTransferFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [showCreateDriver, setShowCreateDriver] = useState(false);
@@ -87,6 +88,10 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
         setPickupDayFilter('unassigned');
         setRoleFilter('customer');
       }
+      if (navFilter.filter === 'pending-transfers') {
+        setTransferFilter('pending');
+        setRoleFilter('customer');
+      }
       setPage(1);
       onFilterConsumed?.();
     }
@@ -99,6 +104,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
       if (searchQuery) params.set('search', searchQuery);
       if (roleFilter !== 'all') params.set('role', roleFilter);
       if (collectionDayFilter) params.set('collectionDay', collectionDayFilter);
+      if (transferFilter) params.set('transferStatus', transferFilter);
       const sortMap: Record<string, { sortBy: string; sortDir: string }> = {
         newest:    { sortBy: 'created_at', sortDir: 'desc' },
         oldest:    { sortBy: 'created_at', sortDir: 'asc' },
@@ -121,7 +127,7 @@ const PeopleList: React.FC<PeopleListProps> = ({ navFilter, onFilterConsumed, on
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, roleFilter, sortBy, collectionDayFilter, limit, page]);
+  }, [searchQuery, roleFilter, sortBy, collectionDayFilter, transferFilter, limit, page]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
 
