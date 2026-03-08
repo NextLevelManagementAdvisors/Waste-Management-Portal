@@ -209,6 +209,42 @@ export function registerAdminRoutes(app: Express) {
     return updates.length;
   };
 
+  const recordSyncedOptimoOrder = async (stop: any, orderNo: string, scheduledDate: string) => {
+    if (!stop.location_id) return;
+
+    const existing = await storage.getSyncOrderByOrderNo(orderNo);
+    if (existing) return;
+
+    await storage.createSyncOrder({
+      locationId: stop.location_id,
+      orderNo,
+      scheduledDate,
+    });
+  };
+
+  const syncRouteStopToOptimo = async (route: any, stop: any, scheduledDate: string) => {
+    const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
+    const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
+
+    const result = await optimo.createOrder({
+      orderNo,
+      type: 'P',
+      date: scheduledDate,
+      duration: 8,
+      address: stop.address,
+      locationName: stop.customer_name || '',
+      notes: `Route: ${route.title}`,
+    });
+
+    // Persist the deterministic order number even when Optimo reports "already exists" so later syncs can pull by id.
+    await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
+    await recordSyncedOptimoOrder(stop, orderNo, scheduledDate);
+
+    return {
+      skipped: Boolean(result && result.success === false),
+    };
+  };
+
   app.get('/api/admin/customers', requireAdmin, async (req: Request, res: Response) => {
     try {
       const options = {
@@ -1707,7 +1743,7 @@ export function registerAdminRoutes(app: Express) {
 
   // --- Swaps ---
 
-  app.post('/api/admin/swaps/generate', requireAdmin, requirePermission('*'), async (req, res) => {
+  app.post('/api/admin/swaps/generate', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { generateSwapRecommendations } = await import('./swapRecommendationService');
       const recommendations = await generateSwapRecommendations();
@@ -1729,7 +1765,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put('/api/admin/swaps/:id/decision', requireAdmin, requirePermission('*'), async (req, res) => {
+  app.put('/api/admin/swaps/:id/decision', requireAdmin, requirePermission('operations'), async (req, res) => {
     try {
       const { id } = req.params;
       const { decision } = req.body; // 'accepted' or 'rejected'
@@ -2314,25 +2350,13 @@ export function registerAdminRoutes(app: Express) {
           errors.push(`Stop ${stop.id}: missing address, skipped`);
           continue;
         }
-        const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
-        const orderNo = `ROUTE-${routeId.substring(0, 8)}-${stopKey}`;
         try {
-          const result = await optimo.createOrder({
-            orderNo,
-            type: 'P',
-            date: scheduledDate,
-            duration: 8,
-            address: stop.address,
-            locationName: stop.customer_name || '',
-            notes: `Route: ${route.title}`,
-          });
-          if (result && result.success === false) {
+          const result = await syncRouteStopToOptimo(route, stop, scheduledDate);
+          if (result.skipped) {
             ordersSkipped++;
           } else {
             ordersSynced++;
           }
-          // Save order number on the stop for future pull-back (order exists either way)
-          await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
         } catch (err: any) {
           errors.push(`${stop.address}: ${err.message}`);
         }
@@ -2373,24 +2397,13 @@ export function registerAdminRoutes(app: Express) {
             routeErrors++;
             continue;
           }
-          const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
-          const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
           try {
-            const result = await optimo.createOrder({
-              orderNo,
-              type: 'P',
-              date: scheduledDate,
-              duration: 8,
-              address: stop.address,
-              locationName: stop.customer_name || '',
-              notes: `Route: ${route.title}`,
-            });
-            if (result && result.success === false) {
+            const result = await syncRouteStopToOptimo(route, stop, scheduledDate);
+            if (result.skipped) {
               totalSkipped++;
             } else {
               routeSynced++;
             }
-            await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
           } catch (err: any) {
             allErrors.push(`${stop.address}: ${err.message}`);
             routeErrors++;

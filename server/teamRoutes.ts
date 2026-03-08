@@ -1092,8 +1092,8 @@ export function registerTeamRoutes(app: Express) {
       const canSeePII = route.assigned_driver_id === driverId || ['open', 'bidding'].includes(route.status);
       const mappedStops = stops.map((p: any) => ({
         ...(canSeePII ? { address: p.address, customer_name: p.customer_name } : {}),
-        pickup_type: p.pickup_type,
-        sequence_number: p.sequence_number,
+        pickup_type: p.pickup_type ?? p.order_type,
+        sequence_number: p.sequence_number ?? p.stop_number,
         status: p.status,
       }));
 
@@ -2876,7 +2876,13 @@ export function registerTeamRoutes(app: Express) {
       }
 
       // Find an admin to assign the conversation to
-      const adminResult = await pool.query(`SELECT id FROM users WHERE is_admin = true AND admin_role = 'Super Admin' LIMIT 1`);
+      const adminResult = await pool.query(
+        `SELECT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         WHERE ur.role = 'admin'
+         LIMIT 1`
+      );
       if (adminResult.rows.length === 0) {
         return res.status(500).json({ error: 'No support staff available' });
       }

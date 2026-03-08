@@ -1427,20 +1427,21 @@ export class Storage {
     estimated_hours?: number;
     base_pay?: number;
     notes?: string;
-    assigned_driver_id?: string;
+    assigned_driver_id?: string | null;
     route_type?: string;
     zone_id?: string;
     source?: string;
     on_demand_request_id?: string;
     status?: string;
+    polyline?: string | null;
   }) {
     const status = data.status ?? (data.assigned_driver_id ? 'assigned' : 'open');
     const result = await this.query(
       `INSERT INTO routes
          (title, description, scheduled_date, start_time, end_time,
           estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status,
-          route_type, zone_id, source, on_demand_request_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          route_type, zone_id, source, on_demand_request_id, polyline)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         data.title,
@@ -1458,6 +1459,7 @@ export class Storage {
         data.zone_id ?? null,
         data.source ?? 'manual',
         data.on_demand_request_id ?? null,
+        data.polyline ?? null,
       ]
     );
     return result.rows[0];
@@ -1560,7 +1562,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; on_demand_request_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string; optimo_route_key: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; on_demand_request_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string | null; optimo_route_key: string; polyline: string | null }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1940,8 +1942,9 @@ export class Storage {
             s.provider_b_id, pb.name as provider_b_name,
             s.location_a_to_b_id, la.address as location_a_address,
             s.location_b_to_a_id, lb.address as location_b_address,
-            s.value_a_to_b_monthly, s.value_b_to_a_monthly,
-            s.net_value_change_a
+            s.value_a_to_b_monthly::float8 as value_a_to_b_monthly,
+            s.value_b_to_a_monthly::float8 as value_b_to_a_monthly,
+            s.net_value_change_a::float8 as net_value_change_a
         FROM swap_recommendations s
         JOIN providers pa ON s.provider_a_id = pa.id
         JOIN providers pb ON s.provider_b_id = pb.id
@@ -2624,11 +2627,11 @@ export class Storage {
     const placeholders: string[] = [];
     let idx = 1;
     for (const s of stops) {
-      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
-      values.push(routeId, s.location_id ?? null, s.order_type ?? 'recurring', s.on_demand_request_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null);
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(routeId, s.location_id ?? null, s.order_type ?? 'recurring', s.on_demand_request_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null, s.scheduled_at ?? null);
     }
     const result = await this.query(
-      `INSERT INTO route_stops (route_id, location_id, order_type, on_demand_request_id, address, location_name, optimo_order_no, stop_number)
+      `INSERT INTO route_stops (route_id, location_id, order_type, on_demand_request_id, address, location_name, optimo_order_no, stop_number, scheduled_at)
        VALUES ${placeholders.join(', ')}
        ON CONFLICT DO NOTHING
        RETURNING *`,

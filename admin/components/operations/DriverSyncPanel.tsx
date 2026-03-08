@@ -237,7 +237,7 @@ const DriverSyncPanel: React.FC = () => {
     const today = getTodayLocalDate();
     const drivers = preview.matched.map(m => {
       const params = getOrInitParams(m.optimoDriver.serial);
-      return { serial: m.optimoDriver.serial, date: today, ...params };
+      return { externalId: m.optimoDriver.externalId || m.optimoDriver.serial, serial: m.optimoDriver.serial, date: today, ...params };
     });
     try {
       const res = await fetch('/api/admin/optimoroute/drivers/push', {

@@ -38,7 +38,7 @@ export async function calculateZoneSurges(): Promise<ZoneSurge[]> {
        FROM locations l
        LEFT JOIN route_stops rs ON rs.location_id = l.id
          AND rs.route_id IN (SELECT id FROM routes WHERE scheduled_date = CURRENT_DATE AND status NOT IN ('cancelled'))
-       WHERE l.zone_id = $1 AND l.status = 'active'`,
+       WHERE l.zone_id = $1 AND l.service_status = 'approved'`,
       [zone.id]
     );
     const totalLocs = coverageResult.rows[0]?.total_locations || 1;

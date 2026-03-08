@@ -330,10 +330,13 @@ export function registerAdminOptimoRoutes(app: Express) {
       const results: { serial: string; success: boolean; error?: string }[] = [];
       for (const driver of drivers) {
         try {
-          const result = await optimo.updateDriverParams(driver);
-          results.push({ serial: driver.serial, success: result.success !== false });
+          // OptimoRoute update_driver_parameters requires externalId, not serial
+          const { serial, ...rest } = driver;
+          const params = { ...rest, externalId: driver.externalId || serial };
+          const result = await optimo.updateDriverParams(params);
+          results.push({ serial: serial || driver.externalId, success: result.success !== false });
         } catch (err: any) {
-          results.push({ serial: driver.serial, success: false, error: err.message });
+          results.push({ serial: driver.serial || driver.externalId, success: false, error: err.message });
         }
       }
 

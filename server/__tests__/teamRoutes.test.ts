@@ -55,6 +55,9 @@ describe('Team Messaging Routes', () => {
     });
     (pool.query as vi.Mock).mockImplementation((query, values) => {
         if (typeof query === 'string' && query.includes('user_roles')) {
+            if (query.includes("ur.role = 'admin'")) {
+                return Promise.resolve({ rows: [{ id: 'admin-user-id' }], rowCount: 1 });
+            }
             return Promise.resolve({ rows: [{ role: 'driver' }], rowCount: 1 });
         }
         if (typeof query === 'string' && query.includes('SELECT 1 FROM conversation_participants')) {
@@ -128,7 +131,7 @@ describe('Team Messaging Routes', () => {
         const conversation = { id: 'new-conv-1' };
         const client = {
             query: vi.fn()
-                .mockResolvedValueOnce({ rows: [{ id: 'admin-user-id' }] })
+                .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [conversation] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [] })

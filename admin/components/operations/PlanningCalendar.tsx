@@ -190,7 +190,7 @@ const PlanningCalendar: React.FC = () => {
   const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
   const [importingFromOptimo, setImportingFromOptimo] = useState(false);
   const [publishingAll, setPublishingAll] = useState(false);
-  const [importResult, setImportResult] = useState<{ routesImported: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ routesImported: number; routesUpdated?: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
 
   // Weather state
   const [weatherByDate, setWeatherByDate] = useState<Map<string, WeatherDay>>(new Map());
@@ -345,7 +345,7 @@ const PlanningCalendar: React.FC = () => {
       })
         .then(r => r.ok ? r.json() : null)
         .then(result => {
-          if (result && result.totalRoutesImported > 0) {
+          if (result && ((result.totalRoutesImported || 0) > 0 || (result.totalRoutesUpdated || 0) > 0)) {
             loadCalendarDays(from, to);
           }
         })
@@ -702,7 +702,8 @@ const PlanningCalendar: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-800">
                     Imported {importResult.routesImported} route{importResult.routesImported !== 1 ? 's' : ''}, {importResult.stopsImported} stop{importResult.stopsImported !== 1 ? 's' : ''}
-                    {importResult.routesSkipped > 0 && ` (${importResult.routesSkipped} already existed)`}
+                    {(importResult.routesUpdated || 0) > 0 && `, updated ${importResult.routesUpdated} existing route${importResult.routesUpdated !== 1 ? 's' : ''}`}
+                    {importResult.routesSkipped > 0 && ` (${importResult.routesSkipped} skipped)`}
                   </span>
                   <button type="button" onClick={() => setImportResult(null)} className="text-amber-600 hover:text-amber-800 font-bold">&times;</button>
                 </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ConfirmDialog } from '../ui/ConfirmDialog.tsx';
+import { toSwapAmount } from './swapAmounts.ts';
 
 const api = {
   getPendingSwaps: async () => {
@@ -99,47 +100,51 @@ export const SwapDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {swaps.map(swap => (
-            <div key={swap.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-              <div className="grid grid-cols-3 items-center gap-4">
-                {/* Provider A gives */}
-                <div className="text-center">
-                  <div className="text-sm font-semibold text-gray-500">{swap.provider_a_name} gives:</div>
-                  <div className="text-md font-bold text-gray-800">{swap.location_a_address}</div>
-                </div>
+          {swaps.map(swap => {
+            const netValueChangeA = toSwapAmount(swap.net_value_change_a);
 
-                {/* Swap Icon & Value */}
-                <div className="text-center">
+            return (
+              <div key={swap.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                <div className="grid grid-cols-3 items-center gap-4">
+                  {/* Provider A gives */}
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-gray-500">{swap.provider_a_name} gives:</div>
+                    <div className="text-md font-bold text-gray-800">{swap.location_a_address}</div>
+                  </div>
+
+                  {/* Swap Icon & Value */}
+                  <div className="text-center">
                     <svg className="w-8 h-8 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4-4 4m0 6H4m0 0l4 4m-4-4 4-4" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4-4 4m0 6H4m0 0l4 4m-4-4 4-4" />
                     </svg>
-                    <div className={`text-sm font-bold ${swap.net_value_change_a > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        Net for {swap.provider_a_name}: ${swap.net_value_change_a.toFixed(2)}
+                    <div className={`text-sm font-bold ${netValueChangeA > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      Net for {swap.provider_a_name}: ${netValueChangeA.toFixed(2)}
                     </div>
-                </div>
+                  </div>
 
-                {/* Provider B gives */}
-                <div className="text-center">
-                  <div className="text-sm font-semibold text-gray-500">{swap.provider_b_name} gives:</div>
-                  <div className="text-md font-bold text-gray-800">{swap.location_b_address}</div>
+                  {/* Provider B gives */}
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-gray-500">{swap.provider_b_name} gives:</div>
+                    <div className="text-md font-bold text-gray-800">{swap.location_b_address}</div>
+                  </div>
+                </div>
+                <div className="flex justify-end items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={() => setConfirmState({ id: swap.id, decision: 'rejected' })}
+                    className="px-3 py-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => setConfirmState({ id: swap.id, decision: 'accepted' })}
+                    className="px-3 py-1 text-sm font-semibold text-white bg-green-600 border border-green-600 rounded-md hover:bg-green-700"
+                  >
+                    Accept
+                  </button>
                 </div>
               </div>
-              <div className="flex justify-end items-center gap-2 mt-4 pt-4 border-t border-gray-100">
-                <button
-                  onClick={() => setConfirmState({ id: swap.id, decision: 'rejected' })}
-                  className="px-3 py-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Reject
-                </button>
-                <button
-                  onClick={() => setConfirmState({ id: swap.id, decision: 'accepted' })}
-                  className="px-3 py-1 text-sm font-semibold text-white bg-green-600 border border-green-600 rounded-md hover:bg-green-700"
-                >
-                  Accept
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {swaps.length === 0 && (
             <div className="text-center py-8 bg-white rounded-lg border border-dashed">
                 <p className="text-gray-500">No pending swap recommendations.</p>

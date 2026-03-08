@@ -25,7 +25,12 @@ class WebSocketManager {
 
   async loadAdminIds() {
     try {
-      const res = await pool.query(`SELECT id FROM users WHERE is_admin = true`);
+      const res = await pool.query(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         WHERE ur.role = 'admin'`
+      );
       this.adminUserIds = new Set(res.rows.map(r => r.id));
     } catch (error) {
       console.error('Failed to load admin user IDs for WebSocketManager:', error);
