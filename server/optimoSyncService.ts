@@ -50,6 +50,26 @@ function getSyncWindowDays(): number {
   return parseInt(process.env.OPTIMO_SYNC_WINDOW_DAYS || '28', 10);
 }
 
+const DRIVER_SYNC_PAST_DAYS = 7;
+const DRIVER_SYNC_FUTURE_DAYS = 21;
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDriverSyncPreviewDates(baseDate: Date = new Date()): string[] {
+  const dates: string[] = [];
+  for (let offset = -(DRIVER_SYNC_PAST_DAYS - 1); offset <= DRIVER_SYNC_FUTURE_DAYS; offset++) {
+    const date = new Date(baseDate);
+    date.setDate(date.getDate() + offset);
+    dates.push(formatLocalDate(date));
+  }
+  return dates;
+}
+
 // ── Collection date generation ──
 
 const DAY_MAP: Record<string, number> = {
@@ -534,14 +554,10 @@ export async function executeCustomerOrderSync() {
 // Driver Sync (unchanged)
 // ═══════════════════════════════════════════════════════
 
-/** Fetch 7 days of OptimoRoute routes and match against local driver_profiles. */
+/** Fetch recent and upcoming OptimoRoute routes and match against local driver_profiles. */
 export async function previewDriverSync() {
   const driverMap = new Map<string, DriverInfo>();
-  const today = new Date();
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+  for (const dateStr of getDriverSyncPreviewDates()) {
     try {
       const routeResult = await optimo.getRoutes(dateStr);
       const routes = routeResult.routes || (routeResult as any).data || [];

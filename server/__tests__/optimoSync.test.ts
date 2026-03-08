@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateCollectionDates, runAutomatedSync } from '../optimoSyncService';
+import { generateCollectionDates, previewDriverSync, runAutomatedSync } from '../optimoSyncService';
 import * as collectionDayDetector from '../collectionDayDetector';
 import * as optimo from '../optimoRouteClient';
 import { storage } from '../storage';
@@ -115,6 +115,62 @@ describe('generateCollectionDates', () => {
         // Next Sunday after Feb 25 (Wed) is Mar 1
         expect(dates[0]).toBe('2026-03-01');
         expect(dates.length).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe('previewDriverSync', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-02-25T22:30:00-05:00'));
+        vi.resetAllMocks();
+        vi.mocked(pool.query).mockResolvedValue({ rows: [], rowCount: 0 } as any);
+        vi.mocked(optimo.getRoutes).mockResolvedValue({ routes: [] } as any);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('uses the local calendar date when scanning routes near midnight UTC', async () => {
+        vi.mocked(optimo.getRoutes).mockImplementation(async (date: string) => {
+            if (date === '2026-02-25') {
+                return {
+                    routes: [{
+                        driverSerial: 'DRV-100',
+                        driverName: 'Late Shift Driver',
+                        stops: [{ address: '123 Main St' }],
+                    }],
+                } as any;
+            }
+            return { routes: [] } as any;
+        });
+
+        const result = await previewDriverSync();
+
+        expect(vi.mocked(optimo.getRoutes)).toHaveBeenCalledWith('2026-02-25');
+        expect(result.unmatchedOptimo).toHaveLength(1);
+        expect(result.unmatchedOptimo[0].serial).toBe('DRV-100');
+    });
+
+    it('includes drivers found on upcoming routes in the preview', async () => {
+        vi.mocked(optimo.getRoutes).mockImplementation(async (date: string) => {
+            if (date === '2026-02-28') {
+                return {
+                    routes: [{
+                        driverSerial: 'DRV-200',
+                        driverName: 'Future Driver',
+                        stops: [{ address: '500 Oak Ave' }],
+                    }],
+                } as any;
+            }
+            return { routes: [] } as any;
+        });
+
+        const result = await previewDriverSync();
+
+        expect(vi.mocked(optimo.getRoutes)).toHaveBeenCalledWith('2026-02-28');
+        expect(result.unmatchedOptimo).toHaveLength(1);
+        expect(result.unmatchedOptimo[0].name).toBe('Future Driver');
     });
 });
 

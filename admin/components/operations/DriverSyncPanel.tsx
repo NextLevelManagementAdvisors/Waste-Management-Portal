@@ -33,32 +33,53 @@ interface SyncPreview {
   unmatchedLocal: LocalDriver[];
 }
 
+function getTodayLocalDate(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  const payload = await res.json().catch(() => null);
+  return payload?.error || fallback;
+}
+
 const DriverSyncPanel: React.FC = () => {
   const [preview, setPreview] = useState<SyncPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [linkMap, setLinkMap] = useState<Record<string, string>>({});
   const [reverseLinkMap, setReverseLinkMap] = useState<Record<string, string>>({});
+  const [manualLinkMap, setManualLinkMap] = useState<Record<string, string>>({});
   const [syncing, setSyncing] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const [creatingManual, setCreatingManual] = useState(false);
   const [result, setResult] = useState<{ linked: number } | null>(null);
   const [createResult, setCreateResult] = useState<{ name: string } | null>(null);
   const [expandedDriver, setExpandedDriver] = useState<string | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<{ pushed: number; failed: number } | null>(null);
   const [pushParams, setPushParams] = useState<Record<string, { workTimeFrom: string; workTimeTo: string; enabled: boolean }>>({});
+  const [manualDriver, setManualDriver] = useState({ name: '', serial: '' });
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadPreview = useCallback(async () => {
     setLoading(true);
     setResult(null);
     setCreateResult(null);
+    setErrorMessage(null);
     try {
       const res = await fetch('/api/admin/optimoroute/drivers/sync-preview', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setPreview(data);
+      } else {
+        setErrorMessage(await readErrorMessage(res, 'Failed to load driver sync preview'));
       }
     } catch (e) {
       console.error('Failed to load sync preview:', e);
+      setErrorMessage('Failed to load driver sync preview');
     } finally {
       setLoading(false);
     }
@@ -70,6 +91,7 @@ const DriverSyncPanel: React.FC = () => {
   const handleCreateDriver = async (optimoDriver: OptimoDriver) => {
     setCreating(optimoDriver.serial);
     setCreateResult(null);
+    setErrorMessage(null);
     try {
       const res = await fetch('/api/admin/drivers', {
         method: 'POST',
@@ -82,10 +104,13 @@ const DriverSyncPanel: React.FC = () => {
       });
       if (res.ok) {
         setCreateResult({ name: optimoDriver.name });
-        loadPreview();
+        await loadPreview();
+      } else {
+        setErrorMessage(await readErrorMessage(res, `Failed to create driver profile for ${optimoDriver.name}`));
       }
     } catch (e) {
       console.error('Failed to create driver:', e);
+      setErrorMessage(`Failed to create driver profile for ${optimoDriver.name}`);
     } finally {
       setCreating(null);
     }
@@ -95,14 +120,19 @@ const DriverSyncPanel: React.FC = () => {
     const forwardMappings = Object.entries(linkMap)
       .filter(([_, driverProfileId]) => driverProfileId)
       .map(([optimorouteSerial, driverProfileId]) => ({ optimorouteSerial, driverProfileId }));
-    const reverseMappings = Object.entries(reverseLinkMap)
-      .filter(([_, optimorouteSerial]) => optimorouteSerial)
-      .map(([driverProfileId, optimorouteSerial]) => ({ optimorouteSerial, driverProfileId }));
+    const reverseMappings = (preview?.unmatchedLocal || [])
+      .map((localDriver) => {
+        const optimorouteSerial = manualLinkMap[localDriver.id]?.trim() || reverseLinkMap[localDriver.id];
+        if (!optimorouteSerial) return null;
+        return { optimorouteSerial, driverProfileId: localDriver.id };
+      })
+      .filter((mapping): mapping is { optimorouteSerial: string; driverProfileId: string } => Boolean(mapping));
     const mappings = [...forwardMappings, ...reverseMappings];
 
     if (mappings.length === 0) return;
 
     setSyncing(true);
+    setErrorMessage(null);
     try {
       const res = await fetch('/api/admin/optimoroute/drivers/sync', {
         method: 'POST',
@@ -115,11 +145,54 @@ const DriverSyncPanel: React.FC = () => {
         setResult(data);
         setLinkMap({});
         setReverseLinkMap({});
-        loadPreview();
+        setManualLinkMap({});
+        await loadPreview();
+      } else {
+        setErrorMessage(await readErrorMessage(res, 'Failed to link drivers'));
       }
-    } catch {
+    } catch (e) {
+      console.error('Failed to sync drivers:', e);
+      setErrorMessage('Failed to link drivers');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleManualCreateDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = manualDriver.name.trim();
+    const serial = manualDriver.serial.trim();
+    if (!name || !serial) {
+      setErrorMessage('Manual driver import requires both a name and an OptimoRoute serial');
+      return;
+    }
+
+    setCreatingManual(true);
+    setCreateResult(null);
+    setErrorMessage(null);
+    try {
+      const res = await fetch('/api/admin/drivers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name,
+          optimorouteDriverId: serial,
+        }),
+      });
+
+      if (res.ok) {
+        setCreateResult({ name });
+        setManualDriver({ name: '', serial: '' });
+        await loadPreview();
+      } else {
+        setErrorMessage(await readErrorMessage(res, `Failed to create driver profile for ${name}`));
+      }
+    } catch (e) {
+      console.error('Failed to create driver manually:', e);
+      setErrorMessage(`Failed to create driver profile for ${name}`);
+    } finally {
+      setCreatingManual(false);
     }
   };
 
@@ -130,8 +203,9 @@ const DriverSyncPanel: React.FC = () => {
   const handlePushToOptimo = async (serial: string) => {
     setPushing(true);
     setPushResult(null);
+    setErrorMessage(null);
     const params = getOrInitParams(serial);
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocalDate();
     try {
       const res = await fetch('/api/admin/optimoroute/drivers/push', {
         method: 'POST',
@@ -144,9 +218,12 @@ const DriverSyncPanel: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setPushResult(data);
+      } else {
+        setErrorMessage(await readErrorMessage(res, `Failed to push driver ${serial} to OptimoRoute`));
       }
     } catch (e) {
       console.error('Failed to push driver:', e);
+      setErrorMessage(`Failed to push driver ${serial} to OptimoRoute`);
     } finally {
       setPushing(false);
     }
@@ -156,7 +233,8 @@ const DriverSyncPanel: React.FC = () => {
     if (!preview?.matched.length) return;
     setPushing(true);
     setPushResult(null);
-    const today = new Date().toISOString().split('T')[0];
+    setErrorMessage(null);
+    const today = getTodayLocalDate();
     const drivers = preview.matched.map(m => {
       const params = getOrInitParams(m.optimoDriver.serial);
       return { serial: m.optimoDriver.serial, date: today, ...params };
@@ -171,9 +249,12 @@ const DriverSyncPanel: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setPushResult(data);
+      } else {
+        setErrorMessage(await readErrorMessage(res, 'Failed to push linked drivers to OptimoRoute'));
       }
     } catch (e) {
       console.error('Failed to push drivers:', e);
+      setErrorMessage('Failed to push linked drivers to OptimoRoute');
     } finally {
       setPushing(false);
     }
@@ -188,7 +269,7 @@ const DriverSyncPanel: React.FC = () => {
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
       <div className="bg-gray-50 rounded-lg p-2 text-center">
         <div className="text-lg font-black text-gray-900">{driver.totalRoutes ?? 0}</div>
-        <div className="text-[10px] font-bold uppercase text-gray-400">Routes (7d)</div>
+        <div className="text-[10px] font-bold uppercase text-gray-400">Routes Scanned</div>
       </div>
       <div className="bg-gray-50 rounded-lg p-2 text-center">
         <div className="text-lg font-black text-gray-900">{driver.totalStops ?? 0}</div>
@@ -228,7 +309,7 @@ const DriverSyncPanel: React.FC = () => {
     </div>
   );
 
-  const totalMappings = Object.values(linkMap).filter(Boolean).length + Object.values(reverseLinkMap).filter(Boolean).length;
+  const totalMappings = Object.values(linkMap).filter(Boolean).length + (preview?.unmatchedLocal.filter(localDriver => Boolean(manualLinkMap[localDriver.id]?.trim() || reverseLinkMap[localDriver.id])).length || 0);
 
   return (
     <div className="space-y-4">
@@ -237,11 +318,45 @@ const DriverSyncPanel: React.FC = () => {
           {loading ? 'Scanning...' : preview ? 'Refresh' : 'Scan Drivers'}
         </Button>
         <p className="text-sm text-gray-500">
-          Compares OptimoRoute drivers (from recent routes) with local driver profiles
+          Scans drivers on OptimoRoute routes from the last 7 days and next 21 days
         </p>
       </div>
 
+      <form onSubmit={handleManualCreateDriver} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+        <div>
+          <div className="text-xs font-black uppercase text-slate-500">Manual Optimo Driver Import</div>
+          <p className="text-sm text-slate-600 mt-1">
+            Use this when a driver exists in OptimoRoute but has no route history yet, so the scan cannot discover them automatically.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <input
+            type="text"
+            value={manualDriver.name}
+            onChange={e => setManualDriver(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="Driver name"
+            className="flex-1 min-w-[220px] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+          />
+          <input
+            type="text"
+            value={manualDriver.serial}
+            onChange={e => setManualDriver(prev => ({ ...prev, serial: e.target.value }))}
+            placeholder="OptimoRoute serial"
+            className="w-56 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+          />
+          <Button type="submit" disabled={creatingManual}>
+            {creatingManual ? 'Adding...' : 'Add Driver'}
+          </Button>
+        </div>
+      </form>
+
       {loading && <LoadingSpinner />}
+
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 font-bold">
+          {errorMessage}
+        </div>
+      )}
 
       {result && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 font-bold">
@@ -296,7 +411,7 @@ const DriverSyncPanel: React.FC = () => {
                             Linked to {getDriverDisplayName(m.localDriver)}
                             {m.optimoDriver.totalStops != null && (
                               <span className="ml-2 text-gray-400">
-                                {m.optimoDriver.totalStops} stops / {m.optimoDriver.totalRoutes} routes (7d)
+                                {m.optimoDriver.totalStops} stops / {m.optimoDriver.totalRoutes} routes (scan window)
                               </span>
                             )}
                           </div>
@@ -380,7 +495,7 @@ const DriverSyncPanel: React.FC = () => {
                             OptimoRoute driver — not linked to portal
                             {d.totalStops != null && (
                               <span className="ml-2 text-gray-400">
-                                {d.totalStops} stops / {d.totalRoutes} routes (7d)
+                                {d.totalStops} stops / {d.totalRoutes} routes (scan window)
                               </span>
                             )}
                           </div>
@@ -509,7 +624,7 @@ const DriverSyncPanel: React.FC = () => {
 
           {preview.matched.length === 0 && preview.unmatchedOptimo.length === 0 && preview.unmatchedLocal.length === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-              <p className="text-gray-400 font-bold">No drivers found in recent routes</p>
+              <p className="text-gray-400 font-bold">No drivers found in the current scan window</p>
             </div>
           )}
         </div>
