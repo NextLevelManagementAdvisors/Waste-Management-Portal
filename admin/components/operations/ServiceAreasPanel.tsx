@@ -370,7 +370,7 @@ const ServiceAreasPanel: React.FC<ServiceAreasPanelProps> = ({ onActionResolved 
           </span>
           <button
             type="button"
-            onClick={() => setStatusFilter('pending_approval')}
+            onClick={() => { setStatusFilter('pending_approval'); setViewMode('list'); }}
             className="ml-auto text-xs font-bold text-amber-700 hover:text-amber-900 underline"
           >
             Review Now
