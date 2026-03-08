@@ -14,6 +14,7 @@ import { pool } from './db';
 import crypto from 'crypto';
 import { loadSettingsIntoEnv } from './settings';
 import { notifyNewError } from './errorFixService';
+import { isAllowedApiOrigin } from './corsConfig';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,18 +45,20 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : [];
 
-app.use('/api', cors({
-  origin: isProduction
-    ? (origin, cb) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-          cb(null, true);
-        } else {
-          cb(new Error('Not allowed by CORS'));
+app.use('/api', (req, res, next) => {
+  cors({
+    origin: isProduction
+      ? (origin, cb) => {
+          if (isAllowedApiOrigin(req, origin || undefined, allowedOrigins, isProduction)) {
+            cb(null, true);
+          } else {
+            cb(new Error('Not allowed by CORS'));
+          }
         }
-      }
-    : true,
-  credentials: true,
-}));
+      : true,
+    credentials: true,
+  })(req, res, next);
+});
 
 const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

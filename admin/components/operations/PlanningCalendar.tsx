@@ -92,11 +92,16 @@ const STATUS_TOOLTIPS: Record<string, string> = {
 };
 
 const ROUTE_MAX_STOPS = 50;
+const OPTIMO_ID_RE = /^[0-9a-f]{20,}$/i;
 
 // ── Helpers ──
 
 function formatDateISO(d: Date): string {
   return d.toISOString().split('T')[0];
+}
+
+function isOptimoId(identifier?: string | null): boolean {
+  return typeof identifier === 'string' && OPTIMO_ID_RE.test(identifier.trim());
 }
 
 function getMonthDays(year: number, month: number): CalendarDay[] {
@@ -944,7 +949,10 @@ const PlanningCalendar: React.FC = () => {
                                         </td>
                                         <td className="px-3 py-1.5 flex items-center gap-1">
                                           {orderNo && (
-                                            <button type="button" onClick={(e) => { e.stopPropagation(); setCompletionStop({ orderNo }); }}
+                                            <button type="button" onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCompletionStop(isOptimoId(orderNo) ? { id: orderNo } : { orderNo });
+                                            }}
                                               className="text-xs font-bold text-teal-600 hover:text-teal-800">
                                               POD
                                             </button>

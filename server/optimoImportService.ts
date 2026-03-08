@@ -1,5 +1,10 @@
 import { storage } from './storage.ts';
 import * as optimo from './optimoRouteClient.ts';
+import {
+  fetchCompletionPayloadsByIdentifier,
+  getOptimoApiStopIdentifier,
+  normalizeOptimoStatus,
+} from './optimoStopHelpers.ts';
 
 export interface ImportResult {
   date: string;
@@ -55,8 +60,9 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
     }
 
     // Filter out break/depot stops
+    // Optimo can include depot start/end placeholders that are not real customer stops.
     const realStops = (optimoRoute.stops || []).filter(
-      (s: any) => s.type !== 'break' && s.type !== 'depot'
+      (s: any) => !['break', 'depot', 'start', 'end'].includes(String(s.type || '').toLowerCase())
     );
 
     // Create local route
@@ -108,7 +114,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
         location_id: locationId,
         address: stopAddress || undefined,
         location_name: stopLocationName || undefined,
-        optimo_order_no: stop.orderNo || undefined,
+        optimo_order_no: getOptimoApiStopIdentifier(stop),
         stop_number: stop.stopNumber,
         order_type: 'recurring',
       });
@@ -119,26 +125,25 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
     result.routesImported++;
 
     // Pull completion statuses for imported stops so they don't stay as 'pending'
-    const orderNos = insertedStops
+    const identifiers = insertedStops
       .filter((s: any) => s.optimo_order_no)
       .map((s: any) => s.optimo_order_no);
-    if (orderNos.length > 0) {
+    if (identifiers.length > 0) {
       try {
-        const completionData = await optimo.getCompletionDetails(orderNos);
-        const completionOrders = completionData?.orders || [];
-        const STATUS_MAP: Record<string, string> = {
-          success: 'completed', failed: 'failed', rejected: 'failed',
-          cancelled: 'cancelled', on_route: 'in_progress', servicing: 'in_progress',
-          scheduled: 'scheduled', unscheduled: 'pending',
-        };
+        const completionMap = await fetchCompletionPayloadsByIdentifier(identifiers);
         let allTerminal = insertedStops.length > 0;
-        for (const order of completionOrders) {
-          if (!order.orderNo || !order.data?.status) continue;
-          const portalStatus = STATUS_MAP[order.data.status] ?? order.data.status;
-          const stop = insertedStops.find((s: any) => s.optimo_order_no === order.orderNo);
+        for (const stop of insertedStops) {
+          if (!stop.optimo_order_no) continue;
+          const data = completionMap.get(stop.optimo_order_no);
+          const portalStatus = normalizeOptimoStatus(data?.status);
+          if (!portalStatus) {
+            allTerminal = false;
+            continue;
+          }
           if (stop) {
-            const updateFields: any = { status: portalStatus };
-            if (order.data.completionForm) updateFields.pod_data = JSON.stringify(order.data.completionForm);
+            const updateFields: any = {};
+            updateFields.status = portalStatus;
+            if (data?.form) updateFields.pod_data = JSON.stringify(data.form);
             await storage.updateRouteStop(stop.id, updateFields);
             if (!['completed', 'failed', 'cancelled'].includes(portalStatus)) allTerminal = false;
           }

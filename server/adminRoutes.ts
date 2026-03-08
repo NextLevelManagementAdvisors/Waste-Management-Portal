@@ -21,6 +21,14 @@ import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateStopCompensation } from './compensationEngine';
 import { broadcastToDriver, broadcastToZoneDrivers, broadcastToAdmins, broadcastToUser } from './websocket';
+import {
+  buildRouteStopIdentifierBackfill,
+  fetchCompletionPayloadsByIdentifier,
+  getOptimoApiStopIdentifier,
+  getRouteDate,
+  getStoredOptimoIdentifier,
+  normalizeOptimoStatus,
+} from './optimoStopHelpers';
 
 declare module 'express-session' {
   interface SessionData {
@@ -162,6 +170,43 @@ export function registerAdminRoutes(app: Express) {
 
   const audit = async (req: Request, action: string, entityType?: string, entityId?: string, details?: any) => {
     try { await storage.createAuditLog(getAdminId(req), action, entityType, entityId, details); } catch (e) { console.error('Audit log error:', e); }
+  };
+
+  const applyOptimoIdentifierBackfill = async (route: any, stops: any[], optimoRoutes?: any[]) => {
+    if (!stops.some(stop => !getStoredOptimoIdentifier(stop))) return 0;
+
+    const routeDate = String(route?.scheduled_date ?? route?.scheduledDate ?? '').split('T')[0];
+    if (!routeDate) return 0;
+
+    const routesForDate = optimoRoutes || (await optimo.getRoutes(routeDate)).routes || [];
+    const updates = buildRouteStopIdentifierBackfill(route, stops, routesForDate);
+
+    for (const update of updates) {
+      const stop = stops.find((candidate: any) => candidate.id === update.stopId);
+      if (!stop) continue;
+
+      const updateFields: any = { optimo_order_no: update.identifier };
+      if ((stop.stop_number ?? stop.stopNumber) == null && update.stopNumber != null) {
+        updateFields.stop_number = update.stopNumber;
+      }
+      if (!(stop.scheduled_at ?? stop.scheduledAt) && update.scheduledAt) {
+        updateFields.scheduled_at = update.scheduledAt;
+      }
+
+      await storage.updateRouteStop(update.stopId, updateFields);
+      stop.optimo_order_no = update.identifier;
+      if (stop.optimoOrderNo == null) stop.optimoOrderNo = update.identifier;
+      if ((stop.stop_number ?? stop.stopNumber) == null && update.stopNumber != null) {
+        stop.stop_number = update.stopNumber;
+        stop.stopNumber = update.stopNumber;
+      }
+      if (!(stop.scheduled_at ?? stop.scheduledAt) && update.scheduledAt) {
+        stop.scheduled_at = update.scheduledAt;
+        stop.scheduledAt = update.scheduledAt;
+      }
+    }
+
+    return updates.length;
   };
 
   app.get('/api/admin/customers', requireAdmin, async (req: Request, res: Response) => {
@@ -2262,7 +2307,7 @@ export function registerAdminRoutes(app: Express) {
       let ordersSynced = 0;
       let ordersSkipped = 0;
       const errors: string[] = [];
-      const scheduledDate = String(route.scheduled_date).split('T')[0];
+      const scheduledDate = getRouteDate(route);
 
       for (const stop of stops) {
         if (!stop.address) {
@@ -2320,7 +2365,7 @@ export function registerAdminRoutes(app: Express) {
         const stops = await storage.getRouteStops(route.id);
         let routeSynced = 0;
         let routeErrors = 0;
-        const scheduledDate = String(route.scheduled_date).split('T')[0];
+        const scheduledDate = getRouteDate(route);
 
         for (const stop of stops) {
           if (!stop.address) {
@@ -2375,33 +2420,33 @@ export function registerAdminRoutes(app: Express) {
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
       const stops = await storage.getRouteStops(routeId);
-      const stopsWithOrders = stops.filter((s: any) => s.optimo_order_no);
-      if (stopsWithOrders.length === 0) {
-        return res.status(400).json({ error: 'No stops have OptimoRoute order numbers. Sync to Optimo first.' });
-      }
-
-      // Fetch routes from OptimoRoute for this date
-      const date = route.scheduled_date.split('T')[0];
+      const date = getRouteDate(route);
       const optimoData = await optimo.getRoutes(date);
       const optimoRoutes = optimoData.routes || [];
+      await applyOptimoIdentifierBackfill(route, stops, optimoRoutes);
 
-      // Build a map of orderNo -> { stopNumber, scheduledAt }
+      const stopsWithIdentifiers = stops.filter((s: any) => getStoredOptimoIdentifier(s));
+      if (stopsWithIdentifiers.length === 0) {
+        return res.status(400).json({ error: 'No stops have OptimoRoute identifiers. Sync to Optimo first.' });
+      }
+
+      // Build a map of identifier -> { stopNumber, scheduledAt }
       const orderMap = new Map<string, { stopNumber: number; scheduledAt: string }>();
       for (const oRoute of optimoRoutes) {
         for (const oStop of (oRoute.stops || [])) {
-          if (oStop.orderNo) {
-            orderMap.set(oStop.orderNo, {
-              stopNumber: oStop.stopNumber || 0,
-              scheduledAt: oStop.scheduledAt || '',
-            });
-          }
+          const identifier = getOptimoApiStopIdentifier(oStop);
+          if (!identifier) continue;
+          orderMap.set(identifier, {
+            stopNumber: oStop.stopNumber || 0,
+            scheduledAt: oStop.scheduledAt || '',
+          });
         }
       }
 
       // Update portal stops with optimized sequence
       let updated = 0;
-      for (const stop of stopsWithOrders) {
-        const optimoInfo = orderMap.get(stop.optimo_order_no);
+      for (const stop of stopsWithIdentifiers) {
+        const optimoInfo = orderMap.get(getStoredOptimoIdentifier(stop)!);
         if (optimoInfo) {
           await storage.updateRouteStop(stop.id, {
             stop_number: optimoInfo.stopNumber,
@@ -2425,50 +2470,32 @@ export function registerAdminRoutes(app: Express) {
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
       const stops = await storage.getRouteStops(routeId);
-      const orderNos = stops.filter((s: any) => s.optimo_order_no).map((s: any) => s.optimo_order_no);
-      if (orderNos.length === 0) {
-        return res.status(400).json({ error: 'No stops have OptimoRoute order numbers.' });
+      await applyOptimoIdentifierBackfill(route, stops);
+
+      const identifiers = stops
+        .map((stop: any) => getStoredOptimoIdentifier(stop))
+        .filter((identifier): identifier is string => Boolean(identifier));
+      if (identifiers.length === 0) {
+        return res.status(400).json({ error: 'No stops have OptimoRoute identifiers.' });
       }
 
-      // Fetch completion details from OptimoRoute
-      const completionData = await optimo.getCompletionDetails(orderNos);
-      const completionOrders = completionData?.orders || [];
-
-      // Build a map of orderNo -> completion data
-      const dataMap = new Map<string, any>();
-      for (const order of completionOrders) {
-        if (order.orderNo && order.data) {
-          dataMap.set(order.orderNo, order.data);
-        }
-      }
-
-      // Map OptimoRoute statuses to portal statuses
-      const OPTIMO_STATUS_MAP: Record<string, string> = {
-        success: 'completed',
-        failed: 'failed',
-        rejected: 'failed',
-        cancelled: 'cancelled',
-        on_route: 'in_progress',
-        servicing: 'in_progress',
-        scheduled: 'scheduled',
-        unscheduled: 'pending',
-      };
+      const dataMap = await fetchCompletionPayloadsByIdentifier(identifiers);
 
       // Update portal stops with completion status and POD data
       let updated = 0;
       for (const stop of stops) {
-        if (stop.optimo_order_no) {
-          const data = dataMap.get(stop.optimo_order_no);
-          if (!data?.status) continue;
-          const portalStatus = OPTIMO_STATUS_MAP[data.status] ?? data.status;
-          const updateFields: any = {};
-          if (portalStatus !== stop.status) updateFields.status = portalStatus;
-          if (data.completionForm) updateFields.pod_data = JSON.stringify(data.completionForm);
-          if (Object.keys(updateFields).length > 0) {
-            await storage.updateRouteStop(stop.id, updateFields);
-            if (updateFields.status) updated++;
-          }
-        }
+        const identifier = getStoredOptimoIdentifier(stop);
+        if (!identifier) continue;
+
+        const data = dataMap.get(identifier);
+        const portalStatus = normalizeOptimoStatus(data?.status);
+        const updateFields: any = {};
+        if (portalStatus && portalStatus !== stop.status) updateFields.status = portalStatus;
+        if (data?.form) updateFields.pod_data = JSON.stringify(data.form);
+        if (Object.keys(updateFields).length === 0) continue;
+
+        await storage.updateRouteStop(stop.id, updateFields);
+        if (updateFields.status) updated++;
       }
 
       const onDemandIds = Array.from(new Set(
@@ -2531,59 +2558,68 @@ export function registerAdminRoutes(app: Express) {
 
       // Find all non-completed, non-cancelled routes for this date
       const routeResult = await storage.query(
-        `SELECT id, status FROM routes WHERE scheduled_date::text LIKE $1 AND status NOT IN ('completed', 'cancelled', 'draft')`,
+        `SELECT id, title, status, scheduled_date, optimo_route_key
+         FROM routes
+         WHERE scheduled_date::text LIKE $1
+           AND status NOT IN ('completed', 'cancelled', 'draft')`,
         [`${date}%`]
       );
       const routes = routeResult.rows;
       if (routes.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
 
-      // Gather all order numbers across all routes
       const allStopsResult = await storage.query(
-        `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status, rs.on_demand_request_id
+        `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status, rs.on_demand_request_id,
+                rs.stop_number, rs.scheduled_at, COALESCE(rs.address, p.address) AS address
          FROM route_stops rs
-         WHERE rs.route_id = ANY($1) AND rs.optimo_order_no IS NOT NULL`,
-        [routes.map((r: any) => r.id)]
+         LEFT JOIN locations p ON rs.location_id = p.id
+         WHERE rs.route_id = ANY($1)`,
+        [routes.map((route: any) => route.id)]
       );
       const allStops = allStopsResult.rows;
-      const orderNos = allStops.map((s: any) => s.optimo_order_no).filter(Boolean);
-      if (orderNos.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
 
-      // Fetch completion details from OptimoRoute in one batch
-      const completionData = await optimo.getCompletionDetails(orderNos);
-      const completionOrders = completionData?.orders || [];
+      if (allStops.some((stop: any) => !getStoredOptimoIdentifier(stop))) {
+        const optimoRoutes = (await optimo.getRoutes(date)).routes || [];
+        const stopsByRoute = new Map<string, any[]>();
+        for (const stop of allStops) {
+          const routeStops = stopsByRoute.get(stop.route_id) || [];
+          routeStops.push(stop);
+          stopsByRoute.set(stop.route_id, routeStops);
+        }
 
-      const statusMap = new Map<string, any>();
-      for (const order of completionOrders) {
-        if (order.orderNo && order.data) {
-          statusMap.set(order.orderNo, order.data);
+        for (const route of routes) {
+          await applyOptimoIdentifierBackfill(route, stopsByRoute.get(route.id) || [], optimoRoutes);
         }
       }
 
-      const OPTIMO_STATUS_MAP: Record<string, string> = {
-        success: 'completed', failed: 'failed', rejected: 'failed',
-        cancelled: 'cancelled', on_route: 'in_progress', servicing: 'in_progress',
-        scheduled: 'scheduled', unscheduled: 'pending',
-      };
+      const identifiers = Array.from(new Set(
+        allStops
+          .map((stop: any) => getStoredOptimoIdentifier(stop))
+          .filter((identifier): identifier is string => Boolean(identifier))
+      ));
+      if (identifiers.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
+
+      const statusMap = await fetchCompletionPayloadsByIdentifier(identifiers);
 
       let stopsUpdated = 0;
       const routeIdsToCheck = new Set<string>();
 
       for (const stop of allStops) {
-        const data = statusMap.get(stop.optimo_order_no);
-        if (!data?.status) continue;
-        const portalStatus = OPTIMO_STATUS_MAP[data.status] ?? data.status;
-        if (portalStatus !== stop.status) {
+        const identifier = getStoredOptimoIdentifier(stop);
+        if (!identifier) continue;
+        const data = statusMap.get(identifier);
+        const portalStatus = normalizeOptimoStatus(data?.status);
+        if (portalStatus && portalStatus !== stop.status) {
           // Update stop status and store POD form data if present
           const updateFields: any = { status: portalStatus };
-          if (data.completionForm) {
-            updateFields.pod_data = JSON.stringify(data.completionForm);
+          if (data?.form) {
+            updateFields.pod_data = JSON.stringify(data.form);
           }
           await storage.updateRouteStop(stop.id, updateFields);
           stopsUpdated++;
           routeIdsToCheck.add(stop.route_id);
-        } else if (data.completionForm) {
+        } else if (data?.form) {
           // Status unchanged but POD data available — store it
-          await storage.updateRouteStop(stop.id, { pod_data: JSON.stringify(data.completionForm) });
+          await storage.updateRouteStop(stop.id, { pod_data: JSON.stringify(data.form) });
         }
       }
 
@@ -2672,23 +2708,12 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: 'stopStatuses object is required' });
       }
 
-      const OPTIMO_STATUS_MAP: Record<string, string> = {
-        success: 'completed',
-        failed: 'failed',
-        rejected: 'failed',
-        cancelled: 'cancelled',
-        on_route: 'in_progress',
-        servicing: 'in_progress',
-        scheduled: 'scheduled',
-        unscheduled: 'pending',
-      };
-
       const orderNos = Object.keys(stopStatuses);
       if (orderNos.length === 0) return res.json({ updated: 0 });
 
       let updated = 0;
       for (const [orderNo, rawStatus] of Object.entries(stopStatuses)) {
-        const portalStatus = OPTIMO_STATUS_MAP[rawStatus] ?? rawStatus;
+        const portalStatus = normalizeOptimoStatus(rawStatus) ?? rawStatus;
         const result = await storage.query(
           `UPDATE route_stops SET status = $1 WHERE optimo_order_no = $2 AND status != $1`,
           [portalStatus, orderNo]
