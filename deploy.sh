@@ -18,9 +18,12 @@ ssh "$USER@$HOST" /bin/bash << EOF
   echo "--- Moving new service file into place ---"
   sudo mv /tmp/waste-portal.service /etc/systemd/system/waste-portal.service
 
+  echo "--- Stopping application service ---"
+  sudo systemctl stop waste-portal
+
   echo "--- Reloading systemd daemon ---"
   sudo systemctl daemon-reload
-
+  
   cd "$DIR"
 
   echo "--- Pulling latest changes from main branch ---"
@@ -34,8 +37,8 @@ ssh "$USER@$HOST" /bin/bash << EOF
   sudo -u "$APP_USER" rm -rf dist
   sudo -u "$APP_USER" npm run build
   
-  echo "--- Restarting the application service ---"
-  sudo systemctl restart waste-portal
+  echo "--- Starting the application service ---"
+  sudo systemctl start waste-portal
   
   echo "--- Verifying service status ---"
   sleep 3 # Give the service a moment to start up.
