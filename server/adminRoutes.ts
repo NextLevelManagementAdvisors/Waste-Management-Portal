@@ -19,7 +19,7 @@ import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
 import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
-import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateStopCompensation } from './compensationEngine';
+import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateOrderCompensation } from './compensationEngine';
 import { broadcastToDriver, broadcastToZoneDrivers, broadcastToAdmins, broadcastToUser } from './websocket';
 import {
   buildOrderIdentifierBackfill,
@@ -173,92 +173,92 @@ export function registerAdminRoutes(app: Express) {
     try { await storage.createAuditLog(getAdminId(req), action, entityType, entityId, details); } catch (e) { console.error('Audit log error:', e); }
   };
 
-  const applyOptimoIdentifierBackfill = async (route: any, stops: any[], optimoRoutes?: any[]) => {
-    if (!stops.some(stop => !getStoredOptimoOrderNo(stop))) return 0;
+  const applyOptimoIdentifierBackfill = async (route: any, orders: any[], optimoRoutes?: any[]) => {
+    if (!orders.some(order => !getStoredOptimoOrderNo(order))) return 0;
 
     const routeDate = String(route?.scheduled_date ?? route?.scheduledDate ?? '').split('T')[0];
     if (!routeDate) return 0;
 
     const routesForDate = optimoRoutes || (await optimo.getRoutes(routeDate)).routes || [];
-    const updates = buildOrderIdentifierBackfill(route, stops, routesForDate);
+    const updates = buildOrderIdentifierBackfill(route, orders, routesForDate);
 
     for (const update of updates) {
-      const stop = stops.find((candidate: any) => candidate.id === update.stopId);
-      if (!stop) continue;
+      const order = orders.find((candidate: any) => candidate.id === update.orderId);
+      if (!order) continue;
 
       const updateFields: any = { optimo_order_no: update.identifier };
-      if ((stop.stop_number ?? stop.stopNumber) == null && update.stopNumber != null) {
-        updateFields.stop_number = update.stopNumber;
+      if ((order.order_number ?? order.orderNumber) == null && update.orderNumber != null) {
+        updateFields.order_number = update.orderNumber;
       }
-      if (!(stop.scheduled_at ?? stop.scheduledAt) && update.scheduledAt) {
+      if (!(order.scheduled_at ?? order.scheduledAt) && update.scheduledAt) {
         updateFields.scheduled_at = update.scheduledAt;
       }
 
-      await storage.updateRouteStop(update.stopId, updateFields);
-      stop.optimo_order_no = update.identifier;
-      if (stop.optimoOrderNo == null) stop.optimoOrderNo = update.identifier;
-      if ((stop.stop_number ?? stop.stopNumber) == null && update.stopNumber != null) {
-        stop.stop_number = update.stopNumber;
-        stop.stopNumber = update.stopNumber;
+      await storage.updateRouteOrder(update.orderId, updateFields);
+      order.optimo_order_no = update.identifier;
+      if (order.optimoOrderNo == null) order.optimoOrderNo = update.identifier;
+      if ((order.order_number ?? order.orderNumber) == null && update.orderNumber != null) {
+        order.order_number = update.orderNumber;
+        order.orderNumber = update.orderNumber;
       }
-      if (!(stop.scheduled_at ?? stop.scheduledAt) && update.scheduledAt) {
-        stop.scheduled_at = update.scheduledAt;
-        stop.scheduledAt = update.scheduledAt;
+      if (!(order.scheduled_at ?? order.scheduledAt) && update.scheduledAt) {
+        order.scheduled_at = update.scheduledAt;
+        order.scheduledAt = update.scheduledAt;
       }
     }
 
     return updates.length;
   };
 
-  const recordSyncedOptimoOrder = async (stop: any, orderNo: string, scheduledDate: string) => {
-    if (!stop.location_id) return;
+  const recordSyncedOptimoOrder = async (routeOrder: any, orderNo: string, scheduledDate: string) => {
+    if (!routeOrder.location_id) return;
 
     const existing = await storage.getSyncOrderByOrderNo(orderNo);
     if (existing) return;
 
     await storage.createSyncOrder({
-      locationId: stop.location_id,
+      locationId: routeOrder.location_id,
       orderNo,
       scheduledDate,
     });
   };
 
-  /** Build a BulkOrderInput + metadata for a single route stop. */
-  const buildStopOrder = (route: any, stop: any, scheduledDate: string, driverSerial: string | null) => {
-    const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
-    const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
+  /** Build a BulkOrderInput + metadata for a single route order. */
+  const buildRouteOrder = (route: any, routeOrder: any, scheduledDate: string, driverSerial: string | null) => {
+    const orderKey = routeOrder.location_id ? routeOrder.location_id.substring(0, 8) : routeOrder.id.substring(0, 8);
+    const orderNo = `ROUTE-${route.id.substring(0, 8)}-${orderKey}`;
     const order: any = {
       orderNo,
       type: 'P',
       date: scheduledDate,
       location: {
-        address: stop.address,
-        locationName: stop.customer_name || '',
+        address: routeOrder.address,
+        locationName: routeOrder.customer_name || '',
       },
       duration: 8,
       notes: `Route: ${route.title}`,
       customField1: route.id,
-      customField2: stop.location_id || '',
+      customField2: routeOrder.location_id || '',
     };
     if (driverSerial) {
       order.assignedTo = { serial: driverSerial };
     }
-    return { order, orderNo, stop };
+    return { order, orderNo, routeOrder };
   };
 
-  /** Batch-sync all stops for a single route. Returns { ordersSynced, ordersSkipped, errors, orderNos }. */
+  /** Batch-sync all orders for a single route. Returns { ordersSynced, ordersSkipped, errors, orderNos }. */
   const syncRouteToOptimoBatch = async (route: any, driverSerial: string | null) => {
-    const stops = await storage.getRouteStops(route.id);
+    const routeOrders = await storage.getRouteOrders(route.id);
     const scheduledDate = getRouteDate(route);
     const errors: string[] = [];
-    const prepared: ReturnType<typeof buildStopOrder>[] = [];
+    const prepared: ReturnType<typeof buildRouteOrder>[] = [];
 
-    for (const stop of stops) {
-      if (!stop.address) {
-        errors.push(`Stop ${stop.id}: missing address, skipped`);
+    for (const order of routeOrders) {
+      if (!order.address) {
+        errors.push(`Order ${order.id}: missing address, skipped`);
         continue;
       }
-      prepared.push(buildStopOrder(route, stop, scheduledDate, driverSerial));
+      prepared.push(buildRouteOrder(route, order, scheduledDate, driverSerial));
     }
 
     if (prepared.length === 0) {
@@ -271,8 +271,8 @@ export function registerAdminRoutes(app: Express) {
 
     // Persist order numbers locally
     for (const p of prepared) {
-      await storage.updateRouteStop(p.stop.id, { optimo_order_no: p.orderNo });
-      await recordSyncedOptimoOrder(p.stop, p.orderNo, scheduledDate);
+      await storage.updateRouteOrder(p.routeOrder.id, { optimo_order_no: p.orderNo });
+      await recordSyncedOptimoOrder(p.routeOrder, p.orderNo, scheduledDate);
       orderNos.push(p.orderNo);
     }
 
@@ -761,7 +761,7 @@ export function registerAdminRoutes(app: Express) {
       );
       const row = report.rows[0];
 
-      // Schedule a redo stop on the next available route for this location
+      // Schedule a redo order on the next available route for this location
       let redoDate: string | undefined;
       if (status === 'resolved' && scheduleRedo && row?.location_id) {
         const tomorrow = new Date();
@@ -792,7 +792,7 @@ export function registerAdminRoutes(app: Express) {
           const routeId = nextRoute.rows[0].id;
           redoDate = nextRoute.rows[0].scheduled_date?.split('T')[0];
           await storage.query(
-            `INSERT INTO route_stops (route_id, location_id, order_type, status, notes, address)
+            `INSERT INTO route_orders (route_id, location_id, order_type, status, notes, address)
              VALUES ($1, $2, 'missed_redo', 'pending', $3, $4)`,
             [routeId, row.location_id, `Redo for missed collection on ${row.collection_date}`, row.address]
           );
@@ -921,11 +921,11 @@ export function registerAdminRoutes(app: Express) {
 
       const updated = await storage.updateOnDemandRequest(id, updates);
 
-      // Keep linked route stops aligned when admin force-updates terminal status.
+      // Keep linked route orders aligned when admin force-updates terminal status.
       if (status === 'completed' || status === 'cancelled') {
         const stopStatus = status;
         await pool.query(
-          `UPDATE route_stops rs
+          `UPDATE route_orders rs
            SET status = $1
            FROM routes r
            WHERE rs.on_demand_request_id = $2
@@ -1039,7 +1039,7 @@ export function registerAdminRoutes(app: Express) {
       if (!existing) {
         return res.status(404).json({ error: 'Route not found' });
       }
-      const { title: reqTitle, description, scheduled_date: reqDate, start_time, end_time, estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, accepted_bid_id, actual_pay, payment_status } = req.body;
+      const { title: reqTitle, description, scheduled_date: reqDate, start_time, end_time, estimated_orders, estimated_hours, base_pay, status, assigned_driver_id, notes, route_type, accepted_bid_id, actual_pay, payment_status } = req.body;
       const title = reqTitle || existing.title;
       const scheduled_date = reqDate || existing.scheduled_date;
       if (!title || !scheduled_date) {
@@ -1071,7 +1071,7 @@ export function registerAdminRoutes(app: Express) {
 
       const updated = await storage.updateRoute(routeId, {
         title, description, scheduled_date, start_time, end_time,
-        estimated_stops, estimated_hours, base_pay, status, assigned_driver_id, notes,
+        estimated_orders, estimated_hours, base_pay, status, assigned_driver_id, notes,
         route_type, accepted_bid_id, actual_pay, payment_status,
         ...(markOutOfSync ? { optimo_synced: false } : {}),
       });
@@ -1084,7 +1084,7 @@ export function registerAdminRoutes(app: Express) {
                updated_at = NOW()
            WHERE odr.id IN (
              SELECT DISTINCT rs.on_demand_request_id
-             FROM route_stops rs
+             FROM route_orders rs
              WHERE rs.route_id = $2 AND rs.on_demand_request_id IS NOT NULL
            )
              AND odr.status IN ('pending', 'scheduled')`,
@@ -1094,32 +1094,32 @@ export function registerAdminRoutes(app: Express) {
       }
       await audit(req, 'update_route', 'route', routeId, { ...req.body, linkedOnDemandSynced });
 
-      // When a route is cancelled, cancel all non-terminal stops and notify affected customers
+      // When a route is cancelled, cancel all non-terminal orders and notify affected customers
       if (status === 'cancelled' && existing.status !== 'cancelled') {
         try {
-          // Get affected stops before cancelling (to notify customers)
-          const affectedStops = await storage.query(
+          // Get affected orders before cancelling (to notify customers)
+          const affectedOrders = await storage.query(
             `SELECT rs.location_id, p.user_id, p.address, r.scheduled_date
-             FROM route_stops rs
+             FROM route_orders rs
              JOIN locations p ON rs.location_id = p.id
              JOIN routes r ON rs.route_id = r.id
              WHERE rs.route_id = $1 AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
             [routeId]
           );
           await storage.query(
-            `UPDATE route_stops SET status = 'cancelled' WHERE route_id = $1 AND status NOT IN ('completed', 'failed', 'skipped')`,
+            `UPDATE route_orders SET status = 'cancelled' WHERE route_id = $1 AND status NOT IN ('completed', 'failed', 'skipped')`,
             [routeId]
           );
           // Notify unique customers
           const notified = new Set<string>();
-          for (const stop of affectedStops.rows) {
-            if (stop.user_id && !notified.has(stop.user_id)) {
-              notified.add(stop.user_id);
-              sendRouteCancelNotification(stop.user_id, stop.address, existing.scheduled_date?.split('T')[0] || '').catch(() => {});
+          for (const order of affectedOrders.rows) {
+            if (order.user_id && !notified.has(order.user_id)) {
+              notified.add(order.user_id);
+              sendRouteCancelNotification(order.user_id, order.address, existing.scheduled_date?.split('T')[0] || '').catch(() => {});
             }
           }
         } catch (e) {
-          console.error('Failed to cancel route stops:', e);
+          console.error('Failed to cancel route orders:', e);
         }
       }
 
@@ -1147,77 +1147,77 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Route Stops
-  app.get('/api/admin/routes/:id/stops', requireAdmin, async (req: Request, res: Response) => {
+  // Route Orders
+  app.get('/api/admin/routes/:id/orders', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const stops = await storage.getRouteStops(req.params.id as string);
-      res.json({ stops });
+      const orders = await storage.getRouteOrders(req.params.id as string);
+      res.json({ orders });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch route stops' });
+      res.status(500).json({ error: 'Failed to fetch route orders' });
     }
   });
 
-  app.post('/api/admin/routes/:id/stops', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.post('/api/admin/routes/:id/orders', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
       const { locationIds, onDemandIds, missedRedoLocationIds } = req.body;
-      const stops: Array<{ location_id: string; order_type?: string; on_demand_request_id?: string }> = [];
+      const orders: Array<{ location_id: string; order_type?: string; on_demand_request_id?: string }> = [];
       if (locationIds?.length) {
         for (const pid of locationIds) {
-          stops.push({ location_id: pid, order_type: 'recurring' });
+          orders.push({ location_id: pid, order_type: 'recurring' });
         }
       }
       if (onDemandIds?.length) {
         for (const spId of onDemandIds) {
           const sp = await storage.getOnDemandRequestById(spId);
           if (sp) {
-            stops.push({ location_id: sp.location_id, order_type: 'on_demand', on_demand_request_id: spId });
+            orders.push({ location_id: sp.location_id, order_type: 'on_demand', on_demand_request_id: spId });
           }
         }
       }
       if (missedRedoLocationIds?.length) {
         for (const pid of missedRedoLocationIds) {
-          stops.push({ location_id: pid, order_type: 'missed_redo' });
+          orders.push({ location_id: pid, order_type: 'missed_redo' });
         }
       }
-      const added = await storage.addRouteStops(routeId, stops);
-      await audit(req, 'add_route_stops', 'route', routeId, { count: added.length });
-      res.json({ stops: added });
+      const added = await storage.addRouteOrders(routeId, orders);
+      await audit(req, 'add_route_orders', 'route', routeId, { count: added.length });
+      res.json({ orders: added });
     } catch (error) {
-      console.error('Failed to add route stops:', error);
-      res.status(500).json({ error: 'Failed to add stops' });
+      console.error('Failed to add route orders:', error);
+      res.status(500).json({ error: 'Failed to add orders' });
     }
   });
 
-  app.delete('/api/admin/routes/:id/stops/:stopId', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+  app.delete('/api/admin/routes/:id/orders/:orderId', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
-      const stopId = req.params.stopId as string;
-      await storage.removeRouteStop(stopId);
-      await audit(req, 'remove_route_stop', 'route', routeId, { stopId });
+      const orderId = req.params.orderId as string;
+      await storage.removeRouteOrder(orderId);
+      await audit(req, 'remove_route_order', 'route', routeId, { orderId });
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to remove stop' });
+      res.status(500).json({ error: 'Failed to remove order' });
     }
   });
 
-  // Split an over-capacity route into chunks of maxStops
+  // Split an over-capacity route into chunks of maxOrders
   app.post('/api/admin/routes/:id/split', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
     try {
       const routeId = req.params.id as string;
-      const maxStops = parseInt(req.body.maxStops || process.env.ROUTE_MAX_STOPS || '50', 10);
+      const maxOrders = parseInt(req.body.maxStops || process.env.ROUTE_MAX_STOPS || '50', 10);
 
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
       if (route.status !== 'draft') return res.status(400).json({ error: 'Only draft routes can be split' });
 
-      const stops = await storage.getRouteStops(routeId);
-      if (stops.length <= maxStops) return res.status(400).json({ error: 'Route does not exceed capacity' });
+      const routeOrders = await storage.getRouteOrders(routeId);
+      if (routeOrders.length <= maxOrders) return res.status(400).json({ error: 'Route does not exceed capacity' });
 
-      // Chunk stops beyond maxStops into new routes
-      const chunks: typeof stops[] = [];
-      for (let c = 0; c < stops.length; c += maxStops) {
-        chunks.push(stops.slice(c, c + maxStops));
+      // Chunk orders beyond maxOrders into new routes
+      const chunks: typeof routeOrders[] = [];
+      for (let c = 0; c < routeOrders.length; c += maxOrders) {
+        chunks.push(routeOrders.slice(c, c + maxOrders));
       }
 
       // Keep first chunk in original route, create new routes for the rest
@@ -1230,13 +1230,13 @@ export function registerAdminRoutes(app: Express) {
           scheduled_date: route.scheduled_date,
           start_time: route.start_time ?? undefined,
           end_time: route.end_time ?? undefined,
-          estimated_stops: chunks[i].length,
+          estimated_orders: chunks[i].length,
           route_type: route.route_type ?? 'daily_route',
           source: 'split',
           status: 'draft',
         });
 
-        await storage.addRouteStops(
+        await storage.addRouteOrders(
           newRoute.id,
           chunks[i].map((s: any) => ({
             location_id: s.location_id,
@@ -1245,9 +1245,9 @@ export function registerAdminRoutes(app: Express) {
           }))
         );
 
-        // Remove these stops from original route
+        // Remove these orders from original route
         for (const s of chunks[i]) {
-          await storage.removeRouteStop(s.id);
+          await storage.removeRouteOrder(s.id);
         }
 
         newRoutes.push(newRoute);
@@ -1256,10 +1256,10 @@ export function registerAdminRoutes(app: Express) {
       // Rename original if multiple chunks
       if (chunks.length > 1) {
         const baseTitle = route.title.replace(/ \([A-Z]\)$/, '');
-        await storage.updateRoute(routeId, { title: `${baseTitle} (A)`, estimated_stops: chunks[0].length });
+        await storage.updateRoute(routeId, { title: `${baseTitle} (A)`, estimated_orders: chunks[0].length });
       }
 
-      await audit(req, 'split_route', 'route', routeId, { newRouteCount: newRoutes.length, maxStops });
+      await audit(req, 'split_route', 'route', routeId, { newRouteCount: newRoutes.length, maxOrders });
       res.json({ originalRouteId: routeId, newRoutes: newRoutes.map(formatRouteForClient), totalRoutes: chunks.length });
     } catch (error) {
       console.error('Failed to split route:', error);
@@ -1277,10 +1277,10 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: 'Only draft or open routes can be deleted' });
       }
 
-      // Remove all stops first, then the route itself
-      const stops = await storage.getRouteStops(routeId);
-      for (const s of stops) {
-        await storage.removeRouteStop(s.id);
+      // Remove all orders first, then the route itself
+      const routeOrders = await storage.getRouteOrders(routeId);
+      for (const s of routeOrders) {
+        await storage.removeRouteOrder(s.id);
       }
       await storage.deleteRoute(routeId);
       await audit(req, 'delete_route', 'route', routeId, { title: route.title });
@@ -1323,7 +1323,7 @@ export function registerAdminRoutes(app: Express) {
         actual_pay: actualPay || route.base_pay,
       });
 
-      // Keep on-demand assignments in sync when route contains linked on-demand stops.
+      // Keep on-demand assignments in sync when route contains linked on-demand orders.
       const syncResult = await pool.query(
         `UPDATE on_demand_requests odr
          SET assigned_driver_id = $1,
@@ -1331,7 +1331,7 @@ export function registerAdminRoutes(app: Express) {
              updated_at = NOW()
          WHERE odr.id IN (
            SELECT DISTINCT rs.on_demand_request_id
-           FROM route_stops rs
+           FROM route_orders rs
            WHERE rs.route_id = $2 AND rs.on_demand_request_id IS NOT NULL
          )
            AND odr.status IN ('pending', 'scheduled')`,
@@ -1351,13 +1351,13 @@ export function registerAdminRoutes(app: Express) {
 
       // Notify driver of assignment
       const pay = actualPay || route.base_pay;
-      const stopCount = route.stop_count || route.estimated_stops || 0;
+      const orderCount = route.order_count || route.estimated_orders || 0;
       sendDriverNotification(driverId, `Route Assigned: ${route.title}`, `
         <p style="color:#4b5563;line-height:1.6;">You have been assigned a new route:</p>
         <div style="background:#f0fdfa;border-left:4px solid #0d9488;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
           <p style="margin:0;color:#0d9488;font-weight:700;font-size:16px;">${route.title}</p>
           <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Date: ${route.scheduled_date?.split('T')[0] || 'TBD'}</p>
-          ${stopCount ? `<p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Stops: ${stopCount}</p>` : ''}
+          ${orderCount ? `<p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Orders: ${orderCount}</p>` : ''}
           ${pay ? `<p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Pay: $${Number(pay).toFixed(2)}</p>` : ''}
         </div>
         <p style="color:#4b5563;line-height:1.6;">Log in to the team portal to view details and start your route.</p>
@@ -2140,9 +2140,9 @@ export function registerAdminRoutes(app: Express) {
         // Stale draft routes for upcoming dates
         pool.query(
           `SELECT r.id, r.title, r.scheduled_date, r.created_at,
-                  COALESCE(sc.stop_count, 0)::int AS stop_count
+                  COALESCE(sc.order_count, 0)::int AS order_count
            FROM routes r
-           LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
+           LEFT JOIN (SELECT route_id, COUNT(*) AS order_count FROM route_orders GROUP BY route_id) sc ON sc.route_id = r.id
            WHERE r.status = 'draft' AND r.scheduled_date >= CURRENT_DATE
              AND r.scheduled_date <= CURRENT_DATE + INTERVAL '3 days'
            ORDER BY r.scheduled_date ASC LIMIT 50`
@@ -2174,14 +2174,14 @@ export function registerAdminRoutes(app: Express) {
       const to = req.query.to as string | undefined;
       if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
 
-      // Auto-complete stale past-date routes that have no pending stops
+      // Auto-complete stale past-date routes that have no pending orders
       await storage.query(
         `UPDATE routes SET status = 'completed', completed_at = NOW()
          WHERE scheduled_date >= $1 AND scheduled_date <= $2
            AND scheduled_date < CURRENT_DATE
            AND status IN ('assigned', 'in_progress')
            AND NOT EXISTS (
-             SELECT 1 FROM route_stops rs
+             SELECT 1 FROM route_orders rs
              WHERE rs.route_id = routes.id
                AND rs.status NOT IN ('completed', 'failed', 'cancelled')
            )`,
@@ -2224,12 +2224,12 @@ export function registerAdminRoutes(app: Express) {
         const route = await storage.createRoute({
           title: `${dayName} Route - ${date}`,
           scheduled_date: date,
-          estimated_stops: locations.length,
+          estimated_orders: locations.length,
           route_type: 'daily_route',
           source: 'auto_planned',
           status: 'draft',
         });
-        await storage.addRouteStops(
+        await storage.addRouteOrders(
           route.id,
           locations.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
         );
@@ -2242,7 +2242,7 @@ export function registerAdminRoutes(app: Express) {
       for (const sp of onDemandRequests) {
         if (Number(sp.service_price) < bulkThreshold && created.length > 0) {
           // Add to the daily route
-          await storage.addRouteStops(created[0].id, [{
+          await storage.addRouteOrders(created[0].id, [{
             location_id: sp.location_id,
             order_type: 'on_demand',
             on_demand_request_id: sp.id,
@@ -2252,14 +2252,14 @@ export function registerAdminRoutes(app: Express) {
           const bulkRoute = await storage.createRoute({
             title: `Bulk Collection - ${sp.customer_name || sp.address}`,
             scheduled_date: date,
-            estimated_stops: 1,
+            estimated_orders: 1,
             route_type: 'bulk_collection',
             source: 'on_demand',
             on_demand_request_id: sp.id,
             base_pay: Number(sp.service_price),
             status: 'draft',
           });
-          await storage.addRouteStops(bulkRoute.id, [{
+          await storage.addRouteOrders(bulkRoute.id, [{
             location_id: sp.location_id,
             order_type: 'on_demand',
             on_demand_request_id: sp.id,
@@ -2325,12 +2325,12 @@ export function registerAdminRoutes(app: Express) {
           const route = await storage.createRoute({
             title: `${dayName} Route${suffix} - ${dateStr}`,
             scheduled_date: dateStr,
-            estimated_stops: chunk.length,
+            estimated_orders: chunk.length,
             route_type: 'daily_route',
             source: 'auto_planned',
             status: 'draft',
           });
-          await storage.addRouteStops(
+          await storage.addRouteOrders(
             route.id,
             chunk.map((p: any) => ({ location_id: p.id, order_type: 'recurring' }))
           );
@@ -2345,14 +2345,14 @@ export function registerAdminRoutes(app: Express) {
             const bulkRoute = await storage.createRoute({
               title: `Bulk Collection - ${sp.customer_name || sp.address}`,
               scheduled_date: dateStr,
-              estimated_stops: 1,
+              estimated_orders: 1,
               route_type: 'bulk_collection',
               source: 'on_demand',
               on_demand_request_id: sp.id,
               base_pay: Number(sp.service_price),
               status: 'draft',
             });
-            await storage.addRouteStops(bulkRoute.id, [{
+            await storage.addRouteOrders(bulkRoute.id, [{
               location_id: sp.location_id,
               order_type: 'on_demand',
               on_demand_request_id: sp.id,
@@ -2486,44 +2486,44 @@ export function registerAdminRoutes(app: Express) {
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
-      const stops = await storage.getRouteStops(routeId);
+      const routeOrders = await storage.getRouteOrders(routeId);
       const date = getRouteDate(route);
       const optimoData = await optimo.getRoutes(date);
       const optimoRoutes = optimoData.routes || [];
-      await applyOptimoIdentifierBackfill(route, stops, optimoRoutes);
+      await applyOptimoIdentifierBackfill(route, routeOrders, optimoRoutes);
 
-      const stopsWithIdentifiers = stops.filter((s: any) => getStoredOptimoOrderNo(s));
-      if (stopsWithIdentifiers.length === 0) {
-        return res.status(400).json({ error: 'No stops have OptimoRoute identifiers. Sync to Optimo first.' });
+      const ordersWithIdentifiers = routeOrders.filter((s: any) => getStoredOptimoOrderNo(s));
+      if (ordersWithIdentifiers.length === 0) {
+        return res.status(400).json({ error: 'No orders have OptimoRoute identifiers. Sync to Optimo first.' });
       }
 
       // Build a map of identifier -> { stopNumber, scheduledAt }
       const orderMap = new Map<string, { stopNumber: number; scheduledAt: string }>();
       for (const oRoute of optimoRoutes) {
-        for (const oStop of (oRoute.stops || [])) {
-          const identifier = getOptimoApiOrderIdentifier(oStop);
+        for (const oOrder of (oRoute.stops || [])) {
+          const identifier = getOptimoApiOrderIdentifier(oOrder);
           if (!identifier) continue;
           orderMap.set(identifier, {
-            stopNumber: oStop.stopNumber || 0,
-            scheduledAt: oStop.scheduledAt || '',
+            stopNumber: oOrder.stopNumber || 0,
+            scheduledAt: oOrder.scheduledAt || '',
           });
         }
       }
 
-      // Update portal stops with optimized sequence
+      // Update portal orders with optimized sequence
       let updated = 0;
-      for (const stop of stopsWithIdentifiers) {
-        const optimoInfo = orderMap.get(getStoredOptimoOrderNo(stop)!);
+      for (const order of ordersWithIdentifiers) {
+        const optimoInfo = orderMap.get(getStoredOptimoOrderNo(order)!);
         if (optimoInfo) {
-          await storage.updateRouteStop(stop.id, {
-            stop_number: optimoInfo.stopNumber,
+          await storage.updateRouteOrder(order.id, {
+            order_number: optimoInfo.stopNumber,
             scheduled_at: optimoInfo.scheduledAt,
           });
           updated++;
         }
       }
 
-      res.json({ stopsUpdated: updated, totalStops: stops.length });
+      res.json({ ordersUpdated: updated, totalOrders: routeOrders.length });
     } catch (error) {
       console.error('Failed to pull sequence from OptimoRoute:', error);
       res.status(500).json({ error: 'Failed to pull sequence from OptimoRoute' });
@@ -2536,37 +2536,37 @@ export function registerAdminRoutes(app: Express) {
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
 
-      const stops = await storage.getRouteStops(routeId);
-      await applyOptimoIdentifierBackfill(route, stops);
+      const routeOrders = await storage.getRouteOrders(routeId);
+      await applyOptimoIdentifierBackfill(route, routeOrders);
 
-      const identifiers = stops
-        .map((stop: any) => getStoredOptimoOrderNo(stop))
+      const identifiers = routeOrders
+        .map((order: any) => getStoredOptimoOrderNo(order))
         .filter((identifier): identifier is string => Boolean(identifier));
       if (identifiers.length === 0) {
-        return res.status(400).json({ error: 'No stops have OptimoRoute identifiers.' });
+        return res.status(400).json({ error: 'No orders have OptimoRoute identifiers.' });
       }
 
       const dataMap = await fetchCompletionPayloadsByOrderId(identifiers);
 
-      // Update portal stops with completion status and POD data
+      // Update portal orders with completion status and POD data
       let updated = 0;
-      for (const stop of stops) {
-        const identifier = getStoredOptimoOrderNo(stop);
+      for (const order of routeOrders) {
+        const identifier = getStoredOptimoOrderNo(order);
         if (!identifier) continue;
 
         const data = dataMap.get(identifier);
         const portalStatus = normalizeOptimoStatus(data?.status);
         const updateFields: any = {};
-        if (portalStatus && portalStatus !== stop.status) updateFields.status = portalStatus;
+        if (portalStatus && portalStatus !== order.status) updateFields.status = portalStatus;
         if (data?.form) updateFields.pod_data = JSON.stringify(data.form);
         if (Object.keys(updateFields).length === 0) continue;
 
-        await storage.updateRouteStop(stop.id, updateFields);
+        await storage.updateRouteOrder(order.id, updateFields);
         if (updateFields.status) updated++;
       }
 
       const onDemandIds = Array.from(new Set(
-        stops
+        routeOrders
           .map((s: any) => s.on_demand_request_id)
           .filter((id: any) => typeof id === 'string' && id.length > 0)
       ));
@@ -2576,15 +2576,15 @@ export function registerAdminRoutes(app: Express) {
              SELECT odr.id,
                     CASE
                       WHEN EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status = 'completed'
                       ) THEN 'completed'
                       WHEN odr.status != 'completed' AND EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status = 'cancelled'
                       ) THEN 'cancelled'
                       WHEN odr.status = 'pending' AND EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status IN ('scheduled', 'in_progress', 'pending')
                       ) THEN 'scheduled'
                       ELSE odr.status
@@ -2602,14 +2602,14 @@ export function registerAdminRoutes(app: Express) {
         );
       }
 
-      // If all stops are terminal (completed/failed/cancelled), mark route completed
-      const updatedStops = await storage.getRouteStops(routeId);
-      const allTerminal = updatedStops.length > 0 && updatedStops.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
+      // If all orders are terminal (completed/failed/cancelled), mark route completed
+      const updatedOrders = await storage.getRouteOrders(routeId);
+      const allTerminal = updatedOrders.length > 0 && updatedOrders.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
       if (allTerminal && route.status !== 'completed') {
         await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
       }
 
-      res.json({ stopsUpdated: updated, totalStops: stops.length });
+      res.json({ ordersUpdated: updated, totalOrders: routeOrders.length });
     } catch (error) {
       console.error('Failed to pull completion from OptimoRoute:', error);
       res.status(500).json({ error: 'Failed to pull completion from OptimoRoute' });
@@ -2632,66 +2632,66 @@ export function registerAdminRoutes(app: Express) {
         [`${date}%`]
       );
       const routes = routeResult.rows;
-      if (routes.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
+      if (routes.length === 0) return res.json({ routesUpdated: 0, ordersUpdated: 0 });
 
-      const allStopsResult = await storage.query(
+      const allOrdersResult = await storage.query(
         `SELECT rs.id, rs.route_id, rs.optimo_order_no, rs.status, rs.on_demand_request_id,
-                rs.stop_number, rs.scheduled_at, COALESCE(rs.address, p.address) AS address
-         FROM route_stops rs
+                rs.order_number, rs.scheduled_at, COALESCE(rs.address, p.address) AS address
+         FROM route_orders rs
          LEFT JOIN locations p ON rs.location_id = p.id
          WHERE rs.route_id = ANY($1)`,
         [routes.map((route: any) => route.id)]
       );
-      const allStops = allStopsResult.rows;
+      const allOrders = allOrdersResult.rows;
 
-      if (allStops.some((stop: any) => !getStoredOptimoOrderNo(stop))) {
+      if (allOrders.some((order: any) => !getStoredOptimoOrderNo(order))) {
         const optimoRoutes = (await optimo.getRoutes(date)).routes || [];
-        const stopsByRoute = new Map<string, any[]>();
-        for (const stop of allStops) {
-          const routeStops = stopsByRoute.get(stop.route_id) || [];
-          routeStops.push(stop);
-          stopsByRoute.set(stop.route_id, routeStops);
+        const ordersByRoute = new Map<string, any[]>();
+        for (const order of allOrders) {
+          const routeOrders = ordersByRoute.get(order.route_id) || [];
+          routeOrders.push(order);
+          ordersByRoute.set(order.route_id, routeOrders);
         }
 
         for (const route of routes) {
-          await applyOptimoIdentifierBackfill(route, stopsByRoute.get(route.id) || [], optimoRoutes);
+          await applyOptimoIdentifierBackfill(route, ordersByRoute.get(route.id) || [], optimoRoutes);
         }
       }
 
       const identifiers = Array.from(new Set(
-        allStops
-          .map((stop: any) => getStoredOptimoOrderNo(stop))
+        allOrders
+          .map((order: any) => getStoredOptimoOrderNo(order))
           .filter((identifier): identifier is string => Boolean(identifier))
       ));
-      if (identifiers.length === 0) return res.json({ routesUpdated: 0, stopsUpdated: 0 });
+      if (identifiers.length === 0) return res.json({ routesUpdated: 0, ordersUpdated: 0 });
 
       const statusMap = await fetchCompletionPayloadsByOrderId(identifiers);
 
-      let stopsUpdated = 0;
+      let ordersUpdated = 0;
       const routeIdsToCheck = new Set<string>();
 
-      for (const stop of allStops) {
-        const identifier = getStoredOptimoOrderNo(stop);
+      for (const order of allOrders) {
+        const identifier = getStoredOptimoOrderNo(order);
         if (!identifier) continue;
         const data = statusMap.get(identifier);
         const portalStatus = normalizeOptimoStatus(data?.status);
-        if (portalStatus && portalStatus !== stop.status) {
-          // Update stop status and store POD form data if present
+        if (portalStatus && portalStatus !== order.status) {
+          // Update order status and store POD form data if present
           const updateFields: any = { status: portalStatus };
           if (data?.form) {
             updateFields.pod_data = JSON.stringify(data.form);
           }
-          await storage.updateRouteStop(stop.id, updateFields);
-          stopsUpdated++;
-          routeIdsToCheck.add(stop.route_id);
+          await storage.updateRouteOrder(order.id, updateFields);
+          ordersUpdated++;
+          routeIdsToCheck.add(order.route_id);
         } else if (data?.form) {
           // Status unchanged but POD data available — store it
-          await storage.updateRouteStop(stop.id, { pod_data: JSON.stringify(data.form) });
+          await storage.updateRouteOrder(order.id, { pod_data: JSON.stringify(data.form) });
         }
       }
 
       const onDemandIds = Array.from(new Set(
-        allStops
+        allOrders
           .map((s: any) => s.on_demand_request_id)
           .filter((id: any) => typeof id === 'string' && id.length > 0)
       ));
@@ -2701,15 +2701,15 @@ export function registerAdminRoutes(app: Express) {
              SELECT odr.id,
                     CASE
                       WHEN EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status = 'completed'
                       ) THEN 'completed'
                       WHEN odr.status != 'completed' AND EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status = 'cancelled'
                       ) THEN 'cancelled'
                       WHEN odr.status = 'pending' AND EXISTS (
-                        SELECT 1 FROM route_stops rs
+                        SELECT 1 FROM route_orders rs
                         WHERE rs.on_demand_request_id = odr.id AND rs.status IN ('scheduled', 'in_progress', 'pending')
                       ) THEN 'scheduled'
                       ELSE odr.status
@@ -2727,28 +2727,28 @@ export function registerAdminRoutes(app: Express) {
         );
       }
 
-      // Auto-complete routes where all stops are terminal (completed or failed)
+      // Auto-complete routes where all orders are terminal (completed or failed)
       let routesUpdated = 0;
       for (const routeId of routeIdsToCheck) {
-        const stopsResult = await storage.query(
-          `SELECT status FROM route_stops WHERE route_id = $1`,
+        const ordersResult = await storage.query(
+          `SELECT status FROM route_orders WHERE route_id = $1`,
           [routeId]
         );
-        const allTerminal = stopsResult.rows.length > 0 && stopsResult.rows.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
+        const allTerminal = ordersResult.rows.length > 0 && ordersResult.rows.every((s: any) => ['completed', 'failed', 'cancelled'].includes(s.status));
         if (allTerminal) {
           await storage.updateRoute(routeId, { status: 'completed', completed_at: new Date().toISOString() });
           routesUpdated++;
         }
       }
 
-      // Also mark stale past-date routes as completed if they have no pending stops
+      // Also mark stale past-date routes as completed if they have no pending orders
       const staleResult = await storage.query(
         `SELECT r.id FROM routes r
          WHERE r.scheduled_date::text LIKE $1
            AND r.status IN ('assigned', 'in_progress')
            AND r.scheduled_date < CURRENT_DATE
            AND NOT EXISTS (
-             SELECT 1 FROM route_stops rs
+             SELECT 1 FROM route_orders rs
              WHERE rs.route_id = r.id
                AND rs.status NOT IN ('completed', 'failed', 'cancelled')
            )`,
@@ -2762,35 +2762,35 @@ export function registerAdminRoutes(app: Express) {
       // Reconcile orders that may have been deleted/rescheduled in OptimoRoute
       let reconciliation = { deleted: 0, rescheduled: 0, unchanged: 0 };
       try {
-        reconciliation = await reconcileDeletedOrders(date, allStops, storage);
+        reconciliation = await reconcileDeletedOrders(date, allOrders, storage);
       } catch (err) {
         console.error('[pull-completion] Reconciliation failed:', err);
       }
 
-      res.json({ routesUpdated, stopsUpdated, reconciliation });
+      res.json({ routesUpdated, ordersUpdated, reconciliation });
     } catch (error) {
       console.error('Failed to pull completion for date:', error);
       res.status(500).json({ error: 'Failed to pull completion data' });
     }
   });
 
-  // Persist live stop statuses received from OptimoStatusBanner polling.
-  // Accepts a map of { orderNo: optimoStatus } and persists them to route_stops.
+  // Persist live order statuses received from OptimoStatusBanner polling.
+  // Accepts a map of { orderNo: optimoStatus } and persists them to route_orders.
   app.post('/api/admin/routes/sync-live-statuses', requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { stopStatuses } = req.body as { stopStatuses: Record<string, string> };
-      if (!stopStatuses || typeof stopStatuses !== 'object') {
-        return res.status(400).json({ error: 'stopStatuses object is required' });
+      const { liveOrderStatuses } = req.body as { liveOrderStatuses: Record<string, string> };
+      if (!liveOrderStatuses || typeof liveOrderStatuses !== 'object') {
+        return res.status(400).json({ error: 'liveOrderStatuses object is required' });
       }
 
-      const orderNos = Object.keys(stopStatuses);
+      const orderNos = Object.keys(liveOrderStatuses);
       if (orderNos.length === 0) return res.json({ updated: 0 });
 
       let updated = 0;
-      for (const [orderNo, rawStatus] of Object.entries(stopStatuses)) {
+      for (const [orderNo, rawStatus] of Object.entries(liveOrderStatuses)) {
         const portalStatus = normalizeOptimoStatus(rawStatus) ?? rawStatus;
         const result = await storage.query(
-          `UPDATE route_stops SET status = $1 WHERE optimo_order_no = $2 AND status != $1`,
+          `UPDATE route_orders SET status = $1 WHERE optimo_order_no = $2 AND status != $1`,
           [portalStatus, orderNo]
         );
         if (result.rowCount && result.rowCount > 0) updated++;
@@ -3821,11 +3821,11 @@ export function registerAdminRoutes(app: Express) {
             );
           }
 
-          // Cancel future route stops for denied/paused/cancelled locations
+          // Cancel future route orders for denied/paused/cancelled locations
           if (['denied', 'paused', 'cancelled'].includes(decision)) {
-            storage.cancelFutureStopsForLocation(locationId, new Date().toISOString().split('T')[0])
-              .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for ${decision} location ${locationId}`); })
-              .catch(err => console.error(`[Cascade] Failed to cancel stops for location ${locationId}:`, err));
+            storage.cancelFutureOrdersForLocation(locationId, new Date().toISOString().split('T')[0])
+              .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future orders for ${decision} location ${locationId}`); })
+              .catch(err => console.error(`[Cascade] Failed to cancel orders for location ${locationId}:`, err));
           }
 
           // Only claim/delete pending selections on approval (they become Stripe subscriptions)
@@ -3986,11 +3986,11 @@ export function registerAdminRoutes(app: Express) {
           );
         }
 
-        // Cancel future route stops for denied/paused/cancelled locations
+        // Cancel future route orders for denied/paused/cancelled locations
         if (['denied', 'paused', 'cancelled'].includes(decision)) {
-          storage.cancelFutureStopsForLocation(locationId, new Date().toISOString().split('T')[0])
-            .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for ${decision} location ${locationId}`); })
-            .catch(err => console.error(`[Cascade] Failed to cancel stops for location ${locationId}:`, err));
+          storage.cancelFutureOrdersForLocation(locationId, new Date().toISOString().split('T')[0])
+            .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future orders for ${decision} location ${locationId}`); })
+            .catch(err => console.error(`[Cascade] Failed to cancel orders for location ${locationId}:`, err));
         }
 
         // Auto-assign collection day from route insertion optimization
@@ -4460,7 +4460,7 @@ export function registerAdminRoutes(app: Express) {
           custom_rate: loc.custom_rate != null ? parseFloat(loc.custom_rate) : null,
           zone_id: loc.zone_id,
         };
-        const breakdown = calculateStopCompensation(locCtx, null, rules);
+        const breakdown = calculateOrderCompensation(locCtx, null, rules);
         return {
           id: loc.id,
           address: loc.address,
@@ -4551,7 +4551,7 @@ export function registerAdminRoutes(app: Express) {
                 dp.name AS driver_name,
                 sz.name AS zone_name,
                 (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
-                (SELECT COUNT(*) FROM route_stops rs JOIN routes r ON rs.route_id = r.id WHERE r.contract_id = rc.id) AS stop_count,
+                (SELECT COUNT(*) FROM route_orders rs JOIN routes r ON rs.route_id = r.id WHERE r.contract_id = rc.id) AS order_count,
                 (SELECT COALESCE(AVG(r2.computed_value), 0) FROM routes r2 WHERE r2.contract_id = rc.id AND r2.computed_value IS NOT NULL) AS avg_weekly_value
          FROM route_contracts rc
          JOIN driver_profiles dp ON rc.driver_id = dp.id
@@ -4578,7 +4578,7 @@ export function registerAdminRoutes(app: Express) {
           createdAt: c.created_at,
           updatedAt: c.updated_at,
           routeCount: parseInt(c.route_count) || 0,
-          stopCount: parseInt(c.stop_count) || 0,
+          orderCount: parseInt(c.order_count) || 0,
           computedWeeklyValue: c.avg_weekly_value != null ? Number(parseFloat(c.avg_weekly_value).toFixed(2)) : 0,
         })),
       });
@@ -4905,13 +4905,13 @@ export function registerAdminRoutes(app: Express) {
         `SELECT
            COUNT(r.id)::int AS total_routes,
            COUNT(r.id) FILTER (WHERE r.status = 'completed')::int AS completed_routes,
-           COALESCE(SUM(COALESCE(sc.stop_count, 0)), 0)::int AS total_stops,
-           COALESCE(SUM(COALESCE(dc.done_count, 0)), 0)::int AS completed_stops,
+           COALESCE(SUM(COALESCE(sc.order_count, 0)), 0)::int AS total_orders,
+           COALESCE(SUM(COALESCE(dc.done_count, 0)), 0)::int AS completed_orders,
            COALESCE(SUM(r.computed_value) FILTER (WHERE r.status = 'completed'), 0)::numeric AS total_compensation,
            COALESCE(AVG(r.computed_value), 0)::numeric AS avg_route_value
          FROM routes r
-         LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops WHERE status != 'cancelled' GROUP BY route_id) sc ON sc.route_id = r.id
-         LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_stops WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
+         LEFT JOIN (SELECT route_id, COUNT(*) AS order_count FROM route_orders WHERE status != 'cancelled' GROUP BY route_id) sc ON sc.route_id = r.id
+         LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_orders WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
          WHERE r.contract_id = $1`,
         [contractId]
       );
@@ -4930,9 +4930,9 @@ export function registerAdminRoutes(app: Express) {
           totalRoutes,
           completedRoutes,
           completionRate: totalRoutes > 0 ? Number((completedRoutes / totalRoutes).toFixed(4)) : 0,
-          totalStops: m.total_stops,
-          completedStops: m.completed_stops,
-          stopCompletionRate: m.total_stops > 0 ? Number((m.completed_stops / m.total_stops).toFixed(4)) : 0,
+          totalOrders: m.total_orders,
+          completedOrders: m.completed_orders,
+          orderCompletionRate: m.total_orders > 0 ? Number((m.completed_orders / m.total_orders).toFixed(4)) : 0,
           totalCompensation: Number(parseFloat(m.total_compensation).toFixed(2)),
           avgRouteValue: Number(parseFloat(m.avg_route_value).toFixed(2)),
           coverageRequestCount: coverageCount.rows[0].count,
@@ -5379,7 +5379,7 @@ export function registerAdminRoutes(app: Express) {
         [req.params.id, route.id]
       );
 
-      // Auto-populate stops from locations in this zone with matching collection day
+      // Auto-populate orders from locations in this zone with matching collection day
       const locationsResult = await pool.query(
         `SELECT l.id, l.address
          FROM locations l
@@ -5390,23 +5390,23 @@ export function registerAdminRoutes(app: Express) {
         [contract.zone_id, contract.day_of_week]
       );
 
-      let stopNumber = 1;
+      let orderNumber = 1;
       for (const loc of locationsResult.rows) {
         await pool.query(
-          `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status)
+          `INSERT INTO route_orders (route_id, location_id, order_type, order_number, status)
            VALUES ($1, $2, 'recurring', $3, 'pending')`,
-          [route.id, loc.id, stopNumber++]
+          [route.id, loc.id, orderNumber++]
         );
       }
 
-      // Recalculate route value if stops were added
+      // Recalculate route value if orders were added
       let valuation = null;
       if (locationsResult.rows.length > 0) {
         const { recalculateRouteValue } = await import('./compensationEngine');
         valuation = await recalculateRouteValue(route.id);
       }
 
-      await audit(req, 'create_contract_route', 'route', route.id, { contractId: req.params.id, scheduledDate, stopsAdded: locationsResult.rows.length });
+      await audit(req, 'create_contract_route', 'route', route.id, { contractId: req.params.id, scheduledDate, ordersAdded: locationsResult.rows.length });
 
       res.status(201).json({
         route: {
@@ -5415,7 +5415,7 @@ export function registerAdminRoutes(app: Express) {
           scheduledDate,
           status: 'assigned',
           driverName: contract.driver_name,
-          stopCount: locationsResult.rows.length,
+          orderCount: locationsResult.rows.length,
           computedValue: valuation?.computedValue ?? 0,
         },
       });
@@ -5478,7 +5478,7 @@ export function registerAdminRoutes(app: Express) {
       );
       const locationIds = locationsResult.rows.map((l: any) => l.id);
 
-      const created: Array<{ id: string; date: string; stopCount: number }> = [];
+      const created: Array<{ id: string; date: string; orderCount: number }> = [];
       const { recalculateRouteValue } = await import('./compensationEngine');
 
       for (const date of newDates) {
@@ -5494,11 +5494,11 @@ export function registerAdminRoutes(app: Express) {
         });
         await pool.query(`UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`, [req.params.id, route.id]);
 
-        let stopNumber = 1;
+        let orderNumber = 1;
         for (const locId of locationIds) {
           await pool.query(
-            `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
-            [route.id, locId, stopNumber++]
+            `INSERT INTO route_orders (route_id, location_id, order_type, order_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
+            [route.id, locId, orderNumber++]
           );
         }
 
@@ -5506,7 +5506,7 @@ export function registerAdminRoutes(app: Express) {
           await recalculateRouteValue(route.id);
         }
 
-        created.push({ id: route.id, date, stopCount: locationIds.length });
+        created.push({ id: route.id, date, orderCount: locationIds.length });
       }
 
       await audit(req, 'bulk_create_contract_routes', 'route_contract', req.params.id, { startDate, endDate, routesCreated: created.length, skipped: existingDates.size });

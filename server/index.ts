@@ -434,11 +434,11 @@ setInterval(processScheduledMessages, 60_000);
             `UPDATE routes SET contract_id = $1, pay_mode = 'dynamic' WHERE id = $2`,
             [contract.id, route.id]
           );
-          let stopNum = 1;
+          let orderNum = 1;
           for (const locId of locationIds) {
             await dbPool.query(
-              `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
-              [route.id, locId, stopNum++]
+              `INSERT INTO route_orders (route_id, location_id, order_type, order_number, status) VALUES ($1, $2, 'recurring', $3, 'pending')`,
+              [route.id, locId, orderNum++]
             );
           }
           if (locationIds.length > 0) await recalculateRouteValue(route.id);

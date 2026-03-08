@@ -45,7 +45,7 @@ const LiveTracker: React.FC<{ eta: string }> = ({ eta }) => {
                     </div>
                     <div className="flex flex-col items-center">
                         <div className="w-3 h-3 rounded-full bg-gray-200" />
-                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Your Stop</span>
+                        <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Your Order</span>
                     </div>
                 </div>
             </div>
@@ -140,7 +140,7 @@ const ServiceStatusOverview: React.FC = () => {
                         <h3 className="font-black text-gray-900 uppercase text-xs tracking-widest mb-4">Set Collection Status</h3>
                         {intent ? (
                              <div className="p-6 bg-primary/5 text-center rounded-2xl border border-primary/10">
-                                <p className="text-sm font-bold text-gray-900 mb-4">{intent === 'out' ? "Great! We'll see you then." : "Got it. We'll skip your stop this week."}</p>
+                                <p className="text-sm font-bold text-gray-900 mb-4">{intent === 'out' ? "Great! We'll see you then." : "Got it. We'll skip your order this week."}</p>
                                 <Button variant="secondary" onClick={() => setIntent(null)} className="text-xs font-black uppercase tracking-widest">Change Status</Button>
                             </div>
                         ) : (

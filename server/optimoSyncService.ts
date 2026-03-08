@@ -27,11 +27,11 @@ interface DriverInfo {
   vehicleRegistration?: string | null;
   vehicleLabel?: string | null;
   totalRoutes: number;
-  totalStops: number;
+  totalOrders: number;
   totalDistanceKm: number;
   totalDurationMin: number;
   lastRouteDate: string;
-  recentStopAddresses: string[];
+  recentOrderAddresses: string[];
 }
 
 export interface SyncRunResult {
@@ -604,12 +604,12 @@ export async function previewDriverSync() {
       const serial = route.driverSerial || route.driverName || '';
       if (!serial) continue;
       const existing = driverMap.get(serial);
-      const stopCount = (route.stops || []).length;
+      const orderCount = (route.stops || []).length;
       const distKm = route.distance || 0;
       const durMin = route.duration || 0;
       if (existing) {
         existing.totalRoutes++;
-        existing.totalStops += stopCount;
+        existing.totalOrders += orderCount;
         existing.totalDistanceKm += distKm;
         existing.totalDurationMin += durMin;
         if (dateStr > existing.lastRouteDate) existing.lastRouteDate = dateStr;
@@ -627,11 +627,11 @@ export async function previewDriverSync() {
           vehicleRegistration: route.vehicleRegistration,
           vehicleLabel: route.vehicleLabel,
           totalRoutes: 1,
-          totalStops: stopCount,
+          totalOrders: orderCount,
           totalDistanceKm: distKm,
           totalDurationMin: durMin,
           lastRouteDate: dateStr,
-          recentStopAddresses: sampleAddresses,
+          recentOrderAddresses: sampleAddresses,
         });
       }
     }
@@ -693,7 +693,7 @@ export interface OptimizeRouteResult {
 }
 
 /**
- * Create OptimoRoute orders for a route's stops and trigger route optimization.
+ * Create OptimoRoute orders for a route's orders and trigger route optimization.
  * Returns the planningId for status polling.
  */
 export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResult> {
@@ -707,20 +707,20 @@ export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResul
   if (!driver) throw new Error('Assigned driver not found');
   if (!driver.optimoroute_driver_id) throw new Error('Driver has no OptimoRoute ID — sync the driver first');
 
-  // 3. Load stops
-  const stops = await storage.getRouteStops(routeId);
-  if (stops.length === 0) throw new Error('Route has no stops');
+  // 3. Load orders
+  const orders = await storage.getRouteOrders(routeId);
+  if (orders.length === 0) throw new Error('Route has no orders');
 
   const scheduledDate = String(route.scheduled_date).split('T')[0];
 
-  // 4. Create OptimoRoute orders for each stop
+  // 4. Create OptimoRoute orders for each route order
   const orderNos: string[] = [];
   const routePrefix = routeId.substring(0, 8);
 
-  for (let i = 0; i < stops.length; i++) {
-    const stop = stops[i];
-    if (!stop.address) {
-      console.warn(`[optimizeRoute] Stop ${stop.id} has no address, skipping`);
+  for (let i = 0; i < orders.length; i++) {
+    const order = orders[i];
+    if (!order.address) {
+      console.warn(`[optimizeRoute] Order ${order.id} has no address, skipping`);
       continue;
     }
     const orderNo = `RTE-${routePrefix}-${String(i + 1).padStart(3, '0')}`;
@@ -730,14 +730,14 @@ export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResul
         orderNo,
         date: scheduledDate,
         type: 'P',
-        address: stop.address,
+        address: order.address,
         duration: 15,
       });
 
-      await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo, status: 'optimized' });
+      await storage.updateRouteOrder(order.id, { optimo_order_no: orderNo, status: 'optimized' });
       orderNos.push(orderNo);
     } catch (err) {
-      console.error(`Failed to create OptimoRoute order for stop ${stop.id}:`, err);
+      console.error(`Failed to create OptimoRoute order for order ${order.id}:`, err);
     }
   }
 
@@ -763,7 +763,7 @@ export async function optimizeRoute(routeId: string): Promise<OptimizeRouteResul
 }
 
 /**
- * Check the optimization status for a route and update stop sequence when done.
+ * Check the optimization status for a route and update order sequence when done.
  */
 export async function checkRouteOptimizationStatus(routeId: string): Promise<{ status: string; progress?: number }> {
   const route = await storage.getRouteById(routeId);
@@ -771,24 +771,24 @@ export async function checkRouteOptimizationStatus(routeId: string): Promise<{ s
 
   const result = await optimo.getPlanningStatus(Number(route.optimo_planning_id));
 
-  // If finished, update stop sequence numbers from the optimized route
+  // If finished, update order sequence numbers from the optimized route
   if (result.status === 'F') {
     try {
       const routeData = await optimo.getRoutes(route.scheduled_date);
-      const stops = await storage.getRouteStops(routeId);
-      const stopsByOrder = new Map(stops.map(s => [s.optimo_order_no, s]));
+      const orders = await storage.getRouteOrders(routeId);
+      const ordersByOptimoNo = new Map(orders.map(s => [s.optimo_order_no, s]));
 
       for (const optimoRoute of routeData.routes) {
         if (!optimoRoute.stops) continue;
         for (const optimoStop of optimoRoute.stops) {
-          const stop = stopsByOrder.get(optimoStop.orderNo);
-          if (stop) {
-            await storage.updateRouteStop(stop.id, { stop_number: optimoStop.stopNumber });
+          const order = ordersByOptimoNo.get(optimoStop.orderNo);
+          if (order) {
+            await storage.updateRouteOrder(order.id, { order_number: optimoStop.stopNumber });
           }
         }
       }
     } catch (err) {
-      console.error('Failed to update stop sequences after optimization:', err);
+      console.error('Failed to update order sequences after optimization:', err);
     }
   }
 

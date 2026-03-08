@@ -10,7 +10,7 @@ interface DriverEvent {
 }
 
 interface LiveEventsPanelProps {
-  onStatusUpdate?: (driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => void;
+  onStatusUpdate?: (driverStatuses: Record<string, string>, orderStatuses: Record<string, string>) => void;
 }
 
 const LiveEventsPanel: React.FC<LiveEventsPanelProps> = ({ onStatusUpdate }) => {
@@ -19,7 +19,7 @@ const LiveEventsPanel: React.FC<LiveEventsPanelProps> = ({ onStatusUpdate }) => 
   const afterTagRef = useRef<string>('');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const driverStatusesRef = useRef<Record<string, string>>({});
-  const stopStatusesRef = useRef<Record<string, string>>({});
+  const orderStatusesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const pollEvents = async () => {
@@ -33,7 +33,7 @@ const LiveEventsPanel: React.FC<LiveEventsPanelProps> = ({ onStatusUpdate }) => 
             setEvents(prev => [...prev, ...data.events].slice(-200));
 
             let driverChanged = false;
-            let stopChanged = false;
+            let orderChanged = false;
 
             for (const evt of data.events) {
               const driverKey = evt.driverName || evt.driverSerial;
@@ -51,15 +51,15 @@ const LiveEventsPanel: React.FC<LiveEventsPanelProps> = ({ onStatusUpdate }) => 
                   driverChanged = true;
                 }
               }
-              const stopKey = evt.orderId || evt.orderNo;
-              if (stopKey && stopStatusesRef.current[stopKey] !== evt.event) {
-                stopStatusesRef.current = { ...stopStatusesRef.current, [stopKey]: evt.event };
-                stopChanged = true;
+              const orderKey = evt.orderId || evt.orderNo;
+              if (orderKey && orderStatusesRef.current[orderKey] !== evt.event) {
+                orderStatusesRef.current = { ...orderStatusesRef.current, [orderKey]: evt.event };
+                orderChanged = true;
               }
             }
 
-            if ((driverChanged || stopChanged) && onStatusUpdate) {
-              onStatusUpdate(driverStatusesRef.current, stopStatusesRef.current);
+            if ((driverChanged || orderChanged) && onStatusUpdate) {
+              onStatusUpdate(driverStatusesRef.current, orderStatusesRef.current);
             }
           }
         }

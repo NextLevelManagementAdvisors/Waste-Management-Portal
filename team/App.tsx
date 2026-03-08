@@ -44,17 +44,17 @@ interface OnboardingStatus {
   direct_deposit_completed: boolean;
 }
 
-interface RouteStop {
+interface RouteOrder {
   address?: string;
   customer_name?: string;
   pickup_type?: string;
-  sequence_number?: number;
+  order_number?: number;
   status?: string;
 }
 
 interface Route extends SharedRoute {
   bids?: Bid[];
-  stops?: RouteStop[];
+  orders?: RouteOrder[];
 }
 
 interface Bid {
@@ -174,7 +174,7 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   bidding: 'Bidding \u2014 Drivers have submitted bids. Awaiting selection.',
   assigned: 'Assigned \u2014 You have been assigned to this route.',
   in_progress: 'In Progress \u2014 You are actively running this route.',
-  completed: 'Completed \u2014 All stops have been finished.',
+  completed: 'Completed \u2014 All orders have been finished.',
   cancelled: 'Cancelled \u2014 This route has been cancelled.',
 };
 
@@ -1210,7 +1210,7 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void; showToast?: (m
                 })()}
                 {(route.startTime || route.endTime) && <p className="flex items-center gap-1"><ClockIcon className="w-4 h-4" />{route.startTime}–{route.endTime}</p>}
                 <div className="flex gap-4 mt-2">
-                  {route.estimatedStops != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimatedStops} stops</span>}
+                  {route.estimatedOrders != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimatedOrders} orders</span>}
                   {route.estimatedHours != null && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{route.estimatedHours}h est.</span>}
                   {route.basePay != null && <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">${Number(route.basePay).toFixed(2)}</span>}
                 </div>
@@ -1246,7 +1246,7 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void; showToast?: (m
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   {selectedRoute.scheduledDate && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Date</span><span className="font-bold">{formatDate(selectedRoute.scheduledDate)}</span></div>}
                   {(selectedRoute.startTime || selectedRoute.endTime) && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Time</span><span className="font-bold">{selectedRoute.startTime}–{selectedRoute.endTime}</span></div>}
-                  {selectedRoute.estimatedStops != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Stops</span><span className="font-bold">{selectedRoute.estimatedStops}</span></div>}
+                  {selectedRoute.estimatedOrders != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Orders</span><span className="font-bold">{selectedRoute.estimatedOrders}</span></div>}
                   {selectedRoute.estimatedHours != null && <div className="bg-gray-50 p-3 rounded-lg"><span className="text-gray-400 text-xs block">Est. Hours</span><span className="font-bold">{selectedRoute.estimatedHours}</span></div>}
                   {selectedRoute.basePay != null && <div className="bg-teal-50 p-3 rounded-lg col-span-2"><span className="text-teal-600 text-xs block">Base Pay</span><span className="font-black text-teal-700 text-lg">${Number(selectedRoute.basePay).toFixed(2)}</span></div>}
                   {selectedRoute.scheduledDate && (() => {
@@ -1267,27 +1267,27 @@ const RouteBoard: React.FC<{ onNavigate?: (view: string) => void; showToast?: (m
                   })()}
                 </div>
 
-                {selectedRoute.stops && selectedRoute.stops.length > 0 && (
+                {selectedRoute.orders && selectedRoute.orders.length > 0 && (
                   <div>
-                    <h4 className="font-bold text-gray-900 text-sm mb-2">Stops ({selectedRoute.stops.length})</h4>
+                    <h4 className="font-bold text-gray-900 text-sm mb-2">Orders ({selectedRoute.orders.length})</h4>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                      {selectedRoute.stops
-                        .sort((a, b) => (a.sequence_number || 0) - (b.sequence_number || 0))
-                        .map((stop, idx) => (
+                      {selectedRoute.orders
+                        .sort((a, b) => (a.order_number || 0) - (b.order_number || 0))
+                        .map((order, idx) => (
                         <div key={idx} className="flex items-start gap-3 p-2.5 bg-gray-50 rounded-lg text-sm">
                           <span className="flex-shrink-0 w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-600">
-                            {stop.sequence_number || idx + 1}
+                            {order.order_number || idx + 1}
                           </span>
                           <div className="min-w-0">
-                            {stop.address ? (
+                            {order.address ? (
                               <>
-                                <p className="font-medium text-gray-900 truncate">{stop.address}</p>
-                                {stop.customer_name && <p className="text-xs text-gray-500">{stop.customer_name}</p>}
+                                <p className="font-medium text-gray-900 truncate">{order.address}</p>
+                                {order.customer_name && <p className="text-xs text-gray-500">{order.customer_name}</p>}
                               </>
                             ) : (
                               <p className="text-gray-400 italic">Address hidden</p>
                             )}
-                            {stop.pickup_type && <span className="text-[10px] text-gray-400 capitalize">{stop.pickup_type}</span>}
+                            {order.pickup_type && <span className="text-[10px] text-gray-400 capitalize">{order.pickup_type}</span>}
                           </div>
                         </div>
                       ))}
@@ -1879,7 +1879,7 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void; showToast?: (msg
               )}
               <RouteTable
                 routes={selectedDayRoutes}
-                columns={{ pay: true, stops: true }}
+                columns={{ pay: true, orders: true }}
                 emptyMessage="No routes scheduled for this day."
                 renderActions={(route) => (
                   <>
@@ -2007,7 +2007,7 @@ const Schedule: React.FC<{ onNavigate?: (view: string) => void; showToast?: (msg
           </div>
           <RouteTable
             routes={allRoutesSorted}
-            columns={{ pay: true, stops: true }}
+            columns={{ pay: true, orders: true }}
             selectable
             selectedIds={selectedRouteIds}
             onSelectionChange={setSelectedRouteIds}
@@ -2340,10 +2340,10 @@ interface DriverContract {
   startDate: string;
   endDate: string;
   status: string;
-  perStopRate: number | null;
+  perOrderRate: number | null;
   termsNotes: string | null;
   routeCount: number;
-  stopCount: number;
+  orderCount: number;
   totalEarnings: number;
 }
 
@@ -2353,7 +2353,7 @@ interface DriverOpportunity {
   dayOfWeek: string;
   startDate: string;
   durationMonths: number;
-  proposedPerStopRate: number | null;
+  proposedPerOrderRate: number | null;
   requirements: Record<string, any>;
   applicationCount: number;
   myApplicationId: string | null;
@@ -2449,7 +2449,7 @@ const MyLocations: React.FC = () => {
       <p className="text-sm text-gray-500">{locations.length} location{locations.length !== 1 ? 's' : ''} across {sortedDays.length} collection day{sortedDays.length !== 1 ? 's' : ''}</p>
       {sortedDays.map(day => (
         <div key={day}>
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">{day} — {byDay[day].length} stop{byDay[day].length !== 1 ? 's' : ''}</h3>
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">{day} — {byDay[day].length} order{byDay[day].length !== 1 ? 's' : ''}</h3>
           <div className="space-y-3">
             {byDay[day].map(loc => (
               <Card key={loc.id} className="overflow-hidden">
@@ -2846,7 +2846,7 @@ const ZoneExpansionProposalsPanel: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div><label className="block text-xs font-medium text-gray-700 mb-1">Proposed Rate ($/stop)</label><input type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="12.00" /></div>
+            <div><label className="block text-xs font-medium text-gray-700 mb-1">Proposed Rate ($/order)</label><input type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="12.00" /></div>
           </div>
           <div><label className="block text-xs font-medium text-gray-700 mb-1">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Any additional context..." /></div>
           <div className="flex gap-2">
@@ -2865,7 +2865,7 @@ const ZoneExpansionProposalsPanel: React.FC = () => {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="font-medium text-sm text-gray-900">{p.proposedZoneName}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{p.zoneType} zone{p.daysOfWeek?.length ? ` · ${p.daysOfWeek.join(', ')}` : ''}{p.proposedRate ? ` · $${p.proposedRate}/stop` : ''}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{p.zoneType} zone{p.daysOfWeek?.length ? ` · ${p.daysOfWeek.join(', ')}` : ''}{p.proposedRate ? ` · $${p.proposedRate}/order` : ''}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {statusBadge(p.status)}
@@ -2900,7 +2900,7 @@ const MyContracts: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [coverageForm, setCoverageForm] = useState<{ contractId: string; date: string; reason: string; notes: string } | null>(null);
   const [expandedRoutes, setExpandedRoutes] = useState<string | null>(null);
-  const [contractRoutes, setContractRoutes] = useState<Record<string, Array<{ id: string; scheduledDate: string; status: string; stopCount: number; computedValue: number | null; payMode: string }>>>({});
+  const [contractRoutes, setContractRoutes] = useState<Record<string, Array<{ id: string; scheduledDate: string; status: string; orderCount: number; computedValue: number | null; payMode: string }>>>({});
   const [expandedValuation, setExpandedValuation] = useState<string | null>(null);
   const [valuationData, setValuationData] = useState<Record<string, any>>({});
   const [expandedForecast, setExpandedForecast] = useState<string | null>(null);
@@ -3099,7 +3099,7 @@ const MyContracts: React.FC = () => {
                     <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
                       <span>Starts {formatDate(opp.startDate)}</span>
                       <span>{opp.durationMonths} month{opp.durationMonths !== 1 ? 's' : ''}</span>
-                      {opp.proposedPerStopRate != null && <span>${opp.proposedPerStopRate.toFixed(2)}/stop proposed</span>}
+                      {opp.proposedPerOrderRate != null && <span>${opp.proposedPerOrderRate.toFixed(2)}/order proposed</span>}
                       {opp.requirements?.minRating && <span>Min rating: {opp.requirements.minRating}</span>}
                       {opp.requirements?.equipmentTypes?.length > 0 && (
                         <span>Equipment: {opp.requirements.equipmentTypes.map((e: string) => e.replace(/_/g, ' ')).join(', ')}</span>
@@ -3131,12 +3131,12 @@ const MyContracts: React.FC = () => {
                   <div className="mt-3 bg-gray-50 rounded-lg p-3 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Your proposed rate ($/stop)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Your proposed rate ($/order)</label>
                         <input type="number" step="0.01" min="0"
                           value={applyForm.proposedRate}
                           onChange={e => setApplyForm({ ...applyForm, proposedRate: e.target.value })}
                           className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
-                          placeholder={opp.proposedPerStopRate ? `Suggested: $${opp.proposedPerStopRate.toFixed(2)}` : 'Optional'} />
+                          placeholder={opp.proposedPerOrderRate ? `Suggested: $${opp.proposedPerOrderRate.toFixed(2)}` : 'Optional'} />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Message (optional)</label>
@@ -3204,7 +3204,7 @@ const MyContracts: React.FC = () => {
                           </div>
                           <div className="mt-2 text-xs text-gray-500 flex gap-4 flex-wrap">
                             <span>{formatDate(c.startDate)} - {formatDate(c.endDate)}</span>
-                            {c.perStopRate != null && <span className="font-medium text-gray-700">${c.perStopRate.toFixed(2)}/stop</span>}
+                            {c.perOrderRate != null && <span className="font-medium text-gray-700">${c.perOrderRate.toFixed(2)}/order</span>}
                           </div>
                         </div>
                       </div>
@@ -3215,8 +3215,8 @@ const MyContracts: React.FC = () => {
                           <p className="text-lg font-bold text-gray-900">{c.routeCount}</p>
                         </div>
                         <div className="bg-gray-50 rounded-lg p-3 text-center">
-                          <p className="text-xs text-gray-500">Stops</p>
-                          <p className="text-lg font-bold text-gray-900">{c.stopCount}</p>
+                          <p className="text-xs text-gray-500">Orders</p>
+                          <p className="text-lg font-bold text-gray-900">{c.orderCount}</p>
                         </div>
                         <div className="bg-teal-50 rounded-lg p-3 text-center">
                           <p className="text-xs text-teal-600">Earnings</p>
@@ -3254,7 +3254,7 @@ const MyContracts: React.FC = () => {
                                 <tr>
                                   <th className="text-left px-3 py-2 text-gray-500 font-medium">Date</th>
                                   <th className="text-center px-3 py-2 text-gray-500 font-medium">Status</th>
-                                  <th className="text-center px-3 py-2 text-gray-500 font-medium">Stops</th>
+                                  <th className="text-center px-3 py-2 text-gray-500 font-medium">Orders</th>
                                   <th className="text-right px-3 py-2 text-gray-500 font-medium">Earnings</th>
                                 </tr>
                               </thead>
@@ -3274,7 +3274,7 @@ const MyContracts: React.FC = () => {
                                           'bg-gray-100 text-gray-600'
                                         }`}>{r.status}</span>
                                       </td>
-                                      <td className="px-3 py-2 text-center text-gray-700">{r.stopCount}</td>
+                                      <td className="px-3 py-2 text-center text-gray-700">{r.orderCount}</td>
                                       <td className="px-3 py-2 text-right text-gray-700">
                                         {r.computedValue != null ? `$${Number(r.computedValue).toFixed(2)}` : '-'}
                                       </td>
@@ -3287,9 +3287,9 @@ const MyContracts: React.FC = () => {
                                               <span>Pay Mode: <strong className="text-gray-700">{valuationData[r.id].payMode || 'dynamic'}</strong></span>
                                               {valuationData[r.id].payPremium > 0 && <span>Premium: <strong className="text-teal-600">+${valuationData[r.id].payPremium.toFixed(2)}</strong></span>}
                                             </div>
-                                            {valuationData[r.id].stopBreakdowns?.map((sb: any, i: number) => (
+                                            {valuationData[r.id].orderBreakdowns?.map((sb: any, i: number) => (
                                               <div key={i} className="flex items-center justify-between text-[10px] bg-white rounded px-2 py-1">
-                                                <span className="text-gray-600 truncate flex-1" title={sb.address}>{sb.address || `Stop ${i + 1}`}</span>
+                                                <span className="text-gray-600 truncate flex-1" title={sb.address}>{sb.address || `Order ${i + 1}`}</span>
                                                 <span className="ml-2 text-gray-400">
                                                   {sb.breakdown?.source === 'custom_rate' ? 'Custom Rate' :
                                                    sb.breakdown?.source === 'contract_rate' ? 'Contract Rate' : 'Rules Engine'}
@@ -3407,9 +3407,9 @@ const MyContracts: React.FC = () => {
                     </div>
                     <div className="mt-1 text-xs text-gray-500 flex gap-4 flex-wrap">
                       <span>{formatDate(c.startDate)} - {formatDate(c.endDate)}</span>
-                      {c.perStopRate != null && <span>${c.perStopRate.toFixed(2)}/stop</span>}
+                      {c.perOrderRate != null && <span>${c.perOrderRate.toFixed(2)}/order</span>}
                       <span>{c.routeCount} routes</span>
-                      <span>{c.stopCount} stops</span>
+                      <span>{c.orderCount} orders</span>
                       <span className="font-medium text-gray-700">${c.totalEarnings.toFixed(2)} earned</span>
                     </div>
                   </div>
@@ -3462,10 +3462,10 @@ const MyContracts: React.FC = () => {
 };
 
 const QualificationsCard: React.FC = () => {
-  const [quals, setQuals] = useState<{ equipmentTypes: string[]; certifications: string[]; maxStopsPerDay: number; verified: boolean; updatedAt: string | null } | null>(null);
+  const [quals, setQuals] = useState<{ equipmentTypes: string[]; certifications: string[]; maxOrdersPerDay: number; verified: boolean; updatedAt: string | null } | null>(null);
   const [equipInput, setEquipInput] = useState('');
   const [certInput, setCertInput] = useState('');
-  const [maxStops, setMaxStops] = useState('');
+  const [maxOrders, setMaxOrders] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -3477,7 +3477,7 @@ const QualificationsCard: React.FC = () => {
           setQuals(data.qualifications);
           setEquipInput(data.qualifications.equipmentTypes.join(', '));
           setCertInput(data.qualifications.certifications.join(', '));
-          setMaxStops(String(data.qualifications.maxStopsPerDay ?? ''));
+          setMaxOrders(String(data.qualifications.maxOrdersPerDay ?? ''));
         }
       })
       .catch(() => {});
@@ -3490,8 +3490,8 @@ const QualificationsCard: React.FC = () => {
       const equipmentTypes = equipInput.split(',').map(s => s.trim()).filter(Boolean);
       const certifications = certInput.split(',').map(s => s.trim()).filter(Boolean);
       const body: any = { equipmentTypes, certifications };
-      const ms = parseInt(maxStops);
-      if (!isNaN(ms) && ms > 0) body.maxStopsPerDay = ms;
+      const ms = parseInt(maxOrders);
+      if (!isNaN(ms) && ms > 0) body.maxOrdersPerDay = ms;
       const res = await fetch('/api/team/profile/qualifications', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -3514,7 +3514,7 @@ const QualificationsCard: React.FC = () => {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-bold text-gray-900">Qualifications</h3>
-          <p className="text-sm text-gray-500 mt-1">Declare your equipment and certifications so you're matched to the right stops.</p>
+          <p className="text-sm text-gray-500 mt-1">Declare your equipment and certifications so you're matched to the right orders.</p>
         </div>
         {quals && (
           <span className={`px-2 py-1 rounded-full text-xs font-bold ${quals.verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -3551,12 +3551,12 @@ const QualificationsCard: React.FC = () => {
           <p className="text-xs text-gray-400 mt-0.5">Comma-separated list</p>
         </div>
         <div>
-          <label className="block text-xs font-bold text-gray-700 mb-1">Max Stops Per Day</label>
+          <label className="block text-xs font-bold text-gray-700 mb-1">Max Orders Per Day</label>
           <input
             type="number"
-            title="Max stops per day"
-            value={maxStops}
-            onChange={e => setMaxStops(e.target.value)}
+            title="Max orders per day"
+            value={maxOrders}
+            onChange={e => setMaxOrders(e.target.value)}
             min={1}
             max={500}
             placeholder="e.g. 50"

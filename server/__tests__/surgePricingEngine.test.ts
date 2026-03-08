@@ -22,7 +22,7 @@ describe('calculateZoneSurges', () => {
         return { rows: [{ total_locations: 2, covered_locations: 0 }] } as any;
       }
       if (sql.includes('AS active_drivers')) {
-        return { rows: [{ active_drivers: 0, pending_stops: 0 }] } as any;
+        return { rows: [{ active_drivers: 0, pending_orders: 0 }] } as any;
       }
       if (sql.includes('AS unassigned')) {
         return { rows: [{ unassigned: 0 }] } as any;

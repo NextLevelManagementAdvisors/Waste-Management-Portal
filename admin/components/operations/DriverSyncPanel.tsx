@@ -9,11 +9,11 @@ interface OptimoDriver {
   vehicleRegistration?: string | null;
   vehicleLabel?: string | null;
   totalRoutes?: number;
-  totalStops?: number;
+  totalOrders?: number;
   totalDistanceKm?: number;
   totalDurationMin?: number;
   lastRouteDate?: string;
-  recentStopAddresses?: string[];
+  recentOrderAddresses?: string[];
 }
 
 interface LocalDriver {
@@ -272,8 +272,8 @@ const DriverSyncPanel: React.FC = () => {
         <div className="text-[10px] font-bold uppercase text-gray-400">Routes Scanned</div>
       </div>
       <div className="bg-gray-50 rounded-lg p-2 text-center">
-        <div className="text-lg font-black text-gray-900">{driver.totalStops ?? 0}</div>
-        <div className="text-[10px] font-bold uppercase text-gray-400">Total Stops</div>
+        <div className="text-lg font-black text-gray-900">{driver.totalOrders ?? 0}</div>
+        <div className="text-[10px] font-bold uppercase text-gray-400">Total Orders</div>
       </div>
       <div className="bg-gray-50 rounded-lg p-2 text-center">
         <div className="text-lg font-black text-gray-900">{(driver.totalDistanceKm ?? 0).toFixed(0)}</div>
@@ -296,11 +296,11 @@ const DriverSyncPanel: React.FC = () => {
         {driver.serial && driver.serial !== driver.name && <span>Serial: <span className="text-gray-700 font-mono">{driver.serial}</span></span>}
         {driver.externalId && <span>Ext ID: <span className="text-gray-700 font-mono">{driver.externalId}</span></span>}
       </div>
-      {driver.recentStopAddresses && driver.recentStopAddresses.length > 0 && (
+      {driver.recentOrderAddresses && driver.recentOrderAddresses.length > 0 && (
         <div>
-          <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">Recent Stops (sample)</div>
+          <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">Recent Orders (sample)</div>
           <div className="space-y-0.5">
-            {driver.recentStopAddresses.map((addr, i) => (
+            {driver.recentOrderAddresses.map((addr, i) => (
               <div key={i} className="text-xs text-gray-600 truncate">{addr}</div>
             ))}
           </div>
@@ -409,9 +409,9 @@ const DriverSyncPanel: React.FC = () => {
                           <div className="font-bold text-gray-900">{m.optimoDriver.name}</div>
                           <div className="text-xs text-gray-500">
                             Linked to {getDriverDisplayName(m.localDriver)}
-                            {m.optimoDriver.totalStops != null && (
+                            {m.optimoDriver.totalOrders != null && (
                               <span className="ml-2 text-gray-400">
-                                {m.optimoDriver.totalStops} stops / {m.optimoDriver.totalRoutes} routes (scan window)
+                                {m.optimoDriver.totalOrders} orders / {m.optimoDriver.totalRoutes} routes (scan window)
                               </span>
                             )}
                           </div>
@@ -493,9 +493,9 @@ const DriverSyncPanel: React.FC = () => {
                           <div className="font-bold text-gray-900">{d.name}</div>
                           <div className="text-xs text-gray-500">
                             OptimoRoute driver — not linked to portal
-                            {d.totalStops != null && (
+                            {d.totalOrders != null && (
                               <span className="ml-2 text-gray-400">
-                                {d.totalStops} stops / {d.totalRoutes} routes (scan window)
+                                {d.totalOrders} orders / {d.totalRoutes} routes (scan window)
                               </span>
                             )}
                           </div>

@@ -23,26 +23,26 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface CompletionDetailModalProps {
-  stopIdentifier: { id?: string; orderNo?: string };
+  orderIdentifier: { id?: string; orderNo?: string };
   onClose: () => void;
 }
 
-const CompletionDetailModal: React.FC<CompletionDetailModalProps> = ({ stopIdentifier, onClose }) => {
+const CompletionDetailModal: React.FC<CompletionDetailModalProps> = ({ orderIdentifier, onClose }) => {
   const [data, setData] = useState<CompletionData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const label = stopIdentifier.orderNo || stopIdentifier.id || '';
+  const label = orderIdentifier.orderNo || orderIdentifier.id || '';
 
   useEffect(() => {
     const fetchCompletion = async () => {
       setLoading(true);
       try {
-        const param = stopIdentifier.id ? `ids=${stopIdentifier.id}` : `orderNos=${stopIdentifier.orderNo}`;
+        const param = orderIdentifier.id ? `ids=${orderIdentifier.id}` : `orderNos=${orderIdentifier.orderNo}`;
         const res = await fetch(`/api/admin/optimoroute/completion?${param}`, { credentials: 'include' });
         if (res.ok) {
           const json = await res.json();
           const order = json.orders?.find((o: any) =>
-            o.id === stopIdentifier.id || o.orderNo === stopIdentifier.orderNo || o.success
+            o.id === orderIdentifier.id || o.orderNo === orderIdentifier.orderNo || o.success
           );
           setData(order?.data || null);
         }
@@ -53,7 +53,7 @@ const CompletionDetailModal: React.FC<CompletionDetailModalProps> = ({ stopIdent
       }
     };
     fetchCompletion();
-  }, [stopIdentifier.id, stopIdentifier.orderNo]);
+  }, [orderIdentifier.id, orderIdentifier.orderNo]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>

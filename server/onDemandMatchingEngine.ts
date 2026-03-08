@@ -100,24 +100,24 @@ async function scoreAndSelect(
   const scored: Array<{ driver: any; score: number }> = [];
 
   for (const driver of candidates) {
-    // Count existing stops for this driver on this date
+    // Count existing orders for this driver on this date
     const loadResult = await pool.query(
-      `SELECT COUNT(*)::int AS stop_count
-       FROM route_stops rs
+      `SELECT COUNT(*)::int AS order_count
+       FROM route_orders rs
        JOIN routes r ON r.id = rs.route_id
        WHERE r.assigned_driver_id = $1
          AND r.scheduled_date = $2
          AND r.status NOT IN ('cancelled', 'completed')`,
       [driver.driver_id, requestedDate]
     );
-    const currentLoad = loadResult.rows[0]?.stop_count || 0;
-    const maxStops = driver.max_stops_per_day || 60;
+    const currentLoad = loadResult.rows[0]?.order_count || 0;
+    const maxOrders = driver.max_orders_per_day || 60;
 
-    if (currentLoad >= maxStops) continue; // Skip overloaded drivers
+    if (currentLoad >= maxOrders) continue; // Skip overloaded drivers
 
     // Score: rating (0.4) + capacity headroom (0.3) + experience (0.3)
     const rating = ((driver.rating ? Number(driver.rating) : 3.0) / 5.0);
-    const capacityHeadroom = Math.max(0, (maxStops - currentLoad) / maxStops);
+    const capacityHeadroom = Math.max(0, (maxOrders - currentLoad) / maxOrders);
     const experience = Math.min(Number(driver.jobs_completed || 0) / 100, 1.0);
 
     const score = (0.4 * rating) + (0.3 * capacityHeadroom) + (0.3 * experience);

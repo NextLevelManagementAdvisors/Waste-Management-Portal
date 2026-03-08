@@ -172,7 +172,7 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
     setAdding(true);
     setError('');
     try {
-      const addRes = await fetch(`/api/admin/routes/${routeId}/stops`, {
+      const addRes = await fetch(`/api/admin/routes/${routeId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -180,7 +180,7 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
       });
       if (!addRes.ok) {
         const json = await addRes.json();
-        setError(json.error || 'Failed to add stop');
+        setError(json.error || 'Failed to add order');
         return;
       }
       await fetch(`/api/admin/missed-collections/${report.id}`, {
@@ -231,7 +231,7 @@ const AddToRouteModal: React.FC<AddToRouteModalProps> = ({ isOpen, report, onClo
                 <div>
                   <div className="text-sm font-semibold text-gray-900">{route.title}</div>
                   <div className="text-xs text-gray-500">
-                    {route.stopCount ?? 0} stops &middot; {route.status}
+                    {route.orderCount ?? 0} orders &middot; {route.status}
                   </div>
                 </div>
                 <Button size="sm" disabled={adding} onClick={() => handleAdd(route.id)}>

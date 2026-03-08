@@ -7,25 +7,25 @@ import {
 } from './optimoOrderHelpers.ts';
 
 const OMITTED_STOP_TYPES = new Set(['break', 'depot', 'start', 'end']);
-const TERMINAL_STOP_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL_ORDER_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 export interface ImportResult {
   date: string;
   routesImported: number;
   routesUpdated: number;
   routesSkipped: number;
-  stopsImported: number;
-  stopsMatched: number;
-  stopsUnmatched: number;
+  ordersImported: number;
+  ordersMatched: number;
+  ordersUnmatched: number;
   errors: string[];
 }
 
-interface ImportedStopData {
+interface ImportedOrderData {
   location_id?: string | null;
   address?: string;
   location_name?: string;
   optimo_order_no?: string;
-  stop_number?: number;
+  order_number?: number;
   scheduled_at?: string;
   order_type?: string;
 }
@@ -69,70 +69,70 @@ async function resolveAssignedDriverId(optimoRoute: any): Promise<string | undef
   return byName.rows.length === 1 ? byName.rows[0].id : undefined;
 }
 
-async function findExistingImportedRoute(date: string, optimoRouteKey: string, stopIdentifiers: string[]): Promise<any | null> {
+async function findExistingImportedRoute(date: string, optimoRouteKey: string, orderIdentifiers: string[]): Promise<any | null> {
   const byKey = await storage.getRouteByOptimoKey(optimoRouteKey);
   if (byKey) return byKey;
 
-  if (stopIdentifiers.length === 0) return null;
+  if (orderIdentifiers.length === 0) return null;
 
-  // Driver assignment can change between imports, so fall back to stop overlap before creating a duplicate route.
+  // Driver assignment can change between imports, so fall back to order overlap before creating a duplicate route.
   const overlap = await storage.query(
-    `SELECT r.id, COUNT(*)::int AS matched_stop_count
+    `SELECT r.id, COUNT(*)::int AS matched_order_count
      FROM routes r
-     JOIN route_stops rs ON rs.route_id = r.id
+     JOIN route_orders ro ON ro.route_id = r.id
      WHERE r.scheduled_date = $1
        AND r.source = 'optimo_import'
-       AND rs.optimo_order_no = ANY($2::text[])
+       AND ro.optimo_order_no = ANY($2::text[])
      GROUP BY r.id
      ORDER BY COUNT(*) DESC
      LIMIT 1`,
-    [date, stopIdentifiers]
+    [date, orderIdentifiers]
   );
 
   const routeId = overlap.rows[0]?.id;
   return routeId ? storage.getRouteById(routeId) : null;
 }
 
-async function buildImportedStops(realStops: any[], result: ImportResult): Promise<ImportedStopData[]> {
-  const stopData: ImportedStopData[] = [];
+async function buildImportedOrders(realOrders: any[], result: ImportResult): Promise<ImportedOrderData[]> {
+  const orderData: ImportedOrderData[] = [];
 
-  for (const stop of realStops) {
-    const stopAddress = stop.address || stop.location?.address || '';
-    const stopLocationName = stop.locationName || stop.location?.locationName || '';
+  for (const order of realOrders) {
+    const orderAddress = order.address || order.location?.address || '';
+    const orderLocationName = order.locationName || order.location?.locationName || '';
 
     let locationId: string | null = null;
-    if (stopAddress) {
-      const matched = await storage.findLocationByAddress(stopAddress);
+    if (orderAddress) {
+      const matched = await storage.findLocationByAddress(orderAddress);
       if (matched) {
         locationId = matched.id;
-        result.stopsMatched++;
+        result.ordersMatched++;
       } else {
-        result.stopsUnmatched++;
+        result.ordersUnmatched++;
       }
     } else {
-      result.stopsUnmatched++;
+      result.ordersUnmatched++;
     }
 
-    stopData.push({
+    orderData.push({
       location_id: locationId,
-      address: stopAddress || undefined,
-      location_name: stopLocationName || undefined,
-      optimo_order_no: getOptimoApiOrderIdentifier(stop),
-      stop_number: stop.stopNumber != null ? Number(stop.stopNumber) : undefined,
-      scheduled_at: stop.scheduledAt || undefined,
+      address: orderAddress || undefined,
+      location_name: orderLocationName || undefined,
+      optimo_order_no: getOptimoApiOrderIdentifier(order),
+      order_number: order.stopNumber != null ? Number(order.stopNumber) : undefined,
+      scheduled_at: order.scheduledAt || undefined,
       order_type: 'recurring',
     });
   }
 
-  return stopData;
+  return orderData;
 }
 
-function buildRouteStatus(assignedDriverId: string | undefined, stops: any[]): { status: string; completedAt: string | null } {
-  if (stops.length > 0 && stops.every((stop: any) => TERMINAL_STOP_STATUSES.has(String(stop.status || '').toLowerCase()))) {
+function buildRouteStatus(assignedDriverId: string | undefined, orders: any[]): { status: string; completedAt: string | null } {
+  if (orders.length > 0 && orders.every((order: any) => TERMINAL_ORDER_STATUSES.has(String(order.status || '').toLowerCase()))) {
     return { status: 'completed', completedAt: new Date().toISOString() };
   }
 
-  if (stops.some((stop: any) => String(stop.status || '').toLowerCase() === 'in_progress')) {
+  if (orders.some((order: any) => String(order.status || '').toLowerCase() === 'in_progress')) {
     return { status: 'in_progress', completedAt: null };
   }
 
@@ -142,85 +142,85 @@ function buildRouteStatus(assignedDriverId: string | undefined, stops: any[]): {
   };
 }
 
-function selectExistingStop(existingStops: any[], incoming: ImportedStopData, usedStopIds: Set<string>) {
-  return existingStops.find((stop: any) => {
-    if (!stop?.id || usedStopIds.has(stop.id)) return false;
+function selectExistingOrder(existingOrders: any[], incoming: ImportedOrderData, usedOrderIds: Set<string>) {
+  return existingOrders.find((order: any) => {
+    if (!order?.id || usedOrderIds.has(order.id)) return false;
 
-    if (incoming.optimo_order_no && stop.optimo_order_no === incoming.optimo_order_no) return true;
-    if (incoming.location_id && stop.location_id === incoming.location_id) return true;
+    if (incoming.optimo_order_no && order.optimo_order_no === incoming.optimo_order_no) return true;
+    if (incoming.location_id && order.location_id === incoming.location_id) return true;
 
     const incomingAddress = normalizeAddress(incoming.address);
-    if (incomingAddress && normalizeAddress(stop.address) === incomingAddress) return true;
+    if (incomingAddress && normalizeAddress(order.address) === incomingAddress) return true;
 
     return false;
   }) || null;
 }
 
-async function syncRouteStops(routeId: string, stopData: ImportedStopData[]): Promise<any[]> {
-  const existingStops = await storage.getRouteStops(routeId);
-  const usedStopIds = new Set<string>();
-  const stopsToInsert: ImportedStopData[] = [];
+async function syncRouteOrders(routeId: string, orderData: ImportedOrderData[]): Promise<any[]> {
+  const existingOrders = await storage.getRouteOrders(routeId);
+  const usedOrderIds = new Set<string>();
+  const ordersToInsert: ImportedOrderData[] = [];
 
-  for (const incoming of stopData) {
-    const existingStop = selectExistingStop(existingStops, incoming, usedStopIds);
-    if (!existingStop) {
-      stopsToInsert.push(incoming);
+  for (const incoming of orderData) {
+    const existingOrder = selectExistingOrder(existingOrders, incoming, usedOrderIds);
+    if (!existingOrder) {
+      ordersToInsert.push(incoming);
       continue;
     }
 
-    usedStopIds.add(existingStop.id);
+    usedOrderIds.add(existingOrder.id);
 
     const updateFields: any = {};
-    if (incoming.optimo_order_no && incoming.optimo_order_no !== existingStop.optimo_order_no) {
+    if (incoming.optimo_order_no && incoming.optimo_order_no !== existingOrder.optimo_order_no) {
       updateFields.optimo_order_no = incoming.optimo_order_no;
     }
-    if (incoming.stop_number != null && Number(existingStop.stop_number) !== Number(incoming.stop_number)) {
-      updateFields.stop_number = incoming.stop_number;
+    if (incoming.order_number != null && Number(existingOrder.order_number) !== Number(incoming.order_number)) {
+      updateFields.order_number = incoming.order_number;
     }
-    if (incoming.scheduled_at && incoming.scheduled_at !== existingStop.scheduled_at) {
+    if (incoming.scheduled_at && incoming.scheduled_at !== existingOrder.scheduled_at) {
       updateFields.scheduled_at = incoming.scheduled_at;
     }
-    if (incoming.location_name && incoming.location_name !== existingStop.location_name) {
+    if (incoming.location_name && incoming.location_name !== existingOrder.location_name) {
       updateFields.location_name = incoming.location_name;
     }
 
     if (Object.keys(updateFields).length > 0) {
-      await storage.updateRouteStop(existingStop.id, updateFields);
+      await storage.updateRouteOrder(existingOrder.id, updateFields);
     }
   }
 
-  if (stopsToInsert.length > 0) {
-    await storage.addRouteStops(routeId, stopsToInsert);
+  if (ordersToInsert.length > 0) {
+    await storage.addRouteOrders(routeId, ordersToInsert);
   }
 
-  for (const stop of existingStops) {
-    // Keep portal-only on-demand stops even when Optimo no longer returns them for the imported route.
-    if (usedStopIds.has(stop.id) || stop.on_demand_request_id) continue;
-    await storage.removeRouteStop(stop.id);
+  for (const order of existingOrders) {
+    // Keep portal-only on-demand orders even when Optimo no longer returns them for the imported route.
+    if (usedOrderIds.has(order.id) || order.on_demand_request_id) continue;
+    await storage.removeRouteOrder(order.id);
   }
 
-  return storage.getRouteStops(routeId);
+  return storage.getRouteOrders(routeId);
 }
 
 async function syncCompletionStatuses(routeId: string): Promise<any[]> {
-  const stops = await storage.getRouteStops(routeId);
-  const identifiers = stops
-    .map((stop: any) => stop.optimo_order_no)
+  const orders = await storage.getRouteOrders(routeId);
+  const identifiers = orders
+    .map((order: any) => order.optimo_order_no)
     .filter((identifier: any): identifier is string => typeof identifier === 'string' && identifier.length > 0);
 
-  if (identifiers.length === 0) return stops;
+  if (identifiers.length === 0) return orders;
 
   try {
     const completionMap = await fetchCompletionPayloadsByOrderId(identifiers);
 
-    for (const stop of stops) {
-      if (!stop.optimo_order_no) continue;
+    for (const order of orders) {
+      if (!order.optimo_order_no) continue;
 
-      const data = completionMap.get(stop.optimo_order_no);
+      const data = completionMap.get(order.optimo_order_no);
       const portalStatus = normalizeOptimoStatus(data?.status) || 'pending';
       const updateFields: any = {};
 
-      if (portalStatus !== stop.status) {
+      if (portalStatus !== order.status) {
         updateFields.status = portalStatus;
       }
 
@@ -229,13 +229,13 @@ async function syncCompletionStatuses(routeId: string): Promise<any[]> {
       }
 
       if (Object.keys(updateFields).length > 0) {
-        await storage.updateRouteStop(stop.id, updateFields);
+        await storage.updateRouteOrder(order.id, updateFields);
       }
     }
 
-    return storage.getRouteStops(routeId);
+    return storage.getRouteOrders(routeId);
   } catch {
-    return stops;
+    return orders;
   }
 }
 
@@ -245,9 +245,9 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
     routesImported: 0,
     routesUpdated: 0,
     routesSkipped: 0,
-    stopsImported: 0,
-    stopsMatched: 0,
-    stopsUnmatched: 0,
+    ordersImported: 0,
+    ordersMatched: 0,
+    ordersUnmatched: 0,
     errors: [],
   };
 
@@ -269,13 +269,13 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
     // Dedup key: one route per driver per day
     const optimoRouteKey = `${date}_${driverSerial}`;
 
-    // Filter out break/depot stops
-    // Optimo can include depot start/end placeholders that are not real customer stops.
-    const realStops = (optimoRoute.stops || []).filter(
-      (stop: any) => !OMITTED_STOP_TYPES.has(String(stop.type || '').toLowerCase())
+    // Filter out break/depot stop types from OptimoRoute API response.
+    // Optimo can include depot start/end placeholders that are not real customer orders.
+    const realOrders = (optimoRoute.stops || []).filter(
+      (order: any) => !OMITTED_STOP_TYPES.has(String(order.type || '').toLowerCase())
     );
-    const stopIdentifiers = realStops
-      .map((stop: any) => getOptimoApiOrderIdentifier(stop))
+    const orderIdentifiers = realOrders
+      .map((order: any) => getOptimoApiOrderIdentifier(order))
       .filter((identifier: any): identifier is string => typeof identifier === 'string' && identifier.length > 0);
 
     const title = `${optimoRoute.driverName || driverSerial} - ${date}`;
@@ -285,7 +285,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       scheduled_date: date,
       start_time: formatOptimoTime(optimoRoute.startTime),
       end_time: formatOptimoTime(optimoRoute.endTime),
-      estimated_stops: realStops.length,
+      estimated_orders: realOrders.length,
       estimated_hours: optimoRoute.duration ? Math.round((optimoRoute.duration / 60) * 10) / 10 : undefined,
       assigned_driver_id: assignedDriverId ?? null,
       route_type: 'daily_route',
@@ -294,7 +294,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       polyline: optimoRoute.routePolyline || null,
     };
 
-    const existing = await findExistingImportedRoute(date, optimoRouteKey, stopIdentifiers);
+    const existing = await findExistingImportedRoute(date, optimoRouteKey, orderIdentifiers);
     let routeId: string;
     if (existing) {
       routeId = existing.id;
@@ -312,12 +312,12 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
 
     await storage.markRouteSynced(routeId);
 
-    const stopData = await buildImportedStops(realStops, result);
-    await syncRouteStops(routeId, stopData);
-    result.stopsImported += stopData.length;
+    const orderData = await buildImportedOrders(realOrders, result);
+    await syncRouteOrders(routeId, orderData);
+    result.ordersImported += orderData.length;
 
-    const syncedStops = await syncCompletionStatuses(routeId);
-    const routeStatus = buildRouteStatus(assignedDriverId, syncedStops);
+    const syncedOrders = await syncCompletionStatuses(routeId);
+    const routeStatus = buildRouteStatus(assignedDriverId, syncedOrders);
     await storage.updateRoute(routeId, {
       status: routeStatus.status,
       completed_at: routeStatus.completedAt,
@@ -333,7 +333,7 @@ export interface BatchImportResult {
   totalRoutesImported: number;
   totalRoutesUpdated: number;
   totalRoutesSkipped: number;
-  totalStopsImported: number;
+  totalOrdersImported: number;
   datesProcessed: number;
   errors: string[];
 }
@@ -345,7 +345,7 @@ export async function importRoutesForRange(from: string, to: string): Promise<Ba
     totalRoutesImported: 0,
     totalRoutesUpdated: 0,
     totalRoutesSkipped: 0,
-    totalStopsImported: 0,
+    totalOrdersImported: 0,
     datesProcessed: 0,
     errors: [],
   };
@@ -361,7 +361,7 @@ export async function importRoutesForRange(from: string, to: string): Promise<Ba
       result.totalRoutesImported += dayResult.routesImported;
       result.totalRoutesUpdated += dayResult.routesUpdated;
       result.totalRoutesSkipped += dayResult.routesSkipped;
-      result.totalStopsImported += dayResult.stopsImported;
+      result.totalOrdersImported += dayResult.ordersImported;
       result.datesProcessed++;
       if (dayResult.errors.length > 0) {
         result.errors.push(...dayResult.errors.map(e => `${dateStr}: ${e}`));

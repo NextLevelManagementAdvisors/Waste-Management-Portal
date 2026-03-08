@@ -9,7 +9,7 @@ interface DashboardData {
   expiredCount: number;
   expiringCount: number;
   pendingCoverageCount: number;
-  expiringContracts: Array<{ id: string; driverName: string; zoneName: string; dayOfWeek: string; endDate: string; perStopRate: number | null }>;
+  expiringContracts: Array<{ id: string; driverName: string; zoneName: string; dayOfWeek: string; endDate: string; perOrderRate: number | null }>;
 }
 
 interface CoverageRequestAdmin {
@@ -60,7 +60,7 @@ const CreateRoutesModal: React.FC<CreateRoutesModalProps> = ({ contract, onClose
           throw new Error(data.error || 'Failed to create route');
         }
         const data = await res.json();
-        setResult(`Route created: ${data.route.title} with ${data.route.stopCount} stops ($${(data.route.computedValue ?? 0).toFixed(2)} value)`);
+        setResult(`Route created: ${data.route.title} with ${data.route.orderCount} orders ($${(data.route.computedValue ?? 0).toFixed(2)} value)`);
       } else {
         const res = await fetch(`/api/admin/contracts/${contract.id}/create-routes-bulk`, {
           method: 'POST',
@@ -157,7 +157,7 @@ interface FormState {
   dayOfWeek: string;
   startDate: string;
   endDate: string;
-  perStopRate: string;
+  perOrderRate: string;
   termsNotes: string;
   status: ContractStatus;
 }
@@ -168,7 +168,7 @@ const emptyForm: FormState = {
   dayOfWeek: 'monday',
   startDate: '',
   endDate: '',
-  perStopRate: '',
+  perOrderRate: '',
   termsNotes: '',
   status: 'active',
 };
@@ -191,7 +191,7 @@ const ContractsPanel: React.FC = () => {
   const [performanceData, setPerformanceData] = useState<Record<string, ContractPerformance>>({});
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null);
   const [renewingId, setRenewingId] = useState<string | null>(null);
-  const [renewForm, setRenewForm] = useState({ newEndDate: '', perStopRate: '' });
+  const [renewForm, setRenewForm] = useState({ newEndDate: '', perOrderRate: '' });
   const [coverageFillForm, setCoverageFillForm] = useState<{ id: string; substituteDriverId: string; substitutePay: string } | null>(null);
   const [showAssignLog, setShowAssignLog] = useState(false);
   const [assignLog, setAssignLog] = useState<Array<{ id: number; locationAddress: string | null; assigned: boolean; reason: string | null; details: string | null; compensation: number | null; capacityWarning: boolean; driverName: string | null; zoneName: string | null; createdAt: string }>>([]);
@@ -283,7 +283,7 @@ const ContractsPanel: React.FC = () => {
         dayOfWeek: form.dayOfWeek,
         startDate: form.startDate,
         endDate: form.endDate,
-        perStopRate: form.perStopRate ? parseFloat(form.perStopRate) : null,
+        perOrderRate: form.perOrderRate ? parseFloat(form.perOrderRate) : null,
         termsNotes: form.termsNotes || null,
         status: form.status,
       };
@@ -320,7 +320,7 @@ const ContractsPanel: React.FC = () => {
       dayOfWeek: c.dayOfWeek,
       startDate: c.startDate ? c.startDate.split('T')[0] : '',
       endDate: c.endDate ? c.endDate.split('T')[0] : '',
-      perStopRate: c.perStopRate != null ? c.perStopRate.toString() : '',
+      perOrderRate: c.perOrderRate != null ? c.perOrderRate.toString() : '',
       termsNotes: c.termsNotes || '',
       status: c.status,
     });
@@ -342,14 +342,14 @@ const ContractsPanel: React.FC = () => {
     if (!renewForm.newEndDate) return;
     try {
       const body: any = { newEndDate: renewForm.newEndDate };
-      if (renewForm.perStopRate) body.perStopRate = parseFloat(renewForm.perStopRate);
+      if (renewForm.perOrderRate) body.perOrderRate = parseFloat(renewForm.perOrderRate);
       const res = await fetch(`/api/admin/contracts/${id}/renew`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to renew');
       setRenewingId(null);
-      setRenewForm({ newEndDate: '', perStopRate: '' });
+      setRenewForm({ newEndDate: '', perOrderRate: '' });
       fetchContracts();
       fetchDashboard();
     } catch (err) { setError(err instanceof Error ? err.message : 'Error renewing contract'); }
@@ -450,7 +450,7 @@ const ContractsPanel: React.FC = () => {
               <span className="text-gray-700">
                 <strong>{ec.driverName}</strong> — {ec.zoneName} {ec.dayOfWeek} — expires {formatDate(ec.endDate)}
               </span>
-              <button type="button" onClick={() => { setRenewingId(ec.id); setRenewForm({ newEndDate: '', perStopRate: ec.perStopRate ? String(ec.perStopRate) : '' }); }}
+              <button type="button" onClick={() => { setRenewingId(ec.id); setRenewForm({ newEndDate: '', perOrderRate: ec.perOrderRate ? String(ec.perOrderRate) : '' }); }}
                 className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 font-medium">
                 Renew
               </button>
@@ -603,9 +603,9 @@ const ContractsPanel: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Per-Stop Rate ($)</label>
-                <input type="number" step="0.01" min="0" value={form.perStopRate}
-                  onChange={e => setForm({ ...form, perStopRate: e.target.value })}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Per-Order Rate ($)</label>
+                <input type="number" step="0.01" min="0" value={form.perOrderRate}
+                  onChange={e => setForm({ ...form, perOrderRate: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   placeholder="e.g. 3.50" />
                 <p className="text-xs text-gray-400 mt-1">Overrides the global base rate for this contract</p>
@@ -688,12 +688,12 @@ const ContractsPanel: React.FC = () => {
                     </div>
                     <div className="text-xs text-gray-500 mt-1 flex gap-3 flex-wrap">
                       <span>{formatDate(c.startDate)} - {formatDate(c.endDate)}</span>
-                      {c.perStopRate != null && <span>${c.perStopRate.toFixed(2)}/stop</span>}
+                      {c.perOrderRate != null && <span>${c.perOrderRate.toFixed(2)}/order</span>}
                       {c.computedWeeklyValue != null && (
                         <span className="text-teal-600 font-medium">~${Number(c.computedWeeklyValue).toFixed(2)}/wk</span>
                       )}
                       {c.routeCount != null && <span>{c.routeCount} routes</span>}
-                      {c.stopCount != null && <span>{c.stopCount} stops</span>}
+                      {c.orderCount != null && <span>{c.orderCount} orders</span>}
                     </div>
                     {c.termsNotes && (
                       <p className="text-xs text-gray-400 italic mt-0.5 truncate max-w-md" title={c.termsNotes}>{c.termsNotes}</p>
@@ -707,7 +707,7 @@ const ContractsPanel: React.FC = () => {
                       </button>
                     )}
                     {(c.status === 'active' || c.status === 'expired') && (
-                      <button type="button" onClick={() => { setRenewingId(renewingId === c.id ? null : c.id); setRenewForm({ newEndDate: '', perStopRate: '' }); }}
+                      <button type="button" onClick={() => { setRenewingId(renewingId === c.id ? null : c.id); setRenewForm({ newEndDate: '', perOrderRate: '' }); }}
                         className="px-2.5 py-1 text-xs font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100" title="Renew contract">
                         Renew
                       </button>
@@ -735,9 +735,9 @@ const ContractsPanel: React.FC = () => {
                       onChange={e => setRenewForm({ ...renewForm, newEndDate: e.target.value })}
                       className="border border-gray-300 rounded px-2 py-1 text-xs" />
                     <label className="text-xs text-gray-600">New Rate (opt):</label>
-                    <input type="number" step="0.01" placeholder="$/stop"
-                      value={renewForm.perStopRate}
-                      onChange={e => setRenewForm({ ...renewForm, perStopRate: e.target.value })}
+                    <input type="number" step="0.01" placeholder="$/order"
+                      value={renewForm.perOrderRate}
+                      onChange={e => setRenewForm({ ...renewForm, perOrderRate: e.target.value })}
                       className="border border-gray-300 rounded px-2 py-1 text-xs w-20" />
                     <button type="button" onClick={() => handleRenew(c.id)}
                       disabled={!renewForm.newEndDate}
@@ -765,11 +765,11 @@ const ContractsPanel: React.FC = () => {
                               <p className="text-xs text-gray-400">{p.completedRoutes}/{p.totalRoutes} routes</p>
                             </div>
                             <div className="text-center">
-                              <p className="text-xs text-gray-500">Stop Rate</p>
-                              <p className={`text-lg font-bold ${p.stopCompletionRate >= 0.9 ? 'text-green-600' : p.stopCompletionRate >= 0.7 ? 'text-amber-600' : 'text-red-600'}`}>
-                                {(p.stopCompletionRate * 100).toFixed(0)}%
+                              <p className="text-xs text-gray-500">Order Rate</p>
+                              <p className={`text-lg font-bold ${p.orderCompletionRate >= 0.9 ? 'text-green-600' : p.orderCompletionRate >= 0.7 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {(p.orderCompletionRate * 100).toFixed(0)}%
                               </p>
-                              <p className="text-xs text-gray-400">{p.completedStops}/{p.totalStops} stops</p>
+                              <p className="text-xs text-gray-400">{p.completedOrders}/{p.totalOrders} orders</p>
                             </div>
                             <div className="text-center">
                               <p className="text-xs text-gray-500">Total Compensation</p>

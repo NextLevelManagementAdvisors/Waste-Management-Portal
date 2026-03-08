@@ -1,6 +1,6 @@
 import { pool } from './db';
 import { storage } from './storage';
-import { getActiveRules, calculateStopCompensation, recalculateRouteValue } from './compensationEngine';
+import { getActiveRules, calculateOrderCompensation, recalculateRouteValue } from './compensationEngine';
 
 export interface AutoAssignResult {
   locationId: string;
@@ -10,7 +10,7 @@ export interface AutoAssignResult {
   routeId?: string;
   contractId?: string;
   compensation?: number;
-  capacityWarning?: { currentStops: number; maxStops: number; percentage: number };
+  capacityWarning?: { currentOrders: number; maxOrders: number; percentage: number };
 }
 
 /**
@@ -100,7 +100,7 @@ function getNextCollectionDate(collectionDay: string, frequency: string, anchorD
  * 4. Check driver qualifications (equipment, certs, rating)
  * 5. Check driver capacity
  * 6. Find or create route for contract+date
- * 7. Add stop with calculated compensation
+ * 7. Add order with calculated compensation
  * 8. Recalculate route value
  */
 export async function tryAutoAssignLocation(locationId: string): Promise<AutoAssignResult> {
@@ -147,7 +147,7 @@ async function _tryAutoAssignLocation(locationId: string): Promise<AutoAssignRes
   const contractResult = await pool.query(
     `SELECT rc.id, rc.driver_id, rc.per_stop_rate, rc.zone_id, rc.day_of_week,
             dp.name AS driver_name, dp.equipment_types, dp.certifications,
-            dp.max_stops_per_day, dp.rating,
+            dp.max_orders_per_day, dp.rating,
             sz.name AS zone_name
      FROM route_contracts rc
      JOIN driver_profiles dp ON rc.driver_id = dp.id
@@ -208,20 +208,20 @@ async function _tryAutoAssignLocation(locationId: string): Promise<AutoAssignRes
   }
 
   // 6. Check capacity for that date
-  const maxStops = contract.max_stops_per_day || 50;
-  const currentStopsResult = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM route_stops rs
+  const maxOrders = contract.max_orders_per_day || 50;
+  const currentOrdersResult = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM route_orders rs
      JOIN routes r ON rs.route_id = r.id
      WHERE r.assigned_driver_id = $1
        AND r.scheduled_date = $2
        AND rs.status != 'cancelled'`,
     [contract.driver_id, nextDate]
   );
-  const currentStops = currentStopsResult.rows[0].count;
+  const currentOrders = currentOrdersResult.rows[0].count;
 
-  if (currentStops >= maxStops) {
+  if (currentOrders >= maxOrders) {
     return { locationId, assigned: false, reason: 'capacity_exceeded',
-      details: `Driver has ${currentStops}/${maxStops} stops on ${nextDate}`,
+      details: `Driver has ${currentOrders}/${maxOrders} orders on ${nextDate}`,
     };
   }
 
@@ -255,17 +255,17 @@ async function _tryAutoAssignLocation(locationId: string): Promise<AutoAssignRes
     );
   }
 
-  // 8. Check if location is already a stop on this route
-  const existingStop = await pool.query(
-    `SELECT id FROM route_stops WHERE route_id = $1 AND location_id = $2 LIMIT 1`,
+  // 8. Check if location is already an order on this route
+  const existingOrder = await pool.query(
+    `SELECT id FROM route_orders WHERE route_id = $1 AND location_id = $2 LIMIT 1`,
     [routeId, locationId]
   );
-  if (existingStop.rows.length > 0) {
+  if (existingOrder.rows.length > 0) {
     return { locationId, assigned: true, routeId, contractId: contract.id,
       details: 'Location already on this route' };
   }
 
-  // 9. Calculate stop compensation
+  // 9. Calculate order compensation
   const rules = await getActiveRules();
   const locationCtx = {
     id: loc.id,
@@ -278,33 +278,33 @@ async function _tryAutoAssignLocation(locationId: string): Promise<AutoAssignRes
   const contractCtx = contract.per_stop_rate != null
     ? { per_stop_rate: parseFloat(contract.per_stop_rate) }
     : null;
-  const breakdown = calculateStopCompensation(locationCtx, contractCtx, rules);
+  const breakdown = calculateOrderCompensation(locationCtx, contractCtx, rules);
 
-  // Get next stop number
-  const maxStopResult = await pool.query(
-    `SELECT COALESCE(MAX(stop_number), 0)::int AS max_num FROM route_stops WHERE route_id = $1`,
+  // Get next order number
+  const maxOrderResult = await pool.query(
+    `SELECT COALESCE(MAX(order_number), 0)::int AS max_num FROM route_orders WHERE route_id = $1`,
     [routeId]
   );
-  const nextStopNumber = maxStopResult.rows[0].max_num + 1;
+  const nextOrderNumber = maxOrderResult.rows[0].max_num + 1;
 
-  // 10. Add the stop
+  // 10. Add the order
   await pool.query(
-    `INSERT INTO route_stops (route_id, location_id, order_type, stop_number, status, compensation)
+    `INSERT INTO route_orders (route_id, location_id, order_type, order_number, status, compensation)
      VALUES ($1, $2, 'recurring', $3, 'pending', $4)`,
-    [routeId, locationId, nextStopNumber, breakdown.finalRate]
+    [routeId, locationId, nextOrderNumber, breakdown.finalRate]
   );
 
   // 11. Recalculate route value
   await recalculateRouteValue(routeId);
 
   // 12. Build capacity warning if approaching limit
-  const newStopCount = currentStops + 1;
-  const percentage = Math.round((newStopCount / maxStops) * 100);
+  const newOrderCount = currentOrders + 1;
+  const percentage = Math.round((newOrderCount / maxOrders) * 100);
   const capacityWarning = percentage >= 80
-    ? { currentStops: newStopCount, maxStops, percentage }
+    ? { currentOrders: newOrderCount, maxOrders, percentage }
     : undefined;
 
-  console.log(`[AutoAssign] Location ${locationId} → Route ${routeId} (contract ${contract.id}), compensation $${breakdown.finalRate}, capacity ${newStopCount}/${maxStops}`);
+  console.log(`[AutoAssign] Location ${locationId} → Route ${routeId} (contract ${contract.id}), compensation $${breakdown.finalRate}, capacity ${newOrderCount}/${maxOrders}`);
 
   return {
     locationId,

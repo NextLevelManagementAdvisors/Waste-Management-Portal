@@ -30,7 +30,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
   const handleAddToRoute = async (locationId: string, routeId: string) => {
     setAddingTo({ locationId, routeId });
     try {
-      const res = await fetch(`/api/admin/routes/${routeId}/stops`, {
+      const res = await fetch(`/api/admin/routes/${routeId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -38,7 +38,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
       });
       if (res.ok) onRefresh();
     } catch (e) {
-      console.error('Failed to add stop:', e);
+      console.error('Failed to add order:', e);
     } finally {
       setAddingTo(null);
     }
@@ -84,7 +84,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${STATUS_COLORS[route.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {route.status.replace('_', ' ')}
               </span>
-              <span className="text-[10px] text-gray-500">{route.stopCount || 0} stops</span>
+              <span className="text-[10px] text-gray-500">{route.orderCount || 0} orders</span>
             </div>
             {route.driverName && (
               <div className="text-[10px] text-gray-400 mt-1 truncate">{route.driverName}</div>
@@ -160,7 +160,7 @@ const WeeklyPlannerDayColumn: React.FC<WeeklyPlannerDayColumnProps> = ({ date, r
         <div className="px-2 py-1.5 border-t border-gray-100 text-center">
           <span className="text-[10px] text-gray-400">
             {routes.length} route{routes.length !== 1 ? 's' : ''} &middot;{' '}
-            {routes.reduce((sum, r) => sum + (r.stopCount || 0), 0)} stops
+            {routes.reduce((sum, r) => sum + (r.orderCount || 0), 0)} orders
           </span>
         </div>
       )}

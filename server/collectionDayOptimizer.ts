@@ -17,33 +17,33 @@ export interface OptimizationResult {
   source?: 'route_optimized' | 'zone_default';
 }
 
-interface StopWithCoords {
-  stop_number: number | null;
+interface OrderWithCoords {
+  order_number: number | null;
   latitude: number | null;
   longitude: number | null;
 }
 
 /**
  * Calculate the minimum insertion cost (in miles) to add a new point into an
- * ordered sequence of stops.  For each adjacent pair (Si, Si+1) the cost of
+ * ordered sequence of orders.  For each adjacent pair (Si, Si+1) the cost of
  * inserting X between them is:
  *   dist(Si, X) + dist(X, Si+1) - dist(Si, Si+1)
  *
  * Returns the minimum extra distance across all possible insertion positions.
  */
 function minInsertionCost(
-  stops: StopWithCoords[],
+  orders: OrderWithCoords[],
   newLat: number,
   newLng: number,
 ): number {
-  // Filter to stops that actually have coordinates
-  const ordered = stops
+  // Filter to orders that actually have coordinates
+  const ordered = orders
     .filter(s => s.latitude != null && s.longitude != null)
-    .sort((a, b) => (a.stop_number ?? 999) - (b.stop_number ?? 999));
+    .sort((a, b) => (a.order_number ?? 999) - (b.order_number ?? 999));
 
   if (ordered.length === 0) return Infinity;
 
-  // If only one stop, cost = distance to that stop
+  // If only one order, cost = distance to that order
   if (ordered.length === 1) {
     return haversineDistanceMiles(
       newLat, newLng,
@@ -53,7 +53,7 @@ function minInsertionCost(
 
   let minCost = Infinity;
 
-  // Try inserting before the first stop
+  // Try inserting before the first order
   const first = ordered[0];
   const costBefore = haversineDistanceMiles(newLat, newLng, first.latitude!, first.longitude!);
   if (costBefore < minCost) minCost = costBefore;
@@ -69,7 +69,7 @@ function minInsertionCost(
     if (cost < minCost) minCost = cost;
   }
 
-  // Try inserting after the last stop
+  // Try inserting after the last order
   const last = ordered[ordered.length - 1];
   const costAfter = haversineDistanceMiles(last.latitude!, last.longitude!, newLat, newLng);
   if (costAfter < minCost) minCost = costAfter;
@@ -154,8 +154,8 @@ export async function findOptimalCollectionDay(locationId: string): Promise<Opti
   const routeResults: RouteResult[] = [];
 
   for (const route of activeRoutes) {
-    const stops = await storage.getRouteStops(route.id);
-    const cost = minInsertionCost(stops as StopWithCoords[], lat, lng);
+    const orders = await storage.getRouteOrders(route.id);
+    const cost = minInsertionCost(orders as OrderWithCoords[], lat, lng);
 
     if (cost === Infinity) continue;
 

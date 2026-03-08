@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import type { Driver, Route, RouteStop } from '../../../shared/types/index.ts';
+import type { Driver, Route, RouteOrder } from '../../../shared/types/index.ts';
 
 interface AdminProperty {
   id: string;
@@ -33,13 +33,13 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Stop management state
-  const [stops, setStops] = useState<RouteStop[]>([]);
-  const [stopsLoading, setStopsLoading] = useState(true);
+  // Order management state
+  const [orders, setOrders] = useState<RouteOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [locations, setLocations] = useState<AdminProperty[]>([]);
   const [locationSearch, setLocationSearch] = useState('');
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
-  const [addingStops, setAddingStops] = useState(false);
+  const [addingOrders, setAddingOrders] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
   const isReadOnly = route.status === 'completed' || route.status === 'cancelled';
@@ -52,7 +52,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
       })
       .catch(() => {});
 
-    fetchStops();
+    fetchOrders();
 
     if (!isReadOnly) {
       fetch('/api/admin/locations', { credentials: 'include' })
@@ -62,37 +62,37 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
     }
   }, []);
 
-  const fetchStops = async () => {
-    setStopsLoading(true);
+  const fetchOrders = async () => {
+    setOrdersLoading(true);
     try {
-      const res = await fetch(`/api/admin/routes/${route.id}/stops`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/routes/${route.id}/orders`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setStops(data.stops ?? []);
+        setOrders(data.orders ?? []);
       }
     } catch (e) {
-      console.error('Failed to load stops:', e);
+      console.error('Failed to load orders:', e);
     } finally {
-      setStopsLoading(false);
+      setOrdersLoading(false);
     }
   };
 
-  const handleRemoveStop = async (stopId: string) => {
+  const handleRemoveOrder = async (orderId: string) => {
     try {
-      const res = await fetch(`/api/admin/routes/${route.id}/stops/${stopId}`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`/api/admin/routes/${route.id}/orders/${orderId}`, { method: 'DELETE', credentials: 'include' });
       if (res.ok) {
-        setStops(prev => prev.filter(s => s.id !== stopId));
+        setOrders(prev => prev.filter(s => s.id !== orderId));
       }
     } catch (e) {
-      console.error('Failed to remove stop:', e);
+      console.error('Failed to remove order:', e);
     }
   };
 
-  const handleAddStops = async () => {
+  const handleAddOrders = async () => {
     if (selectedLocationIds.size === 0) return;
-    setAddingStops(true);
+    setAddingOrders(true);
     try {
-      const res = await fetch(`/api/admin/routes/${route.id}/stops`, {
+      const res = await fetch(`/api/admin/routes/${route.id}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -102,12 +102,12 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
         setSelectedLocationIds(new Set());
         setLocationSearch('');
         setShowPicker(false);
-        await fetchStops();
+        await fetchOrders();
       }
     } catch (e) {
-      console.error('Failed to add stops:', e);
+      console.error('Failed to add orders:', e);
     } finally {
-      setAddingStops(false);
+      setAddingOrders(false);
     }
   };
 
@@ -120,7 +120,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   };
 
   // Filter out properties already on the route
-  const existingLocationIds = useMemo(() => new Set(stops.map(s => s.locationId).filter(Boolean)), [stops]);
+  const existingLocationIds = useMemo(() => new Set(orders.map(s => s.locationId).filter(Boolean)), [orders]);
 
   const filteredLocations = useMemo(() => {
     const available = locations.filter(p => !existingLocationIds.has(p.id));
@@ -193,7 +193,7 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
           <h2 className="text-lg font-black text-gray-900">Edit Route</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Update route details, manage stops, or assign a driver.</p>
+          <p className="text-sm text-gray-500 mt-0.5">Update route details, manage orders, or assign a driver.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
@@ -239,19 +239,19 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
             </div>
           </div>
 
-          {/* Stops Section */}
+          {/* Orders Section */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">
-              Stops <span className="text-teal-600">({stops.length})</span>
+              Orders <span className="text-teal-600">({orders.length})</span>
             </label>
 
-            {stopsLoading ? (
-              <div className="text-xs text-gray-400 py-2">Loading stops...</div>
-            ) : stops.length === 0 ? (
-              <div className="text-xs text-gray-400 py-2">No stops on this route yet.</div>
+            {ordersLoading ? (
+              <div className="text-xs text-gray-400 py-2">Loading orders...</div>
+            ) : orders.length === 0 ? (
+              <div className="text-xs text-gray-400 py-2">No orders on this route yet.</div>
             ) : (
               <div className="border border-gray-200 rounded-lg max-h-[160px] overflow-y-auto divide-y divide-gray-50">
-                {stops.map(s => (
+                {orders.map(s => (
                   <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
                     <div className="min-w-0 flex-1">
                       <div className="text-gray-900 truncate">{s.address}</div>
@@ -261,8 +261,8 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
                       s.orderType === 'special' ? 'text-purple-600' : s.orderType === 'missed_redo' ? 'text-red-600' : 'text-gray-400'
                     }`}>{s.orderType}</span>
                     {!isReadOnly && (
-                      <button type="button" onClick={() => handleRemoveStop(s.id)}
-                        className="text-red-400 hover:text-red-600 font-bold flex-shrink-0" title="Remove stop">
+                      <button type="button" onClick={() => handleRemoveOrder(s.id)}
+                        className="text-red-400 hover:text-red-600 font-bold flex-shrink-0" title="Remove order">
                         &times;
                       </button>
                     )}
@@ -271,13 +271,13 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
               </div>
             )}
 
-            {/* Add stops picker */}
+            {/* Add orders picker */}
             {!isReadOnly && (
               <div className="mt-2">
                 {!showPicker ? (
                   <button type="button" onClick={() => setShowPicker(true)}
                     className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors">
-                    + Add Stops
+                    + Add Orders
                   </button>
                 ) : (
                   <div className="border border-teal-200 rounded-lg p-2 bg-teal-50/30">
@@ -319,9 +319,9 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
                     <div className="flex items-center justify-between mt-2">
                       <button type="button" onClick={() => { setShowPicker(false); setSelectedLocationIds(new Set()); setLocationSearch(''); }}
                         className="text-xs font-bold text-gray-500 hover:text-gray-700">Cancel</button>
-                      <button type="button" onClick={handleAddStops} disabled={selectedLocationIds.size === 0 || addingStops}
+                      <button type="button" onClick={handleAddOrders} disabled={selectedLocationIds.size === 0 || addingOrders}
                         className="px-3 py-1 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 rounded-lg transition-colors">
-                        {addingStops ? 'Adding...' : `Add ${selectedLocationIds.size} Stop${selectedLocationIds.size !== 1 ? 's' : ''}`}
+                        {addingOrders ? 'Adding...' : `Add ${selectedLocationIds.size} Order${selectedLocationIds.size !== 1 ? 's' : ''}`}
                       </button>
                     </div>
                   </div>

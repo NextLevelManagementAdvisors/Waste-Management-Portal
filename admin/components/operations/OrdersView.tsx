@@ -326,7 +326,7 @@ const OrdersView: React.FC = () => {
                   <div className="border-t border-gray-100 pt-3">
                     <h3 className="text-xs font-black uppercase text-gray-400 mb-2">Schedule</h3>
                     <Field label="Driver" value={detailOrder.schedule.scheduleInformation.driverName} />
-                    <Field label="Stop #" value={detailOrder.schedule.scheduleInformation.stopNumber} />
+                    <Field label="Order #" value={detailOrder.schedule.scheduleInformation.orderNumber} />
                     <Field label="Scheduled At" value={detailOrder.schedule.scheduleInformation.scheduledAt} />
                   </div>
                 )}

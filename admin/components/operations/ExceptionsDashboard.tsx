@@ -5,7 +5,7 @@ interface ExceptionData {
   escalatedMissed: Array<{ id: string; reported_date: string; status: string; address: string; created_at: string }>;
   expiredBids: Array<{ id: string; title: string; scheduled_date: string; status: string; created_at: string }>;
   failedAssignments: Array<{ id: string; location_id: string; failure_reason: string; created_at: string; address: string }>;
-  staleDraftRoutes: Array<{ id: string; title: string; scheduled_date: string; created_at: string; stop_count: number }>;
+  staleDraftRoutes: Array<{ id: string; title: string; scheduled_date: string; created_at: string; order_count: number }>;
   totalExceptions: number;
 }
 
@@ -96,7 +96,7 @@ const ExceptionsDashboard: React.FC = () => {
       {data.staleDraftRoutes.length > 0 && (
         <Section title="Unpublished Drafts (Next 3 Days)" count={data.staleDraftRoutes.length} color="gray">
           {data.staleDraftRoutes.map(r => (
-            <Row key={r.id} primary={r.title} secondary={`${r.stop_count} stops — scheduled ${formatDate(r.scheduled_date)}`} meta="Draft" />
+            <Row key={r.id} primary={r.title} secondary={`${r.order_count} orders — scheduled ${formatDate(r.scheduled_date)}`} meta="Draft" />
           ))}
         </Section>
       )}

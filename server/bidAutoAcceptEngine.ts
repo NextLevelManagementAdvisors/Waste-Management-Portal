@@ -84,7 +84,7 @@ export async function runBidAutoAccept(): Promise<{ accepted: number; expired: n
          JOIN driver_profiles d ON d.id = rb.driver_id
          LEFT JOIN (
            SELECT rs2.route_id, COUNT(*)::int AS zone_jobs
-           FROM route_stops rs2
+           FROM route_orders rs2
            JOIN routes r2 ON r2.id = rs2.route_id
            WHERE r2.zone_id = $2 AND r2.status = 'completed'
            GROUP BY rs2.route_id

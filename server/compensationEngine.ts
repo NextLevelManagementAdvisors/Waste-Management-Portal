@@ -50,12 +50,12 @@ export async function getActiveRules(referenceDate?: Date): Promise<DbCompensati
 }
 
 /**
- * Calculate compensation for a single location/stop.
+ * Calculate compensation for a single location/order.
  *
  * Precedence chain:
  *   location.custom_rate  >  contract.per_stop_rate  >  rules engine (base_rate * modifiers)
  */
-export function calculateStopCompensation(
+export function calculateOrderCompensation(
   location: LocationContext,
   contract: ContractContext | null,
   rules: DbCompensationRule[],
@@ -157,7 +157,7 @@ function ruleMatchesLocation(rule: DbCompensationRule, location: LocationContext
 }
 
 /**
- * Calculate the full route valuation — sum of all stop compensations + pay mode logic.
+ * Calculate the full route valuation — sum of all order compensations + pay mode logic.
  */
 export async function calculateRouteValuation(routeId: string): Promise<RouteValuation> {
   // Fetch route details
@@ -172,16 +172,16 @@ export async function calculateRouteValuation(routeId: string): Promise<RouteVal
   if (routeResult.rows.length === 0) throw new Error(`Route not found: ${routeId}`);
   const route = routeResult.rows[0];
 
-  // Fetch stops with location data
-  const stopsResult = await pool.query(
-    `SELECT rs.id AS stop_id, rs.location_id,
+  // Fetch orders with location data
+  const ordersResult = await pool.query(
+    `SELECT rs.id AS order_id, rs.location_id,
             l.address, l.service_type, l.zone_id,
             COALESCE(l.difficulty_score, 1.0) AS difficulty_score,
             l.custom_rate
-     FROM route_stops rs
+     FROM route_orders rs
      LEFT JOIN locations l ON rs.location_id = l.id
      WHERE rs.route_id = $1
-     ORDER BY rs.stop_number`,
+     ORDER BY rs.order_number`,
     [routeId]
   );
 
@@ -190,16 +190,16 @@ export async function calculateRouteValuation(routeId: string): Promise<RouteVal
     ? { per_stop_rate: parseFloat(route.contract_per_stop_rate) }
     : null;
 
-  const stopBreakdowns: RouteValuation['stopBreakdowns'] = [];
+  const orderBreakdowns: RouteValuation['orderBreakdowns'] = [];
   let computedValue = 0;
 
-  for (const stop of stopsResult.rows) {
-    if (!stop.location_id) {
-      // Stops without a location (e.g., imported from OptimoRoute) — no compensation
-      stopBreakdowns.push({
-        stopId: stop.stop_id,
-        locationId: stop.location_id,
-        address: stop.address || 'Unknown',
+  for (const order of ordersResult.rows) {
+    if (!order.location_id) {
+      // Orders without a location (e.g., imported from OptimoRoute) — no compensation
+      orderBreakdowns.push({
+        orderId: order.order_id,
+        locationId: order.location_id,
+        address: order.address || 'Unknown',
         compensation: 0,
         breakdown: {
           baseRate: 0,
@@ -214,21 +214,21 @@ export async function calculateRouteValuation(routeId: string): Promise<RouteVal
     }
 
     const locationCtx: LocationContext = {
-      id: stop.location_id,
-      address: stop.address || '',
-      service_type: stop.service_type || 'residential',
-      difficulty_score: parseFloat(stop.difficulty_score) || 1.0,
-      custom_rate: stop.custom_rate != null ? parseFloat(stop.custom_rate) : null,
-      zone_id: stop.zone_id,
+      id: order.location_id,
+      address: order.address || '',
+      service_type: order.service_type || 'residential',
+      difficulty_score: parseFloat(order.difficulty_score) || 1.0,
+      custom_rate: order.custom_rate != null ? parseFloat(order.custom_rate) : null,
+      zone_id: order.zone_id,
     };
 
-    const breakdown = calculateStopCompensation(locationCtx, contract, rules);
+    const breakdown = calculateOrderCompensation(locationCtx, contract, rules);
     computedValue += breakdown.finalRate;
 
-    stopBreakdowns.push({
-      stopId: stop.stop_id,
-      locationId: stop.location_id,
-      address: stop.address || '',
+    orderBreakdowns.push({
+      orderId: order.order_id,
+      locationId: order.location_id,
+      address: order.address || '',
       compensation: breakdown.finalRate,
       breakdown,
     });
@@ -256,7 +256,7 @@ export async function calculateRouteValuation(routeId: string): Promise<RouteVal
 
   return {
     computedValue,
-    stopBreakdowns,
+    orderBreakdowns,
     payMode,
     basePay,
     payPremium,
@@ -266,7 +266,7 @@ export async function calculateRouteValuation(routeId: string): Promise<RouteVal
 
 /**
  * Recalculate and persist the computed_value for a route.
- * Call this after adding/removing stops or when compensation rules change.
+ * Call this after adding/removing orders or when compensation rules change.
  */
 export async function recalculateRouteValue(routeId: string): Promise<RouteValuation> {
   const valuation = await calculateRouteValuation(routeId);
@@ -277,11 +277,11 @@ export async function recalculateRouteValue(routeId: string): Promise<RouteValua
     [valuation.computedValue, routeId]
   );
 
-  // Update per-stop compensation
-  for (const stop of valuation.stopBreakdowns) {
+  // Update per-order compensation
+  for (const order of valuation.orderBreakdowns) {
     await pool.query(
-      `UPDATE route_stops SET compensation = $1 WHERE id = $2`,
-      [stop.compensation, stop.stopId]
+      `UPDATE route_orders SET compensation = $1 WHERE id = $2`,
+      [order.compensation, order.orderId]
     );
   }
 
@@ -319,7 +319,7 @@ export async function previewLocationCompensation(
 
   const rules = await getActiveRules();
 
-  return calculateStopCompensation(
+  return calculateOrderCompensation(
     {
       id: loc.id,
       address: loc.address,

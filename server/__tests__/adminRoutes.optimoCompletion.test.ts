@@ -8,7 +8,7 @@ vi.mock('../storage', () => ({
     getUserById: vi.fn(),
     query: vi.fn(),
     createAuditLog: vi.fn(),
-    updateRouteStop: vi.fn(),
+    updateRouteOrder: vi.fn(),
     updateRoute: vi.fn(),
   },
   pool: {},
@@ -59,6 +59,8 @@ vi.mock('../notificationService', () => ({
 vi.mock('../optimoRouteClient', () => ({
   getRoutes: vi.fn(),
   getCompletionDetailsFull: vi.fn(),
+  searchOrders: vi.fn().mockResolvedValue({ orders: [] }),
+  getSchedulingInfo: vi.fn().mockResolvedValue({ success: false, orderScheduled: false }),
 }));
 vi.mock('../repositories/ExpenseRepository', () => ({
   expenseRepo: {},
@@ -89,7 +91,7 @@ describe('POST /api/admin/routes/pull-completion-for-date', () => {
     vi.mocked(storage.updateRoute).mockResolvedValue({} as any);
   });
 
-  it('backfills imported stop identifiers from Optimo ids and marks completed stops', async () => {
+  it('backfills imported order identifiers from Optimo ids and marks completed orders', async () => {
     const route = {
       id: 'route-1',
       title: 'John Geodicke - 2026-03-06',
@@ -97,14 +99,14 @@ describe('POST /api/admin/routes/pull-completion-for-date', () => {
       scheduled_date: '2026-03-06T05:00:00.000Z',
       optimo_route_key: '2026-03-06_John Geodicke',
     };
-    const stops = [
+    const orders = [
       {
-        id: 'stop-1',
+        id: 'order-1',
         route_id: 'route-1',
         optimo_order_no: null,
         status: 'pending',
         on_demand_request_id: null,
-        stop_number: 1,
+        order_number: 1,
         scheduled_at: null,
         address: '2370 Shenandoah Shores Rd, Front Royal, VA 22630, USA',
       },
@@ -114,24 +116,24 @@ describe('POST /api/admin/routes/pull-completion-for-date', () => {
       if (sql.includes('FROM routes') && sql.includes("status NOT IN ('completed', 'cancelled', 'draft')")) {
         return { rows: [route] } as any;
       }
-      if (sql.includes('FROM route_stops rs') && sql.includes('LEFT JOIN locations')) {
-        return { rows: stops } as any;
+      if (sql.includes('FROM route_orders') && sql.includes('LEFT JOIN locations')) {
+        return { rows: orders } as any;
       }
       if (sql.includes('WITH derived AS')) {
         return { rows: [], rowCount: 0 } as any;
       }
-      if (sql.includes('SELECT status FROM route_stops WHERE route_id = $1')) {
-        return { rows: stops.map(stop => ({ status: stop.status })) } as any;
+      if (sql.includes('SELECT status FROM route_orders WHERE route_id = $1')) {
+        return { rows: orders.map(order => ({ status: order.status })) } as any;
       }
       if (sql.includes('scheduled_date < CURRENT_DATE')) {
         return { rows: [] } as any;
       }
       return { rows: [] } as any;
     });
-    vi.mocked(storage.updateRouteStop).mockImplementation(async (stopId: string, data: any) => {
-      const stop = stops.find(candidate => candidate.id === stopId)!;
-      Object.assign(stop, data);
-      return stop as any;
+    vi.mocked(storage.updateRouteOrder).mockImplementation(async (orderId: string, data: any) => {
+      const order = orders.find(candidate => candidate.id === orderId)!;
+      Object.assign(order, data);
+      return order as any;
     });
     vi.mocked(optimo.getRoutes).mockResolvedValue({
       routes: [
@@ -163,14 +165,14 @@ describe('POST /api/admin/routes/pull-completion-for-date', () => {
       .send({ date: '2026-03-06' });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ routesUpdated: 1, stopsUpdated: 1 });
+    expect(res.body).toMatchObject({ routesUpdated: 1, ordersUpdated: 1 });
     expect(optimo.getCompletionDetailsFull).toHaveBeenCalledWith(['57aa5137170b1202d36fd49d839c3530'], true);
-    expect(storage.updateRouteStop).toHaveBeenCalledWith('stop-1', expect.objectContaining({
+    expect(storage.updateRouteOrder).toHaveBeenCalledWith('order-1', expect.objectContaining({
       optimo_order_no: '57aa5137170b1202d36fd49d839c3530',
       scheduled_at: '07:27',
     }));
-    expect(storage.updateRouteStop).toHaveBeenCalledWith('stop-1', { status: 'completed' });
+    expect(storage.updateRouteOrder).toHaveBeenCalledWith('order-1', { status: 'completed' });
     expect(storage.updateRoute).toHaveBeenCalledWith('route-1', expect.objectContaining({ status: 'completed' }));
-    expect(stops[0].status).toBe('completed');
+    expect(orders[0].status).toBe('completed');
   });
 });

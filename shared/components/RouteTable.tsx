@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { Route, RouteBid, RouteStop } from '../types/index.ts';
+import type { Route, RouteBid, RouteOrder } from '../types/index.ts';
 
 // --- Shared sub-components ---
 
@@ -84,14 +84,14 @@ const BidRow: React.FC<{ bid: RouteBid; basePay?: number; onAccept?: () => void;
   );
 };
 
-// --- Stops expansion ---
+// --- Orders expansion ---
 
-const StopsExpansion: React.FC<{ stops: RouteStop[] }> = ({ stops }) => (
+const OrdersExpansion: React.FC<{ orders: RouteOrder[] }> = ({ orders }) => (
   <>
     <tr className="bg-blue-50/40">
-      <td colSpan={9} className="px-4 py-2 pl-10 text-xs font-black uppercase tracking-widest text-gray-400">Stops ({stops.length})</td>
+      <td colSpan={9} className="px-4 py-2 pl-10 text-xs font-black uppercase tracking-widest text-gray-400">Orders ({orders.length})</td>
     </tr>
-    {stops.map(p => (
+    {orders.map(p => (
       <tr key={p.id} className="bg-blue-50/20">
         <td className="px-4 py-1.5 pl-10" colSpan={3}>
           <div className="text-sm text-gray-700">{p.address}</div>
@@ -103,7 +103,7 @@ const StopsExpansion: React.FC<{ stops: RouteStop[] }> = ({ stops }) => (
           </span>
         </td>
         <td className="px-4 py-1.5" colSpan={2}>
-          {p.stopNumber != null && <span className="text-xs text-gray-500">Stop #{p.stopNumber}</span>}
+          {p.orderNumber != null && <span className="text-xs text-gray-500">Order #{p.orderNumber}</span>}
         </td>
         <td className="px-4 py-1.5" colSpan={3}>
           <span className={`text-xs font-bold ${p.status === 'completed' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-gray-400'}`}>
@@ -123,11 +123,11 @@ export interface RouteTableProps {
     type?: boolean;
     driver?: boolean;
     pay?: boolean;
-    stops?: boolean;
+    orders?: boolean;
   };
   renderActions?: (route: Route) => React.ReactNode;
   // Expand callbacks
-  onExpandStops?: (routeId: string) => Promise<RouteStop[]>;
+  onExpandOrders?: (routeId: string) => Promise<RouteOrder[]>;
   onExpandBids?: (routeId: string) => Promise<RouteBid[]>;
   canAcceptBids?: boolean;
   onAcceptBid?: (routeId: string, bid: RouteBid) => void;
@@ -146,7 +146,7 @@ const RouteTable: React.FC<RouteTableProps> = ({
   routes,
   columns = {},
   renderActions,
-  onExpandStops,
+  onExpandOrders,
   onExpandBids,
   canAcceptBids,
   onAcceptBid,
@@ -158,12 +158,12 @@ const RouteTable: React.FC<RouteTableProps> = ({
   emptyIcon,
 }) => {
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
-  const [expandMode, setExpandMode] = useState<'bids' | 'stops'>('bids');
+  const [expandMode, setExpandMode] = useState<'bids' | 'orders'>('bids');
   const [bidsCache, setBidsCache] = useState<Record<string, RouteBid[]>>({});
-  const [stopsCache, setStopsCache] = useState<Record<string, RouteStop[]>>({});
+  const [ordersCache, setOrdersCache] = useState<Record<string, RouteOrder[]>>({});
   const [loadingExpand, setLoadingExpand] = useState<string | null>(null);
 
-  const toggleExpand = useCallback(async (routeId: string, mode: 'bids' | 'stops') => {
+  const toggleExpand = useCallback(async (routeId: string, mode: 'bids' | 'orders') => {
     if (expandedRouteId === routeId && expandMode === mode) {
       setExpandedRouteId(null);
       return;
@@ -171,10 +171,10 @@ const RouteTable: React.FC<RouteTableProps> = ({
     setExpandedRouteId(routeId);
     setExpandMode(mode);
 
-    const cache = mode === 'bids' ? bidsCache : stopsCache;
+    const cache = mode === 'bids' ? bidsCache : ordersCache;
     if (cache[routeId]) return;
 
-    const fetcher = mode === 'bids' ? onExpandBids : onExpandStops;
+    const fetcher = mode === 'bids' ? onExpandBids : onExpandOrders;
     if (!fetcher) return;
 
     setLoadingExpand(routeId);
@@ -183,11 +183,11 @@ const RouteTable: React.FC<RouteTableProps> = ({
       if (mode === 'bids') {
         setBidsCache(prev => ({ ...prev, [routeId]: data as RouteBid[] }));
       } else {
-        setStopsCache(prev => ({ ...prev, [routeId]: data as RouteStop[] }));
+        setOrdersCache(prev => ({ ...prev, [routeId]: data as RouteOrder[] }));
       }
     } catch {}
     setLoadingExpand(null);
-  }, [expandedRouteId, expandMode, bidsCache, stopsCache, onExpandBids, onExpandStops]);
+  }, [expandedRouteId, expandMode, bidsCache, ordersCache, onExpandBids, onExpandOrders]);
 
   const toggleSelection = (routeId: string) => {
     if (!onSelectionChange || !selectedIds) return;
@@ -205,7 +205,7 @@ const RouteTable: React.FC<RouteTableProps> = ({
   // Determine visible column count for colSpan
   let colCount = 3; // Route, Date, Status are always shown
   if (columns.type) colCount++;
-  if (columns.stops) colCount++;
+  if (columns.orders) colCount++;
   if (columns.pay) colCount++;
   if (columns.driver) colCount++;
   if (renderActions) colCount++; // Actions column
@@ -237,7 +237,7 @@ const RouteTable: React.FC<RouteTableProps> = ({
               <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Route</th>
               {columns.type && <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Type</th>}
               <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Date</th>
-              {columns.stops && <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Stops</th>}
+              {columns.orders && <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Orders</th>}
               {columns.pay && <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Pay</th>}
               <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Status</th>
               {columns.driver && <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest text-gray-400">Driver</th>}
@@ -248,9 +248,9 @@ const RouteTable: React.FC<RouteTableProps> = ({
             {routes.map(route => {
               const isExpanded = expandedRouteId === route.id;
               const bids = bidsCache[route.id];
-              const stops = stopsCache[route.id];
+              const orders = ordersCache[route.id];
               const bidCount = route.bidCount ?? 0;
-              const stopCount = route.stopCount ?? route.estimatedStops ?? 0;
+              const orderCount = route.orderCount ?? route.estimatedOrders ?? 0;
 
               return (
                 <React.Fragment key={route.id}>
@@ -275,10 +275,10 @@ const RouteTable: React.FC<RouteTableProps> = ({
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{formatRouteDate(route.scheduledDate)}</div>
                     </td>
-                    {columns.stops && (
+                    {columns.orders && (
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-700">
-                          {stopCount > 0 ? stopCount : '—'}
+                          {orderCount > 0 ? orderCount : '—'}
                           {route.estimatedHours != null && <span className="text-xs text-gray-400 ml-1">({route.estimatedHours}h)</span>}
                         </div>
                       </td>
@@ -316,12 +316,12 @@ const RouteTable: React.FC<RouteTableProps> = ({
                     {renderActions && (
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1 flex-wrap">
-                          {onExpandStops && stopCount > 0 && (
-                            <button type="button" onClick={() => toggleExpand(route.id, 'stops')}
+                          {onExpandOrders && orderCount > 0 && (
+                            <button type="button" onClick={() => toggleExpand(route.id, 'orders')}
                               className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                                isExpanded && expandMode === 'stops' ? 'text-white bg-blue-600' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'
+                                isExpanded && expandMode === 'orders' ? 'text-white bg-blue-600' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'
                               }`}>
-                              {stopCount} Stop{stopCount !== 1 ? 's' : ''} {isExpanded && expandMode === 'stops' ? '\u25B2' : '\u25BC'}
+                              {orderCount} Order{orderCount !== 1 ? 's' : ''} {isExpanded && expandMode === 'orders' ? '\u25B2' : '\u25BC'}
                             </button>
                           )}
                           {onExpandBids && bidCount > 0 && (
@@ -364,14 +364,14 @@ const RouteTable: React.FC<RouteTableProps> = ({
                     )
                   )}
 
-                  {/* Stops expansion */}
-                  {isExpanded && expandMode === 'stops' && (
+                  {/* Orders expansion */}
+                  {isExpanded && expandMode === 'orders' && (
                     loadingExpand === route.id ? (
-                      <tr className="bg-gray-50/80"><td colSpan={colCount} className="px-4 py-4 text-center"><div className="text-sm text-gray-400">Loading stops...</div></td></tr>
-                    ) : stops && stops.length > 0 ? (
-                      <StopsExpansion stops={stops} />
+                      <tr className="bg-gray-50/80"><td colSpan={colCount} className="px-4 py-4 text-center"><div className="text-sm text-gray-400">Loading orders...</div></td></tr>
+                    ) : orders && orders.length > 0 ? (
+                      <OrdersExpansion orders={orders} />
                     ) : (
-                      <tr className="bg-gray-50/80"><td colSpan={colCount} className="px-4 py-3 text-center text-sm text-gray-400">No stops assigned</td></tr>
+                      <tr className="bg-gray-50/80"><td colSpan={colCount} className="px-4 py-3 text-center text-sm text-gray-400">No orders assigned</td></tr>
                     )
                   )}
 

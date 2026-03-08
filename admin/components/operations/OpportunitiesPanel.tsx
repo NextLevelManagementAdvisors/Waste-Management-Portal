@@ -22,7 +22,7 @@ interface OppFormState {
   dayOfWeek: string;
   startDate: string;
   durationMonths: string;
-  proposedPerStopRate: string;
+  proposedPerOrderRate: string;
   requirementsMinRating: string;
   requirementsEquipment: string[];
   requirementsCertifications: string[];
@@ -33,7 +33,7 @@ const emptyOppForm: OppFormState = {
   dayOfWeek: 'monday',
   startDate: '',
   durationMonths: '3',
-  proposedPerStopRate: '',
+  proposedPerOrderRate: '',
   requirementsMinRating: '',
   requirementsEquipment: [],
   requirementsCertifications: [],
@@ -54,7 +54,7 @@ const OpportunitiesPanel: React.FC = () => {
   const [applications, setApplications] = useState<ContractApplication[]>([]);
   const [loadingApps, setLoadingApps] = useState(false);
   const [awarding, setAwarding] = useState(false);
-  const [awardForm, setAwardForm] = useState<{ perStopRate: string; termsNotes: string }>({ perStopRate: '', termsNotes: '' });
+  const [awardForm, setAwardForm] = useState<{ perOrderRate: string; termsNotes: string }>({ perOrderRate: '', termsNotes: '' });
 
   const fetchOpportunities = useCallback(async () => {
     setLoading(true);
@@ -117,7 +117,7 @@ const OpportunitiesPanel: React.FC = () => {
         dayOfWeek: form.dayOfWeek,
         startDate: form.startDate,
         durationMonths: parseInt(form.durationMonths),
-        proposedPerStopRate: form.proposedPerStopRate ? parseFloat(form.proposedPerStopRate) : null,
+        proposedPerOrderRate: form.proposedPerOrderRate ? parseFloat(form.proposedPerOrderRate) : null,
         requirements: {
           minRating: form.requirementsMinRating ? parseFloat(form.requirementsMinRating) : undefined,
           equipmentTypes: form.requirementsEquipment.length > 0 ? form.requirementsEquipment : undefined,
@@ -165,7 +165,7 @@ const OpportunitiesPanel: React.FC = () => {
     setError(null);
     try {
       const body: any = { applicationId };
-      if (awardForm.perStopRate) body.perStopRate = parseFloat(awardForm.perStopRate);
+      if (awardForm.perOrderRate) body.perOrderRate = parseFloat(awardForm.perOrderRate);
       if (awardForm.termsNotes) body.termsNotes = awardForm.termsNotes;
 
       const res = await fetch(`/api/admin/contract-opportunities/${oppId}/award`, {
@@ -180,7 +180,7 @@ const OpportunitiesPanel: React.FC = () => {
       }
       setExpandedOpp(null);
       setApplications([]);
-      setAwardForm({ perStopRate: '', termsNotes: '' });
+      setAwardForm({ perOrderRate: '', termsNotes: '' });
       fetchOpportunities();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error awarding contract');
@@ -251,9 +251,9 @@ const OpportunitiesPanel: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Proposed Per-Stop Rate ($)</label>
-                <input type="number" step="0.01" min="0" value={form.proposedPerStopRate}
-                  onChange={e => setForm({ ...form, proposedPerStopRate: e.target.value })}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Proposed Per-Order Rate ($)</label>
+                <input type="number" step="0.01" min="0" value={form.proposedPerOrderRate}
+                  onChange={e => setForm({ ...form, proposedPerOrderRate: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   placeholder="Leave blank if open to negotiation" />
               </div>
@@ -329,7 +329,7 @@ const OpportunitiesPanel: React.FC = () => {
                     <div className="text-xs text-gray-500 mt-1 flex gap-3 flex-wrap">
                       <span>Starts {formatDate(opp.startDate)}</span>
                       <span>{opp.durationMonths} month{opp.durationMonths !== 1 ? 's' : ''}</span>
-                      {opp.proposedPerStopRate != null && <span>${opp.proposedPerStopRate.toFixed(2)}/stop proposed</span>}
+                      {opp.proposedPerOrderRate != null && <span>${opp.proposedPerOrderRate.toFixed(2)}/order proposed</span>}
                       {opp.requirements?.minRating && <span>Min rating: {opp.requirements.minRating}</span>}
                     </div>
                   </div>
@@ -373,7 +373,7 @@ const OpportunitiesPanel: React.FC = () => {
                                   </span>
                                 </div>
                                 <div className="text-xs text-gray-500 mt-0.5 flex gap-3">
-                                  {app.proposedRate != null && <span>Proposed: ${app.proposedRate.toFixed(2)}/stop</span>}
+                                  {app.proposedRate != null && <span>Proposed: ${app.proposedRate.toFixed(2)}/order</span>}
                                   {app.message && <span>"{app.message}"</span>}
                                   <span>Applied {formatDate(app.createdAt)}</span>
                                 </div>
@@ -395,9 +395,9 @@ const OpportunitiesPanel: React.FC = () => {
                           <div className="bg-gray-50 rounded-lg p-3 space-y-2">
                             <p className="text-xs font-medium text-gray-600">Award options (optional overrides):</p>
                             <div className="flex gap-3">
-                              <input type="number" step="0.01" min="0" placeholder="Per-stop rate override"
-                                value={awardForm.perStopRate}
-                                onChange={e => setAwardForm({ ...awardForm, perStopRate: e.target.value })}
+                              <input type="number" step="0.01" min="0" placeholder="Per-order rate override"
+                                value={awardForm.perOrderRate}
+                                onChange={e => setAwardForm({ ...awardForm, perOrderRate: e.target.value })}
                                 className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs" />
                               <input type="text" placeholder="Contract terms/notes"
                                 value={awardForm.termsNotes}

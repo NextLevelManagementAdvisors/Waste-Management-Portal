@@ -185,7 +185,7 @@ const RouteOptimizerModal: React.FC<RouteOptimizerModalProps> = ({ date, onClose
                 <select value={lockType} onChange={e => setLockType(e.target.value as any)} disabled={running}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-50">
                   <option value="NONE">None — Full re-optimization</option>
-                  <option value="ROUTES">Routes — Keep assigned stops, reorder</option>
+                  <option value="ROUTES">Routes — Keep assigned orders, reorder</option>
                   <option value="RESOURCES">Resources — Keep driver assignments</option>
                 </select>
               </div>

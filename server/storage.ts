@@ -1423,7 +1423,7 @@ export class Storage {
     scheduled_date: string;
     start_time?: string;
     end_time?: string;
-    estimated_stops?: number;
+    estimated_orders?: number;
     estimated_hours?: number;
     base_pay?: number;
     notes?: string;
@@ -1439,7 +1439,7 @@ export class Storage {
     const result = await this.query(
       `INSERT INTO routes
          (title, description, scheduled_date, start_time, end_time,
-          estimated_stops, estimated_hours, base_pay, notes, assigned_driver_id, status,
+          estimated_orders, estimated_hours, base_pay, notes, assigned_driver_id, status,
           route_type, zone_id, source, on_demand_request_id, polyline)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
@@ -1449,7 +1449,7 @@ export class Storage {
         data.scheduled_date,
         data.start_time ?? null,
         data.end_time ?? null,
-        data.estimated_stops ?? null,
+        data.estimated_orders ?? null,
         data.estimated_hours ?? null,
         data.base_pay ?? null,
         data.notes ?? null,
@@ -1482,13 +1482,13 @@ export class Storage {
       `SELECT r.*, r.optimo_synced, r.optimo_synced_at,
               d.name AS driver_name, d.optimoroute_driver_id AS driver_optimo_serial,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
-              COALESCE(sc.stop_count, 0)::int AS stop_count,
-              COALESCE(dc.done_count, 0)::int AS completed_stop_count
+              COALESCE(sc.order_count, 0)::int AS order_count,
+              COALESCE(dc.done_count, 0)::int AS completed_order_count
        FROM routes r
        LEFT JOIN driver_profiles d ON r.assigned_driver_id = d.id
        LEFT JOIN (SELECT route_id, COUNT(*) AS bid_count FROM route_bids GROUP BY route_id) bc ON bc.route_id = r.id
-       LEFT JOIN (SELECT route_id, COUNT(*) AS stop_count FROM route_stops GROUP BY route_id) sc ON sc.route_id = r.id
-       LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_stops WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
+       LEFT JOIN (SELECT route_id, COUNT(*) AS order_count FROM route_orders GROUP BY route_id) sc ON sc.route_id = r.id
+       LEFT JOIN (SELECT route_id, COUNT(*) AS done_count FROM route_orders WHERE status IN ('completed', 'failed') GROUP BY route_id) dc ON dc.route_id = r.id
        ${where}
        ORDER BY r.scheduled_date DESC, r.created_at DESC`,
       params
@@ -1562,7 +1562,7 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; on_demand_request_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string | null; optimo_route_key: string; polyline: string | null }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_orders: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string; route_type: string; zone_id: string; source: string; on_demand_request_id: string; optimo_planning_id: string; accepted_bid_id: string; actual_pay: number; payment_status: string; completed_at: string | null; optimo_route_key: string; polyline: string | null }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -2536,7 +2536,7 @@ export class Storage {
     // If we have circle zones, use SQL-based matching
     if (zoneClauses.length > 0) {
       conditions.push(`EXISTS (
-        SELECT 1 FROM route_stops rs
+        SELECT 1 FROM route_orders rs
         JOIN locations p ON rs.location_id = p.id
         WHERE rs.route_id = r.id
           AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
@@ -2573,7 +2573,7 @@ export class Storage {
     const routeStopsResult = await this.query(
       `SELECT DISTINCT r.*, p.latitude AS stop_lat, p.longitude AS stop_lng
        FROM routes r
-       JOIN route_stops rs ON rs.route_id = r.id
+       JOIN route_orders rs ON rs.route_id = r.id
        JOIN locations p ON rs.location_id = p.id
        WHERE ${dateConditions.join(' AND ')}
          AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`,
@@ -2619,19 +2619,19 @@ export class Storage {
     );
   }
 
-  // ── Route Stops ──
+  // ── Route Orders ──
 
-  async addRouteStops(routeId: string, stops: Array<{ location_id?: string | null; order_type?: string; on_demand_request_id?: string; address?: string; location_name?: string; optimo_order_no?: string; stop_number?: number; scheduled_at?: string }>) {
-    if (stops.length === 0) return [];
+  async addRouteOrders(routeId: string, orders: Array<{ location_id?: string | null; order_type?: string; on_demand_request_id?: string; address?: string; location_name?: string; optimo_order_no?: string; order_number?: number; scheduled_at?: string }>) {
+    if (orders.length === 0) return [];
     const values: any[] = [];
     const placeholders: string[] = [];
     let idx = 1;
-    for (const s of stops) {
+    for (const s of orders) {
       placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
-      values.push(routeId, s.location_id ?? null, s.order_type ?? 'recurring', s.on_demand_request_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.stop_number ?? null, s.scheduled_at ?? null);
+      values.push(routeId, s.location_id ?? null, s.order_type ?? 'recurring', s.on_demand_request_id ?? null, s.address ?? null, s.location_name ?? null, s.optimo_order_no ?? null, s.order_number ?? null, s.scheduled_at ?? null);
     }
     const result = await this.query(
-      `INSERT INTO route_stops (route_id, location_id, order_type, on_demand_request_id, address, location_name, optimo_order_no, stop_number, scheduled_at)
+      `INSERT INTO route_orders (route_id, location_id, order_type, on_demand_request_id, address, location_name, optimo_order_no, order_number, scheduled_at)
        VALUES ${placeholders.join(', ')}
        ON CONFLICT DO NOTHING
        RETURNING *`,
@@ -2640,26 +2640,26 @@ export class Storage {
     return result.rows;
   }
 
-  async getRouteStops(routeId: string) {
+  async getRouteOrders(routeId: string) {
     const result = await this.query(
       `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
               p.latitude, p.longitude,
               CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
-       FROM route_stops rs
+       FROM route_orders rs
        LEFT JOIN locations p ON rs.location_id = p.id
        LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.route_id = $1
-       ORDER BY rs.stop_number NULLS LAST, rs.created_at`,
+       ORDER BY rs.order_number NULLS LAST, rs.created_at`,
       [routeId]
     );
     return result.rows;
   }
 
-  async removeRouteStop(stopId: string) {
-    await this.query('DELETE FROM route_stops WHERE id = $1', [stopId]);
+  async removeRouteOrder(orderId: string) {
+    await this.query('DELETE FROM route_orders WHERE id = $1', [orderId]);
   }
 
-  async updateRouteStop(stopId: string, data: Partial<{ optimo_order_no: string; stop_number: number; status: string; scheduled_at: string; duration: number; notes: string; location_name: string; pod_data: string }>) {
+  async updateRouteOrder(orderId: string, data: Partial<{ optimo_order_no: string; order_number: number; status: string; scheduled_at: string; duration: number; notes: string; location_name: string; pod_data: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -2667,18 +2667,18 @@ export class Storage {
       if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
     }
     if (fields.length === 0) return null;
-    values.push(stopId);
+    values.push(orderId);
     const result = await this.query(
-      `UPDATE route_stops SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE route_orders SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     return result.rows[0] || null;
   }
 
-  async getNextRouteStopForLocation(locationId: string, afterDate: string): Promise<{ route_id: string; scheduled_date: string; route_title: string } | null> {
+  async getNextRouteOrderForLocation(locationId: string, afterDate: string): Promise<{ route_id: string; scheduled_date: string; route_title: string } | null> {
     const result = await this.query(
       `SELECT rs.id, rs.route_id, r.scheduled_date, r.title AS route_title
-       FROM route_stops rs
+       FROM route_orders rs
        JOIN routes r ON rs.route_id = r.id
        WHERE rs.location_id = $1
          AND r.scheduled_date >= $2
@@ -2691,9 +2691,9 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async skipRouteStopForLocation(locationId: string, collectionDate: string): Promise<void> {
+  async skipRouteOrderForLocation(locationId: string, collectionDate: string): Promise<void> {
     await this.query(
-      `UPDATE route_stops rs SET status = 'skipped'
+      `UPDATE route_orders rs SET status = 'skipped'
        FROM routes r
        WHERE rs.route_id = r.id
          AND rs.location_id = $1
@@ -2703,14 +2703,14 @@ export class Storage {
     );
   }
 
-  async cancelFutureStopsForLocation(locationId: string, afterDate?: string): Promise<number> {
+  async cancelFutureOrdersForLocation(locationId: string, afterDate?: string): Promise<number> {
     const dateFilter = afterDate ? `AND r.scheduled_date >= $2` : '';
     const params: any[] = [locationId];
     if (afterDate) params.push(afterDate);
 
     // Find affected routes before cancelling (for recalculation)
     const affectedRoutes = await this.query(
-      `SELECT DISTINCT rs.route_id FROM route_stops rs
+      `SELECT DISTINCT rs.route_id FROM route_orders rs
        JOIN routes r ON rs.route_id = r.id
        WHERE rs.location_id = $1
          AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')
@@ -2719,7 +2719,7 @@ export class Storage {
     );
 
     const result = await this.query(
-      `UPDATE route_stops rs SET status = 'cancelled'
+      `UPDATE route_orders rs SET status = 'cancelled'
        FROM routes r
        WHERE rs.route_id = r.id
          AND rs.location_id = $1
@@ -2737,30 +2737,30 @@ export class Storage {
           await recalculateRouteValue(row.route_id);
         }
       } catch (err) {
-        console.error('[cancelFutureStopsForLocation] Error recalculating route values:', err);
+        console.error('[cancelFutureOrdersForLocation] Error recalculating route values:', err);
       }
     }
 
     return cancelledCount;
   }
 
-  async bulkUpdateRouteStops(routeId: string, updates: Array<{ stop_id: string; stop_number?: number; scheduled_at?: string; status?: string }>) {
+  async bulkUpdateRouteOrders(routeId: string, updates: Array<{ order_id: string; order_number?: number; scheduled_at?: string; status?: string }>) {
     for (const u of updates) {
       const data: Record<string, any> = {};
-      if (u.stop_number !== undefined) data.stop_number = u.stop_number;
+      if (u.order_number !== undefined) data.order_number = u.order_number;
       if (u.scheduled_at !== undefined) data.scheduled_at = u.scheduled_at;
       if (u.status !== undefined) data.status = u.status;
-      await this.updateRouteStop(u.stop_id, data);
+      await this.updateRouteOrder(u.order_id, data);
     }
   }
 
-  async getRouteStopsByOrderNos(orderNos: string[]) {
+  async getRouteOrdersByOrderNos(orderNos: string[]) {
     if (orderNos.length === 0) return [];
     const placeholders = orderNos.map((_, i) => `$${i + 1}`).join(', ');
     const result = await this.query(
       `SELECT rs.*, COALESCE(rs.address, p.address) AS address, p.service_type,
               CASE WHEN u.id IS NOT NULL THEN u.first_name || ' ' || u.last_name ELSE rs.location_name END AS customer_name
-       FROM route_stops rs
+       FROM route_orders rs
        LEFT JOIN locations p ON rs.location_id = p.id
        LEFT JOIN users u ON p.user_id = u.id
        WHERE rs.optimo_order_no IN (${placeholders})`,
@@ -2863,7 +2863,7 @@ export class Storage {
         WHERE spr.requested_date = $1 AND spr.status IN ('pending', 'scheduled')
          AND NOT EXISTS (
            SELECT 1
-           FROM route_stops rs
+           FROM route_orders rs
            JOIN routes r ON r.id = rs.route_id
            WHERE rs.on_demand_request_id = spr.id
              AND COALESCE(r.status, '') != 'cancelled'
@@ -2935,7 +2935,7 @@ export class Storage {
        WHERE p.service_status = 'approved'
          AND p.collection_day = $1
          AND NOT EXISTS (
-           SELECT 1 FROM route_stops rs
+           SELECT 1 FROM route_orders rs
            JOIN routes r ON rs.route_id = r.id
            WHERE rs.location_id = p.id
              AND r.scheduled_date = $2
@@ -2953,7 +2953,7 @@ export class Storage {
               p.address, p.service_status,
               u.first_name || ' ' || u.last_name AS customer_name,
               r.scheduled_date, r.title AS route_title
-       FROM route_stops rs
+       FROM route_orders rs
        JOIN routes r ON rs.route_id = r.id
        JOIN locations p ON rs.location_id = p.id
        JOIN users u ON p.user_id = u.id
@@ -2982,7 +2982,7 @@ export class Storage {
         scheduled_date: targetDate,
         start_time: route.start_time || undefined,
         end_time: route.end_time || undefined,
-        estimated_stops: route.estimated_stops ?? undefined,
+        estimated_orders: route.estimated_orders ?? undefined,
         estimated_hours: route.estimated_hours ? Number(route.estimated_hours) : undefined,
         base_pay: route.base_pay ? Number(route.base_pay) : undefined,
         notes: route.notes || undefined,

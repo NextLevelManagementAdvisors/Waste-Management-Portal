@@ -118,10 +118,10 @@ const WeeklyPlanner: React.FC = () => {
     }
   };
 
-  const handleRemoveCollection = async (routeId: string, stopId: string) => {
-    setRemovingCollection(stopId);
+  const handleRemoveCollection = async (routeId: string, orderId: string) => {
+    setRemovingCollection(orderId);
     try {
-      const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, {
+      const res = await fetch(`/api/admin/routes/${routeId}/orders/${orderId}`, {
         method: 'DELETE',
         credentials: 'include',
       });

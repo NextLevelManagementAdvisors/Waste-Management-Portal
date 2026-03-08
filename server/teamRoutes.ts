@@ -1040,9 +1040,9 @@ export function registerTeamRoutes(app: Express) {
 
       const enriched = await Promise.all(routes.map(async (route: any) => {
         try {
-          const stops = await storage.getRouteStops(route.id);
-          return { ...route, stop_count: stops.length };
-        } catch { return { ...route, stop_count: 0 }; }
+          const orders = await storage.getRouteOrders(route.id);
+          return { ...route, order_count: orders.length };
+        } catch { return { ...route, order_count: 0 }; }
       }));
 
       res.json({ data: enriched.map(formatRouteForClient), hasZoneSelections });
@@ -1070,9 +1070,9 @@ export function registerTeamRoutes(app: Express) {
         return res.status(404).json({ error: 'Route not found' });
       }
 
-      const [bids, stops] = await Promise.all([
+      const [bids, orders] = await Promise.all([
         storage.getRouteBids(routeId),
-        storage.getRouteStops(routeId),
+        storage.getRouteOrders(routeId),
       ]);
 
       const camelBids = bids.map((b: any) => ({
@@ -1090,14 +1090,14 @@ export function registerTeamRoutes(app: Express) {
       // Only expose customer PII (address, name) to the assigned driver or for open/bidding routes
       const driverId = res.locals.driverProfile.id;
       const canSeePII = route.assigned_driver_id === driverId || ['open', 'bidding'].includes(route.status);
-      const mappedStops = stops.map((p: any) => ({
+      const mappedOrders = orders.map((p: any) => ({
         ...(canSeePII ? { address: p.address, customer_name: p.customer_name } : {}),
         pickup_type: p.pickup_type ?? p.order_type,
-        sequence_number: p.sequence_number ?? p.stop_number,
+        sequence_number: p.sequence_number ?? p.order_number,
         status: p.status,
       }));
 
-      res.json({ data: { ...formatRouteForClient(route), bids: camelBids, stops: mappedStops } });
+      res.json({ data: { ...formatRouteForClient(route), bids: camelBids, orders: mappedOrders } });
     } catch (error: any) {
       console.error('Get route error:', error);
       res.status(500).json({ error: 'Failed to get route' });
@@ -1395,24 +1395,24 @@ export function registerTeamRoutes(app: Express) {
         }
       }
 
-      // Check for incomplete stops and include in response
-      const stops = await storage.getRouteStops(routeId);
-      const incompleteStops = stops.filter((s: any) => !['completed', 'failed', 'skipped', 'cancelled'].includes(s.status));
+      // Check for incomplete orders and include in response
+      const orders = await storage.getRouteOrders(routeId);
+      const incompleteOrders = orders.filter((s: any) => !['completed', 'failed', 'skipped', 'cancelled'].includes(s.status));
 
       broadcastToAdmins('route:completed', { routeId, driverId, title: route.title });
 
-      res.json({ success: true, incompleteStops: incompleteStops.length > 0 ? incompleteStops.map((s: any) => ({ id: s.id, address: s.address, status: s.status })) : [] });
+      res.json({ success: true, incompleteOrders: incompleteOrders.length > 0 ? incompleteOrders.map((s: any) => ({ id: s.id, address: s.address, status: s.status })) : [] });
     } catch (error: any) {
       console.error('Complete route error:', error);
       res.status(500).json({ error: 'Failed to complete route' });
     }
   });
 
-  // Driver updates a stop status with proof of collection data.
+  // Driver updates an order status with proof of collection data.
   // Accepts status, notes, failure reason, and optional photo upload.
-  app.put('/api/team/routes/:routeId/stops/:stopId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  app.put('/api/team/routes/:routeId/orders/:orderId', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
-      const { routeId, stopId } = req.params;
+      const { routeId, orderId } = req.params;
       const driverId = res.locals.driverProfile.id;
       const { status, notes, failureReason, photoUrl } = req.body;
 
@@ -1433,13 +1433,13 @@ export function registerTeamRoutes(app: Express) {
       if (photoUrl) podData.photoUrl = photoUrl;
 
       await pool.query(
-        `UPDATE route_stops SET status = $1, pod_data = $2, updated_at = NOW()
+        `UPDATE route_orders SET status = $1, pod_data = $2, updated_at = NOW()
          WHERE id = $3 AND route_id = $4`,
-        [status, JSON.stringify(podData), stopId, routeId]
+        [status, JSON.stringify(podData), orderId, routeId]
       );
 
-      // Broadcast stop update to admins
-      broadcastToAdmins('stop:updated', { routeId, stopId, status, driverId });
+      // Broadcast order update to admins
+      broadcastToAdmins('order:updated', { routeId, orderId, status, driverId });
 
       // Report metered usage for per-collection billing (non-blocking)
       if (status === 'completed') {
@@ -1447,9 +1447,9 @@ export function registerTeamRoutes(app: Express) {
           try {
             const locResult = await pool.query(
               `SELECT l.billing_model, l.stripe_metered_subscription_id, l.per_collection_price
-               FROM route_stops rs JOIN locations l ON l.id = rs.location_id
+               FROM route_orders rs JOIN locations l ON l.id = rs.location_id
                WHERE rs.id = $1`,
-              [stopId]
+              [orderId]
             );
             const loc = locResult.rows[0];
             if (loc?.billing_model === 'per_collection' && loc.stripe_metered_subscription_id) {
@@ -1466,40 +1466,40 @@ export function registerTeamRoutes(app: Express) {
         })();
       }
 
-      // If stop failed, notify the customer
+      // If order failed, notify the customer
       if (status === 'failed') {
-        const stopResult = await pool.query(
-          `SELECT rs.*, l.user_id FROM route_stops rs LEFT JOIN locations l ON l.id = rs.location_id WHERE rs.id = $1`,
-          [stopId]
+        const orderResult = await pool.query(
+          `SELECT rs.*, l.user_id FROM route_orders rs LEFT JOIN locations l ON l.id = rs.location_id WHERE rs.id = $1`,
+          [orderId]
         );
-        const stop = stopResult.rows[0];
-        if (stop?.user_id) {
+        const order = orderResult.rows[0];
+        if (order?.user_id) {
           const { sendServiceUpdate } = await import('./notificationService');
           sendServiceUpdate(
-            stop.user_id,
+            order.user_id,
             'Collection Issue',
-            `Your collection at ${stop.address || 'your location'} could not be completed. Reason: ${failureReason || 'Not specified'}. We'll work to reschedule.`
+            `Your collection at ${order.address || 'your location'} could not be completed. Reason: ${failureReason || 'Not specified'}. We'll work to reschedule.`
           ).catch(() => {});
-          broadcastToUser(stop.user_id, 'stop:failed', { stopId, address: stop.address, reason: failureReason });
+          broadcastToUser(order.user_id, 'order:failed', { orderId, address: order.address, reason: failureReason });
         }
       }
 
       res.json({ success: true });
     } catch (error: any) {
-      console.error('Update stop error:', error);
-      res.status(500).json({ error: 'Failed to update stop' });
+      console.error('Update order error:', error);
+      res.status(500).json({ error: 'Failed to update order' });
     }
   });
 
-  // Upload proof-of-collection photo for a stop
-  app.post('/api/team/routes/:routeId/stops/:stopId/photo', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
+  // Upload proof-of-collection photo for an order
+  app.post('/api/team/routes/:routeId/orders/:orderId/photo', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const { podUpload } = await import('./uploadMiddleware');
       podUpload.single('photo')(req, res, async (err: any) => {
         if (err) return res.status(400).json({ error: err.message });
         if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
 
-        const { routeId, stopId } = req.params;
+        const { routeId, orderId } = req.params;
         const driverId = res.locals.driverProfile.id;
 
         const route = await storage.getRouteById(routeId);
@@ -1511,9 +1511,9 @@ export function registerTeamRoutes(app: Express) {
 
         // Merge photo into existing pod_data
         await pool.query(
-          `UPDATE route_stops SET pod_data = COALESCE(pod_data, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+          `UPDATE route_orders SET pod_data = COALESCE(pod_data, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
            WHERE id = $2 AND route_id = $3`,
-          [JSON.stringify({ photoUrl, photoUploadedAt: new Date().toISOString() }), stopId, routeId]
+          [JSON.stringify({ photoUrl, photoUploadedAt: new Date().toISOString() }), orderId, routeId]
         );
 
         res.json({ success: true, photoUrl });
@@ -1757,9 +1757,9 @@ export function registerTeamRoutes(app: Express) {
       }
       const updated = await storage.updateOnDemandRequest(id, { status: 'completed' });
 
-      // Sync linked route stop(s) so planner/live status views stay consistent.
+      // Sync linked route order(s) so planner/live status views stay consistent.
       await pool.query(
-        `UPDATE route_stops rs
+        `UPDATE route_orders rs
          SET status = 'completed'
          FROM routes r
          WHERE rs.on_demand_request_id = $1
@@ -1791,7 +1791,7 @@ export function registerTeamRoutes(app: Express) {
     try {
       const driverId = res.locals.driverProfile.id;
       const { rows } = await pool.query(
-        `SELECT equipment_types, certifications, max_stops_per_day, min_rating_for_assignment,
+        `SELECT equipment_types, certifications, max_orders_per_day, min_rating_for_assignment,
                 qualifications_verified, qualifications_updated_at
          FROM driver_profiles WHERE id = $1`,
         [driverId]
@@ -1802,7 +1802,7 @@ export function registerTeamRoutes(app: Express) {
         qualifications: {
           equipmentTypes: d.equipment_types || [],
           certifications: d.certifications || [],
-          maxStopsPerDay: d.max_stops_per_day,
+          maxOrdersPerDay: d.max_orders_per_day,
           minRatingForAssignment: Number(d.min_rating_for_assignment),
           verified: d.qualifications_verified ?? false,
           updatedAt: d.qualifications_updated_at,
@@ -1818,7 +1818,7 @@ export function registerTeamRoutes(app: Express) {
   app.put('/api/team/profile/qualifications', requireDriverAuth, requireOnboarded, async (req: Request, res: Response) => {
     try {
       const driverId = res.locals.driverProfile.id;
-      const { equipmentTypes, certifications, maxStopsPerDay } = req.body;
+      const { equipmentTypes, certifications, maxOrdersPerDay } = req.body;
 
       if (equipmentTypes !== undefined && !Array.isArray(equipmentTypes)) {
         return res.status(400).json({ error: 'equipmentTypes must be an array' });
@@ -1826,8 +1826,8 @@ export function registerTeamRoutes(app: Express) {
       if (certifications !== undefined && !Array.isArray(certifications)) {
         return res.status(400).json({ error: 'certifications must be an array' });
       }
-      if (maxStopsPerDay !== undefined && (typeof maxStopsPerDay !== 'number' || maxStopsPerDay < 1 || maxStopsPerDay > 500)) {
-        return res.status(400).json({ error: 'maxStopsPerDay must be a number between 1 and 500' });
+      if (maxOrdersPerDay !== undefined && (typeof maxOrdersPerDay !== 'number' || maxOrdersPerDay < 1 || maxOrdersPerDay > 500)) {
+        return res.status(400).json({ error: 'maxOrdersPerDay must be a number between 1 and 500' });
       }
 
       const updates: string[] = ['qualifications_verified = FALSE', 'qualifications_updated_at = NOW()'];
@@ -1835,12 +1835,12 @@ export function registerTeamRoutes(app: Express) {
       let idx = 1;
       if (equipmentTypes !== undefined) { updates.push(`equipment_types = $${idx++}`); params.push(equipmentTypes); }
       if (certifications !== undefined) { updates.push(`certifications = $${idx++}`); params.push(certifications); }
-      if (maxStopsPerDay !== undefined) { updates.push(`max_stops_per_day = $${idx++}`); params.push(maxStopsPerDay); }
+      if (maxOrdersPerDay !== undefined) { updates.push(`max_orders_per_day = $${idx++}`); params.push(maxOrdersPerDay); }
       params.push(driverId);
 
       const { rows } = await pool.query(
         `UPDATE driver_profiles SET ${updates.join(', ')} WHERE id = $${idx}
-         RETURNING equipment_types, certifications, max_stops_per_day, qualifications_verified, qualifications_updated_at`,
+         RETURNING equipment_types, certifications, max_orders_per_day, qualifications_verified, qualifications_updated_at`,
         params
       );
 
@@ -1853,7 +1853,7 @@ export function registerTeamRoutes(app: Express) {
         qualifications: {
           equipmentTypes: d.equipment_types || [],
           certifications: d.certifications || [],
-          maxStopsPerDay: d.max_stops_per_day,
+          maxOrdersPerDay: d.max_orders_per_day,
           verified: d.qualifications_verified,
           updatedAt: d.qualifications_updated_at,
         },
@@ -1875,7 +1875,7 @@ export function registerTeamRoutes(app: Express) {
         `SELECT rc.*,
                 sz.name AS zone_name,
                 (SELECT COUNT(*) FROM routes r WHERE r.contract_id = rc.id) AS route_count,
-                (SELECT COALESCE(SUM(r.stop_count), 0) FROM routes r WHERE r.contract_id = rc.id) AS stop_count,
+                (SELECT COALESCE(SUM(r.order_count), 0) FROM routes r WHERE r.contract_id = rc.id) AS order_count,
                 (SELECT COALESCE(SUM(r.computed_value), 0) FROM routes r WHERE r.contract_id = rc.id AND r.status = 'completed') AS total_earned
          FROM route_contracts rc
          JOIN service_zones sz ON rc.zone_id = sz.id
@@ -1896,7 +1896,7 @@ export function registerTeamRoutes(app: Express) {
           termsNotes: c.terms_notes,
           createdAt: c.created_at,
           routeCount: parseInt(c.route_count) || 0,
-          stopCount: parseInt(c.stop_count) || 0,
+          orderCount: parseInt(c.order_count) || 0,
           totalEarnings: Number(c.total_earned),
         })),
       });
@@ -2370,7 +2370,7 @@ export function registerTeamRoutes(app: Express) {
       if (contract.rows.length === 0) return res.status(404).json({ error: 'Contract not found' });
 
       const { rows } = await pool.query(
-        `SELECT r.id, r.title, r.scheduled_date, r.status, r.stop_count,
+        `SELECT r.id, r.title, r.scheduled_date, r.status, r.order_count,
                 r.computed_value, r.pay_mode, r.pay_premium, r.actual_pay
          FROM routes r
          WHERE r.contract_id = $1 AND r.assigned_driver_id = $2
@@ -2389,7 +2389,7 @@ export function registerTeamRoutes(app: Express) {
           title: r.title,
           scheduledDate: r.scheduled_date,
           status: r.status,
-          stopCount: r.stop_count || 0,
+          orderCount: r.order_count || 0,
           computedValue: r.computed_value != null ? Number(r.computed_value) : null,
           payMode: r.pay_mode,
           payPremium: r.pay_premium != null ? Number(r.pay_premium) : null,
@@ -2946,19 +2946,19 @@ export function registerTeamRoutes(app: Express) {
            dp.rating,
            dp.reliability_score,
            COUNT(r.id) FILTER (WHERE r.status = 'completed')::int AS completed_routes,
-           COUNT(rs.id) FILTER (WHERE rs.status = 'completed')::int AS completed_stops,
+           COUNT(rs.id) FILTER (WHERE rs.status = 'completed')::int AS completed_orders,
            COALESCE(SUM(r.computed_value) FILTER (WHERE r.status = 'completed'), 0)::numeric(10,2) AS total_earnings,
            COALESCE(AVG(df.rating), dp.rating)::numeric(3,2) AS period_rating
          FROM driver_profiles dp
          LEFT JOIN routes r ON r.assigned_driver_id = dp.id
            AND r.scheduled_date >= CURRENT_DATE - $1::interval
-         LEFT JOIN route_stops rs ON rs.route_id = r.id
+         LEFT JOIN route_orders rs ON rs.route_id = r.id
          LEFT JOIN driver_feedback df ON df.driver_id = dp.id
            AND df.created_at >= CURRENT_DATE - $1::interval
          WHERE dp.onboarding_status = 'completed'
          GROUP BY dp.id
          HAVING COUNT(r.id) FILTER (WHERE r.status = 'completed') > 0
-         ORDER BY completed_stops DESC, period_rating DESC
+         ORDER BY completed_orders DESC, period_rating DESC
          LIMIT 25`,
         [interval]
       );
@@ -2971,7 +2971,7 @@ export function registerTeamRoutes(app: Express) {
         rating: parseFloat(r.period_rating) || 0,
         reliabilityScore: parseFloat(r.reliability_score) || 0,
         completedRoutes: r.completed_routes,
-        completedStops: r.completed_stops,
+        completedOrders: r.completed_orders,
         totalEarnings: r.driver_id === driverId ? parseFloat(r.total_earnings) : undefined, // Only show own earnings
         isYou: r.driver_id === driverId,
       }));
@@ -3096,7 +3096,7 @@ function formatDriverForClient(driverProfile: any, user?: any, provider?: { id: 
     availability: driverProfile.availability,
     equipment_types: driverProfile.equipment_types || [],
     certifications: driverProfile.certifications || [],
-    max_stops_per_day: driverProfile.max_stops_per_day || 50,
+    max_orders_per_day: driverProfile.max_orders_per_day || 50,
     created_at: driverProfile.created_at,
     providerId: provider?.id ?? null,
     providerName: provider?.name ?? null,

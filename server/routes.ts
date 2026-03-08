@@ -394,15 +394,15 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders for this property
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
-        // Update location status and cancel future route stops
+        // Update location status and cancel future route orders
         storage.query(
           `UPDATE locations SET service_status = 'cancelled' WHERE id = $1`,
           [propertyId]
         ).catch(err => console.error(`[Cascade] Failed to update location status:`, err));
 
-        storage.cancelFutureStopsForLocation(propertyId, new Date().toISOString().split('T')[0])
-          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for location ${propertyId}`); })
-          .catch(err => console.error(`[Cascade] Failed to cancel future stops:`, err));
+        storage.cancelFutureOrdersForLocation(propertyId, new Date().toISOString().split('T')[0])
+          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future orders for location ${propertyId}`); })
+          .catch(err => console.error(`[Cascade] Failed to cancel future orders:`, err));
 
         import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
           cleanupFutureOrdersForLocation(propertyId).catch(err =>
@@ -435,15 +435,15 @@ export function registerRoutes(app: Express) {
       // Clean up future OptimoRoute orders while paused
       const propertyId = (subscription as any).metadata?.propertyId;
       if (propertyId) {
-        // Update location status and cancel future route stops
+        // Update location status and cancel future route orders
         storage.query(
           `UPDATE locations SET service_status = 'paused' WHERE id = $1 AND service_status = 'approved'`,
           [propertyId]
         ).catch(err => console.error(`[Cascade] Failed to pause location:`, err));
 
-        storage.cancelFutureStopsForLocation(propertyId, new Date().toISOString().split('T')[0])
-          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future stops for paused location ${propertyId}`); })
-          .catch(err => console.error(`[Cascade] Failed to cancel future stops:`, err));
+        storage.cancelFutureOrdersForLocation(propertyId, new Date().toISOString().split('T')[0])
+          .then(count => { if (count > 0) console.log(`[Cascade] Cancelled ${count} future orders for paused location ${propertyId}`); })
+          .catch(err => console.error(`[Cascade] Failed to cancel future orders:`, err));
 
         import('./optimoSyncService').then(({ cleanupFutureOrdersForLocation }) => {
           cleanupFutureOrdersForLocation(propertyId).catch(err =>
@@ -628,7 +628,7 @@ export function registerRoutes(app: Express) {
         return res.json({ data: result });
       }
 
-      // Fallback: use internal route_stops / collection_day data
+      // Fallback: use internal route_orders / collection_day data
       const userId = req.session?.userId;
       if (!userId) return res.json({ data: null });
 
@@ -638,10 +638,10 @@ export function registerRoutes(app: Express) {
 
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Try next scheduled route stop first
-      const nextStop = await storage.getNextRouteStopForLocation(loc.id, todayStr);
-      if (nextStop) {
-        const d = new Date(nextStop.scheduled_date + 'T00:00:00');
+      // Try next scheduled route order first
+      const nextOrder = await storage.getNextRouteOrderForLocation(loc.id, todayStr);
+      if (nextOrder) {
+        const d = new Date(nextOrder.scheduled_date + 'T00:00:00');
         return res.json({ data: { date: d.toISOString().split('T')[0], source: 'internal' } });
       }
 
@@ -964,8 +964,8 @@ export function registerRoutes(app: Express) {
       const routeResult = await pool.query(
         `SELECT r.id, r.title, r.status, r.assigned_driver_id, r.scheduled_date,
                 dp.name AS driver_name,
-                rs.id AS stop_id, rs.sequence_number, rs.status AS stop_status
-         FROM route_stops rs
+                rs.id AS order_id, rs.sequence_number, rs.status AS order_status
+         FROM route_orders rs
          JOIN routes r ON r.id = rs.route_id
          LEFT JOIN driver_profiles dp ON dp.id = r.assigned_driver_id
          WHERE rs.location_id = $1
@@ -982,16 +982,16 @@ export function registerRoutes(app: Express) {
 
       const route = routeResult.rows[0];
 
-      // Count stops ahead of this one
-      const stopsAheadResult = await pool.query(
-        `SELECT COUNT(*)::int AS stops_ahead
-         FROM route_stops
+      // Count orders ahead of this one
+      const ordersAheadResult = await pool.query(
+        `SELECT COUNT(*)::int AS orders_ahead
+         FROM route_orders
          WHERE route_id = $1
            AND sequence_number < $2
            AND status NOT IN ('completed', 'failed', 'skipped', 'cancelled')`,
         [route.id, route.sequence_number]
       );
-      const stopsAhead = stopsAheadResult.rows[0]?.stops_ahead || 0;
+      const ordersAhead = ordersAheadResult.rows[0]?.orders_ahead || 0;
 
       // Get driver's latest position if route is in progress
       let driverPosition = null;
@@ -1014,9 +1014,9 @@ export function registerRoutes(app: Express) {
           routeTitle: route.title,
           routeStatus: route.status,
           driverName: route.driver_name,
-          stopStatus: route.stop_status,
-          stopsAhead,
-          estimatedMinutes: stopsAhead * 5, // rough estimate: 5 min per stop
+          orderStatus: route.order_status,
+          ordersAhead,
+          estimatedMinutes: ordersAhead * 5, // rough estimate: 5 min per order
           driverPosition,
         },
       });
@@ -1056,11 +1056,11 @@ export function registerRoutes(app: Express) {
                SELECT 1 FROM driver_availability da WHERE da.driver_id = dp.id AND da.date = $3 AND da.available = false
              )
              AND (
-               SELECT COUNT(*)::int FROM route_stops rs
+               SELECT COUNT(*)::int FROM route_orders rs
                JOIN routes r ON r.id = rs.route_id
                WHERE r.assigned_driver_id = dp.id AND r.scheduled_date = $3
                  AND r.status NOT IN ('cancelled', 'completed')
-             ) < COALESCE(dp.max_stops_per_day, 60)`,
+             ) < COALESCE(dp.max_orders_per_day, 60)`,
           [dayName, zoneId, dateStr]
         );
 
@@ -1111,7 +1111,7 @@ export function registerRoutes(app: Express) {
   app.post('/api/feedback', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = (req.session as any).userId;
-      const { routeId, stopId, driverId, rating, comment } = req.body;
+      const { routeId, orderId, driverId, rating, comment } = req.body;
 
       if (!rating || rating < 1 || rating > 5) {
         return res.status(400).json({ error: 'Rating must be between 1 and 5' });
@@ -1122,9 +1122,9 @@ export function registerRoutes(app: Express) {
 
       // Store feedback
       await pool.query(
-        `INSERT INTO driver_feedback (id, driver_id, user_id, route_id, stop_id, rating, comment, created_at)
+        `INSERT INTO driver_feedback (id, driver_id, user_id, route_id, order_id, rating, comment, created_at)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())`,
-        [driverId, userId, routeId || null, stopId || null, rating, comment || null]
+        [driverId, userId, routeId || null, orderId || null, rating, comment || null]
       );
 
       // Recalculate driver's average rating (weighted moving average — recent ratings count more)

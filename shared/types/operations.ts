@@ -56,7 +56,7 @@ export interface Route {
   scheduledDate: string;
   startTime?: string;
   endTime?: string;
-  estimatedStops?: number;
+  estimatedOrders?: number;
   estimatedHours?: number;
   basePay?: number;
   status: RouteStatus;
@@ -74,8 +74,8 @@ export interface Route {
   actualPay?: number;
   paymentStatus?: PaymentStatus;
   completedAt?: string;
-  stopCount?: number;
-  completedStopCount?: number;
+  orderCount?: number;
+  completedOrderCount?: number;
   // OptimoRoute sync tracking
   optimoSynced?: boolean;
   optimoSyncedAt?: string;
@@ -99,14 +99,14 @@ export interface RouteBid {
   message: string | null;
   driverRatingAtBid: number | null;
   bidType: BidType;
-  perStopRate: number | null;
+  perOrderRate: number | null;
   status: BidStatus;
   createdAt: string;
 }
 
-export type RouteStopStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+export type RouteOrderStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'cancelled';
 
-export interface RouteStop {
+export interface RouteOrder {
   id: string;
   routeId: string;
   locationId: string | null;
@@ -114,8 +114,9 @@ export interface RouteStop {
   onDemandRequestId?: string;
   optimoOrderNo?: string;
   optimo_order_no?: string; // snake_case alias from DB queries
-  stopNumber?: number;
-  status: RouteStopStatus | string;
+  orderNumber?: number;
+  order_number?: number; // snake_case alias from DB queries
+  status: RouteOrderStatus | string;
   scheduledAt?: string;
   duration?: number;
   notes?: string;
@@ -168,8 +169,8 @@ export interface CapacityWarning {
   routeId: string;
   title: string;
   date: string;
-  stops: number;
-  maxStops: number;
+  orders: number;
+  maxOrders: number;
   estimatedHours: number;
   maxHours: number;
 }
@@ -248,13 +249,13 @@ export interface RouteContract {
   startDate: string;
   endDate: string;
   status: ContractStatus;
-  perStopRate: number | null;
+  perOrderRate: number | null;
   termsNotes: string | null;
   awardedBy: string | null;
   createdAt: string;
   updatedAt: string;
   // Computed/joined
-  stopCount?: number;
+  orderCount?: number;
   routeCount?: number;
   computedWeeklyValue?: number;
 }
@@ -285,15 +286,15 @@ export interface CompensationBreakdown {
     multiplier: number;
   }>;
   locationCustomRate: number | null;
-  contractPerStopRate: number | null;
+  contractPerOrderRate: number | null;
   finalRate: number;
   source: 'custom_rate' | 'contract_rate' | 'rules_engine';
 }
 
 export interface RouteValuation {
   computedValue: number;
-  stopBreakdowns: Array<{
-    stopId: string;
+  orderBreakdowns: Array<{
+    orderId: string;
     locationId: string;
     address: string;
     compensation: number;
@@ -314,7 +315,7 @@ export interface ContractOpportunity {
   dayOfWeek: string;
   startDate: string;
   durationMonths: number;
-  proposedPerStopRate: number | null;
+  proposedPerOrderRate: number | null;
   requirements: Record<string, any>;
   status: OpportunityStatus;
   awardedContractId: string | null;
@@ -362,9 +363,9 @@ export interface ContractPerformance {
   totalRoutes: number;
   completedRoutes: number;
   completionRate: number;
-  totalStops: number;
-  completedStops: number;
-  stopCompletionRate: number;
+  totalOrders: number;
+  completedOrders: number;
+  orderCompletionRate: number;
   totalCompensation: number;
   avgRouteValue: number;
   coverageRequestCount: number;
@@ -374,7 +375,7 @@ export interface ContractPerformance {
 export interface DriverQualifications {
   equipmentTypes: string[];
   certifications: string[];
-  maxStopsPerDay: number;
+  maxOrdersPerDay: number;
   minRatingForAssignment: number;
 }
 

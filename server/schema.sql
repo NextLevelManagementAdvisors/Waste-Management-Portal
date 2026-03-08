@@ -345,7 +345,7 @@ CREATE TABLE IF NOT EXISTS routes (
   scheduled_date DATE NOT NULL,
   start_time VARCHAR(20),
   end_time VARCHAR(20),
-  estimated_stops INTEGER,
+  estimated_orders INTEGER,
   estimated_hours NUMERIC(4,2),
   base_pay NUMERIC(10,2),
   status VARCHAR(50) DEFAULT 'open',
@@ -577,15 +577,15 @@ CREATE TABLE IF NOT EXISTS service_zones (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Route stops (links locations to routes)
-CREATE TABLE IF NOT EXISTS route_stops (
+-- Route orders (links locations to routes)
+CREATE TABLE IF NOT EXISTS route_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   route_id UUID NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
   location_id UUID NOT NULL REFERENCES locations(id),
   order_type VARCHAR(30) DEFAULT 'recurring',
   on_demand_request_id UUID REFERENCES on_demand_requests(id),
   optimo_order_no VARCHAR(100),
-  stop_number INTEGER,
+  order_number INTEGER,
   status VARCHAR(30) DEFAULT 'pending',
   scheduled_at VARCHAR(20),
   duration INTEGER DEFAULT 15,
@@ -593,8 +593,8 @@ CREATE TABLE IF NOT EXISTS route_stops (
   location_name VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
-CREATE INDEX IF NOT EXISTS idx_route_stops_location ON route_stops(location_id);
+CREATE INDEX IF NOT EXISTS idx_route_orders_route ON route_orders(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_orders_location ON route_orders(location_id);
 
 -- Route extensions
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS route_type VARCHAR(30) DEFAULT 'daily_route';
@@ -920,7 +920,7 @@ CREATE TABLE IF NOT EXISTS pay_statements (
   total_penalties NUMERIC(10,2) DEFAULT 0,
   net_pay NUMERIC(10,2) DEFAULT 0,
   route_count INTEGER DEFAULT 0,
-  stop_count INTEGER DEFAULT 0,
+  order_count INTEGER DEFAULT 0,
   status VARCHAR(20) DEFAULT 'draft',
   created_at TIMESTAMP DEFAULT NOW()
 );

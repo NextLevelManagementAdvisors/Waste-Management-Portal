@@ -118,7 +118,7 @@ export class DriverRepository extends BaseRepository {
     return result.rows[0] || null;
   }
 
-  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_stops: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
+  async updateRoute(routeId: string, data: Partial<{ title: string; description: string; scheduled_date: string; start_time: string; end_time: string; estimated_orders: number; estimated_hours: number; base_pay: number; status: string; assigned_driver_id: string; notes: string }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;

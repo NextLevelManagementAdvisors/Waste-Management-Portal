@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LoadingSpinner, EmptyState } from '../ui/index.ts';
-import type { Route, RouteStop } from '../../../shared/types/index.ts';
+import type { Route, RouteOrder } from '../../../shared/types/index.ts';
 import { getWeatherIcon, CalendarDaysIcon } from '../../../components/Icons.tsx';
 import { Card } from '../../../components/Card.tsx';
 import { STATUS_COLORS } from '../../../shared/components/RouteTable.tsx';
@@ -87,11 +87,11 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   bidding: 'Bidding \u2014 Drivers have submitted bids. Awaiting selection.',
   assigned: 'Assigned \u2014 A driver has been assigned to this route.',
   in_progress: 'In Progress \u2014 Driver is actively running this route.',
-  completed: 'Completed \u2014 All stops have been finished.',
+  completed: 'Completed \u2014 All orders have been finished.',
   cancelled: 'Cancelled \u2014 This route has been cancelled.',
 };
 
-const ROUTE_MAX_STOPS = 50;
+const ROUTE_MAX_ORDERS = 50;
 const OPTIMO_ID_RE = /^[0-9a-f]{20,}$/i;
 
 // ── Helpers ──
@@ -172,8 +172,8 @@ const PlanningCalendar: React.FC = () => {
 
   // Expandable route card state
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
-  const [routeStops, setRouteStops] = useState<Record<string, RouteStop[]>>({});
-  const [loadingStops, setLoadingStops] = useState<string | null>(null);
+  const [routeOrders, setRouteOrders] = useState<Record<string, RouteOrder[]>>({});
+  const [loadingOrders, setLoadingOrders] = useState<string | null>(null);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
 
   // Sync state
@@ -181,8 +181,8 @@ const PlanningCalendar: React.FC = () => {
   const [syncingDay, setSyncingDay] = useState(false);
 
   // Unified view state
-  const [liveStopStatuses, setLiveStopStatuses] = useState<Record<string, string>>({});
-  const [completionStop, setCompletionStop] = useState<{ id?: string; orderNo?: string } | null>(null);
+  const [liveOrderStatuses, setLiveOrderStatuses] = useState<Record<string, string>>({});
+  const [completionOrder, setCompletionOrder] = useState<{ id?: string; orderNo?: string } | null>(null);
   const [showCreateRoute, setShowCreateRoute] = useState(false);
   const [showOptimizer, setShowOptimizer] = useState(false);
   const [showRouteMap, setShowRouteMap] = useState(false);
@@ -190,42 +190,42 @@ const PlanningCalendar: React.FC = () => {
   const [deletingRoute, setDeletingRoute] = useState<string | null>(null);
   const [importingFromOptimo, setImportingFromOptimo] = useState(false);
   const [publishingAll, setPublishingAll] = useState(false);
-  const [importResult, setImportResult] = useState<{ routesImported: number; routesUpdated?: number; routesSkipped: number; stopsImported: number; stopsMatched: number; stopsUnmatched: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ routesImported: number; routesUpdated?: number; routesSkipped: number; ordersImported: number; ordersMatched: number; ordersUnmatched: number; errors: string[] } | null>(null);
 
   // Weather state
   const [weatherByDate, setWeatherByDate] = useState<Map<string, WeatherDay>>(new Map());
   const [weatherError, setWeatherError] = useState<'not_configured' | 'api_error' | null>(null);
 
-  const handleLiveStatusUpdate = useCallback((_driverStatuses: Record<string, string>, stopStatuses: Record<string, string>) => {
-    setLiveStopStatuses(stopStatuses);
+  const handleLiveStatusUpdate = useCallback((_driverStatuses: Record<string, string>, orderStatuses: Record<string, string>) => {
+    setLiveOrderStatuses(orderStatuses);
     // Persist live statuses to the database
-    if (Object.keys(stopStatuses).length > 0) {
+    if (Object.keys(orderStatuses).length > 0) {
       fetch('/api/admin/routes/sync-live-statuses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ stopStatuses }),
+        body: JSON.stringify({ orderStatuses }),
       }).catch(() => {});
     }
   }, []);
 
-  const handleRemoveStop = async (routeId: string, stopId: string) => {
-    if (!confirm('Remove this stop?')) return;
+  const handleRemoveOrder = async (routeId: string, orderId: string) => {
+    if (!confirm('Remove this order?')) return;
     try {
-      const res = await fetch(`/api/admin/routes/${routeId}/stops/${stopId}`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`/api/admin/routes/${routeId}/orders/${orderId}`, { method: 'DELETE', credentials: 'include' });
       if (res.ok) {
-        setRouteStops(prev => ({ ...prev, [routeId]: (prev[routeId] ?? []).filter(s => s.id !== stopId) }));
-        setDayRoutes(prev => prev.map(r => r.id === routeId ? { ...r, stopCount: Math.max(0, (r.stopCount ?? 0) - 1) } : r));
+        setRouteOrders(prev => ({ ...prev, [routeId]: (prev[routeId] ?? []).filter(s => s.id !== orderId) }));
+        setDayRoutes(prev => prev.map(r => r.id === routeId ? { ...r, orderCount: Math.max(0, (r.orderCount ?? 0) - 1) } : r));
         fetchCalendarData();
       }
     } catch (e) {
-      console.error('Failed to remove stop:', e);
+      console.error('Failed to remove order:', e);
     }
   };
 
   const handleDeleteRoute = async (routeId: string, hardDelete: boolean) => {
     const msg = hardDelete
-      ? 'Permanently delete this route and all its stops? This cannot be undone.'
+      ? 'Permanently delete this route and all its orders? This cannot be undone.'
       : 'Cancel this route?';
     if (!confirm(msg)) return;
     setDeletingRoute(routeId);
@@ -383,7 +383,7 @@ const PlanningCalendar: React.FC = () => {
       return;
     }
     setSelectedDate(date);
-    setLiveStopStatuses({});
+    setLiveOrderStatuses({});
     try {
       await fetch('/api/admin/optimoroute/import-routes', {
         method: 'POST',
@@ -394,12 +394,22 @@ const PlanningCalendar: React.FC = () => {
     } catch {}
     // Pull completion statuses from OptimoRoute before loading day detail
     try {
-      await fetch('/api/admin/routes/pull-completion-for-date', {
+      const completionRes = await fetch('/api/admin/routes/pull-completion-for-date', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ date }),
       });
+      if (completionRes.ok) {
+        const completionData = await completionRes.json();
+        const r = completionData.reconciliation;
+        if (r && (r.deleted > 0 || r.rescheduled > 0)) {
+          const parts: string[] = [];
+          if (r.deleted > 0) parts.push(`${r.deleted} deleted`);
+          if (r.rescheduled > 0) parts.push(`${r.rescheduled} rescheduled`);
+          showToast(`OptimoRoute reconciliation: ${parts.join(', ')} in OptimoRoute`, 'warning');
+        }
+      }
     } catch {}
     fetchDayDetail(date);
   };
@@ -413,11 +423,11 @@ const PlanningCalendar: React.FC = () => {
         method: 'POST',
         credentials: 'include',
       });
-      // Refresh stops for this route
-      const res = await fetch(`/api/admin/routes/${routeId}/stops`, { credentials: 'include' });
+      // Refresh orders for this route
+      const res = await fetch(`/api/admin/routes/${routeId}/orders`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setRouteStops(prev => ({ ...prev, [routeId]: data.stops ?? [] }));
+        setRouteOrders(prev => ({ ...prev, [routeId]: data.orders ?? [] }));
       }
       await refreshDay();
     } catch (e) {
@@ -480,19 +490,19 @@ const PlanningCalendar: React.FC = () => {
       return;
     }
     setExpandedRouteId(routeId);
-    if (routeStops[routeId]) return;
+    if (routeOrders[routeId]) return;
 
-    setLoadingStops(routeId);
+    setLoadingOrders(routeId);
     try {
-      const res = await fetch(`/api/admin/routes/${routeId}/stops`, { credentials: 'include' });
+      const res = await fetch(`/api/admin/routes/${routeId}/orders`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setRouteStops(prev => ({ ...prev, [routeId]: data.stops ?? [] }));
+        setRouteOrders(prev => ({ ...prev, [routeId]: data.orders ?? [] }));
       }
     } catch (e) {
-      console.error('Failed to load stops:', e);
+      console.error('Failed to load orders:', e);
     } finally {
-      setLoadingStops(null);
+      setLoadingOrders(null);
     }
   };
 
@@ -641,8 +651,8 @@ const PlanningCalendar: React.FC = () => {
                 <div className="text-[10px] font-bold text-gray-400 uppercase">Routes</div>
               </div>
               <div className="bg-gray-50 rounded-lg p-2">
-                <div className="text-lg font-bold text-gray-900">{dayRoutes.reduce((sum, r) => sum + (r.stopCount ?? r.estimatedStops ?? 0), 0)}</div>
-                <div className="text-[10px] font-bold text-gray-400 uppercase">Stops</div>
+                <div className="text-lg font-bold text-gray-900">{dayRoutes.reduce((sum, r) => sum + (r.orderCount ?? r.estimatedOrders ?? 0), 0)}</div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase">Orders</div>
               </div>
               <div className="bg-gray-50 rounded-lg p-2">
                 <div className="text-lg font-bold text-gray-900">{dayOnDemand.length}</div>
@@ -711,14 +721,14 @@ const PlanningCalendar: React.FC = () => {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-800">
-                    Imported {importResult.routesImported} route{importResult.routesImported !== 1 ? 's' : ''}, {importResult.stopsImported} stop{importResult.stopsImported !== 1 ? 's' : ''}
+                    Imported {importResult.routesImported} route{importResult.routesImported !== 1 ? 's' : ''}, {importResult.ordersImported} order{importResult.ordersImported !== 1 ? 's' : ''}
                     {(importResult.routesUpdated || 0) > 0 && `, updated ${importResult.routesUpdated} existing route${importResult.routesUpdated !== 1 ? 's' : ''}`}
                     {importResult.routesSkipped > 0 && ` (${importResult.routesSkipped} skipped)`}
                   </span>
                   <button type="button" onClick={() => setImportResult(null)} className="text-amber-600 hover:text-amber-800 font-bold">&times;</button>
                 </div>
-                {importResult.stopsUnmatched > 0 && (
-                  <div className="text-amber-700 mt-1">{importResult.stopsMatched} matched to local locations, {importResult.stopsUnmatched} address-only</div>
+                {importResult.ordersUnmatched > 0 && (
+                  <div className="text-amber-700 mt-1">{importResult.ordersMatched} matched to local locations, {importResult.ordersUnmatched} address-only</div>
                 )}
                 {importResult.errors.length > 0 && (
                   <div className="text-red-600 mt-1">{importResult.errors.join(', ')}</div>
@@ -732,26 +742,26 @@ const PlanningCalendar: React.FC = () => {
                 <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Routes</h4>
                 <div className="space-y-3">
                   {dayRoutes.map(route => {
-                    const stopCount = route.stopCount ?? route.estimatedStops ?? 0;
-                    const minutesPerStop = 8;
-                    const estimatedHours = (stopCount * minutesPerStop / 60);
-                    const overCapacity = stopCount > ROUTE_MAX_STOPS;
+                    const orderCount = route.orderCount ?? route.estimatedOrders ?? 0;
+                    const minutesPerOrder = 8;
+                    const estimatedHours = (orderCount * minutesPerOrder / 60);
+                    const overCapacity = orderCount > ROUTE_MAX_ORDERS;
                     const isExpanded = expandedRouteId === route.id;
-                    const stops = routeStops[route.id];
+                    const orders = routeOrders[route.id];
                     const isLive = route.status === 'in_progress';
                     const syncIndicator = getSyncIndicator(route);
                     const isLate = route.status === 'assigned' && route.scheduledDate && new Date(route.scheduledDate + 'T23:59:59') < new Date();
 
-                    let completedStops = route.completedStopCount ?? 0;
-                    if (stops && stops.length > 0) {
-                      const DONE = new Set(['completed', 'success', 'failed', 'rejected']);
-                      completedStops = stops.filter(s => {
-                        const live = (s.optimoOrderNo || s.optimo_order_no) ? liveStopStatuses[(s.optimoOrderNo || s.optimo_order_no)!] : null;
+                    let completedOrders = route.completedOrderCount ?? 0;
+                    if (orders && orders.length > 0) {
+                      const DONE = new Set(['completed', 'success', 'failed', 'rejected', 'deleted_in_optimo', 'rescheduled_in_optimo']);
+                      completedOrders = orders.filter(s => {
+                        const live = (s.optimoOrderNo || s.optimo_order_no) ? liveOrderStatuses[(s.optimoOrderNo || s.optimo_order_no)!] : null;
                         return DONE.has(live || '') || DONE.has(s.status);
                       }).length;
                     }
-                    const progressPct = stopCount > 0 ? Math.round((completedStops / stopCount) * 100) : 0;
-                    const showProgress = ['assigned', 'in_progress', 'completed'].includes(route.status) && stopCount > 0;
+                    const progressPct = orderCount > 0 ? Math.round((completedOrders / orderCount) * 100) : 0;
+                    const showProgress = ['assigned', 'in_progress', 'completed'].includes(route.status) && orderCount > 0;
 
                     return (
                       <div key={route.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -787,9 +797,9 @@ const PlanningCalendar: React.FC = () => {
                                   Late
                                 </span>
                               )}
-                              {route.status === 'completed' && (route.completedStopCount ?? 0) < (route.stopCount ?? 0) && (route.stopCount ?? 0) > 0 && (
+                              {route.status === 'completed' && (route.completedOrderCount ?? 0) < (route.orderCount ?? 0) && (route.orderCount ?? 0) > 0 && (
                                 <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700"
-                                  title={`Completed with ${(route.stopCount ?? 0) - (route.completedStopCount ?? 0)} incomplete stops`}>
+                                  title={`Completed with ${(route.orderCount ?? 0) - (route.completedOrderCount ?? 0)} incomplete orders`}>
                                   &#9888; Incomplete
                                 </span>
                               )}
@@ -807,7 +817,7 @@ const PlanningCalendar: React.FC = () => {
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                              <span>{stopCount} stops</span>
+                              <span>{orderCount} orders</span>
                               <span>~{estimatedHours.toFixed(1)}h</span>
                               {route.basePay != null && <span>${Number(route.basePay).toFixed(0)}</span>}
                               {route.computedValue != null && <span className="text-teal-600">${Number(route.computedValue).toFixed(0)} comp</span>}
@@ -822,7 +832,7 @@ const PlanningCalendar: React.FC = () => {
                             {overCapacity && (
                               <div className="mt-1 flex items-center gap-2">
                                 <span className="text-xs font-bold text-amber-600">
-                                  {stopCount} stops (max {ROUTE_MAX_STOPS}) — over capacity
+                                  {orderCount} orders (max {ROUTE_MAX_ORDERS}) — over capacity
                                 </span>
                                 {route.status === 'draft' && (
                                   <button
@@ -834,7 +844,7 @@ const PlanningCalendar: React.FC = () => {
                                           method: 'POST',
                                           headers: { 'Content-Type': 'application/json' },
                                           credentials: 'include',
-                                          body: JSON.stringify({ maxStops: ROUTE_MAX_STOPS }),
+                                          body: JSON.stringify({ maxOrders: ROUTE_MAX_ORDERS }),
                                         });
                                         if (res.ok) {
                                           const result = await res.json();
@@ -873,13 +883,13 @@ const PlanningCalendar: React.FC = () => {
                                 />
                               </div>
                               <span className="text-[10px] font-bold text-gray-500 whitespace-nowrap">
-                                {completedStops}/{stopCount} stops
+                                {completedOrders}/{orderCount} orders
                               </span>
                             </div>
                           </div>
                         )}
 
-                        {/* Expanded: stops table + actions */}
+                        {/* Expanded: orders table + actions */}
                         {isExpanded && (
                           <div className="border-t border-gray-100">
                             {/* Route action buttons */}
@@ -928,10 +938,10 @@ const PlanningCalendar: React.FC = () => {
                               )}
                             </div>
 
-                            {/* Stops table */}
-                            {loadingStops === route.id ? (
-                              <div className="p-4 text-center"><div className="text-sm text-gray-400">Loading stops...</div></div>
-                            ) : stops && stops.length > 0 ? (
+                            {/* Orders table */}
+                            {loadingOrders === route.id ? (
+                              <div className="p-4 text-center"><div className="text-sm text-gray-400">Loading orders...</div></div>
+                            ) : orders && orders.length > 0 ? (
                               <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                   <thead>
@@ -944,13 +954,13 @@ const PlanningCalendar: React.FC = () => {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {stops.map((p, idx) => {
+                                    {orders.map((p, idx) => {
                                       const orderNo = p.optimoOrderNo || p.optimo_order_no;
-                                      const liveStatus = orderNo ? liveStopStatuses[orderNo] : null;
+                                      const liveStatus = orderNo ? liveOrderStatuses[orderNo] : null;
                                       const displayStatus = liveStatus || p.status;
                                       return (
                                       <tr key={p.id} className="border-t border-gray-50">
-                                        <td className="px-3 py-1.5 text-gray-400 font-bold">{p.stopNumber ?? idx + 1}</td>
+                                        <td className="px-3 py-1.5 text-gray-400 font-bold">{p.orderNumber ?? idx + 1}</td>
                                         <td className="px-3 py-1.5">
                                           <div className="text-gray-900 truncate max-w-[180px]">{p.address}</div>
                                           <div className="text-xs text-gray-400 truncate">{p.customerName}</div>
@@ -962,14 +972,14 @@ const PlanningCalendar: React.FC = () => {
                                         </td>
                                         <td className="px-3 py-1.5">
                                           <span className={`text-xs font-bold ${
-                                            displayStatus === 'completed' || displayStatus === 'success' ? 'text-green-600' : displayStatus === 'failed' || displayStatus === 'rejected' ? 'text-red-600' : displayStatus === 'in_progress' || displayStatus === 'on_route' || displayStatus === 'servicing' ? 'text-blue-600' : displayStatus === 'skipped' ? 'text-amber-600' : displayStatus === 'cancelled' ? 'text-red-400' : 'text-gray-400'
+                                            displayStatus === 'completed' || displayStatus === 'success' ? 'text-green-600' : displayStatus === 'failed' || displayStatus === 'rejected' ? 'text-red-600' : displayStatus === 'in_progress' || displayStatus === 'on_route' || displayStatus === 'servicing' ? 'text-blue-600' : displayStatus === 'skipped' ? 'text-amber-600' : displayStatus === 'cancelled' ? 'text-red-400' : displayStatus === 'deleted_in_optimo' ? 'text-red-500 line-through' : displayStatus === 'rescheduled_in_optimo' ? 'text-orange-500' : 'text-gray-400'
                                           }`}>{displayStatus}</span>
                                         </td>
                                         <td className="px-3 py-1.5 flex items-center gap-1">
                                           {orderNo && (
                                             <button type="button" onClick={(e) => {
                                               e.stopPropagation();
-                                              setCompletionStop(isOptimoId(orderNo) ? { id: orderNo } : { orderNo });
+                                              setCompletionOrder(isOptimoId(orderNo) ? { id: orderNo } : { orderNo });
                                             }}
                                               className="text-xs font-bold text-teal-600 hover:text-teal-800">
                                               POD
@@ -994,8 +1004,8 @@ const PlanningCalendar: React.FC = () => {
                                             } catch { return null; }
                                           })()}
                                           {route.status !== 'completed' && route.status !== 'cancelled' && (
-                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveStop(route.id, p.id); }}
-                                              className="text-xs font-bold text-red-400 hover:text-red-600" title="Remove stop">
+                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveOrder(route.id, p.id); }}
+                                              className="text-xs font-bold text-red-400 hover:text-red-600" title="Remove order">
                                               &times;
                                             </button>
                                           )}
@@ -1007,7 +1017,7 @@ const PlanningCalendar: React.FC = () => {
                                 </table>
                               </div>
                             ) : (
-                              <div className="p-3 text-center text-xs text-gray-400">No stops assigned</div>
+                              <div className="p-3 text-center text-xs text-gray-400">No orders assigned</div>
                             )}
 
                             {/* Bid Section */}
@@ -1049,7 +1059,7 @@ const PlanningCalendar: React.FC = () => {
                             title={`Add to ${draftRoutes[0].title}`}
                             onClick={async () => {
                               try {
-                                const res = await fetch(`/api/admin/routes/${draftRoutes[0].id}/stops`, {
+                                const res = await fetch(`/api/admin/routes/${draftRoutes[0].id}/orders`, {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
                                   credentials: 'include',
@@ -1059,10 +1069,10 @@ const PlanningCalendar: React.FC = () => {
                                   showToast('success', `Added to ${draftRoutes[0].title}`);
                                   await refreshDay();
                                 } else {
-                                  showToast('error', 'Failed to add stop to route.');
+                                  showToast('error', 'Failed to add order to route.');
                                 }
                               } catch {
-                                showToast('error', 'Failed to add stop to route.');
+                                showToast('error', 'Failed to add order to route.');
                               }
                             }}
                             className="flex-shrink-0 px-2 py-1 text-[10px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors"
@@ -1334,8 +1344,8 @@ const PlanningCalendar: React.FC = () => {
       )}
 
       {/* Completion Detail Modal */}
-      {completionStop && (
-        <CompletionDetailModal stopIdentifier={completionStop} onClose={() => setCompletionStop(null)} />
+      {completionOrder && (
+        <CompletionDetailModal orderIdentifier={completionOrder} onClose={() => setCompletionOrder(null)} />
       )}
     </div>
   );

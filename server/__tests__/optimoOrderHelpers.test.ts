@@ -64,23 +64,23 @@ describe('optimoOrderHelpers', () => {
     expect(normalizeOptimoStatus('on-route')).toBe('in_progress');
   });
 
-  it('builds identifier backfills from imported Optimo routes that only expose stop ids', () => {
+  it('builds identifier backfills from imported Optimo routes that only expose order ids', () => {
     const route = {
       id: 'route-1',
       title: 'John Geodicke - 2026-03-06',
       scheduled_date: new Date('2026-03-06T05:00:00.000Z'),
       optimo_route_key: '2026-03-06_John Geodicke',
     };
-    const localStops = [
+    const localOrders = [
       {
-        id: 'stop-1',
-        stop_number: 1,
+        id: 'order-1',
+        order_number: 1,
         address: '2370 Shenandoah Shores Rd, Front Royal, VA 22630, USA',
         optimo_order_no: null,
       },
       {
-        id: 'stop-2',
-        stop_number: 2,
+        id: 'order-2',
+        order_number: 2,
         address: '233 Rollason Dr, Front Royal, VA 22630, USA',
         optimo_order_no: null,
       },
@@ -110,17 +110,17 @@ describe('optimoOrderHelpers', () => {
     expect(getRouteDate(route)).toBe('2026-03-06');
     expect(findMatchingOptimoRoute(route, optimoRoutes)).toEqual(optimoRoutes[0]);
     expect(getOptimoApiOrderIdentifier(optimoRoutes[0].stops[0])).toBe('57aa5137170b1202d36fd49d839c3530');
-    expect(buildOrderIdentifierBackfill(route, localStops, optimoRoutes)).toEqual([
+    expect(buildOrderIdentifierBackfill(route, localOrders, optimoRoutes)).toEqual([
       {
-        stopId: 'stop-1',
+        orderId: 'order-1',
         identifier: '57aa5137170b1202d36fd49d839c3530',
-        stopNumber: 1,
+        orderNumber: 1,
         scheduledAt: '07:27',
       },
       {
-        stopId: 'stop-2',
+        orderId: 'order-2',
         identifier: 'ebe738318dbb1c979451b929651e7179',
-        stopNumber: 2,
+        orderNumber: 2,
         scheduledAt: '07:31',
       },
     ]);

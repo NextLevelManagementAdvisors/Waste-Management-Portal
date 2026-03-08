@@ -26,7 +26,7 @@ interface DriverQualificationsCardProps {
 interface Qualifications {
   equipmentTypes: string[];
   certifications: string[];
-  maxStopsPerDay: number;
+  maxOrdersPerDay: number;
   minRatingForAssignment: number;
 }
 
@@ -35,7 +35,7 @@ const DriverQualificationsCard: React.FC<DriverQualificationsCardProps> = ({ dri
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState<Qualifications>({ equipmentTypes: [], certifications: [], maxStopsPerDay: 50, minRatingForAssignment: 0 });
+  const [form, setForm] = useState<Qualifications>({ equipmentTypes: [], certifications: [], maxOrdersPerDay: 50, minRatingForAssignment: 0 });
 
   const load = useCallback(async () => {
     try {
@@ -122,8 +122,8 @@ const DriverQualificationsCard: React.FC<DriverQualificationsCardProps> = ({ dri
             </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-gray-400 uppercase mb-1">Max Stops/Day</dt>
-            <dd className="text-sm font-medium text-gray-900">{quals?.maxStopsPerDay ?? 50}</dd>
+            <dt className="text-[10px] font-bold text-gray-400 uppercase mb-1">Max Orders/Day</dt>
+            <dd className="text-sm font-medium text-gray-900">{quals?.maxOrdersPerDay ?? 50}</dd>
           </div>
           <div>
             <dt className="text-[10px] font-bold text-gray-400 uppercase mb-1">Min Rating for Assignment</dt>
@@ -160,9 +160,9 @@ const DriverQualificationsCard: React.FC<DriverQualificationsCardProps> = ({ dri
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Max Stops/Day</label>
-              <input type="number" min="1" max="200" value={form.maxStopsPerDay}
-                onChange={e => setForm({ ...form, maxStopsPerDay: parseInt(e.target.value) || 50 })}
+              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Max Orders/Day</label>
+              <input type="number" min="1" max="200" value={form.maxOrdersPerDay}
+                onChange={e => setForm({ ...form, maxOrdersPerDay: parseInt(e.target.value) || 50 })}
                 className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
@@ -177,7 +177,7 @@ const DriverQualificationsCard: React.FC<DriverQualificationsCardProps> = ({ dri
               className="px-4 py-1.5 bg-teal-600 text-white text-sm font-medium rounded hover:bg-teal-700 disabled:opacity-50">
               {saving ? 'Saving...' : 'Save'}
             </button>
-            <button onClick={() => { setEditing(false); setForm(quals || { equipmentTypes: [], certifications: [], maxStopsPerDay: 50, minRatingForAssignment: 0 }); setError(''); }}
+            <button onClick={() => { setEditing(false); setForm(quals || { equipmentTypes: [], certifications: [], maxOrdersPerDay: 50, minRatingForAssignment: 0 }); setError(''); }}
               className="px-4 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded hover:bg-gray-200">
               Cancel
             </button>

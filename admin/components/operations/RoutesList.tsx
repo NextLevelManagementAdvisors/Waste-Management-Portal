@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingSpinner, EmptyState, FilterBar } from '../ui/index.ts';
-import type { Route, RouteBid, RouteStop } from '../../../shared/types/index.ts';
+import type { Route, RouteBid, RouteOrder } from '../../../shared/types/index.ts';
 import RouteTable from '../../../shared/components/RouteTable.tsx';
 import CreateRouteModal from './CreateRouteModal.tsx';
 import EditRouteModal from './EditRouteModal.tsx';
@@ -69,9 +69,9 @@ const RoutesList: React.FC = () => {
     return [];
   }, []);
 
-  const fetchStops = useCallback(async (routeId: string): Promise<RouteStop[]> => {
-    const res = await fetch(`/api/admin/routes/${routeId}/stops`, { credentials: 'include' });
-    if (res.ok) { const data = await res.json(); return data.stops ?? []; }
+  const fetchOrders = useCallback(async (routeId: string): Promise<RouteOrder[]> => {
+    const res = await fetch(`/api/admin/routes/${routeId}/orders`, { credentials: 'include' });
+    if (res.ok) { const data = await res.json(); return data.orders ?? []; }
     return [];
   }, []);
 
@@ -149,9 +149,9 @@ const RoutesList: React.FC = () => {
       ) : (
         <RouteTable
           routes={filtered}
-          columns={{ type: true, driver: true, pay: true, stops: true }}
+          columns={{ type: true, driver: true, pay: true, orders: true }}
           onExpandBids={fetchBids}
-          onExpandStops={fetchStops}
+          onExpandOrders={fetchOrders}
           canAcceptBids
           onAcceptBid={acceptBid}
           renderActions={(route) => (

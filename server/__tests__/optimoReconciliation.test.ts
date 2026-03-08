@@ -10,7 +10,7 @@ import { reconcileDeletedOrders } from '../optimoOrderHelpers';
 import * as optimo from '../optimoRouteClient';
 
 const mockStorage = {
-  updateRouteStop: vi.fn().mockResolvedValue({}),
+  updateRouteOrder: vi.fn().mockResolvedValue({}),
 };
 
 describe('reconcileDeletedOrders', () => {
@@ -18,7 +18,7 @@ describe('reconcileDeletedOrders', () => {
     vi.clearAllMocks();
   });
 
-  it('detects order deleted in OptimoRoute and updates stop status', async () => {
+  it('detects order deleted in OptimoRoute and updates order status', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({
       orders: [{ orderNo: 'ROUTE-other-order' }],
     });
@@ -27,14 +27,14 @@ describe('reconcileDeletedOrders', () => {
       orderScheduled: false,
     });
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-12345678-aaa', status: 'scheduled' },
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-12345678-aaa', status: 'scheduled' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 1, rescheduled: 0, unchanged: 0 });
-    expect(mockStorage.updateRouteStop).toHaveBeenCalledWith('stop-1', {
+    expect(mockStorage.updateRouteOrder).toHaveBeenCalledWith('order-1', {
       status: 'deleted_in_optimo',
       notes: 'Deleted from OptimoRoute externally',
     });
@@ -55,60 +55,60 @@ describe('reconcileDeletedOrders', () => {
       },
     });
 
-    const stops = [
-      { id: 'stop-2', optimo_order_no: 'ROUTE-12345678-bbb', status: 'pending' },
+    const orders = [
+      { id: 'order-2', optimo_order_no: 'ROUTE-12345678-bbb', status: 'pending' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 0, rescheduled: 1, unchanged: 0 });
-    expect(mockStorage.updateRouteStop).toHaveBeenCalledWith('stop-2', {
+    expect(mockStorage.updateRouteOrder).toHaveBeenCalledWith('order-2', {
       status: 'rescheduled_in_optimo',
       notes: 'Rescheduled in OptimoRoute to 2026-03-12',
     });
   });
 
-  it('leaves stop unchanged when order still exists in OptimoRoute', async () => {
+  it('leaves order unchanged when order still exists in OptimoRoute', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({
       orders: [{ orderNo: 'ROUTE-12345678-aaa' }],
     });
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-12345678-aaa', status: 'scheduled' },
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-12345678-aaa', status: 'scheduled' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 0, rescheduled: 0, unchanged: 1 });
-    expect(mockStorage.updateRouteStop).not.toHaveBeenCalled();
+    expect(mockStorage.updateRouteOrder).not.toHaveBeenCalled();
   });
 
-  it('skips stops without optimo_order_no', async () => {
+  it('skips orders without optimo_order_no', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({ orders: [] });
 
-    const stops = [
-      { id: 'stop-1', status: 'pending' },
-      { id: 'stop-2', optimo_order_no: '', status: 'pending' },
+    const orders = [
+      { id: 'order-1', status: 'pending' },
+      { id: 'order-2', optimo_order_no: '', status: 'pending' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 0, rescheduled: 0, unchanged: 0 });
     expect(optimo.searchOrders).not.toHaveBeenCalled();
-    expect(mockStorage.updateRouteStop).not.toHaveBeenCalled();
+    expect(mockStorage.updateRouteOrder).not.toHaveBeenCalled();
   });
 
-  it('skips stops already in terminal status', async () => {
+  it('skips orders already in terminal status', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({ orders: [] });
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-aaa', status: 'completed' },
-      { id: 'stop-2', optimo_order_no: 'ROUTE-bbb', status: 'failed' },
-      { id: 'stop-3', optimo_order_no: 'ROUTE-ccc', status: 'cancelled' },
-      { id: 'stop-4', optimo_order_no: 'ROUTE-ddd', status: 'deleted_in_optimo' },
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-aaa', status: 'completed' },
+      { id: 'order-2', optimo_order_no: 'ROUTE-bbb', status: 'failed' },
+      { id: 'order-3', optimo_order_no: 'ROUTE-ccc', status: 'cancelled' },
+      { id: 'order-4', optimo_order_no: 'ROUTE-ddd', status: 'deleted_in_optimo' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 0, rescheduled: 0, unchanged: 0 });
     expect(optimo.searchOrders).not.toHaveBeenCalled();
@@ -117,35 +117,35 @@ describe('reconcileDeletedOrders', () => {
   it('handles searchOrders API failure gracefully', async () => {
     vi.mocked(optimo.searchOrders).mockRejectedValue(new Error('API down'));
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-aaa', status: 'scheduled' },
-      { id: 'stop-2', optimo_order_no: 'ROUTE-bbb', status: 'pending' },
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-aaa', status: 'scheduled' },
+      { id: 'order-2', optimo_order_no: 'ROUTE-bbb', status: 'pending' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 0, rescheduled: 0, unchanged: 2 });
-    expect(mockStorage.updateRouteStop).not.toHaveBeenCalled();
+    expect(mockStorage.updateRouteOrder).not.toHaveBeenCalled();
   });
 
   it('handles getSchedulingInfo failure by marking as deleted', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({ orders: [] });
     vi.mocked(optimo.getSchedulingInfo).mockRejectedValue(new Error('timeout'));
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-aaa', status: 'scheduled' },
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-aaa', status: 'scheduled' },
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 1, rescheduled: 0, unchanged: 0 });
-    expect(mockStorage.updateRouteStop).toHaveBeenCalledWith('stop-1', {
+    expect(mockStorage.updateRouteOrder).toHaveBeenCalledWith('order-1', {
       status: 'deleted_in_optimo',
       notes: 'Deleted from OptimoRoute (scheduling info unavailable)',
     });
   });
 
-  it('handles mixed scenario with multiple stops', async () => {
+  it('handles mixed scenario with multiple orders', async () => {
     vi.mocked(optimo.searchOrders).mockResolvedValue({
       orders: [{ orderNo: 'ROUTE-exists' }],
     });
@@ -162,17 +162,17 @@ describe('reconcileDeletedOrders', () => {
         },
       }); // rescheduled
 
-    const stops = [
-      { id: 'stop-1', optimo_order_no: 'ROUTE-exists', status: 'scheduled' },
-      { id: 'stop-2', optimo_order_no: 'ROUTE-deleted', status: 'pending' },
-      { id: 'stop-3', optimo_order_no: 'ROUTE-moved', status: 'scheduled' },
-      { id: 'stop-4', status: 'pending' }, // no optimo_order_no
-      { id: 'stop-5', optimo_order_no: 'ROUTE-done', status: 'completed' }, // terminal
+    const orders = [
+      { id: 'order-1', optimo_order_no: 'ROUTE-exists', status: 'scheduled' },
+      { id: 'order-2', optimo_order_no: 'ROUTE-deleted', status: 'pending' },
+      { id: 'order-3', optimo_order_no: 'ROUTE-moved', status: 'scheduled' },
+      { id: 'order-4', status: 'pending' }, // no optimo_order_no
+      { id: 'order-5', optimo_order_no: 'ROUTE-done', status: 'completed' }, // terminal
     ];
 
-    const result = await reconcileDeletedOrders('2026-03-09', stops, mockStorage);
+    const result = await reconcileDeletedOrders('2026-03-09', orders, mockStorage);
 
     expect(result).toEqual({ deleted: 1, rescheduled: 1, unchanged: 1 });
-    expect(mockStorage.updateRouteStop).toHaveBeenCalledTimes(2);
+    expect(mockStorage.updateRouteOrder).toHaveBeenCalledTimes(2);
   });
 });

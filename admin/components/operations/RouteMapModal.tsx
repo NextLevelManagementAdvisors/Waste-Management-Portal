@@ -15,13 +15,13 @@ interface OptimoRoute {
   driverName?: string;
   driverSerial?: string;
   routePolyline?: string;
-  stops?: Array<{
+  orders?: Array<{
     orderNo?: string;
     locationName?: string;
     address?: string;
     latitude?: number;
     longitude?: number;
-    stopNumber?: number;
+    orderNumber?: number;
     type?: string;
     location?: { address?: string; latitude?: number; longitude?: number };
   }>;
@@ -73,8 +73,8 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ date, onClose }) => {
       allPoints.push(...pts);
       routeLines.push({ points: pts, color, name });
     } else {
-      // Fall back to connecting stop coordinates if no polyline
-      const pts: [number, number][] = (route.stops || [])
+      // Fall back to connecting order coordinates if no polyline
+      const pts: [number, number][] = (route.orders || [])
         .filter(s => s.type !== 'break' && s.type !== 'depot')
         .map(s => {
           const lat = s.latitude ?? s.location?.latitude;
@@ -147,22 +147,22 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ date, onClose }) => {
                 <Polyline key={i} positions={r.points} color={r.color} weight={4} opacity={0.85} />
               ))}
 
-              {/* Stop markers */}
+              {/* Order markers */}
               {routes.map((route, ri) => {
                 const color = ROUTE_COLORS[ri % ROUTE_COLORS.length];
-                return (route.stops || [])
+                return (route.orders || [])
                   .filter(s => s.type !== 'break' && s.type !== 'depot')
-                  .map((stop, si) => {
-                    const lat = stop.latitude ?? stop.location?.latitude;
-                    const lng = stop.longitude ?? stop.location?.longitude;
+                  .map((order, si) => {
+                    const lat = order.latitude ?? order.location?.latitude;
+                    const lng = order.longitude ?? order.location?.longitude;
                     if (lat == null || lng == null) return null;
-                    const addr = stop.address ?? stop.location?.address ?? '';
+                    const addr = order.address ?? order.location?.address ?? '';
                     return (
                       <CircleMarker key={`${ri}-${si}`} center={[lat, lng]} radius={6}
                         pathOptions={{ color, fillColor: color, fillOpacity: 1, weight: 2 }}>
                         <Popup>
                           <div className="text-xs">
-                            <div className="font-bold">{stop.stopNumber != null ? `#${stop.stopNumber} ` : ''}{stop.locationName || ''}</div>
+                            <div className="font-bold">{order.orderNumber != null ? `#${order.orderNumber} ` : ''}{order.locationName || ''}</div>
                             <div className="text-gray-600">{addr}</div>
                             <div className="text-gray-400 mt-0.5">{route.driverName}</div>
                           </div>

@@ -10,10 +10,10 @@ vi.mock('../storage', () => ({
     updateRoute: vi.fn(),
     markRouteSynced: vi.fn(),
     findLocationByAddress: vi.fn(),
-    addRouteStops: vi.fn(),
-    getRouteStops: vi.fn(),
-    updateRouteStop: vi.fn(),
-    removeRouteStop: vi.fn(),
+    addRouteOrders: vi.fn(),
+    getRouteOrders: vi.fn(),
+    updateRouteOrder: vi.fn(),
+    removeRouteOrder: vi.fn(),
   },
 }));
 
@@ -28,14 +28,14 @@ import { importRoutesFromOptimo } from '../optimoImportService';
 
 describe('importRoutesFromOptimo', () => {
   const routesById = new Map<string, any>();
-  const routeStopsByRoute = new Map<string, any[]>();
+  const routeOrdersByRoute = new Map<string, any[]>();
   const driverNameMatches = new Map<string, any[]>();
   let nextRouteId = 1;
 
   beforeEach(() => {
     vi.clearAllMocks();
     routesById.clear();
-    routeStopsByRoute.clear();
+    routeOrdersByRoute.clear();
     driverNameMatches.clear();
     nextRouteId = 1;
 
@@ -45,17 +45,17 @@ describe('importRoutesFromOptimo', () => {
         return { rows: driverNameMatches.get(name) || [] } as any;
       }
 
-      if (sql.includes('FROM routes r') && sql.includes('rs.optimo_order_no = ANY')) {
+      if (sql.includes('FROM routes r') && sql.includes('optimo_order_no = ANY')) {
         const date = params?.[0];
         const identifiers = Array.isArray(params?.[1]) ? params?.[1] : [];
         const rows = Array.from(routesById.values())
           .filter(route => route.scheduled_date === date && route.source === 'optimo_import')
           .map(route => ({
             id: route.id,
-            matched_stop_count: (routeStopsByRoute.get(route.id) || []).filter(stop => identifiers.includes(stop.optimo_order_no)).length,
+            matched_order_count: (routeOrdersByRoute.get(route.id) || []).filter(order => identifiers.includes(order.optimo_order_no)).length,
           }))
-          .filter(row => row.matched_stop_count > 0)
-          .sort((a, b) => b.matched_stop_count - a.matched_stop_count);
+          .filter(row => row.matched_order_count > 0)
+          .sort((a, b) => b.matched_order_count - a.matched_order_count);
         return { rows: rows.slice(0, 1) } as any;
       }
 
@@ -90,43 +90,43 @@ describe('importRoutesFromOptimo', () => {
 
     vi.mocked(storage.findLocationByAddress).mockResolvedValue(null as any);
 
-    vi.mocked(storage.addRouteStops).mockImplementation(async (routeId: string, stops: any[]) => {
-      const existing = routeStopsByRoute.get(routeId) || [];
-      const inserted = stops.map((stop, index) => ({
-        id: `${routeId}-stop-${existing.length + index + 1}`,
+    vi.mocked(storage.addRouteOrders).mockImplementation(async (routeId: string, orders: any[]) => {
+      const existing = routeOrdersByRoute.get(routeId) || [];
+      const inserted = orders.map((order, index) => ({
+        id: `${routeId}-order-${existing.length + index + 1}`,
         route_id: routeId,
         status: 'pending',
-        ...stop,
+        ...order,
       }));
-      routeStopsByRoute.set(routeId, [...existing, ...inserted]);
+      routeOrdersByRoute.set(routeId, [...existing, ...inserted]);
       return inserted as any;
     });
 
-    vi.mocked(storage.getRouteStops).mockImplementation(async (routeId: string) => {
-      return [...(routeStopsByRoute.get(routeId) || [])] as any;
+    vi.mocked(storage.getRouteOrders).mockImplementation(async (routeId: string) => {
+      return [...(routeOrdersByRoute.get(routeId) || [])] as any;
     });
 
-    vi.mocked(storage.updateRouteStop).mockImplementation(async (stopId: string, data: any) => {
-      for (const [routeId, stops] of routeStopsByRoute.entries()) {
-        const index = stops.findIndex(stop => stop.id === stopId);
+    vi.mocked(storage.updateRouteOrder).mockImplementation(async (orderId: string, data: any) => {
+      for (const [routeId, orders] of routeOrdersByRoute.entries()) {
+        const index = orders.findIndex(order => order.id === orderId);
         if (index === -1) continue;
-        const updated = { ...stops[index], ...data };
-        const nextStops = [...stops];
-        nextStops[index] = updated;
-        routeStopsByRoute.set(routeId, nextStops);
+        const updated = { ...orders[index], ...data };
+        const nextOrders = [...orders];
+        nextOrders[index] = updated;
+        routeOrdersByRoute.set(routeId, nextOrders);
         return updated as any;
       }
       return null as any;
     });
 
-    vi.mocked(storage.removeRouteStop).mockImplementation(async (stopId: string) => {
-      for (const [routeId, stops] of routeStopsByRoute.entries()) {
-        routeStopsByRoute.set(routeId, stops.filter(stop => stop.id !== stopId));
+    vi.mocked(storage.removeRouteOrder).mockImplementation(async (orderId: string) => {
+      for (const [routeId, orders] of routeOrdersByRoute.entries()) {
+        routeOrdersByRoute.set(routeId, orders.filter(order => order.id !== orderId));
       }
     });
   });
 
-  it('stores Optimo stop ids, scheduled times, and applies completion status by id', async () => {
+  it('stores Optimo order ids, scheduled times, and applies completion status by id', async () => {
     vi.mocked(optimo.getRoutes).mockResolvedValue({
       routes: [
         {
@@ -186,15 +186,15 @@ describe('importRoutesFromOptimo', () => {
 
     const result = await importRoutesFromOptimo('2026-03-06');
 
-    expect(storage.addRouteStops).toHaveBeenCalledWith('route-1', [
+    expect(storage.addRouteOrders).toHaveBeenCalledWith('route-1', [
       expect.objectContaining({
         optimo_order_no: '57aa5137170b1202d36fd49d839c3530',
-        stop_number: 1,
+        order_number: 1,
         scheduled_at: '07:27',
       }),
       expect.objectContaining({
         optimo_order_no: 'ebe738318dbb1c979451b929651e7179',
-        stop_number: 2,
+        order_number: 2,
         scheduled_at: '08:03',
       }),
     ]);
@@ -207,16 +207,16 @@ describe('importRoutesFromOptimo', () => {
       end_time: '09:30',
       status: 'completed',
     }));
-    expect(routeStopsByRoute.get('route-1')).toEqual([
-      expect.objectContaining({ id: 'route-1-stop-1', status: 'completed' }),
-      expect.objectContaining({ id: 'route-1-stop-2', status: 'completed' }),
+    expect(routeOrdersByRoute.get('route-1')).toEqual([
+      expect.objectContaining({ id: 'route-1-order-1', status: 'completed' }),
+      expect.objectContaining({ id: 'route-1-order-2', status: 'completed' }),
     ]);
     expect(result.routesImported).toBe(1);
     expect(result.routesUpdated).toBe(0);
-    expect(result.stopsImported).toBe(2);
+    expect(result.ordersImported).toBe(2);
   });
 
-  it('updates existing imported routes and re-syncs driver-facing stop data', async () => {
+  it('updates existing imported routes and re-syncs driver-facing order data', async () => {
     routesById.set('route-existing', {
       id: 'route-existing',
       title: 'Old Driver - 2026-03-10',
@@ -226,26 +226,26 @@ describe('importRoutesFromOptimo', () => {
       assigned_driver_id: 'driver-old',
       optimo_route_key: '2026-03-10_Old Driver',
     });
-    routeStopsByRoute.set('route-existing', [
+    routeOrdersByRoute.set('route-existing', [
       {
-        id: 'stop-1',
+        id: 'order-1',
         route_id: 'route-existing',
         location_id: 'loc-1',
         address: '123 Main St',
         location_name: 'Old Main',
         optimo_order_no: 'old-id',
-        stop_number: 1,
+        order_number: 1,
         status: 'pending',
         order_type: 'recurring',
       },
       {
-        id: 'stop-obsolete',
+        id: 'order-obsolete',
         route_id: 'route-existing',
         location_id: 'loc-old',
         address: '999 Old Rd',
-        location_name: 'Old Stop',
+        location_name: 'Old Order',
         optimo_order_no: 'obsolete-id',
-        stop_number: 2,
+        order_number: 2,
         status: 'pending',
         order_type: 'recurring',
       },
@@ -304,26 +304,26 @@ describe('importRoutesFromOptimo', () => {
       optimo_route_key: '2026-03-10_New Driver',
       status: 'in_progress',
     }));
-    expect(storage.updateRouteStop).toHaveBeenCalledWith('stop-1', expect.objectContaining({
-      stop_number: 2,
+    expect(storage.updateRouteOrder).toHaveBeenCalledWith('order-1', expect.objectContaining({
+      order_number: 2,
       scheduled_at: '08:15',
       location_name: 'Main Stop',
     }));
-    expect(storage.addRouteStops).toHaveBeenCalledWith('route-existing', [
+    expect(storage.addRouteOrders).toHaveBeenCalledWith('route-existing', [
       expect.objectContaining({
         location_id: 'loc-2',
         address: '456 Oak Ave',
         optimo_order_no: 'new-id',
-        stop_number: 3,
+        order_number: 3,
         scheduled_at: '09:00',
       }),
     ]);
-    expect(storage.removeRouteStop).toHaveBeenCalledWith('stop-obsolete');
-    expect(routeStopsByRoute.get('route-existing')).toEqual([
+    expect(storage.removeRouteOrder).toHaveBeenCalledWith('order-obsolete');
+    expect(routeOrdersByRoute.get('route-existing')).toEqual([
       expect.objectContaining({
-        id: 'stop-1',
+        id: 'order-1',
         optimo_order_no: 'old-id',
-        stop_number: 2,
+        order_number: 2,
         scheduled_at: '08:15',
         status: 'in_progress',
       }),

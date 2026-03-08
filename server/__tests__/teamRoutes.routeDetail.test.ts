@@ -15,7 +15,7 @@ vi.mock('../storage', () => ({
     getDriverProfileByUserId: vi.fn(),
     getRouteById: vi.fn(),
     getRouteBids: vi.fn(),
-    getRouteStops: vi.fn(),
+    getRouteOrders: vi.fn(),
   },
 }));
 
@@ -67,7 +67,7 @@ describe('GET /api/team/routes/:routeId', () => {
     vi.mocked(storage.getRouteBids).mockResolvedValue([] as any);
   });
 
-  it('maps synced stop order fields into the driver-facing response shape', async () => {
+  it('maps synced order fields into the driver-facing response shape', async () => {
     vi.mocked(storage.getRouteById).mockResolvedValue({
       id: 'route-1',
       title: 'Synced Route',
@@ -75,13 +75,13 @@ describe('GET /api/team/routes/:routeId', () => {
       status: 'assigned',
       assigned_driver_id: 'driver-123',
     } as any);
-    vi.mocked(storage.getRouteStops).mockResolvedValue([
+    vi.mocked(storage.getRouteOrders).mockResolvedValue([
       {
-        id: 'stop-1',
+        id: 'order-1',
         address: '123 Main St',
         customer_name: 'Jane Doe',
         order_type: 'recurring',
-        stop_number: 7,
+        order_number: 7,
         status: 'scheduled',
       },
     ] as any);
@@ -89,7 +89,7 @@ describe('GET /api/team/routes/:routeId', () => {
     const res = await request(app).get('/api/team/routes/route-1');
 
     expect(res.status).toBe(200);
-    expect(res.body.data.stops).toEqual([
+    expect(res.body.data.orders).toEqual([
       expect.objectContaining({
         address: '123 Main St',
         customer_name: 'Jane Doe',

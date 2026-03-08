@@ -5,7 +5,7 @@ import { pool } from './db';
  *
  * Calculates a pay premium multiplier per zone based on:
  * - Coverage fill rate (% of locations with an active route today)
- * - Driver-to-stop ratio (supply vs demand)
+ * - Driver-to-order ratio (supply vs demand)
  * - Same-day urgency (unassigned routes for today)
  * - Historical decline rate in zone
  *
@@ -36,7 +36,7 @@ export async function calculateZoneSurges(): Promise<ZoneSurge[]> {
          COUNT(DISTINCT l.id)::int AS total_locations,
          COUNT(DISTINCT rs.location_id)::int AS covered_locations
        FROM locations l
-       LEFT JOIN route_stops rs ON rs.location_id = l.id
+       LEFT JOIN route_orders rs ON rs.location_id = l.id
          AND rs.route_id IN (SELECT id FROM routes WHERE scheduled_date = CURRENT_DATE AND status NOT IN ('cancelled'))
        WHERE l.zone_id = $1 AND l.service_status = 'approved'`,
       [zone.id]
@@ -49,25 +49,25 @@ export async function calculateZoneSurges(): Promise<ZoneSurge[]> {
       reasons.push(`Low coverage: ${Math.round(fillRate * 100)}%`);
     }
 
-    // 2. Driver-to-stop ratio — are there enough drivers for today's stops?
+    // 2. Driver-to-order ratio — are there enough drivers for today's orders?
     const supplyDemand = await pool.query(
       `SELECT
          (SELECT COUNT(DISTINCT assigned_driver_id)::int FROM routes
           WHERE zone_id = $1 AND scheduled_date = CURRENT_DATE AND status IN ('assigned', 'in_progress')) AS active_drivers,
-         (SELECT COUNT(*)::int FROM route_stops rs JOIN routes r ON r.id = rs.route_id
+         (SELECT COUNT(*)::int FROM route_orders rs JOIN routes r ON r.id = rs.route_id
           WHERE r.zone_id = $1 AND r.scheduled_date = CURRENT_DATE AND r.status NOT IN ('cancelled', 'completed')
-          AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')) AS pending_stops`,
+          AND rs.status NOT IN ('completed', 'failed', 'skipped', 'cancelled')) AS pending_orders`,
       [zone.id]
     );
     const activeDrivers = supplyDemand.rows[0]?.active_drivers || 0;
-    const pendingStops = supplyDemand.rows[0]?.pending_stops || 0;
-    if (activeDrivers > 0 && pendingStops / activeDrivers > 40) {
-      const overload = Math.min((pendingStops / activeDrivers - 40) / 40, 1.0);
+    const pendingOrders = supplyDemand.rows[0]?.pending_orders || 0;
+    if (activeDrivers > 0 && pendingOrders / activeDrivers > 40) {
+      const overload = Math.min((pendingOrders / activeDrivers - 40) / 40, 1.0);
       score += 0.25 * overload;
-      reasons.push(`High load: ${pendingStops} stops / ${activeDrivers} drivers`);
-    } else if (activeDrivers === 0 && pendingStops > 0) {
+      reasons.push(`High load: ${pendingOrders} orders / ${activeDrivers} drivers`);
+    } else if (activeDrivers === 0 && pendingOrders > 0) {
       score += 0.25;
-      reasons.push(`No active drivers, ${pendingStops} pending stops`);
+      reasons.push(`No active drivers, ${pendingOrders} pending orders`);
     }
 
     // 3. Same-day urgency — unassigned routes scheduled today

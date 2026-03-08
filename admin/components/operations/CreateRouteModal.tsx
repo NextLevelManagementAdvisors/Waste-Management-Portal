@@ -113,18 +113,18 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
         return;
       }
 
-      // Step 2: Add stops if any selected
+      // Step 2: Add orders if any selected
       if (selectedIds.size > 0) {
         const route = await res.json();
-        const stopsRes = await fetch(`/api/admin/routes/${route.id}/stops`, {
+        const ordersRes = await fetch(`/api/admin/routes/${route.id}/orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ locationIds: [...selectedIds] }),
         });
-        if (!stopsRes.ok) {
-          console.error('Route created but failed to add stops');
-          setError('Route created but failed to add stops. You can add them by editing the route.');
+        if (!ordersRes.ok) {
+          console.error('Route created but failed to add orders');
+          setError('Route created but failed to add orders. You can add them by editing the route.');
           setSubmitting(false);
           return;
         }
@@ -235,10 +235,10 @@ const CreateRouteModal: React.FC<CreateRouteModalProps> = ({ onClose, onCreated 
             </select>
           </div>
 
-          {/* Property / Stop Picker */}
+          {/* Property / Order Picker */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">
-              Stops{selectedIds.size > 0 && <span className="ml-1 text-teal-600">({selectedIds.size} selected)</span>}
+              Orders{selectedIds.size > 0 && <span className="ml-1 text-teal-600">({selectedIds.size} selected)</span>}
             </label>
             <input
               type="text"
