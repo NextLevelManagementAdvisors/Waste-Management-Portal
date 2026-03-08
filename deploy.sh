@@ -8,25 +8,31 @@ APP_USER="portal"       # The dedicated user for the application
 
 echo "🚀 Deploying to $HOST..."
 
+# Copy the systemd service file and reload the daemon
+scp deploy/waste-portal.service "$USER@$HOST":/etc/systemd/system/waste-portal.service
+
 # Using a heredoc for the remote script for better readability and maintainability.
 ssh "$USER@$HOST" /bin/bash << EOF
   set -e
   cd "$DIR"
 
+  echo "--- Reloading systemd daemon ---"
+  sudo systemctl daemon-reload
+
   echo "--- Pulling latest changes from main branch ---"
   sudo -u "$APP_USER" git pull origin main
-
+  
   echo "--- Installing dependencies with 'npm ci' for a clean, fast build ---"
   sudo -u "$APP_USER" npm ci
-
+  
   echo "--- Building the application ---"
   # Explicitly removing the old build directory as the app user is safer.
   sudo -u "$APP_USER" rm -rf dist
   sudo -u "$APP_USER" npm run build
-
+  
   echo "--- Restarting the application service ---"
   sudo systemctl restart waste-portal
-
+  
   echo "--- Verifying service status ---"
   sleep 3 # Give the service a moment to start up.
   if sudo systemctl is-active --quiet waste-portal; then
