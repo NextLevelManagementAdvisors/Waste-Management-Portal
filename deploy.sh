@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -ex
 
 HOST="app.ruralwm.com"
 USER="root"
@@ -8,16 +8,20 @@ APP_USER="portal"       # The dedicated user for the application
 
 echo "🚀 Deploying to $HOST..."
 
-# Copy the systemd service file and reload the daemon
-scp deploy/waste-portal.service "$USER@$HOST":/etc/systemd/system/waste-portal.service
+# Copy the systemd service file to a temporary location
+scp deploy/waste-portal.service "$USER@$HOST":/tmp/waste-portal.service
 
 # Using a heredoc for the remote script for better readability and maintainability.
 ssh "$USER@$HOST" /bin/bash << EOF
-  set -e
-  cd "$DIR"
+  set -ex
+  
+  echo "--- Moving new service file into place ---"
+  sudo mv /tmp/waste-portal.service /etc/systemd/system/waste-portal.service
 
   echo "--- Reloading systemd daemon ---"
   sudo systemctl daemon-reload
+
+  cd "$DIR"
 
   echo "--- Pulling latest changes from main branch ---"
   sudo -u "$APP_USER" git pull origin main
