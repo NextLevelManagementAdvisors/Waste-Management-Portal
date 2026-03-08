@@ -628,8 +628,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) DEFAULT 'lo
 -- OptimoRoute import support
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS optimo_route_key VARCHAR(100);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_routes_optimo_route_key ON routes(optimo_route_key) WHERE optimo_route_key IS NOT NULL;
-ALTER TABLE route_stops ALTER COLUMN location_id DROP NOT NULL;
-ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE route_orders ALTER COLUMN location_id DROP NOT NULL;
+ALTER TABLE route_orders ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- In-portal notifications for customers
 CREATE TABLE IF NOT EXISTS notifications (
@@ -816,8 +816,8 @@ ALTER TABLE routes ADD COLUMN IF NOT EXISTS end_longitude NUMERIC;
 CREATE INDEX IF NOT EXISTS idx_routes_contract ON routes(contract_id);
 
 -- Route stop compensation
-ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS compensation NUMERIC(10,2);
-ALTER TABLE route_stops ADD COLUMN IF NOT EXISTS pod_data JSONB;
+ALTER TABLE route_orders ADD COLUMN IF NOT EXISTS compensation NUMERIC(10,2);
+ALTER TABLE route_orders ADD COLUMN IF NOT EXISTS pod_data JSONB;
 
 -- Route bid enhancements (price discovery)
 ALTER TABLE route_bids ADD COLUMN IF NOT EXISTS bid_type VARCHAR(20) DEFAULT 'route';
