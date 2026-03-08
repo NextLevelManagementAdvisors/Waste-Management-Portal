@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Button } from '../../../components/Button.tsx';
 import { LoadingSpinner } from '../ui/index.ts';
+import RouteOptimizerModal from './RouteOptimizerModal.tsx';
 
 interface Order {
   id?: string;
@@ -31,6 +32,7 @@ const OrdersView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
   const [detailOrder, setDetailOrder] = useState<{ order: any; schedule: any; completion: any } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
@@ -38,6 +40,7 @@ const OrdersView: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
 
   const searchOrders = useCallback(async () => {
     setError('');
@@ -163,6 +166,12 @@ const OrdersView: React.FC = () => {
         >
           Create Order
         </button>
+        <button
+          onClick={() => setShowOptimizer(true)}
+          className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Optimize Routes
+        </button>
       </div>
 
       {error && (
@@ -240,6 +249,9 @@ const OrdersView: React.FC = () => {
                         <button onClick={() => viewDetail(order)} className="text-xs font-bold text-teal-600 hover:text-teal-800">
                           View
                         </button>
+                        <button onClick={() => setEditOrder(order)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800">
+                          Edit
+                        </button>
                         <button onClick={() => setDeleteTarget(order)} className="text-xs font-bold text-red-500 hover:text-red-700">
                           Delete
                         </button>
@@ -262,6 +274,18 @@ const OrdersView: React.FC = () => {
 
       {/* Create Order Modal */}
       {showCreate && <CreateOrderModal onClose={() => setShowCreate(false)} onCreated={searchOrders} />}
+
+      {/* Edit Order Modal */}
+      {editOrder && <EditOrderModal order={editOrder} onClose={() => setEditOrder(null)} onUpdated={searchOrders} />}
+
+      {/* Route Optimizer Modal */}
+      {showOptimizer && (
+        <RouteOptimizerModal
+          date={fromDate}
+          onClose={() => setShowOptimizer(false)}
+          onComplete={() => { setShowOptimizer(false); searchOrders(); }}
+        />
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
@@ -302,11 +326,21 @@ const OrdersView: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-black text-gray-900">Order Details</h2>
-              <button onClick={() => { setDetailOrder(null); setDetailLoading(false); }} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                {detailOrder?.order && (
+                  <button
+                    onClick={() => { const o = detailOrder.order; setDetailOrder(null); setDetailLoading(false); setEditOrder(o); }}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
+                  >
+                    Edit
+                  </button>
+                )}
+                <button onClick={() => { setDetailOrder(null); setDetailLoading(false); }} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {detailLoading ? <LoadingSpinner /> : detailOrder ? (
@@ -554,6 +588,175 @@ const CreateOrderModal: React.FC<{ onClose: () => void; onCreated: () => void }>
               <Button type="button" variant="secondary" onClick={onClose} disabled={sending}>Cancel</Button>
               <Button type="submit" disabled={sending || !address.trim()}>
                 {sending ? 'Creating...' : 'Create Order'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Edit Order Modal ──
+
+const EditOrderModal: React.FC<{ order: Order; onClose: () => void; onUpdated: () => void }> = ({ order, onClose, onUpdated }) => {
+  const [date, setDate] = useState(order.date || '');
+  const [address, setAddress] = useState(order.location?.address || '');
+  const [locationName, setLocationName] = useState(order.location?.locationName || '');
+  const [duration, setDuration] = useState(String(order.duration || '15'));
+  const [notes, setNotes] = useState(order.notes || '');
+  const [priority, setPriority] = useState<'' | 'L' | 'M' | 'H' | 'C'>((order.priority as any) || '');
+  const [twFrom, setTwFrom] = useState(order.timeWindows?.[0]?.twFrom || '');
+  const [twTo, setTwTo] = useState(order.timeWindows?.[0]?.twTo || '');
+  const [driverSerial, setDriverSerial] = useState(order.assignedTo?.serial || order.assignedTo?.externalId || '');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const orderNo = order.orderNo || order.id || '';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!address.trim()) return;
+    setSending(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/admin/optimoroute/orders/${encodeURIComponent(orderNo)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          date,
+          address: address.trim(),
+          locationName: locationName.trim() || undefined,
+          duration: parseInt(duration) || 15,
+          notes: notes.trim() || undefined,
+          ...(priority && { priority }),
+          ...(twFrom && twTo && { timeWindows: [{ twFrom, twTo }] }),
+          ...(driverSerial.trim() && { assignedTo: { serial: driverSerial.trim() } }),
+        }),
+      });
+      if (res.ok) {
+        setSuccess(true);
+        setTimeout(() => { onUpdated(); onClose(); }, 1000);
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to update order');
+      }
+    } catch {
+      setError('Failed to update order');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-black text-gray-900 mb-4">Edit Order</h2>
+
+        {success ? (
+          <div className="text-center py-6">
+            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+            <p className="font-bold text-gray-900">Order Updated!</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Order #</label>
+                <input value={orderNo} disabled
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Type</label>
+                <input value={TYPE_LABELS[order.type || ''] || order.type || '—'} disabled
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} required
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Duration (min)</label>
+                <input type="number" value={duration} onChange={e => setDuration(e.target.value)} min="1"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Address</label>
+              <input value={address} onChange={e => setAddress(e.target.value)} required placeholder="Full street address"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Location Name (optional)</label>
+              <input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="Customer name or business"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Notes (optional)</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Special instructions..."
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none" />
+            </div>
+
+            <button type="button" onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors">
+              {showAdvanced ? 'Hide' : 'Show'} Advanced Options
+            </button>
+
+            {showAdvanced && (
+              <div className="space-y-4 border-t border-gray-100 pt-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Priority</label>
+                  <select value={priority} onChange={e => setPriority(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
+                    <option value="">Default</option>
+                    <option value="L">Low</option>
+                    <option value="M">Medium</option>
+                    <option value="H">High</option>
+                    <option value="C">Critical</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Time Window From</label>
+                    <input type="time" value={twFrom} onChange={e => setTwFrom(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Time Window To</label>
+                    <input type="time" value={twTo} onChange={e => setTwTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Assign to Driver (serial)</label>
+                  <input value={driverSerial} onChange={e => setDriverSerial(e.target.value)} placeholder="Driver serial or external ID"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={onClose} disabled={sending}>Cancel</Button>
+              <Button type="submit" disabled={sending || !address.trim()}>
+                {sending ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </form>

@@ -140,6 +140,17 @@ export function registerAdminOptimoRoutes(app: Express) {
     }
   });
 
+  app.put('/api/admin/optimoroute/orders/:orderNo', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { orderNo } = req.params;
+      const result = await optimo.updateOrder(orderNo, req.body);
+      res.json(result);
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] Error updating order:', error);
+      res.status(500).json({ error: 'Failed to update order' });
+    }
+  });
+
   app.delete('/api/admin/optimoroute/orders/:orderNo', requireAdmin, async (req: Request, res: Response) => {
     try {
       const { orderNo } = req.params;
