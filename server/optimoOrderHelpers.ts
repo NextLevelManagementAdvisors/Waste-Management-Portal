@@ -21,19 +21,19 @@ export function isOptimoId(identifier?: string | null): boolean {
   return OPTIMO_ID_RE.test(identifier.trim());
 }
 
-export function getStoredOptimoIdentifier(stop: any): string | undefined {
+export function getStoredOptimoOrderNo(routeStop: any): string | undefined {
   const rawIdentifier = [
-    stop?.optimo_order_no,
-    stop?.optimoOrderNo,
+    routeStop?.optimo_order_no,
+    routeStop?.optimoOrderNo,
   ].find(value => typeof value === 'string' && value.trim().length > 0);
 
   return typeof rawIdentifier === 'string' ? rawIdentifier.trim() : undefined;
 }
 
-export function getOptimoApiStopIdentifier(stop: any): string | undefined {
+export function getOptimoApiOrderIdentifier(order: any): string | undefined {
   const rawIdentifier = [
-    stop?.orderNo,
-    stop?.id,
+    order?.orderNo,
+    order?.id,
   ].find(value => typeof value === 'string' && value.trim().length > 0);
 
   return typeof rawIdentifier === 'string' ? rawIdentifier.trim() : undefined;
@@ -59,7 +59,7 @@ export function extractCompletionPayload(order: any): any | null {
   return Object.keys(payload).length > 0 ? payload : null;
 }
 
-export async function fetchCompletionPayloadsByIdentifier(identifiers: string[]): Promise<Map<string, any>> {
+export async function fetchCompletionPayloadsByOrderId(identifiers: string[]): Promise<Map<string, any>> {
   const uniqueIdentifiers = Array.from(new Set(
     identifiers
       .map(identifier => identifier?.trim())
@@ -77,8 +77,8 @@ export async function fetchCompletionPayloadsByIdentifier(identifiers: string[])
   const consume = (orders: any[] | undefined, preferId: boolean) => {
     for (const order of orders || []) {
       const identifier = preferId
-        ? getOptimoApiStopIdentifier({ id: order?.id, orderNo: order?.orderNo })
-        : getOptimoApiStopIdentifier({ orderNo: order?.orderNo, id: order?.id });
+        ? getOptimoApiOrderIdentifier({ id: order?.id, orderNo: order?.orderNo })
+        : getOptimoApiOrderIdentifier({ orderNo: order?.orderNo, id: order?.id });
       const payload = extractCompletionPayload(order);
       if (!identifier || !payload) continue;
       results.set(identifier, payload);
@@ -137,14 +137,14 @@ export function findMatchingOptimoRoute(localRoute: any, optimoRoutes: any[]): a
   return optimoRoutes.find(route => `${route?.driverName || route?.driverSerial || ''} - ${date}` === title) || null;
 }
 
-export interface RouteStopIdentifierBackfill {
+export interface OrderIdentifierBackfill {
   stopId: string;
   identifier: string;
   stopNumber?: number;
   scheduledAt?: string;
 }
 
-export function buildRouteStopIdentifierBackfill(route: any, stops: any[], optimoRoutes: any[]): RouteStopIdentifierBackfill[] {
+export function buildOrderIdentifierBackfill(route: any, stops: any[], optimoRoutes: any[]): OrderIdentifierBackfill[] {
   const optimoRoute = findMatchingOptimoRoute(route, optimoRoutes);
   if (!optimoRoute) return [];
 
@@ -153,7 +153,7 @@ export function buildRouteStopIdentifierBackfill(route: any, stops: any[], optim
   const byAddress = new Map<string, any[]>();
 
   for (const optimoStop of optimoStops) {
-    const identifier = getOptimoApiStopIdentifier(optimoStop);
+    const identifier = getOptimoApiOrderIdentifier(optimoStop);
     if (!identifier) continue;
 
     if (optimoStop.stopNumber != null && !byStopNumber.has(Number(optimoStop.stopNumber))) {
@@ -170,26 +170,26 @@ export function buildRouteStopIdentifierBackfill(route: any, stops: any[], optim
 
   const usedIdentifiers = new Set(
     stops
-      .map(stop => getStoredOptimoIdentifier(stop))
+      .map(stop => getStoredOptimoOrderNo(stop))
       .filter((identifier): identifier is string => Boolean(identifier))
   );
-  const updates: RouteStopIdentifierBackfill[] = [];
+  const updates: OrderIdentifierBackfill[] = [];
 
   for (const stop of stops) {
-    if (!stop?.id || getStoredOptimoIdentifier(stop)) continue;
+    if (!stop?.id || getStoredOptimoOrderNo(stop)) continue;
 
     const localStopNumber = stop?.stop_number ?? stop?.stopNumber;
     let match = localStopNumber != null ? byStopNumber.get(Number(localStopNumber)) : null;
-    let identifier = getOptimoApiStopIdentifier(match);
+    let identifier = getOptimoApiOrderIdentifier(match);
 
     if (!identifier || usedIdentifiers.has(identifier)) {
       const addressKey = normalizeAddress(stop?.address);
       const candidates = addressKey ? byAddress.get(addressKey) || [] : [];
       match = candidates.find(candidate => {
-        const candidateIdentifier = getOptimoApiStopIdentifier(candidate);
+        const candidateIdentifier = getOptimoApiOrderIdentifier(candidate);
         return candidateIdentifier && !usedIdentifiers.has(candidateIdentifier);
       }) || null;
-      identifier = getOptimoApiStopIdentifier(match);
+      identifier = getOptimoApiOrderIdentifier(match);
     }
 
     if (!match || !identifier) continue;
@@ -204,4 +204,82 @@ export function buildRouteStopIdentifierBackfill(route: any, stops: any[], optim
   }
 
   return updates;
+}
+
+// ── Reconciliation: detect orders deleted/rescheduled in OptimoRoute ──
+
+const TERMINAL_STOP_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped', 'deleted_in_optimo', 'rescheduled_in_optimo']);
+
+export interface ReconciliationResult {
+  deleted: number;
+  rescheduled: number;
+  unchanged: number;
+}
+
+export async function reconcileDeletedOrders(
+  date: string,
+  stops: any[],
+  storage: { updateRouteStop: (id: string, data: any) => Promise<any> },
+): Promise<ReconciliationResult> {
+  const result: ReconciliationResult = { deleted: 0, rescheduled: 0, unchanged: 0 };
+
+  // Filter to stops that were synced to OptimoRoute and aren't already terminal
+  const syncedStops = stops.filter(stop => {
+    const orderNo = getStoredOptimoOrderNo(stop);
+    return orderNo && !TERMINAL_STOP_STATUSES.has(stop.status);
+  });
+
+  if (syncedStops.length === 0) return result;
+
+  // Get all orders actually in OptimoRoute for this date
+  let optimoOrderNos: Set<string>;
+  try {
+    const searchResult = await optimo.searchOrders(date, date);
+    const orders: any[] = searchResult?.orders || [];
+    optimoOrderNos = new Set(orders.map((o: any) => o.orderNo));
+  } catch (err) {
+    console.error('[Reconciliation] searchOrders failed, skipping reconciliation:', err);
+    result.unchanged = syncedStops.length;
+    return result;
+  }
+
+  // Find stops whose orders are missing from OptimoRoute
+  for (const stop of syncedStops) {
+    const orderNo = getStoredOptimoOrderNo(stop)!;
+    if (optimoOrderNos.has(orderNo)) {
+      result.unchanged++;
+      continue;
+    }
+
+    // Order is missing — check if it was rescheduled to a different date
+    try {
+      const schedInfo = await optimo.getSchedulingInfo(orderNo);
+      if (schedInfo.success && schedInfo.orderScheduled && schedInfo.scheduleInformation) {
+        // Order exists but on a different date — rescheduled
+        const newDate = schedInfo.scheduleInformation.scheduledAtDt?.split('T')[0] || '';
+        await storage.updateRouteStop(stop.id, {
+          status: 'rescheduled_in_optimo',
+          notes: `Rescheduled in OptimoRoute to ${newDate}`,
+        });
+        result.rescheduled++;
+      } else {
+        // Order doesn't exist at all — deleted
+        await storage.updateRouteStop(stop.id, {
+          status: 'deleted_in_optimo',
+          notes: 'Deleted from OptimoRoute externally',
+        });
+        result.deleted++;
+      }
+    } catch (err) {
+      // getSchedulingInfo failed — assume deleted
+      console.error(`[Reconciliation] getSchedulingInfo failed for ${orderNo}:`, err);
+      await storage.updateRouteStop(stop.id, {
+        status: 'deleted_in_optimo',
+        notes: 'Deleted from OptimoRoute (scheduling info unavailable)',
+      });
+      result.deleted++;
+    }
+  }
+
+  return result;
 }

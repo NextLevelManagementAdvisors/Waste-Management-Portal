@@ -1,10 +1,10 @@
 import { storage } from './storage.ts';
 import * as optimo from './optimoRouteClient.ts';
 import {
-  fetchCompletionPayloadsByIdentifier,
-  getOptimoApiStopIdentifier,
+  fetchCompletionPayloadsByOrderId,
+  getOptimoApiOrderIdentifier,
   normalizeOptimoStatus,
-} from './optimoStopHelpers.ts';
+} from './optimoOrderHelpers.ts';
 
 const OMITTED_STOP_TYPES = new Set(['break', 'depot', 'start', 'end']);
 const TERMINAL_STOP_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -117,7 +117,7 @@ async function buildImportedStops(realStops: any[], result: ImportResult): Promi
       location_id: locationId,
       address: stopAddress || undefined,
       location_name: stopLocationName || undefined,
-      optimo_order_no: getOptimoApiStopIdentifier(stop),
+      optimo_order_no: getOptimoApiOrderIdentifier(stop),
       stop_number: stop.stopNumber != null ? Number(stop.stopNumber) : undefined,
       scheduled_at: stop.scheduledAt || undefined,
       order_type: 'recurring',
@@ -211,7 +211,7 @@ async function syncCompletionStatuses(routeId: string): Promise<any[]> {
   if (identifiers.length === 0) return stops;
 
   try {
-    const completionMap = await fetchCompletionPayloadsByIdentifier(identifiers);
+    const completionMap = await fetchCompletionPayloadsByOrderId(identifiers);
 
     for (const stop of stops) {
       if (!stop.optimo_order_no) continue;
@@ -275,7 +275,7 @@ export async function importRoutesFromOptimo(date: string): Promise<ImportResult
       (stop: any) => !OMITTED_STOP_TYPES.has(String(stop.type || '').toLowerCase())
     );
     const stopIdentifiers = realStops
-      .map((stop: any) => getOptimoApiStopIdentifier(stop))
+      .map((stop: any) => getOptimoApiOrderIdentifier(stop))
       .filter((identifier: any): identifier is string => typeof identifier === 'string' && identifier.length > 0);
 
     const title = `${optimoRoute.driverName || driverSerial} - ${date}`;

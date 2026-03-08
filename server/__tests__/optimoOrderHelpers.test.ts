@@ -6,16 +6,16 @@ vi.mock('../optimoRouteClient', () => ({
 
 import * as optimo from '../optimoRouteClient';
 import {
-  buildRouteStopIdentifierBackfill,
-  fetchCompletionPayloadsByIdentifier,
+  buildOrderIdentifierBackfill,
+  fetchCompletionPayloadsByOrderId,
   findMatchingOptimoRoute,
-  getOptimoApiStopIdentifier,
+  getOptimoApiOrderIdentifier,
   getRouteDate,
   isOptimoId,
   normalizeOptimoStatus,
-} from '../optimoStopHelpers';
+} from '../optimoOrderHelpers';
 
-describe('optimoStopHelpers', () => {
+describe('optimoOrderHelpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -44,7 +44,7 @@ describe('optimoStopHelpers', () => {
         ],
       } as any);
 
-    const payloads = await fetchCompletionPayloadsByIdentifier([
+    const payloads = await fetchCompletionPayloadsByOrderId([
       'ROUTE-1',
       '57aa5137170b1202d36fd49d839c3530',
     ]);
@@ -109,8 +109,8 @@ describe('optimoStopHelpers', () => {
 
     expect(getRouteDate(route)).toBe('2026-03-06');
     expect(findMatchingOptimoRoute(route, optimoRoutes)).toEqual(optimoRoutes[0]);
-    expect(getOptimoApiStopIdentifier(optimoRoutes[0].stops[0])).toBe('57aa5137170b1202d36fd49d839c3530');
-    expect(buildRouteStopIdentifierBackfill(route, localStops, optimoRoutes)).toEqual([
+    expect(getOptimoApiOrderIdentifier(optimoRoutes[0].stops[0])).toBe('57aa5137170b1202d36fd49d839c3530');
+    expect(buildOrderIdentifierBackfill(route, localStops, optimoRoutes)).toEqual([
       {
         stopId: 'stop-1',
         identifier: '57aa5137170b1202d36fd49d839c3530',
