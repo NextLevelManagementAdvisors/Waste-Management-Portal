@@ -537,7 +537,7 @@ const SyncAutomationPanel: React.FC = () => {
       <div className="flex gap-2">
         {([
           { key: 'customer' as const, label: 'Customer Order Sync' },
-          { key: 'driver' as const, label: 'Driver Sync' },
+          { key: 'driver' as const, label: 'Optimo Driver Linking' },
           { key: 'history' as const, label: 'Sync History' },
           { key: 'zone-assignments' as const, label: 'Zone Assignments' },
           { key: 'auto-approval' as const, label: 'Auto-Approval' },

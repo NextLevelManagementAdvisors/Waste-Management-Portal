@@ -343,6 +343,9 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
     let totalSkipped = 0;
     let totalErrored = 0;
 
+    // Collect orders by date for post-sync planning trigger
+    const ordersByDate = new Map<string, { orderNos: string[]; driverSerials: Set<string> }>();
+
     // Step 4: Process each provider's locations
     for (const [providerId, providerLocations] of locationsByProvider.entries()) {
         const isUnassignedProviderBucket = providerId === '__unassigned__';
@@ -407,6 +410,17 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
                         scheduledDate: order.scheduledDate,
                       });
                       totalCreated++;
+
+                      // Track for post-sync planning
+                      let dateEntry = ordersByDate.get(order.scheduledDate);
+                      if (!dateEntry) {
+                        dateEntry = { orderNos: [], driverSerials: new Set() };
+                        ordersByDate.set(order.scheduledDate, dateEntry);
+                      }
+                      dateEntry.orderNos.push(order.orderNo);
+                      if (order.bulkInput.assignedTo?.serial) {
+                        dateEntry.driverSerials.add(order.bulkInput.assignedTo.serial);
+                      }
                     } catch (err: any) {
                       totalErrored++;
                       console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
@@ -418,6 +432,22 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
                 totalErrored += allCollected.length;
             }
         }
+    }
+
+    // Step 4b: Trigger planning for each date that received new orders
+    for (const [date, { orderNos, driverSerials }] of ordersByDate.entries()) {
+      if (orderNos.length === 0 || driverSerials.size === 0) continue;
+      try {
+        await optimo.startPlanning({
+          date,
+          balancing: 'OFF',
+          useOrders: orderNos,
+          useDrivers: Array.from(driverSerials).map(s => ({ driverSerial: s })),
+        });
+        console.log(`[OptimoSync] Triggered planning for ${date}: ${orderNos.length} orders, ${driverSerials.size} drivers`);
+      } catch (err: any) {
+        console.warn(`[OptimoSync] Planning trigger failed for ${date} (orders still created):`, err.message);
+      }
     }
 
     // Step 5: Clean up orphaned orders
@@ -557,46 +587,54 @@ export async function executeCustomerOrderSync() {
 /** Fetch recent and upcoming OptimoRoute routes and match against local driver_profiles. */
 export async function previewDriverSync() {
   const driverMap = new Map<string, DriverInfo>();
-  for (const dateStr of getDriverSyncPreviewDates()) {
-    try {
+  const dates = getDriverSyncPreviewDates();
+
+  // Fetch all dates in parallel (was sequential — 28 API calls)
+  const results = await Promise.allSettled(
+    dates.map(async (dateStr) => {
       const routeResult = await optimo.getRoutes(dateStr);
-      const routes = routeResult.routes || (routeResult as any).data || [];
-      for (const route of routes) {
-        const serial = route.driverSerial || route.driverName || '';
-        if (!serial) continue;
-        const existing = driverMap.get(serial);
-        const stopCount = (route.stops || []).length;
-        const distKm = route.distance || 0;
-        const durMin = route.duration || 0;
-        if (existing) {
-          existing.totalRoutes++;
-          existing.totalStops += stopCount;
-          existing.totalDistanceKm += distKm;
-          existing.totalDurationMin += durMin;
-          if (dateStr > existing.lastRouteDate) existing.lastRouteDate = dateStr;
-          if (!existing.vehicleRegistration && route.vehicleRegistration) existing.vehicleRegistration = route.vehicleRegistration;
-          if (!existing.vehicleLabel && route.vehicleLabel) existing.vehicleLabel = route.vehicleLabel;
-        } else {
-          const sampleAddresses = (route.stops || [])
-            .slice(0, 5)
-            .map((s: any) => s.address || s.location?.address || '')
-            .filter(Boolean);
-          driverMap.set(serial, {
-            serial,
-            name: route.driverName || `Driver ${serial}`,
-            externalId: route.driverExternalId,
-            vehicleRegistration: route.vehicleRegistration,
-            vehicleLabel: route.vehicleLabel,
-            totalRoutes: 1,
-            totalStops: stopCount,
-            totalDistanceKm: distKm,
-            totalDurationMin: durMin,
-            lastRouteDate: dateStr,
-            recentStopAddresses: sampleAddresses,
-          });
-        }
+      return { dateStr, routes: routeResult.routes || (routeResult as any).data || [] };
+    })
+  );
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    const { dateStr, routes } = result.value;
+    for (const route of routes) {
+      const serial = route.driverSerial || route.driverName || '';
+      if (!serial) continue;
+      const existing = driverMap.get(serial);
+      const stopCount = (route.stops || []).length;
+      const distKm = route.distance || 0;
+      const durMin = route.duration || 0;
+      if (existing) {
+        existing.totalRoutes++;
+        existing.totalStops += stopCount;
+        existing.totalDistanceKm += distKm;
+        existing.totalDurationMin += durMin;
+        if (dateStr > existing.lastRouteDate) existing.lastRouteDate = dateStr;
+        if (!existing.vehicleRegistration && route.vehicleRegistration) existing.vehicleRegistration = route.vehicleRegistration;
+        if (!existing.vehicleLabel && route.vehicleLabel) existing.vehicleLabel = route.vehicleLabel;
+      } else {
+        const sampleAddresses = (route.stops || [])
+          .slice(0, 5)
+          .map((s: any) => s.address || s.location?.address || '')
+          .filter(Boolean);
+        driverMap.set(serial, {
+          serial,
+          name: route.driverName || `Driver ${serial}`,
+          externalId: route.driverExternalId,
+          vehicleRegistration: route.vehicleRegistration,
+          vehicleLabel: route.vehicleLabel,
+          totalRoutes: 1,
+          totalStops: stopCount,
+          totalDistanceKm: distKm,
+          totalDurationMin: durMin,
+          lastRouteDate: dateStr,
+          recentStopAddresses: sampleAddresses,
+        });
       }
-    } catch {}
+    }
   }
 
   const localResult = await pool.query(

@@ -75,11 +75,11 @@ const DriverSyncPanel: React.FC = () => {
         const data = await res.json();
         setPreview(data);
       } else {
-        setErrorMessage(await readErrorMessage(res, 'Failed to load driver sync preview'));
+        setErrorMessage(await readErrorMessage(res, 'Failed to load driver linking preview'));
       }
     } catch (e) {
       console.error('Failed to load sync preview:', e);
-      setErrorMessage('Failed to load driver sync preview');
+      setErrorMessage('Failed to load driver linking preview');
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ const DriverSyncPanel: React.FC = () => {
     const name = manualDriver.name.trim();
     const serial = manualDriver.serial.trim();
     if (!name || !serial) {
-      setErrorMessage('Manual driver import requires both a name and an OptimoRoute serial');
+      setErrorMessage('Manual driver linking requires both a name and an OptimoRoute serial');
       return;
     }
 
@@ -324,7 +324,7 @@ const DriverSyncPanel: React.FC = () => {
 
       <form onSubmit={handleManualCreateDriver} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
         <div>
-          <div className="text-xs font-black uppercase text-slate-500">Manual Optimo Driver Import</div>
+          <div className="text-xs font-black uppercase text-slate-500">Manual Optimo Driver Linking</div>
           <p className="text-sm text-slate-600 mt-1">
             Use this when a driver exists in OptimoRoute but has no route history yet, so the scan cannot discover them automatically.
           </p>

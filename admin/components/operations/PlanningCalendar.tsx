@@ -581,7 +581,9 @@ const PlanningCalendar: React.FC = () => {
   const monthLabel = new Date(currentYear, currentMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const draftCount = dayRoutes.filter(r => r.status === 'draft').length;
-  const publishedUnsyncedCount = dayRoutes.filter(r => r.status !== 'draft' && r.status !== 'cancelled' && !r.optimoSynced).length;
+  const unsyncedRoutes = dayRoutes.filter(r => r.status !== 'draft' && r.status !== 'cancelled' && !r.optimoSynced);
+  const publishedUnsyncedCount = unsyncedRoutes.length;
+  const unlinkedDriverCount = unsyncedRoutes.filter(r => r.assignedDriverId && !r.driverHasOptimoSerial).length;
   const isBusy = autoPlanning || syncingDay || importingFromOptimo || publishingAll;
 
   const weeks = useMemo(() => groupIntoWeeks(calendarDays), [calendarDays]);
@@ -665,10 +667,18 @@ const PlanningCalendar: React.FC = () => {
               )}
 
               {publishedUnsyncedCount > 0 && (
-                <button type="button" onClick={handleSyncDay} disabled={isBusy}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-colors">
-                  {syncingDay ? 'Syncing...' : `Sync to Optimo (${publishedUnsyncedCount})`}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleSyncDay} disabled={isBusy}
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-lg transition-colors">
+                    {syncingDay ? 'Syncing...' : `Sync to Optimo (${publishedUnsyncedCount})`}
+                  </button>
+                  {unlinkedDriverCount > 0 && (
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1"
+                      title="Some assigned drivers have no OptimoRoute serial and will fail to sync">
+                      {unlinkedDriverCount} driver{unlinkedDriverCount !== 1 ? 's' : ''} not linked
+                    </span>
+                  )}
+                </div>
               )}
 
               <button type="button" onClick={() => setShowCreateRoute(true)}
@@ -881,11 +891,18 @@ const PlanningCalendar: React.FC = () => {
                                 </button>
                               )}
                               {route.status !== 'draft' && route.status !== 'cancelled' && !route.optimoSynced && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSyncRoute(route.id); }}
-                                  disabled={syncing === route.id}
-                                  className="px-2.5 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors">
-                                  {syncing === route.id ? 'Syncing...' : 'Sync to Optimo'}
-                                </button>
+                                route.assignedDriverId && !route.driverHasOptimoSerial ? (
+                                  <span className="px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg"
+                                    title="The assigned driver has no OptimoRoute serial. Link the driver first in People or Optimo Driver Linking.">
+                                    Driver not linked to Optimo
+                                  </span>
+                                ) : (
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); handleSyncRoute(route.id); }}
+                                    disabled={syncing === route.id}
+                                    className="px-2.5 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors">
+                                    {syncing === route.id ? 'Syncing...' : 'Sync to Optimo'}
+                                  </button>
+                                )
                               )}
                               {(route.optimoSynced || route.source === 'optimo_import') && route.status !== 'draft' && (
                                 <button type="button" onClick={(e) => { e.stopPropagation(); handleRefreshRouteStatus(route.id); }}

@@ -10,6 +10,7 @@ const CreateDriverDialog: React.FC<CreateDriverDialogProps> = ({ onClose, onCrea
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [optimoSerial, setOptimoSerial] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -29,6 +30,7 @@ const CreateDriverDialog: React.FC<CreateDriverDialogProps> = ({ onClose, onCrea
           name: name.trim(),
           email: email.trim() || undefined,
           phone: phone.trim() || undefined,
+          optimorouteDriverId: optimoSerial.trim() || undefined,
         }),
       });
 
@@ -98,6 +100,18 @@ const CreateDriverDialog: React.FC<CreateDriverDialogProps> = ({ onClose, onCrea
                 placeholder="(555) 123-4567"
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">OptimoRoute Serial</label>
+              <input
+                type="text"
+                value={optimoSerial}
+                onChange={e => setOptimoSerial(e.target.value)}
+                placeholder="e.g. ABC-123"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Optional — needed to sync routes with OptimoRoute</p>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">

@@ -1380,8 +1380,8 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any }>) {
-    const ALLOWED_COLUMNS = ['name', 'email', 'phone', 'password_hash', 'status', 'onboarding_status', 'rating', 'total_jobs_completed', 'stripe_connect_account_id', 'stripe_connect_onboarded', 'w9_completed', 'direct_deposit_completed', 'availability'];
+  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any; optimoroute_driver_id: string | null }>) {
+    const ALLOWED_COLUMNS = ['name', 'email', 'phone', 'password_hash', 'status', 'onboarding_status', 'rating', 'total_jobs_completed', 'stripe_connect_account_id', 'stripe_connect_onboarded', 'w9_completed', 'direct_deposit_completed', 'availability', 'optimoroute_driver_id'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1480,7 +1480,7 @@ export class Storage {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.query(
       `SELECT r.*, r.optimo_synced, r.optimo_synced_at,
-              d.name AS driver_name,
+              d.name AS driver_name, d.optimoroute_driver_id AS driver_optimo_serial,
               COALESCE(bc.bid_count, 0)::int AS bid_count,
               COALESCE(sc.stop_count, 0)::int AS stop_count,
               COALESCE(dc.done_count, 0)::int AS completed_stop_count

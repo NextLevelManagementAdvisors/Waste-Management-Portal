@@ -222,27 +222,67 @@ export function registerAdminRoutes(app: Express) {
     });
   };
 
-  const syncRouteStopToOptimo = async (route: any, stop: any, scheduledDate: string) => {
+  /** Build a BulkOrderInput + metadata for a single route stop. */
+  const buildStopOrder = (route: any, stop: any, scheduledDate: string, driverSerial: string | null) => {
     const stopKey = stop.location_id ? stop.location_id.substring(0, 8) : stop.id.substring(0, 8);
     const orderNo = `ROUTE-${route.id.substring(0, 8)}-${stopKey}`;
-
-    const result = await optimo.createOrder({
+    const order: any = {
       orderNo,
       type: 'P',
       date: scheduledDate,
+      location: {
+        address: stop.address,
+        locationName: stop.customer_name || '',
+      },
       duration: 8,
-      address: stop.address,
-      locationName: stop.customer_name || '',
       notes: `Route: ${route.title}`,
-    });
-
-    // Persist the deterministic order number even when Optimo reports "already exists" so later syncs can pull by id.
-    await storage.updateRouteStop(stop.id, { optimo_order_no: orderNo });
-    await recordSyncedOptimoOrder(stop, orderNo, scheduledDate);
-
-    return {
-      skipped: Boolean(result && result.success === false),
+      customField1: route.id,
+      customField2: stop.location_id || '',
     };
+    if (driverSerial) {
+      order.assignedTo = { serial: driverSerial };
+    }
+    return { order, orderNo, stop };
+  };
+
+  /** Batch-sync all stops for a single route. Returns { ordersSynced, ordersSkipped, errors, orderNos }. */
+  const syncRouteToOptimoBatch = async (route: any, driverSerial: string | null) => {
+    const stops = await storage.getRouteStops(route.id);
+    const scheduledDate = getRouteDate(route);
+    const errors: string[] = [];
+    const prepared: ReturnType<typeof buildStopOrder>[] = [];
+
+    for (const stop of stops) {
+      if (!stop.address) {
+        errors.push(`Stop ${stop.id}: missing address, skipped`);
+        continue;
+      }
+      prepared.push(buildStopOrder(route, stop, scheduledDate, driverSerial));
+    }
+
+    if (prepared.length === 0) {
+      return { ordersSynced: 0, ordersSkipped: 0, errors, orderNos: [] as string[], scheduledDate };
+    }
+
+    // Batch create/update in one API call
+    const result = await optimo.createOrUpdateOrders(prepared.map(p => p.order));
+    const orderNos: string[] = [];
+
+    // Persist order numbers locally
+    for (const p of prepared) {
+      await storage.updateRouteStop(p.stop.id, { optimo_order_no: p.orderNo });
+      await recordSyncedOptimoOrder(p.stop, p.orderNo, scheduledDate);
+      orderNos.push(p.orderNo);
+    }
+
+    const ordersSkipped = result?.success === false ? prepared.length : 0;
+    const ordersSynced = result?.success !== false ? prepared.length : 0;
+
+    if (errors.length === 0) {
+      await storage.markRouteSynced(route.id);
+    }
+
+    return { ordersSynced, ordersSkipped, errors, orderNos, scheduledDate };
   };
 
   app.get('/api/admin/customers', requireAdmin, async (req: Request, res: Response) => {
@@ -2338,35 +2378,45 @@ export function registerAdminRoutes(app: Express) {
       const routeId = req.params.id;
       const route = await storage.getRouteById(routeId);
       if (!route) return res.status(404).json({ error: 'Route not found' });
-      const stops = await storage.getRouteStops(routeId);
 
-      let ordersSynced = 0;
-      let ordersSkipped = 0;
-      const errors: string[] = [];
-      const scheduledDate = getRouteDate(route);
-
-      for (const stop of stops) {
-        if (!stop.address) {
-          errors.push(`Stop ${stop.id}: missing address, skipped`);
-          continue;
+      // Resolve driver serial (guard: must have one if assigned)
+      let driverSerial: string | null = null;
+      if (route.assigned_driver_id) {
+        const driver = await storage.getDriverById(route.assigned_driver_id);
+        if (driver && !driver.optimoroute_driver_id) {
+          return res.status(400).json({
+            error: `Driver "${driver.name}" has no OptimoRoute serial. Link the driver first in People > Driver tab or the Optimo Driver Linking panel.`,
+          });
         }
+        driverSerial = driver?.optimoroute_driver_id || null;
+      }
+
+      const result = await syncRouteToOptimoBatch(route, driverSerial);
+
+      // Trigger planning if we created orders and have a driver
+      let planningId: string | undefined;
+      if (result.orderNos.length > 0 && driverSerial) {
         try {
-          const result = await syncRouteStopToOptimo(route, stop, scheduledDate);
-          if (result.skipped) {
-            ordersSkipped++;
-          } else {
-            ordersSynced++;
+          const planning = await optimo.startPlanning({
+            date: result.scheduledDate,
+            balancing: 'OFF',
+            useOrders: result.orderNos,
+            useDrivers: [{ driverSerial }],
+          });
+          planningId = planning.planningId != null ? String(planning.planningId) : undefined;
+          if (planningId) {
+            await storage.updateRoute(routeId, { optimo_planning_id: planningId });
           }
-        } catch (err: any) {
-          errors.push(`${stop.address}: ${err.message}`);
+        } catch (planErr) {
+          console.warn('[sync-to-optimo] Planning trigger failed (orders still synced):', planErr);
         }
       }
 
-      if (errors.length === 0) {
-        await storage.markRouteSynced(routeId);
-      }
-      await audit(req, 'sync_route_to_optimo', 'route', routeId, { ordersSynced, ordersSkipped, errors: errors.length });
-      res.json({ ordersSynced, ordersSkipped, errors });
+      await audit(req, 'sync_route_to_optimo', 'route', routeId, {
+        ordersSynced: result.ordersSynced, ordersSkipped: result.ordersSkipped,
+        errors: result.errors.length, planningId,
+      });
+      res.json({ ordersSynced: result.ordersSynced, ordersSkipped: result.ordersSkipped, errors: result.errors, planningId });
     } catch (error) {
       console.error('Failed to sync route to OptimoRoute:', error);
       res.status(500).json({ error: 'Failed to sync route to OptimoRoute' });
@@ -2384,40 +2434,43 @@ export function registerAdminRoutes(app: Express) {
       let totalSynced = 0;
       let totalSkipped = 0;
       const allErrors: string[] = [];
+      const allOrderNos: string[] = [];
+      const driverSerials = new Set<string>();
 
       for (const route of publishedRoutes) {
-        const stops = await storage.getRouteStops(route.id);
-        let routeSynced = 0;
-        let routeErrors = 0;
-        const scheduledDate = getRouteDate(route);
-
-        for (const stop of stops) {
-          if (!stop.address) {
-            allErrors.push(`Route ${route.id} stop ${stop.id}: missing address, skipped`);
-            routeErrors++;
-            continue;
-          }
-          try {
-            const result = await syncRouteStopToOptimo(route, stop, scheduledDate);
-            if (result.skipped) {
-              totalSkipped++;
-            } else {
-              routeSynced++;
-            }
-          } catch (err: any) {
-            allErrors.push(`${stop.address}: ${err.message}`);
-            routeErrors++;
-          }
+        // Resolve driver serial
+        let driverSerial: string | null = null;
+        if (route.assigned_driver_id) {
+          const driver = await storage.getDriverById(route.assigned_driver_id);
+          driverSerial = driver?.optimoroute_driver_id || null;
+          if (driverSerial) driverSerials.add(driverSerial);
         }
 
-        totalSynced += routeSynced;
-        if (routeErrors === 0) {
-          await storage.markRouteSynced(route.id);
+        const result = await syncRouteToOptimoBatch(route, driverSerial);
+        totalSynced += result.ordersSynced;
+        totalSkipped += result.ordersSkipped;
+        allErrors.push(...result.errors);
+        allOrderNos.push(...result.orderNos);
+      }
+
+      // Trigger planning for the whole day if we synced orders
+      let planningId: string | undefined;
+      if (allOrderNos.length > 0 && driverSerials.size > 0) {
+        try {
+          const planning = await optimo.startPlanning({
+            date,
+            balancing: 'OFF',
+            useOrders: allOrderNos,
+            useDrivers: Array.from(driverSerials).map(s => ({ driverSerial: s })),
+          });
+          planningId = planning.planningId != null ? String(planning.planningId) : undefined;
+        } catch (planErr) {
+          console.warn('[sync-day] Planning trigger failed (orders still synced):', planErr);
         }
       }
 
-      await audit(req, 'sync_day_to_optimo', 'route', null as any, { date, totalSynced, totalSkipped });
-      res.json({ routesSynced: publishedRoutes.length, ordersSynced: totalSynced, ordersSkipped: totalSkipped, errors: allErrors });
+      await audit(req, 'sync_day_to_optimo', 'route', null as any, { date, totalSynced, totalSkipped, planningId });
+      res.json({ routesSynced: publishedRoutes.length, ordersSynced: totalSynced, ordersSkipped: totalSkipped, errors: allErrors, planningId });
     } catch (error) {
       console.error('Failed to sync day to OptimoRoute:', error);
       res.status(500).json({ error: 'Failed to sync day to OptimoRoute' });
@@ -3564,6 +3617,22 @@ export function registerAdminRoutes(app: Express) {
       res.json(drivers.map((d: any) => ({ id: d.id, name: d.name, email: d.user_email, status: d.status || 'active', onboardingStatus: d.onboarding_status })));
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch drivers' });
+    }
+  });
+
+  // Update driver OptimoRoute serial
+  app.patch('/api/admin/drivers/:id/optimo-serial', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
+    try {
+      const { serial } = req.body;
+      const driver = await storage.getDriverById(req.params.id);
+      if (!driver) return res.status(404).json({ error: 'Driver not found' });
+      const trimmed = typeof serial === 'string' ? serial.trim() : null;
+      await storage.updateDriver(req.params.id, { optimoroute_driver_id: trimmed || null });
+      await audit(req, 'update_driver_optimo_serial', 'driver', req.params.id, { serial: trimmed });
+      res.json({ success: true, optimorouteDriverId: trimmed || null });
+    } catch (error) {
+      console.error('Failed to update driver OptimoRoute serial:', error);
+      res.status(500).json({ error: 'Failed to update OptimoRoute serial' });
     }
   });
 

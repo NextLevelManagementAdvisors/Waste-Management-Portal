@@ -39,5 +39,6 @@ export function formatRouteForClient(row: any) {
     computedValue: row.computed_value != null ? Number(row.computed_value) : (row.computedValue != null ? Number(row.computedValue) : undefined),
     payMode: row.pay_mode ?? row.payMode,
     payPremium: row.pay_premium != null ? Number(row.pay_premium) : (row.payPremium != null ? Number(row.payPremium) : undefined),
+    driverHasOptimoSerial: Boolean(row.driver_optimo_serial ?? row.driverHasOptimoSerial),
   };
 }

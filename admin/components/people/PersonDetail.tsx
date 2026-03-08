@@ -8,6 +8,77 @@ import CustomerCommunicationsTab from './CustomerCommunicationsTab.tsx';
 import DriverQualificationsCard from './DriverQualificationsCard.tsx';
 import LocationRequirementsCard from './LocationRequirementsCard.tsx';
 
+// ── Inline OptimoRoute Serial Editor ──
+
+const OptimoSerialField: React.FC<{ driverId: string; currentSerial: string | null; onUpdated: () => void }> = ({ driverId, currentSerial, onUpdated }) => {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentSerial || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/drivers/${driverId}/optimo-serial`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ serial: value.trim() }),
+      });
+      if (res.ok) {
+        setEditing(false);
+        onUpdated();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="mt-4 pt-3 border-t border-gray-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-gray-500">OptimoRoute Serial</div>
+            {currentSerial ? (
+              <div className="text-sm font-mono text-gray-900 mt-0.5">{currentSerial}</div>
+            ) : (
+              <div className="text-sm text-gray-400 mt-0.5">Not linked</div>
+            )}
+          </div>
+          <button type="button" onClick={() => { setValue(currentSerial || ''); setEditing(true); }}
+            className="text-xs font-bold text-teal-600 hover:text-teal-700">
+            {currentSerial ? 'Edit' : 'Link'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-100 space-y-2">
+      <div className="text-xs font-bold text-gray-500">OptimoRoute Serial</div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder="e.g. ABC-123"
+          className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+          autoFocus
+        />
+        <button type="button" onClick={handleSave} disabled={saving}
+          className="px-3 py-1.5 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 rounded-lg">
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" onClick={() => setEditing(false)}
+          className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-gray-700">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const formatDate = (dateStr: string) => {
   try {
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -621,6 +692,7 @@ const PersonDetail: React.FC<{
                 <dd className="text-sm font-medium text-gray-900">{person.driverProfile.total_jobs_completed || 0}</dd>
               </div>
             </dl>
+            <OptimoSerialField driverId={person.driverProfile.id} currentSerial={person.driverProfile.optimoroute_driver_id} onUpdated={onPersonUpdated} />
           </Card>
           <Card className="p-6">
             <h3 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-4">Onboarding Checklist</h3>
