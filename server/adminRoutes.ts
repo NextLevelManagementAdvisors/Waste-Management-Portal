@@ -1115,7 +1115,9 @@ export function registerAdminRoutes(app: Express) {
           for (const order of affectedOrders.rows) {
             if (order.user_id && !notified.has(order.user_id)) {
               notified.add(order.user_id);
-              sendRouteCancelNotification(order.user_id, order.address, existing.scheduled_date?.split('T')[0] || '').catch(() => {});
+              // Route queries may hydrate scheduled_date as either a Date or an ISO string.
+              const dateStr = order.scheduled_date instanceof Date ? order.scheduled_date.toISOString().split('T')[0] : String(order.scheduled_date || '').split('T')[0];
+              sendRouteCancelNotification(order.user_id, order.address, dateStr).catch(() => {});
             }
           }
         } catch (e) {

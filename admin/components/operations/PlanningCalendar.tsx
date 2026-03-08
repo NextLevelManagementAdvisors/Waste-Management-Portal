@@ -204,7 +204,8 @@ const PlanningCalendar: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ orderStatuses }),
+        // Keep the request shape aligned with the admin route contract.
+        body: JSON.stringify({ liveOrderStatuses: orderStatuses }),
       }).catch(() => {});
     }
   }, []);
@@ -407,7 +408,7 @@ const PlanningCalendar: React.FC = () => {
           const parts: string[] = [];
           if (r.deleted > 0) parts.push(`${r.deleted} deleted`);
           if (r.rescheduled > 0) parts.push(`${r.rescheduled} rescheduled`);
-          showToast(`OptimoRoute reconciliation: ${parts.join(', ')} in OptimoRoute`, 'warning');
+          showToast('warning', `OptimoRoute reconciliation: ${parts.join(', ')} in OptimoRoute`);
         }
       }
     } catch {}
