@@ -1810,6 +1810,8 @@ export function registerAdminRoutes(app: Express) {
 
   app.get('/api/admin/swaps/pending', requireAdmin, requirePermission('operations'), async (_req, res) => {
     try {
+      // Admin swap recommendations are highly dynamic; avoid 304 responses with no body.
+      res.set('Cache-Control', 'no-store');
       const swaps = await storage.getPendingSwaps();
       res.json({ swaps });
     } catch (err: any) {

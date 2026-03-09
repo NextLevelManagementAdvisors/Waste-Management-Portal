@@ -7,6 +7,7 @@ vi.mock('../storage', () => ({
   storage: {
     getUserById: vi.fn(),
     createAuditLog: vi.fn(),
+    getPendingSwaps: vi.fn(),
     updateSwapStatus: vi.fn(),
   },
   pool: {},
@@ -110,6 +111,17 @@ describe('swap admin routes', () => {
     expect(res.body).toEqual({ swap: { id: 'swap-1', status: 'rejected' } });
     expect(storage.updateSwapStatus).toHaveBeenCalledWith('swap-1', 'rejected', 'admin-1');
     expect(storage.createAuditLog).toHaveBeenCalledWith('admin-1', 'swap_rejected', 'swap_recommendation', 'swap-1', {});
+  });
+
+  it('disables caching for pending swap recommendations', async () => {
+    vi.mocked(roleRepo.getAdminRole).mockResolvedValue('support');
+    vi.mocked(storage.getPendingSwaps).mockResolvedValue([] as any);
+
+    const res = await request.get('/api/admin/swaps/pending');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({ swaps: [] });
   });
 
   it('still blocks viewer admins from generating swaps', async () => {

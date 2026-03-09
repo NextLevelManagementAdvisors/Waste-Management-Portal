@@ -4,12 +4,19 @@ import { toSwapAmount } from './swapAmounts.ts';
 
 const api = {
   getPendingSwaps: async () => {
-    const res = await fetch('/api/admin/swaps/pending', { credentials: 'include' });
+    const res = await fetch('/api/admin/swaps/pending', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
     if (!res.ok) throw new Error('Failed to fetch pending swaps');
     return res.json();
   },
   generateSwaps: async () => {
-    const res = await fetch('/api/admin/swaps/generate', { method: 'POST', credentials: 'include' });
+    const res = await fetch('/api/admin/swaps/generate', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+    });
     if (!res.ok) throw new Error('Failed to generate swaps');
     return res.json();
   },
@@ -19,6 +26,7 @@ const api = {
       body: JSON.stringify({ decision }),
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      cache: 'no-store',
     });
     if (!res.ok) throw new Error('Failed to submit decision');
     return res.json();
