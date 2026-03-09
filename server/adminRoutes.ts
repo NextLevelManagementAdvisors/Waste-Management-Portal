@@ -30,6 +30,7 @@ import {
   normalizeOptimoStatus,
   reconcileDeletedOrders,
 } from './optimoOrderHelpers';
+import { parseCoordinate, syncOrdersWithFallback } from './optimoOrderSync';
 
 declare module 'express-session' {
   interface SessionData {
@@ -227,6 +228,8 @@ export function registerAdminRoutes(app: Express) {
   const buildRouteOrder = (route: any, routeOrder: any, scheduledDate: string, driverSerial: string | null) => {
     const orderKey = routeOrder.location_id ? routeOrder.location_id.substring(0, 8) : routeOrder.id.substring(0, 8);
     const orderNo = `ROUTE-${route.id.substring(0, 8)}-${orderKey}`;
+    const latitude = parseCoordinate(routeOrder.latitude);
+    const longitude = parseCoordinate(routeOrder.longitude);
     const order: any = {
       orderNo,
       type: 'P',
@@ -234,6 +237,9 @@ export function registerAdminRoutes(app: Express) {
       location: {
         address: routeOrder.address,
         locationName: routeOrder.customer_name || '',
+        // Reuse the local location id as a stable OptimoRoute location key across resyncs.
+        ...(routeOrder.location_id && { locationNo: routeOrder.location_id }),
+        ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
       },
       duration: 8,
       notes: `Route: ${route.title}`,
@@ -246,40 +252,44 @@ export function registerAdminRoutes(app: Express) {
     return { order, orderNo, routeOrder };
   };
 
-  /** Batch-sync all orders for a single route. Returns { ordersSynced, ordersSkipped, errors, orderNos }. */
-  const syncRouteToOptimoBatch = async (route: any, driverSerial: string | null) => {
+  /** Sync all orders for a single route. Returns { ordersSynced, ordersSkipped, errors, orderNos }. */
+  const syncRouteOrdersToOptimo = async (route: any, driverSerial: string | null) => {
     const routeOrders = await storage.getRouteOrders(route.id);
     const scheduledDate = getRouteDate(route);
     const errors: string[] = [];
     const prepared: ReturnType<typeof buildRouteOrder>[] = [];
+    let ordersSkipped = 0;
 
     for (const order of routeOrders) {
       if (!order.address) {
         errors.push(`Order ${order.id}: missing address, skipped`);
+        ordersSkipped++;
         continue;
       }
       prepared.push(buildRouteOrder(route, order, scheduledDate, driverSerial));
     }
 
     if (prepared.length === 0) {
-      return { ordersSynced: 0, ordersSkipped: 0, errors, orderNos: [] as string[], scheduledDate };
+      return { ordersSynced: 0, ordersSkipped, errors, orderNos: [] as string[], scheduledDate };
     }
 
-    // Batch create/update in one API call
-    const result = await optimo.createOrUpdateOrders(prepared.map(p => p.order));
+    const syncResult = await syncOrdersWithFallback(prepared.map(p => ({ bulkInput: p.order, meta: p })));
     const orderNos: string[] = [];
-
-    // Persist order numbers locally
-    for (const p of prepared) {
+    for (const success of syncResult.successes) {
+      const p = success.entry.meta;
       await storage.updateRouteOrder(p.routeOrder.id, { optimo_order_no: p.orderNo });
       await recordSyncedOptimoOrder(p.routeOrder, p.orderNo, scheduledDate);
       orderNos.push(p.orderNo);
     }
 
-    const ordersSkipped = result?.success === false ? prepared.length : 0;
-    const ordersSynced = result?.success !== false ? prepared.length : 0;
+    for (const failure of syncResult.failures) {
+      errors.push(`Order ${failure.entry.meta.routeOrder.id}: ${failure.message}`);
+    }
 
-    if (errors.length === 0) {
+    const ordersSynced = syncResult.successes.length;
+    ordersSkipped += syncResult.failures.length;
+
+    if (ordersSynced > 0 && errors.length === 0) {
       await storage.markRouteSynced(route.id);
     }
 
@@ -2394,7 +2404,7 @@ export function registerAdminRoutes(app: Express) {
         driverSerial = driver?.optimoroute_driver_id || null;
       }
 
-      const result = await syncRouteToOptimoBatch(route, driverSerial);
+      const result = await syncRouteOrdersToOptimo(route, driverSerial);
 
       // Trigger planning if we created orders and have a driver
       let planningId: string | undefined;
@@ -2449,7 +2459,7 @@ export function registerAdminRoutes(app: Express) {
           if (driverSerial) driverSerials.add(driverSerial);
         }
 
-        const result = await syncRouteToOptimoBatch(route, driverSerial);
+        const result = await syncRouteOrdersToOptimo(route, driverSerial);
         totalSynced += result.ordersSynced;
         totalSkipped += result.ordersSkipped;
         allErrors.push(...result.errors);

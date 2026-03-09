@@ -17,6 +17,7 @@ import * as optimo from './optimoRouteClient';
 import { detectAndStoreCollectionDays } from './collectionDayDetector';
 import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { sendCollectionCompleteNotification } from './notificationService';
+import { parseCoordinate, syncOrdersWithFallback } from './optimoOrderSync';
 
 // ── Types ──
 
@@ -179,6 +180,8 @@ async function collectLocationOrders(location: any): Promise<{ orders: Collected
     }
 
     const customerName = `${location.first_name} ${location.last_name}`;
+    const latitude = parseCoordinate(location.latitude);
+    const longitude = parseCoordinate(location.longitude);
     orders.push({
       orderNo,
       locationId: location.id,
@@ -190,6 +193,8 @@ async function collectLocationOrders(location: any): Promise<{ orders: Collected
         location: {
           address: location.address,
           locationName: customerName,
+          locationNo: location.id,
+          ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
         },
         duration: 10,
         notes: `Auto-synced | ${location.collection_frequency || 'weekly'} collection`,
@@ -386,45 +391,33 @@ export async function runAutomatedSync(runType: 'scheduled' | 'manual' = 'schedu
         // Batch-submit to OptimoRoute
         if (allCollected.length > 0) {
             try {
-                const bulkInputs = allCollected.map(o => o.bulkInput);
-                const batchResults = await optimo.createOrUpdateOrders(bulkInputs);
+                const syncResult = await syncOrdersWithFallback(allCollected.map(order => ({ bulkInput: order.bulkInput, meta: order })));
 
-                const successSet = new Set<string>();
-                for (const batch of batchResults) {
-                  if (batch.orders) {
-                    for (const r of batch.orders) {
-                      if (r.success !== false) successSet.add(r.orderNo);
-                      else totalErrored++;
+                totalErrored += syncResult.failures.length;
+
+                for (const success of syncResult.successes) {
+                  const order = success.entry.meta;
+                  try {
+                    await storage.createSyncOrder({
+                      locationId: order.locationId,
+                      orderNo: order.orderNo,
+                      scheduledDate: order.scheduledDate,
+                    });
+                    totalCreated++;
+
+                    // Track for post-sync planning
+                    let dateEntry = ordersByDate.get(order.scheduledDate);
+                    if (!dateEntry) {
+                      dateEntry = { orderNos: [], driverSerials: new Set() };
+                      ordersByDate.set(order.scheduledDate, dateEntry);
                     }
-                  } else if (batch.success !== false) {
-                    for (const input of bulkInputs) successSet.add(input.orderNo);
-                  }
-                }
-
-                for (const order of allCollected) {
-                  if (successSet.has(order.orderNo)) {
-                    try {
-                      await storage.createSyncOrder({
-                        locationId: order.locationId,
-                        orderNo: order.orderNo,
-                        scheduledDate: order.scheduledDate,
-                      });
-                      totalCreated++;
-
-                      // Track for post-sync planning
-                      let dateEntry = ordersByDate.get(order.scheduledDate);
-                      if (!dateEntry) {
-                        dateEntry = { orderNos: [], driverSerials: new Set() };
-                        ordersByDate.set(order.scheduledDate, dateEntry);
-                      }
-                      dateEntry.orderNos.push(order.orderNo);
-                      if (order.bulkInput.assignedTo?.serial) {
-                        dateEntry.driverSerials.add(order.bulkInput.assignedTo.serial);
-                      }
-                    } catch (err: any) {
-                      totalErrored++;
-                      console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
+                    dateEntry.orderNos.push(order.orderNo);
+                    if (order.bulkInput.assignedTo?.serial) {
+                      dateEntry.driverSerials.add(order.bulkInput.assignedTo.serial);
                     }
+                  } catch (err: any) {
+                    totalErrored++;
+                    console.error(`[OptimoSync] Failed to record ledger entry for ${order.orderNo}:`, err.message);
                   }
                 }
             } catch (err: any) {

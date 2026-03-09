@@ -208,6 +208,8 @@ describe('admin route lifecycle — OptimoRoute propagation', () => {
         location_id: '87654321-bbbb-cccc-dddd-0987654321ab',
         address: '123 Main St',
         customer_name: 'Jane Doe',
+        latitude: 42.365142,
+        longitude: -71.052882,
       };
       vi.mocked(storage.getRouteById).mockResolvedValue({
         id: ROUTE_ID,

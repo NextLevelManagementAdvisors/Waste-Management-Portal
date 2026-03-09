@@ -319,6 +319,8 @@ describe('runAutomatedSync', () => {
             first_name: 'John',
             last_name: 'Doe',
             email: 'john.doe@example.com',
+            latitude: '42.365142',
+            longitude: '-71.052882',
         }];
         vi.mocked(storage.getLocationsForSync).mockResolvedValue(locations);
         vi.mocked(storage.getApprovedLocationsWithoutCollectionDay).mockResolvedValue([]);
@@ -332,6 +334,9 @@ describe('runAutomatedSync', () => {
         const orderNo = `SYNC-LOC-1-${'20260226'}`;
         expect(call[0].orderNo).toBe(orderNo);
         expect(call[0].location.address).toBe('123 Main St');
+        expect(call[0].location.locationNo).toBe('loc-1');
+        expect(call[0].location.latitude).toBe(42.365142);
+        expect(call[0].location.longitude).toBe(-71.052882);
         expect(call[0].notes).toContain('Auto-synced | weekly collection');
 
         expect(result.ordersCreated).toBe(4);
@@ -346,6 +351,8 @@ describe('runAutomatedSync', () => {
             collection_frequency: 'weekly',
             first_name: 'John',
             last_name: 'Doe',
+            latitude: '42.365142',
+            longitude: '-71.052882',
         }];
         vi.mocked(storage.getLocationsForSync).mockResolvedValue(locations);
         vi.mocked(storage.getApprovedLocationsWithoutCollectionDay).mockResolvedValue([]);
@@ -375,5 +382,35 @@ describe('runAutomatedSync', () => {
 
         expect(result.ordersCreated).toBe(2);
         expect(result.ordersSkipped).toBe(2);
+    });
+
+    it('should fall back to single-order creation when coordinates are missing', async () => {
+        const locations = [{
+            id: 'loc-2',
+            address: '456 Oak Ave',
+            collection_day: 'thursday',
+            collection_frequency: 'weekly',
+            first_name: 'Jane',
+            last_name: 'Doe',
+        }];
+        vi.mocked(storage.getLocationsForSync).mockResolvedValue(locations);
+        vi.mocked(storage.getApprovedLocationsWithoutCollectionDay).mockResolvedValue([]);
+        vi.mocked(storage.getSyncOrderByOrderNo).mockResolvedValue(null);
+        vi.mocked(optimo.createOrder).mockResolvedValue({ success: true } as any);
+
+        const result = await runAutomatedSync();
+
+        expect(optimo.createOrUpdateOrders).not.toHaveBeenCalled();
+        expect(optimo.createOrder).toHaveBeenCalledTimes(4);
+        expect(optimo.createOrder).toHaveBeenCalledWith(
+            expect.objectContaining({
+                orderNo: `SYNC-LOC-2-${'20260226'}`,
+                address: '456 Oak Ave',
+                locationName: 'Jane Doe',
+                locationNo: 'loc-2',
+            }),
+        );
+        expect(result.ordersCreated).toBe(4);
+        expect(result.ordersErrored).toBe(0);
     });
 });

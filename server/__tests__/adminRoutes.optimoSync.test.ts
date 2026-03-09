@@ -99,6 +99,7 @@ describe('admin Optimo sync routes', () => {
     vi.mocked(storage.markRouteSynced).mockResolvedValue(undefined as any);
     vi.mocked(storage.getSyncOrderByOrderNo).mockResolvedValue(null);
     vi.mocked(storage.createSyncOrder).mockResolvedValue({} as any);
+    vi.mocked(optimo.createOrder).mockResolvedValue({ success: true } as any);
     vi.mocked(optimo.createOrUpdateOrders).mockResolvedValue([{ success: true }] as any);
     vi.mocked(optimo.startPlanning).mockResolvedValue({ planningId: null } as any);
     vi.mocked(storage.getDriverById).mockResolvedValue(null);
@@ -116,6 +117,8 @@ describe('admin Optimo sync routes', () => {
       location_id: '87654321-bbbb-cccc-dddd-0987654321ab',
       address: '123 Main St',
       customer_name: 'Jane Doe',
+      latitude: '42.365142',
+      longitude: '-71.052882',
     };
 
     vi.mocked(storage.getRouteById).mockResolvedValue(route as any);
@@ -130,6 +133,13 @@ describe('admin Optimo sync routes', () => {
         expect.objectContaining({
           orderNo: 'ROUTE-12345678-87654321',
           date: '2026-03-09',
+          location: expect.objectContaining({
+            address: '123 Main St',
+            locationName: 'Jane Doe',
+            locationNo: '87654321-bbbb-cccc-dddd-0987654321ab',
+            latitude: 42.365142,
+            longitude: -71.052882,
+          }),
         }),
       ]),
     );
@@ -155,6 +165,8 @@ describe('admin Optimo sync routes', () => {
       location_id: 'fedcba98-4444-5555-6666-fedcba987654',
       address: '456 Oak Ave',
       customer_name: 'John Doe',
+      latitude: 40.7128,
+      longitude: -74.006,
     };
 
     vi.mocked(storage.getAllRoutes).mockResolvedValue([route] as any);
@@ -179,5 +191,80 @@ describe('admin Optimo sync routes', () => {
       scheduledDate: '2026-03-10',
     });
     expect(storage.markRouteSynced).toHaveBeenCalledWith(route.id);
+  });
+
+  it('falls back to single-order creation when route coordinates are missing', async () => {
+    const route = {
+      id: '55555555-aaaa-bbbb-cccc-1234567890ab',
+      title: 'Fallback Route',
+      scheduled_date: '2026-03-11T05:00:00.000Z',
+    };
+    const order = {
+      id: 'order-single',
+      location_id: '22222222-bbbb-cccc-dddd-0987654321ab',
+      address: '789 Pine St',
+      customer_name: 'Jamie Doe',
+    };
+
+    vi.mocked(storage.getRouteById).mockResolvedValue(route as any);
+    vi.mocked(storage.getRouteOrders).mockResolvedValue([order] as any);
+
+    const res = await request.post(`/api/admin/routes/${route.id}/sync-to-optimo`).send();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ordersSynced: 1, ordersSkipped: 0, errors: [] });
+    expect(optimo.createOrUpdateOrders).not.toHaveBeenCalled();
+    expect(optimo.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderNo: 'ROUTE-55555555-22222222',
+        type: 'P',
+        date: '2026-03-11',
+        address: '789 Pine St',
+        locationName: 'Jamie Doe',
+        locationNo: '22222222-bbbb-cccc-dddd-0987654321ab',
+      }),
+    );
+    expect(storage.markRouteSynced).toHaveBeenCalledWith(route.id);
+  });
+
+  it('reports non-location OptimoRoute rejections instead of marking the route synced', async () => {
+    const route = {
+      id: '99999999-aaaa-bbbb-cccc-1234567890ab',
+      title: 'Failure Route',
+      scheduled_date: '2026-03-11T05:00:00.000Z',
+    };
+    const order = {
+      id: 'order-fail',
+      location_id: '11111111-bbbb-cccc-dddd-0987654321ab',
+      address: '789 Pine St',
+      customer_name: 'Jamie Doe',
+      latitude: '39.9526',
+      longitude: '-75.1652',
+    };
+
+    vi.mocked(storage.getRouteById).mockResolvedValue(route as any);
+    vi.mocked(storage.getRouteOrders).mockResolvedValue([order] as any);
+    vi.mocked(optimo.createOrUpdateOrders).mockResolvedValue([
+      {
+        success: true,
+        orders: [
+          {
+            success: false,
+            orderNo: 'ROUTE-99999999-11111111',
+            code: 'ERR_DRIVER_UNKNOWN',
+            message: 'Assigned driver does not exist',
+          },
+        ],
+      },
+    ] as any);
+
+    const res = await request.post(`/api/admin/routes/${route.id}/sync-to-optimo`).send();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ordersSynced: 0, ordersSkipped: 1 });
+    expect(res.body.errors[0]).toMatch(/Assigned driver does not exist/);
+    expect(storage.updateRouteOrder).not.toHaveBeenCalled();
+    expect(storage.markRouteSynced).not.toHaveBeenCalled();
+    expect(optimo.createOrder).not.toHaveBeenCalled();
   });
 });
