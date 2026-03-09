@@ -1,4 +1,6 @@
 import { storage } from './storage';
+// Swap generation imports this file dynamically at runtime, so these Turf modules
+// must stay in production dependencies instead of relying on transitive installs.
 import intersect from '@turf/intersect';
 import area from '@turf/area';
 import { polygon as turfPolygon, multiPolygon, point } from '@turf/helpers';
