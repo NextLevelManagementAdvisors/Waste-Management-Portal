@@ -12,7 +12,7 @@
     "build": "vite build && tsc -p server/tsconfig.json",
     "preview": "vite preview",
     "stop": "npx kill-port 5000 || true",
-    "start": "cross-env NODE_ENV=production node server/dist/index.js",
+    "start": "node server/dist/index.js",
     "restart": "npm run stop && npm run start",
     "deploy": "bash deploy.sh",
     "test": "vitest run",
