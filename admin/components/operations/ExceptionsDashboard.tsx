@@ -9,7 +9,11 @@ interface ExceptionData {
   totalExceptions: number;
 }
 
-const ExceptionsDashboard: React.FC = () => {
+interface ExceptionsDashboardProps {
+  onNavigate?: (tab: string) => void;
+}
+
+const ExceptionsDashboard: React.FC<ExceptionsDashboardProps> = ({ onNavigate }) => {
   const [data, setData] = useState<ExceptionData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -56,45 +60,87 @@ const ExceptionsDashboard: React.FC = () => {
         </button>
       </div>
 
-      {/* Unmatched On-Demand */}
+      {/* Unmatched On-Demand — keep list, add Manage button */}
       {data.unmatchedOnDemand.length > 0 && (
-        <Section title="Unmatched On-Demand Requests" count={data.unmatchedOnDemand.length} color="red">
+        <Section
+          title="Unmatched On-Demand Requests"
+          count={data.unmatchedOnDemand.length}
+          color="red"
+          action={onNavigate ? (
+            <button
+              onClick={() => onNavigate('on-demand')}
+              className="text-xs font-bold text-red-700 hover:text-red-900 underline underline-offset-2"
+            >
+              Manage →
+            </button>
+          ) : null}
+        >
           {data.unmatchedOnDemand.map(r => (
             <Row key={r.id} primary={r.address} secondary={`${r.service_name} — requested ${formatDate(r.requested_date)}`} meta={`Submitted ${formatTime(r.created_at)}`} />
           ))}
         </Section>
       )}
 
-      {/* Escalated Missed Collections */}
+      {/* Unresolved Missed Collections — collapsed to summary, full list is in Missed Collections tab */}
       {data.escalatedMissed.length > 0 && (
-        <Section title="Unresolved Missed Collections" count={data.escalatedMissed.length} color="amber">
-          {data.escalatedMissed.map(r => (
-            <Row key={r.id} primary={r.address} secondary={`Reported ${formatDate(r.reported_date)}`} meta={r.status === 'escalated' ? 'ESCALATED' : 'Pending'} />
-          ))}
-        </Section>
+        <SummarySection
+          title="Unresolved Missed Collections"
+          count={data.escalatedMissed.length}
+          color="amber"
+          description={`${data.escalatedMissed.length} escalated report${data.escalatedMissed.length !== 1 ? 's' : ''} need resolution`}
+          actionLabel="View in Missed Collections →"
+          onAction={onNavigate ? () => onNavigate('issues') : undefined}
+        />
       )}
 
-      {/* Routes With No Bids */}
+      {/* Routes With No Bidders — keep list, add Go to Routes button */}
       {data.expiredBids.length > 0 && (
-        <Section title="Routes With No Bidders" count={data.expiredBids.length} color="orange">
+        <Section
+          title="Routes With No Bidders"
+          count={data.expiredBids.length}
+          color="orange"
+          action={onNavigate ? (
+            <button
+              onClick={() => onNavigate('routes')}
+              className="text-xs font-bold text-orange-700 hover:text-orange-900 underline underline-offset-2"
+            >
+              Go to Routes →
+            </button>
+          ) : null}
+        >
           {data.expiredBids.map(r => (
             <Row key={r.id} primary={r.title} secondary={`Scheduled ${formatDate(r.scheduled_date)}`} meta={`Open since ${formatTime(r.created_at)}`} />
           ))}
         </Section>
       )}
 
-      {/* Failed Auto-Assignments */}
+      {/* Failed Auto-Assignments — collapsed to summary, full log is in Contracts tab */}
       {data.failedAssignments.length > 0 && (
-        <Section title="Failed Auto-Assignments (7 days)" count={data.failedAssignments.length} color="purple">
-          {data.failedAssignments.map(r => (
-            <Row key={r.id} primary={r.address} secondary={r.failure_reason} meta={formatTime(r.created_at)} />
-          ))}
-        </Section>
+        <SummarySection
+          title="Failed Auto-Assignments (7 days)"
+          count={data.failedAssignments.length}
+          color="purple"
+          description={`${data.failedAssignments.length} location${data.failedAssignments.length !== 1 ? 's' : ''} could not be auto-assigned`}
+          actionLabel="View in Contracts →"
+          onAction={onNavigate ? () => onNavigate('contracts') : undefined}
+        />
       )}
 
-      {/* Stale Draft Routes */}
+      {/* Unpublished Draft Routes — keep list, add Go to Routes button */}
       {data.staleDraftRoutes.length > 0 && (
-        <Section title="Unpublished Drafts (Next 3 Days)" count={data.staleDraftRoutes.length} color="gray">
+        <Section
+          title="Unpublished Drafts (Next 3 Days)"
+          count={data.staleDraftRoutes.length}
+          color="gray"
+          action={onNavigate ? (
+            <button
+              onClick={() => onNavigate('routes')}
+              className="text-xs font-bold text-gray-600 hover:text-gray-800 underline underline-offset-2"
+            >
+              Go to Routes →
+            </button>
+          ) : null}
+        >
           {data.staleDraftRoutes.map(r => (
             <Row key={r.id} primary={r.title} secondary={`${r.order_count} orders — scheduled ${formatDate(r.scheduled_date)}`} meta="Draft" />
           ))}
@@ -120,13 +166,31 @@ const BADGE_COLORS: Record<string, string> = {
   gray: 'bg-gray-500',
 };
 
-const Section: React.FC<{ title: string; count: number; color: string; children: React.ReactNode }> = ({ title, count, color, children }) => (
+const Section: React.FC<{ title: string; count: number; color: string; action?: React.ReactNode; children: React.ReactNode }> = ({ title, count, color, action, children }) => (
   <div className={`border rounded-xl overflow-hidden ${COLORS[color] || COLORS.gray}`}>
     <div className="px-4 py-3 flex items-center gap-2">
       <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black text-white ${BADGE_COLORS[color] || BADGE_COLORS.gray}`}>{count}</span>
-      <h3 className="text-sm font-black text-gray-800">{title}</h3>
+      <h3 className="text-sm font-black text-gray-800 flex-1">{title}</h3>
+      {action}
     </div>
     <div className="bg-white divide-y divide-gray-100">{children}</div>
+  </div>
+);
+
+const SummarySection: React.FC<{ title: string; count: number; color: string; description: string; actionLabel: string; onAction?: () => void }> = ({ title, count, color, description, actionLabel, onAction }) => (
+  <div className={`border rounded-xl ${COLORS[color] || COLORS.gray}`}>
+    <div className="px-4 py-3 flex items-center gap-2">
+      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black text-white ${BADGE_COLORS[color] || BADGE_COLORS.gray}`}>{count}</span>
+      <h3 className="text-sm font-black text-gray-800 flex-1">{title}</h3>
+      {onAction && (
+        <button onClick={onAction} className={`text-xs font-bold underline underline-offset-2 text-gray-600 hover:text-gray-900`}>
+          {actionLabel}
+        </button>
+      )}
+    </div>
+    <div className="bg-white px-4 py-2.5">
+      <p className="text-sm text-gray-500">{description}</p>
+    </div>
   </div>
 );
 

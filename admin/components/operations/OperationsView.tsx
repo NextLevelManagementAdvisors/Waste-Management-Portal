@@ -9,9 +9,10 @@ import OpportunitiesPanel from './OpportunitiesPanel.tsx';
 import Providers from '../providers/Providers.tsx';
 import ExceptionsDashboard from './ExceptionsDashboard.tsx';
 import OrdersView from './OrdersView.tsx';
+import OnDemandSchedule from './OnDemandSchedule.tsx';
 
 // Kept for backward compat with App.tsx routing
-export type OpsTabType = 'operations' | 'routes' | 'orders' | 'service-areas' | 'providers' | 'contracts' | 'opportunities' | 'issues' | 'exceptions' | 'actions' | 'address-review'
+export type OpsTabType = 'operations' | 'routes' | 'orders' | 'on-demand' | 'service-areas' | 'providers' | 'contracts' | 'opportunities' | 'issues' | 'exceptions' | 'actions' | 'address-review'
   | 'locations' | 'zones' | 'zone-approvals'; // backward compat aliases
 
 interface OperationsViewProps {
@@ -29,11 +30,12 @@ const TAB_ITEMS: { key: OpsTabType; label: string }[] = [
   { key: 'operations', label: 'Calendar' },
   { key: 'routes', label: 'Routes' },
   { key: 'orders', label: 'Orders' },
+  { key: 'on-demand', label: 'On-Demand' },
   { key: 'service-areas', label: 'Service Areas' },
   { key: 'providers', label: 'Providers' },
   { key: 'contracts', label: 'Contracts' },
   { key: 'opportunities', label: 'Opportunities' },
-  { key: 'issues', label: 'Issues' },
+  { key: 'issues', label: 'Missed Collections' },
   { key: 'exceptions', label: 'Exceptions' },
 ];
 
@@ -93,12 +95,13 @@ const OperationsView: React.FC<OperationsViewProps> = ({ navFilter, onFilterCons
       {currentTab === 'operations' && <PlanningCalendar />}
       {currentTab === 'routes' && <RoutesList />}
       {currentTab === 'orders' && <OrdersView />}
+      {currentTab === 'on-demand' && <OnDemandSchedule />}
       {currentTab === 'service-areas' && <ServiceAreasPanel onActionResolved={onActionResolved} />}
       {currentTab === 'providers' && <Providers />}
       {currentTab === 'contracts' && <ContractsPanel />}
       {currentTab === 'opportunities' && <OpportunitiesPanel />}
       {isIssues && <MissedCollectionsList onActionResolved={onActionResolved} />}
-      {currentTab === 'exceptions' && <ExceptionsDashboard />}
+      {currentTab === 'exceptions' && <ExceptionsDashboard onNavigate={onTabChange} />}
     </div>
   );
 };
