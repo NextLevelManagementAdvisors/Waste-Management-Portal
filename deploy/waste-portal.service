@@ -7,7 +7,7 @@ Type=simple
 User=portal
 WorkingDirectory=/opt/waste-portal
 EnvironmentFile=/opt/waste-portal/.env
-ExecStart=/usr/bin/node /opt/waste-portal/server/dist/index.js
+ExecStart=/opt/waste-portal/node_modules/.bin/tsx server/index.ts
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production

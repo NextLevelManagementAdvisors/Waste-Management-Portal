@@ -29,8 +29,8 @@ ssh "$USER@$HOST" /bin/bash << EOF
   echo "--- Pulling latest changes from main branch ---"
   sudo -u "$APP_USER" git pull origin main
   
-  echo "--- Installing dependencies with 'npm ci' for a clean, fast build ---"
-  sudo -u "$APP_USER" npm ci
+  echo "--- Installing dependencies with 'npm ci --include=dev' for a clean, repeatable build ---"
+  sudo -u "$APP_USER" npm ci --include=dev
   
   echo "--- Building the application ---"
   # Explicitly removing the old build directory as the app user is safer.
