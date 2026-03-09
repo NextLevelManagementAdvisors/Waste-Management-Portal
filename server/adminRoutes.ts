@@ -2125,7 +2125,8 @@ export function registerAdminRoutes(app: Express) {
         ),
         // Escalated missed collections
         pool.query(
-          `SELECT mcr.id, mcr.reported_date, mcr.status, p.address, mcr.created_at
+          // Preserve the existing client field name even though the DB column is collection_date.
+          `SELECT mcr.id, mcr.collection_date AS reported_date, mcr.status, p.address, mcr.created_at
            FROM missed_collection_reports mcr
            JOIN locations p ON p.id = mcr.location_id
            WHERE mcr.status IN ('pending', 'escalated')
@@ -2143,10 +2144,15 @@ export function registerAdminRoutes(app: Express) {
         ),
         // Failed auto-assignments (from log)
         pool.query(
-          `SELECT aal.id, aal.location_id, aal.failure_reason, aal.created_at, p.address
+          // The log stores failure context in reason/details, not failure_reason/success.
+          `SELECT aal.id,
+                  aal.location_id,
+                  COALESCE(aal.reason, aal.details, 'Assignment failed') AS failure_reason,
+                  aal.created_at,
+                  COALESCE(p.address, 'Unknown location') AS address
            FROM auto_assignment_log aal
-           JOIN locations p ON p.id = aal.location_id
-           WHERE aal.success = false AND aal.created_at > NOW() - INTERVAL '7 days'
+           LEFT JOIN locations p ON p.id = aal.location_id
+           WHERE aal.assigned = false AND aal.created_at > NOW() - INTERVAL '7 days'
            ORDER BY aal.created_at DESC LIMIT 50`
         ).catch(() => ({ rows: [] })),
         // Stale draft routes for upcoming dates
