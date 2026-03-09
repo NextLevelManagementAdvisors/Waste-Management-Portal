@@ -11,6 +11,7 @@ import CompletionDetailModal from './CompletionDetailModal.tsx';
 import RouteOptimizerModal from './RouteOptimizerModal.tsx';
 import RouteMapModal from './RouteMapModal.tsx';
 import BidSection from './BidSection.tsx';
+import { getRouteProgressCounts } from './planningCalendarProgress.ts';
 import { useToast } from '../../../components/Toast.tsx';
 
 // ── Local icon components (matching team portal style) ──
@@ -743,24 +744,15 @@ const PlanningCalendar: React.FC = () => {
                 <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Routes</h4>
                 <div className="space-y-3">
                   {dayRoutes.map(route => {
-                    const orderCount = route.orderCount ?? route.estimatedOrders ?? 0;
+                    const orders = routeOrders[route.id];
+                    const { orderCount, completedOrders } = getRouteProgressCounts(route, orders, liveOrderStatuses);
                     const minutesPerOrder = 8;
                     const estimatedHours = (orderCount * minutesPerOrder / 60);
                     const overCapacity = orderCount > ROUTE_MAX_ORDERS;
                     const isExpanded = expandedRouteId === route.id;
-                    const orders = routeOrders[route.id];
                     const isLive = route.status === 'in_progress';
                     const syncIndicator = getSyncIndicator(route);
                     const isLate = route.status === 'assigned' && route.scheduledDate && new Date(route.scheduledDate + 'T23:59:59') < new Date();
-
-                    let completedOrders = route.completedOrderCount ?? 0;
-                    if (orders && orders.length > 0) {
-                      const DONE = new Set(['completed', 'success', 'failed', 'rejected', 'deleted_in_optimo', 'rescheduled_in_optimo']);
-                      completedOrders = orders.filter(s => {
-                        const live = (s.optimoOrderNo || s.optimo_order_no) ? liveOrderStatuses[(s.optimoOrderNo || s.optimo_order_no)!] : null;
-                        return DONE.has(live || '') || DONE.has(s.status);
-                      }).length;
-                    }
                     const progressPct = orderCount > 0 ? Math.round((completedOrders / orderCount) * 100) : 0;
                     const showProgress = ['assigned', 'in_progress', 'completed'].includes(route.status) && orderCount > 0;
 
