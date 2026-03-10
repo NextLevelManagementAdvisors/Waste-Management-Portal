@@ -356,11 +356,11 @@ export const ENDPOINTS: ApiTesterEndpoint[] = [
     }),
   },
   {
-    id: 'update_drivers_positions_bulk',
+    id: 'update_drivers_positions',
     category: 'drivers',
     label: 'Update Driver Positions',
     method: 'POST',
-    optimoEndpoint: 'update_drivers_positions_bulk',
+    optimoEndpoint: 'update_drivers_positions',
     description: 'Push GPS positions for multiple drivers',
     fields: [
       {
@@ -380,7 +380,7 @@ export const ENDPOINTS: ApiTesterEndpoint[] = [
       },
     ],
     buildRequest: (v) => ({
-      endpoint: 'update_drivers_positions_bulk',
+      endpoint: 'update_drivers_positions',
       method: 'POST',
       body: JSON.parse(v.body),
     }),
@@ -425,11 +425,11 @@ export const ENDPOINTS: ApiTesterEndpoint[] = [
     }),
   },
   {
-    id: 'update_order_completion',
+    id: 'update_completion_details',
     category: 'tracking',
     label: 'Update Order Completion',
     method: 'POST',
-    optimoEndpoint: 'update_order_completion',
+    optimoEndpoint: 'update_completion_details',
     description: 'WARNING: Changes completion status on real orders! Update completion status/form.',
     destructive: true,
     fields: [
@@ -444,7 +444,7 @@ export const ENDPOINTS: ApiTesterEndpoint[] = [
       },
     ],
     buildRequest: (v) => ({
-      endpoint: 'update_order_completion',
+      endpoint: 'update_completion_details',
       method: 'POST',
       body: JSON.parse(v.body),
     }),

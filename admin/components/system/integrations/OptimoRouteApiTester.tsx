@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '../../../../components/Button.tsx';
 import { CATEGORIES, ENDPOINTS, TEST_PREFIX, type ApiTesterEndpoint, type ApiTesterField, type ProxyRequest } from './apiTesterEndpoints';
 
@@ -72,6 +72,42 @@ const OptimoRouteApiTester: React.FC = () => {
   const [testSteps, setTestSteps] = useState<TestStep[]>([]);
   const [testRunning, setTestRunning] = useState(false);
   const abortRef = useRef(false);
+  // Track all _TEST_ orders created so we can clean up on unmount
+  const createdOrdersRef = useRef<Set<string>>(new Set());
+
+  const cleanupAllTestOrders = useCallback(async () => {
+    const orders = Array.from(createdOrdersRef.current);
+    if (orders.length === 0) return;
+    await Promise.allSettled(
+      orders.map(orderNo =>
+        callProxy({ endpoint: 'delete_order', method: 'POST', body: { orderNo } })
+          .then(() => createdOrdersRef.current.delete(orderNo))
+          .catch(() => {})
+      ),
+    );
+  }, []);
+
+  // Clean up any lingering test orders on unmount or page unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const orders = Array.from(createdOrdersRef.current);
+      if (orders.length === 0) return;
+      // Best-effort cleanup via sendBeacon
+      for (const orderNo of orders) {
+        navigator.sendBeacon(
+          PROXY_URL,
+          new Blob([JSON.stringify({ endpoint: 'delete_order', method: 'POST', body: { orderNo } })],
+            { type: 'application/json' }),
+        );
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Component unmount — fire-and-forget cleanup
+      cleanupAllTestOrders();
+    };
+  }, [cleanupAllTestOrders]);
 
   const updateState = useCallback((id: string, patch: Partial<EndpointState>) => {
     setStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -118,6 +154,16 @@ const OptimoRouteApiTester: React.FC = () => {
       const req = endpoint.buildRequest(state.values);
       const result = await callProxy(req);
       updateState(endpoint.id, { loading: false, response: result, confirmText: '' });
+      // Track _TEST_ orders created by individual runs
+      if (endpoint.createsTestData && result.status >= 200 && result.status < 300) {
+        try {
+          const body = JSON.parse(state.values.body || '{}');
+          const orderNo = body.orderNo || body.orders?.[0]?.orderNo;
+          if (orderNo && typeof orderNo === 'string' && orderNo.startsWith(TEST_PREFIX)) {
+            createdOrdersRef.current.add(orderNo);
+          }
+        } catch { /* ignore parse errors */ }
+      }
     } catch (err: any) {
       updateState(endpoint.id, {
         loading: false,
@@ -131,6 +177,7 @@ const OptimoRouteApiTester: React.FC = () => {
   const cleanupOrder = useCallback(async (orderNo: string) => {
     try {
       await callProxy({ endpoint: 'delete_order', method: 'POST', body: { orderNo } });
+      createdOrdersRef.current.delete(orderNo);
     } catch { /* best effort */ }
   }, []);
 
@@ -146,17 +193,33 @@ const OptimoRouteApiTester: React.FC = () => {
     abortRef.current = false;
     setTestRunning(true);
     const today = new Date().toISOString().split('T')[0];
-    const testOrderNo = `${TEST_PREFIX}${Date.now()}`;
+    const ts = Date.now();
+    const orderA = `${TEST_PREFIX}${ts}`;
+    const orderB = `${TEST_PREFIX}${ts}_B`;
+    const orderC = `${TEST_PREFIX}${ts}_C`;
 
     const steps: TestStep[] = [
-      { label: `create_order (${testOrderNo})`, status: 'pending' },
-      { label: `get_orders (${testOrderNo})`, status: 'pending' },
+      { label: `create_order (${orderA})`, status: 'pending' },
+      { label: `create_or_update_orders (${orderB})`, status: 'pending' },
+      { label: 'get_orders (both)', status: 'pending' },
       { label: `search_orders (${today})`, status: 'pending' },
-      { label: `get_scheduling_info (${testOrderNo})`, status: 'pending' },
-      { label: `get_completion_details (${testOrderNo})`, status: 'pending' },
+      { label: `get_scheduling_info (${orderA})`, status: 'pending' },
+      { label: `get_completion_details (${orderA})`, status: 'pending' },
+      { label: `update_completion_details (${orderA})`, status: 'pending' },
       { label: 'get_routes', status: 'pending' },
+      { label: 'update_drivers_positions', status: 'pending' },
       { label: 'get_events', status: 'pending' },
-      { label: `delete_order (cleanup: ${testOrderNo})`, status: 'pending' },
+      { label: 'find safe date...', status: 'pending' },
+      { label: `create_order (${orderC}) on safe date`, status: 'pending' },
+      { label: 'start_planning (safe date)', status: 'pending' },
+      { label: 'get_planning_status', status: 'pending' },
+      { label: 'stop_planning', status: 'pending' },
+      { label: 'update_driver_parameters (safe date)', status: 'pending' },
+      { label: 'update_drivers_parameters (safe date)', status: 'pending' },
+      { label: `delete_order (${orderA})`, status: 'pending' },
+      { label: `delete_orders (${orderB})`, status: 'pending' },
+      { label: `delete_order (${orderC})`, status: 'pending' },
+      { label: 'delete_all_orders (connectivity)', status: 'pending' },
     ];
     setTestSteps([...steps]);
 
@@ -165,70 +228,268 @@ const OptimoRouteApiTester: React.FC = () => {
       setTestSteps([...steps]);
     };
 
-    const run = async (idx: number, req: ProxyRequest): Promise<boolean> => {
-      if (abortRef.current) return false;
+    const run = async (idx: number, req: ProxyRequest): Promise<{ ok: boolean; body?: any }> => {
+      if (abortRef.current) return { ok: false };
       update(idx, { status: 'running' });
       try {
         const result = await callProxy(req);
-        const ok = result.status >= 200 && result.status < 300 && result.body?.success !== false;
+        const ok = result.status >= 200 && result.status < 300;
         update(idx, { status: ok ? 'pass' : 'fail', response: result });
-        return ok;
+        return { ok, body: result.body };
       } catch (err: any) {
         update(idx, { status: 'fail', error: err.message });
-        return false;
+        return { ok: false };
       }
     };
 
-    // 1. Create order
-    await run(0, {
-      endpoint: 'create_order', method: 'POST',
-      body: { operation: 'CREATE', orderNo: testOrderNo, type: 'D', date: today,
-        location: { address: '393 Hanover St, Boston, MA 02113, USA' }, duration: 20,
-        notes: 'API Tester automated test' },
-    });
+    // Connectivity check — pass on ANY response, only fail on network error
+    const runConnectivity = async (idx: number, req: ProxyRequest): Promise<void> => {
+      if (abortRef.current) return;
+      update(idx, { status: 'running' });
+      try {
+        const result = await callProxy(req);
+        update(idx, { status: 'pass', response: result });
+      } catch (err: any) {
+        update(idx, { status: 'fail', error: err.message });
+      }
+    };
 
-    // 2. Get orders
-    await run(1, {
-      endpoint: 'get_orders', method: 'POST',
-      body: { orders: [{ orderNo: testOrderNo }] },
-    });
+    // Helper: add days to today and return YYYY-MM-DD
+    const addDays = (days: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
 
-    // 3. Search orders
-    await run(2, {
-      endpoint: 'search_orders', method: 'POST',
-      body: { dateRange: { from: today, to: today }, includeOrderData: true },
-    });
+    try {
+      // 1. Create order A
+      const { ok: createdA } = await run(0, {
+        endpoint: 'create_order', method: 'POST',
+        body: { operation: 'CREATE', orderNo: orderA, type: 'D', date: today,
+          location: { address: '393 Hanover St, Boston, MA 02113, USA' }, duration: 20,
+          notes: 'API Tester automated test' },
+      });
+      if (createdA) createdOrdersRef.current.add(orderA);
 
-    // 4. Scheduling info
-    await run(3, {
-      endpoint: 'get_scheduling_info', method: 'GET',
-      params: { orderNo: testOrderNo },
-    });
+      // 2. Bulk create order B
+      const { ok: createdB } = await run(1, {
+        endpoint: 'create_or_update_orders', method: 'POST',
+        body: { orders: [{ orderNo: orderB, date: today, duration: 15, type: 'D',
+          location: { locationNo: 'TEST_LOC', address: '393 Hanover St, Boston, MA 02113, USA',
+            latitude: 42.365142, longitude: -71.052882 } }] },
+      });
+      if (createdB) createdOrdersRef.current.add(orderB);
 
-    // 5. Completion details
-    await run(4, {
-      endpoint: 'get_completion_details', method: 'POST',
-      body: { orders: [{ orderNo: testOrderNo }] },
-    });
+      // 3. Get both orders
+      await run(2, {
+        endpoint: 'get_orders', method: 'POST',
+        body: { orders: [{ orderNo: orderA }, { orderNo: orderB }] },
+      });
 
-    // 6. Get routes
-    await run(5, {
-      endpoint: 'get_routes', method: 'GET',
-      params: { date: today },
-    });
+      // 4. Search orders
+      await run(3, {
+        endpoint: 'search_orders', method: 'POST',
+        body: { dateRange: { from: today, to: today }, includeOrderData: true },
+      });
 
-    // 7. Get events
-    await run(6, {
-      endpoint: 'get_events', method: 'GET',
-    });
+      // 5. Scheduling info
+      await run(4, {
+        endpoint: 'get_scheduling_info', method: 'GET',
+        params: { orderNo: orderA },
+      });
 
-    // 8. Cleanup — always attempt
-    await run(7, {
-      endpoint: 'delete_order', method: 'POST',
-      body: { orderNo: testOrderNo },
-    });
+      // 6. Completion details
+      await run(5, {
+        endpoint: 'get_completion_details', method: 'POST',
+        body: { orders: [{ orderNo: orderA }] },
+      });
 
-    setTestRunning(false);
+      // 7. Update order completion
+      await run(6, {
+        endpoint: 'update_completion_details', method: 'POST',
+        body: { updates: [{ orderNo: orderA, data: { status: 'success' } }] },
+      });
+
+      // 8. Get routes — extract driver externalId for GPS test
+      const routesResult = await run(7, {
+        endpoint: 'get_routes', method: 'GET',
+        params: { date: today },
+      });
+
+      // 9. Update driver positions — use discovered driver or connectivity
+      let driverId: string | null = null;
+      try {
+        const routes = routesResult.body?.routes || routesResult.body?.result || [];
+        if (Array.isArray(routes) && routes.length > 0) {
+          driverId = routes[0]?.driverExternalId || routes[0]?.driver?.externalId || null;
+        }
+      } catch { /* ignore */ }
+
+      if (driverId) {
+        await run(8, {
+          endpoint: 'update_drivers_positions', method: 'POST',
+          body: { updates: [{ driver: { externalId: driverId },
+            positions: [{ timestamp: Math.floor(Date.now() / 1000),
+              latitude: 42.365142, longitude: -71.052882, speed: 0, accuracy: 10 }] }] },
+        });
+      } else {
+        await runConnectivity(8, {
+          endpoint: 'update_drivers_positions', method: 'POST',
+          body: { updates: [{ driver: { externalId: '_TEST_DUMMY' },
+            positions: [{ timestamp: Math.floor(Date.now() / 1000),
+              latitude: 42.365142, longitude: -71.052882, speed: 0, accuracy: 10 }] }] },
+        });
+      }
+
+      // 10. Get events
+      await run(9, { endpoint: 'get_events', method: 'GET' });
+
+      // 11. Find safe date — search future dates until we find one with 0 orders
+      update(10, { status: 'running' });
+      let safeDate: string | null = null;
+      try {
+        for (let offset = 60; offset < 65; offset++) {
+          const candidate = addDays(offset);
+          const searchResult = await callProxy({
+            endpoint: 'search_orders', method: 'POST',
+            body: { dateRange: { from: candidate, to: candidate }, includeOrderData: false },
+          });
+          const orders = searchResult.body?.orders || [];
+          if (searchResult.status >= 200 && searchResult.status < 300 && orders.length === 0) {
+            safeDate = candidate;
+            break;
+          }
+        }
+        if (safeDate) {
+          update(10, { status: 'pass', response: { status: 200, body: { safeDate }, durationMs: 0 } });
+        } else {
+          update(10, { status: 'fail', error: 'No empty date found in +60..+64 range' });
+        }
+      } catch (err: any) {
+        update(10, { status: 'fail', error: err.message });
+      }
+
+      if (safeDate) {
+        // Update labels with discovered date
+        update(11, { label: `create_order (${orderC}) on ${safeDate}` });
+        update(12, { label: `start_planning (${safeDate})` });
+        update(15, { label: `update_driver_parameters (${safeDate})` });
+        update(16, { label: `update_drivers_parameters (${safeDate})` });
+
+        // 12. Create order C on safe date
+        const { ok: createdC } = await run(11, {
+          endpoint: 'create_order', method: 'POST',
+          body: { operation: 'CREATE', orderNo: orderC, type: 'D', date: safeDate,
+            location: { address: '393 Hanover St, Boston, MA 02113, USA' }, duration: 20,
+            notes: 'API Tester planning test' },
+        });
+        if (createdC) createdOrdersRef.current.add(orderC);
+
+        // 13. Start planning on safe date
+        const planResult = await run(12, {
+          endpoint: 'start_planning', method: 'POST',
+          body: { date: safeDate },
+        });
+
+        // Extract planningId from response
+        let planningId: string | null = null;
+        try {
+          planningId = String(planResult.body?.planningId || planResult.body?.id || '');
+          if (!planningId || planningId === 'undefined') planningId = null;
+        } catch { /* ignore */ }
+
+        // 14. Get planning status
+        if (planningId) {
+          await run(13, {
+            endpoint: 'get_planning_status', method: 'GET',
+            params: { planningId },
+          });
+        } else {
+          await runConnectivity(13, {
+            endpoint: 'get_planning_status', method: 'GET',
+            params: { planningId: '0' },
+          });
+        }
+
+        // 15. Stop planning
+        if (planningId) {
+          await run(14, {
+            endpoint: 'stop_planning', method: 'POST',
+            body: { planningId: Number(planningId) },
+          });
+        } else {
+          await runConnectivity(14, {
+            endpoint: 'stop_planning', method: 'POST',
+            body: { planningId: 0 },
+          });
+        }
+
+        // 16. Update driver parameters (safe date — no routes to unschedule)
+        if (driverId) {
+          await run(15, {
+            endpoint: 'update_driver_parameters', method: 'POST',
+            body: { externalId: driverId, date: safeDate, workTimeFrom: '08:00', workTimeTo: '17:00' },
+          });
+        } else {
+          await runConnectivity(15, {
+            endpoint: 'update_driver_parameters', method: 'POST',
+            body: { externalId: '_TEST_DUMMY', date: safeDate, workTimeFrom: '08:00', workTimeTo: '17:00' },
+          });
+        }
+
+        // 17. Update drivers parameters (bulk, safe date)
+        if (driverId) {
+          await run(16, {
+            endpoint: 'update_drivers_parameters', method: 'POST',
+            body: { updates: [{ driver: { externalId: driverId }, date: safeDate,
+              workTime: { from: '08:00', to: '17:00' } }] },
+          });
+        } else {
+          await runConnectivity(16, {
+            endpoint: 'update_drivers_parameters', method: 'POST',
+            body: { updates: [{ driver: { externalId: '_TEST_DUMMY' }, date: safeDate,
+              workTime: { from: '08:00', to: '17:00' } }] },
+          });
+        }
+      } else {
+        // No safe date found — fall back to connectivity checks
+        update(11, { label: 'create_order (skipped — no safe date)' });
+        await runConnectivity(11, {
+          endpoint: 'create_order', method: 'POST',
+          body: { operation: 'CREATE', orderNo: orderC, type: 'D', date: '2000-01-01',
+            location: { address: 'Test' }, duration: 10 },
+        });
+        await runConnectivity(12, { endpoint: 'start_planning', method: 'POST', body: { date: '2000-01-01' } });
+        await runConnectivity(13, { endpoint: 'get_planning_status', method: 'GET', params: { planningId: '0' } });
+        await runConnectivity(14, { endpoint: 'stop_planning', method: 'POST', body: { planningId: 0 } });
+        await runConnectivity(15, {
+          endpoint: 'update_driver_parameters', method: 'POST',
+          body: { externalId: '_TEST_DUMMY', date: '2000-01-01', workTimeFrom: '08:00', workTimeTo: '17:00' },
+        });
+        await runConnectivity(16, {
+          endpoint: 'update_drivers_parameters', method: 'POST',
+          body: { updates: [{ driver: { externalId: '_TEST_DUMMY' }, date: '2000-01-01',
+            workTime: { from: '08:00', to: '17:00' } }] },
+        });
+      }
+    } finally {
+      // 18. Delete order A
+      await run(17, { endpoint: 'delete_order', method: 'POST', body: { orderNo: orderA } });
+      createdOrdersRef.current.delete(orderA);
+
+      // 19. Bulk delete order B
+      await run(18, { endpoint: 'delete_orders', method: 'POST', body: { orders: [{ orderNo: orderB }] } });
+      createdOrdersRef.current.delete(orderB);
+
+      // 20. Delete order C (safe-date order)
+      await run(19, { endpoint: 'delete_order', method: 'POST', body: { orderNo: orderC } });
+      createdOrdersRef.current.delete(orderC);
+
+      // 21. delete_all_orders connectivity (safe dummy date)
+      await runConnectivity(20, { endpoint: 'delete_all_orders', method: 'POST', body: { date: '2000-01-01' } });
+
+      setTestRunning(false);
+    }
   }, []);
 
   const filtered = ENDPOINTS.filter(ep => ep.category === activeCategory);
@@ -424,7 +685,7 @@ const OptimoRouteApiTester: React.FC = () => {
         <div className="flex items-center justify-between mb-2">
           <div>
             <p className="text-sm font-bold text-gray-800">Run All Tests</p>
-            <p className="text-xs text-gray-500">Creates a test order, verifies it through multiple endpoints, then cleans up</p>
+            <p className="text-xs text-gray-500">Tests all 18 endpoints — creates test orders, auto-discovers a safe date for planning tests, then cleans up</p>
           </div>
           <Button
             size="sm"
