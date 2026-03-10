@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: OptimoRoute Web Service API
-  version: '1.32'
+  version: '1.33'
   description: "OpenAPI definition for the public OptimoRoute Web Service API.\nSource:\
     \ https://optimoroute.com/api/\n\nNotes:\n  The API uses an application level \"\
     success\" boolean and error \"code\" and \"message\" fields in JSON responses.\n\
@@ -787,13 +787,14 @@ paths:
                 $ref: '#/components/schemas/GetCompletionDetailsResponse'
         default:
           $ref: '#/components/responses/GenericError'
-  /v1/update_completion_details:
+  /v1/update_order_completion:
     post:
       tags:
       - LiveTracking
-      summary: Update order completion details
-      description: Update order completion details for one or more orders.
-      operationId: updateCompletionDetails
+      summary: Update order completion (v1.33 name)
+      description: Update order completion details for one or more orders. Renamed
+        from update_completion_details in v1.33; old name still supported.
+      operationId: updateOrderCompletion
       x-rateLimit: Max 5 concurrent requests per account or per IP
       requestBody:
         required: true
@@ -832,13 +833,14 @@ paths:
                         status: scheduled
         default:
           $ref: '#/components/responses/GenericError'
-  /v1/update_drivers_positions:
+  /v1/update_drivers_positions_bulk:
     post:
       tags:
       - Drivers
-      summary: Update drivers positions (bulk)
-      description: Updates positions of multiple drivers at given timestamps.
-      operationId: updateDriversPositions
+      summary: Update drivers positions (bulk, v1.33 name)
+      description: Updates positions of multiple drivers at given timestamps. Renamed
+        from update_drivers_positions in v1.33; old name still supported.
+      operationId: updateDriversPositionsBulk
       x-rateLimit: Max 5 concurrent requests per account or per IP
       requestBody:
         required: true

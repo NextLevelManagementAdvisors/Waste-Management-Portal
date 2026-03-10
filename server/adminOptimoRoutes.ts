@@ -529,4 +529,62 @@ export function registerAdminOptimoRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to import routes from OptimoRoute' });
     }
   });
+
+  // ── API Proxy (direct OptimoRoute API testing) ──
+
+  const ALLOWED_ENDPOINTS = new Set([
+    'create_order', 'create_or_update_orders', 'get_orders',
+    'delete_order', 'delete_orders', 'delete_all_orders', 'search_orders',
+    'get_routes', 'get_scheduling_info',
+    'start_planning', 'stop_planning', 'get_planning_status',
+    'update_driver_parameters', 'update_drivers_parameters', 'update_drivers_positions',
+    'get_events', 'get_completion_details', 'update_completion_details',
+    'update_order_completion', 'update_drivers_positions_bulk',
+  ]);
+
+  app.post('/api/admin/optimoroute/api-proxy', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { endpoint, method, params, body } = req.body as {
+        endpoint: string;
+        method: 'GET' | 'POST';
+        params?: Record<string, string>;
+        body?: any;
+      };
+
+      if (!endpoint || !ALLOWED_ENDPOINTS.has(endpoint)) {
+        return res.status(400).json({ error: `Invalid endpoint: ${endpoint}` });
+      }
+
+      const apiKey = process.env.OPTIMOROUTE_API_KEY || '';
+      if (!apiKey) {
+        return res.status(500).json({ error: 'OPTIMOROUTE_API_KEY is not configured' });
+      }
+
+      const baseUrl = 'https://api.optimoroute.com/v1';
+      const url = new URL(`${baseUrl}/${endpoint}`);
+      url.searchParams.set('key', apiKey);
+
+      if (method === 'GET' && params) {
+        for (const [k, v] of Object.entries(params)) {
+          url.searchParams.set(k, v);
+        }
+      }
+
+      const fetchOpts: RequestInit = { method, headers: { 'Accept': 'application/json' } };
+      if (method === 'POST' && body !== undefined) {
+        (fetchOpts.headers as Record<string, string>)['Content-Type'] = 'application/json';
+        fetchOpts.body = JSON.stringify(body);
+      }
+
+      const apiRes = await fetch(url.toString(), fetchOpts);
+      let data: any;
+      const text = await apiRes.text();
+      try { data = JSON.parse(text); } catch { data = text; }
+
+      res.json({ status: apiRes.status, data });
+    } catch (error: any) {
+      console.error('[Admin OptimoRoute] API proxy error:', error);
+      res.status(500).json({ error: error.message || 'Proxy request failed' });
+    }
+  });
 }

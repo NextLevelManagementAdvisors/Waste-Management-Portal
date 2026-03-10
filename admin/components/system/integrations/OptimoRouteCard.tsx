@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Button } from '../../../../components/Button.tsx';
 import type { SettingItem } from './types';
 import SettingField from './SettingField.tsx';
+
+const OptimoRouteApiTester = lazy(() => import('./OptimoRouteApiTester.tsx'));
 
 interface OptimoRouteCardProps {
   settings: SettingItem[];
@@ -211,6 +213,8 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
     if (ok) flashSuccess(maxMinutes && maxMinutes !== '0' ? `Max time set to ${maxMinutes} minutes` : 'Max time limit removed');
     setSavingOpt(false);
   };
+
+  const [testerOpen, setTesterOpen] = useState(false);
 
   // Standard settings (API key) — exclude settings that have custom UI
   const standardSettings = settings.filter(s => !CUSTOM_UI_KEYS.includes(s.key));
@@ -443,6 +447,31 @@ const OptimoRouteCard: React.FC<OptimoRouteCardProps> = ({
           onEditValueChange={onEditValueChange}
         />
       ))}
+
+      {/* ── API Tester ── */}
+      <div className="flex items-center gap-2 pt-2 pb-1">
+        <div className="h-px flex-1 bg-gray-200" />
+        <button
+          type="button"
+          onClick={() => setTesterOpen(o => !o)}
+          className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors"
+        >
+          API Tester
+          <svg
+            className={`w-3.5 h-3.5 transition-transform ${testerOpen ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div className="h-px flex-1 bg-gray-200" />
+      </div>
+
+      {testerOpen && (
+        <Suspense fallback={<div className="flex justify-center py-4"><span className="w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /></div>}>
+          <OptimoRouteApiTester />
+        </Suspense>
+      )}
     </div>
   );
 };
