@@ -4209,6 +4209,34 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: `Unknown setting: ${key}` });
       }
 
+      // Validate operations settings
+      const numRange = (v: string, min: number, max: number): string | null => {
+        if (v === '') return null; // allow clearing
+        const n = Number(v);
+        if (isNaN(n) || !Number.isFinite(n)) return 'Must be a valid number';
+        if (n < min || n > max) return `Must be between ${min} and ${max}`;
+        return null;
+      };
+      const validationRules: Record<string, () => string | null> = {
+        BID_WINDOW_HOURS: () => numRange(value, 1, 720),
+        SAME_DAY_BID_WINDOW_MINUTES: () => numRange(value, 5, 1440),
+        ZONE_ASSIGNMENT_DEADLINE_HOURS: () => numRange(value, 1, 720),
+        ZONE_AUTO_ASSIGN_CONFLICT_STRATEGY: () =>
+          value === '' || ['skip', 'nearest_center', 'first_created'].includes(value)
+            ? null : 'Must be one of: skip, nearest_center, first_created',
+        OPTIMO_SYNC_HOUR: () => numRange(value, 0, 23),
+        OPTIMO_SYNC_WINDOW_DAYS: () => numRange(value, 1, 365),
+        PICKUP_OPTIMIZATION_WINDOW_DAYS: () => numRange(value, 1, 365),
+        PICKUP_AUTO_APPROVE_MAX_MILES: () => numRange(value, 0, 500),
+        PICKUP_AUTO_APPROVE_MAX_MINUTES: () => numRange(value, 0, 600),
+        SKIP_CREDIT_AMOUNT_CENTS: () => numRange(value, 0, 100000),
+      };
+      const validator = validationRules[key];
+      if (validator) {
+        const err = validator();
+        if (err) return res.status(400).json({ error: `${def.label}: ${err}` });
+      }
+
       const userId = req.session.userId!;
       await saveSetting(key, value, def.category, def.isSecret, userId);
       await audit(req, 'update_setting', 'system_settings', key, { category: def.category });

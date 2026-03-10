@@ -10,6 +10,7 @@ import GoogleOAuthCard from './integrations/GoogleOAuthCard.tsx';
 import GmailCard from './integrations/GmailCard.tsx';
 import GoogleSsoCard from './integrations/GoogleSsoCard.tsx';
 import OptimoRouteCard from './integrations/OptimoRouteCard.tsx';
+import OperationsCard from './integrations/OperationsCard.tsx';
 import { GUIDES, getGmailGuide } from './integrations/guides.tsx';
 
 const SECTIONS: SectionConfig[] = [
@@ -28,7 +29,7 @@ const SECTIONS: SectionConfig[] = [
   // Weather
   { category: 'weather',      title: 'OpenWeatherMap',          description: 'Weather forecasts on planning calendars',            renderMode: 'standard' },
   // Operations automation
-  { category: 'operations',   title: 'Operations',             description: 'Zone approval and waitlist automation settings',     renderMode: 'standard' },
+  { category: 'operations',   title: 'Operations',             description: 'Zone approval and waitlist automation settings',     renderMode: 'custom' },
 ];
 
 const IntegrationsPanel: React.FC = () => {
@@ -126,6 +127,15 @@ const IntegrationsPanel: React.FC = () => {
       case 'google_sso':
         return (
           <GoogleSsoCard
+            allSettings={settings}
+            saving={saving}
+            saveSetting={saveSetting}
+            flashSuccess={flashSuccess}
+          />
+        );
+      case 'operations':
+        return (
+          <OperationsCard
             allSettings={settings}
             saving={saving}
             saveSetting={saveSetting}
