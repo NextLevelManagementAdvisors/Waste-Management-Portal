@@ -17,8 +17,14 @@ interface EditRouteModalProps {
   onUpdated: () => void;
 }
 
+interface ProviderOption {
+  id: string;
+  name: string;
+}
+
 const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdated }) => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [form, setForm] = useState({
     title: route.title,
     scheduledDate: route.scheduledDate?.split('T')[0] ?? '',
@@ -32,6 +38,13 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Provider assignment state
+  const [showProviderAssign, setShowProviderAssign] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState((route as any).assigned_provider_id ?? '');
+  const [providerRate, setProviderRate] = useState((route as any).provider_per_stop_rate ? String((route as any).provider_per_stop_rate) : '');
+  const [providerAssigning, setProviderAssigning] = useState(false);
+  const [providerMsg, setProviderMsg] = useState('');
 
   // Order management state
   const [orders, setOrders] = useState<RouteOrder[]>([]);
@@ -52,6 +65,11 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
       })
       .catch(() => {});
 
+    fetch('/api/admin/providers', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { providers: [] })
+      .then(d => setProviders((d.providers || []).filter((p: any) => p.approval_status === 'approved')))
+      .catch(() => {});
+
     fetchOrders();
 
     if (!isReadOnly) {
@@ -61,6 +79,42 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
         .catch(() => {});
     }
   }, []);
+
+  // Auto-load contract rate when provider changes
+  useEffect(() => {
+    if (!selectedProviderId) return;
+    fetch(`/api/admin/providers/${selectedProviderId}/contracts?zone_id=${(route as any).zone_id || ''}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { contracts: [] })
+      .then(d => {
+        const active = (d.contracts || []).find((c: any) => c.status === 'active');
+        if (active) setProviderRate(String(active.per_stop_rate));
+      })
+      .catch(() => {});
+  }, [selectedProviderId]);
+
+  const handleAssignProvider = async () => {
+    setProviderAssigning(true);
+    setProviderMsg('');
+    try {
+      const res = await fetch(`/api/admin/routes/${route.id}/assign-provider`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          providerId: selectedProviderId || null,
+          perStopRate: providerRate ? parseFloat(providerRate) : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to assign provider');
+      setProviderMsg(selectedProviderId ? 'Provider assigned successfully' : 'Provider assignment cleared');
+      onUpdated();
+    } catch (err: any) {
+      setProviderMsg(err.message);
+    } finally {
+      setProviderAssigning(false);
+    }
+  };
 
   const fetchOrders = async () => {
     setOrdersLoading(true);
@@ -354,6 +408,74 @@ const EditRouteModal: React.FC<EditRouteModalProps> = ({ route, onClose, onUpdat
               ))}
             </select>
           </div>
+
+          {/* Assign to Provider */}
+          {providers.length > 0 && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowProviderAssign(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  Assign to Provider Company
+                  {selectedProviderId && <span className="text-xs font-normal text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full">Assigned</span>}
+                </span>
+                <svg className={`w-4 h-4 text-gray-400 transition-transform ${showProviderAssign ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {showProviderAssign && (
+                <div className="px-4 py-4 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Provider Company</label>
+                    <select
+                      value={selectedProviderId}
+                      onChange={e => { setSelectedProviderId(e.target.value); setProviderRate(''); }}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    >
+                      <option value="">— No provider (clear assignment) —</option>
+                      {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  {selectedProviderId && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">
+                        Per-Stop Rate <span className="text-gray-400 font-normal">(auto-filled from contract if available)</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={providerRate}
+                          onChange={e => setProviderRate(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {providerMsg && (
+                    <p className={`text-xs ${providerMsg.includes('success') || providerMsg.includes('cleared') ? 'text-teal-700' : 'text-red-600'}`}>{providerMsg}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleAssignProvider}
+                    disabled={providerAssigning}
+                    className="w-full px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {providerAssigning ? 'Saving...' : selectedProviderId ? 'Assign Provider' : 'Clear Provider Assignment'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           <div>

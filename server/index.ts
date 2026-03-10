@@ -124,6 +124,67 @@ app.post(
   }
 );
 
+// Stripe Connect V2 thin-event webhook — must use raw body for signature verification
+// Registered BEFORE express.json() so the body remains a raw Buffer.
+app.post(
+  '/api/connect/webhooks',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const Stripe = (await import('stripe')).default;
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+
+    if (!secretKey) {
+      console.error('[Stripe Connect] STRIPE_SECRET_KEY is not set.');
+      return res.status(500).json({ error: 'Stripe not configured' });
+    }
+    if (!webhookSecret) {
+      console.error('[Stripe Connect] STRIPE_CONNECT_WEBHOOK_SECRET is not set.');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
+    const sig = req.headers['stripe-signature'] as string;
+    if (!sig) return res.status(400).json({ error: 'Missing Stripe-Signature header' });
+
+    try {
+      const stripeClient = new Stripe(secretKey);
+
+      // Parse the thin event — verifies signature authenticity
+      const thinEvent = stripeClient.parseThinEvent(req.body, sig, webhookSecret);
+
+      // Fetch the full event data from Stripe (thin events only contain the ID + type)
+      const event = await stripeClient.v2.core.events.retrieve(thinEvent.id);
+
+      // Handle each event type
+      switch (event.type) {
+        case 'v2.core.account.requirements.updated': {
+          const accountId = (event as any).related_object?.id;
+          console.log(`[Stripe Connect Webhook] Requirements updated for ${accountId}`);
+          if (accountId) {
+            const account = await stripeClient.v2.core.accounts.retrieve(accountId, {
+              include: ['requirements'],
+            });
+            console.log(`  → Status: ${account.requirements?.summary?.minimum_deadline?.status || 'none'}`);
+          }
+          break;
+        }
+        case 'v2.core.account.capability_status_updated': {
+          const accountId = (event as any).related_object?.id;
+          console.log(`[Stripe Connect Webhook] Capability status updated for ${accountId}`);
+          break;
+        }
+        default:
+          console.log(`[Stripe Connect Webhook] Unhandled event: ${event.type}`);
+      }
+
+      res.json({ received: true });
+    } catch (err: any) {
+      console.error('[Stripe Connect] Webhook error:', err.message);
+      res.status(400).json({ error: 'Webhook verification failed' });
+    }
+  }
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -748,7 +809,11 @@ if (isProduction) {
     };
     if (req.path.startsWith('/admin')) {
       sendSpa(path.join(distPath, 'admin', 'index.html'));
-    } else if (req.path.startsWith('/team')) {
+    } else if (
+      req.path.startsWith('/provider') ||
+      req.path.startsWith('/driver') ||
+      req.path.startsWith('/join')
+    ) {
       sendSpa(path.join(distPath, 'team', 'index.html'));
     } else {
       sendSpa(path.join(distPath, 'index.html'));
@@ -836,3 +901,55 @@ async function initStripe() {
 }
 
 initStripe();
+
+// ============================================================
+// Provider compliance scheduler — runs daily
+// ============================================================
+{
+  const COMPLIANCE_CHECK_INTERVAL = 24 * 60 * 60 * 1000; // every 24 hours
+  let complianceRunning = false;
+
+  async function runProviderComplianceCheck() {
+    if (complianceRunning) return;
+    complianceRunning = true;
+    try {
+      const { storage: st } = await import('./storage');
+      const { notifyProviderInsuranceExpiring } = await import('./slackNotifier');
+
+      // Auto-expire provider contracts whose end_date has passed
+      const expired = await st.expireProviderContracts();
+      if (expired.length > 0) {
+        console.log(`[Compliance] Auto-expired ${expired.length} provider contract(s)`);
+      }
+
+      // Insurance expiry warnings at 30, 14, 7 days
+      for (const days of [30, 14, 7]) {
+        const providers = await st.getProvidersWithExpiringInsurance(days);
+        for (const provider of providers) {
+          // Only notify at the specific threshold (avoid re-notifying every day)
+          const daysLeft = Math.ceil(
+            (new Date(provider.insurance_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          );
+          if (daysLeft === days) {
+            notifyProviderInsuranceExpiring(provider.name, provider.owner_email, daysLeft).catch(() => {});
+            console.log(`[Compliance] Insurance expiry warning sent: ${provider.name} (${daysLeft}d)`);
+          }
+        }
+      }
+
+      // Log expired insurance
+      const expired_insurance = await st.getProvidersWithExpiredInsurance();
+      if (expired_insurance.length > 0) {
+        console.log(`[Compliance] ${expired_insurance.length} provider(s) have expired insurance — admin action required`);
+      }
+    } catch (err) {
+      console.error('[Compliance] Provider compliance check error:', err);
+    } finally {
+      complianceRunning = false;
+    }
+  }
+
+  // Run once at startup (after a short delay), then every 24h
+  setTimeout(runProviderComplianceCheck, 5 * 60 * 1000);
+  setInterval(runProviderComplianceCheck, COMPLIANCE_CHECK_INTERVAL);
+}

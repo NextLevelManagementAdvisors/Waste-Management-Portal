@@ -15,10 +15,15 @@ const ALLOWED_MIMES = new Set([
   'image/heif',
 ]);
 
+const PROVIDER_ALLOWED_MIMES = new Set([
+  ...ALLOWED_MIMES,
+  'application/pdf',
+]);
+
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILES = 5;
 
-function createUpload(subdir: string) {
+function createUpload(subdir: string, allowedMimes: Set<string> = ALLOWED_MIMES) {
   const dir = path.resolve(__dirname, '..', 'uploads', subdir);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -34,10 +39,10 @@ function createUpload(subdir: string) {
     storage,
     limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
     fileFilter: (_req, file, cb) => {
-      if (ALLOWED_MIMES.has(file.mimetype)) {
+      if (allowedMimes.has(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error(`File type ${file.mimetype} not allowed. Use JPEG, PNG, or WebP.`));
+        cb(new Error(`File type ${file.mimetype} not allowed. Use JPEG, PNG, WebP, or PDF.`));
       }
     },
   });
@@ -46,3 +51,4 @@ function createUpload(subdir: string) {
 export const onDemandUpload = createUpload('on-demand');
 export const missedCollectionUpload = createUpload('missed-collection');
 export const podUpload = createUpload('pod');
+export const providerUpload = createUpload('providers', PROVIDER_ALLOWED_MIMES);

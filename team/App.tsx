@@ -4,6 +4,28 @@ import { Button } from '../components/Button.tsx';
 import TeamAuthLayout from './components/TeamAuthLayout';
 import TeamLogin from './components/TeamLogin';
 import TeamRegister from './components/TeamRegister';
+import {
+  DRIVER_VIEW_TO_PATH,
+  PROVIDER_TAB_TO_PATH,
+  getAuthModeFromPath,
+  getAuthPath,
+  getDriverViewFromPath,
+  getPortalContextFromPath,
+  getProviderTabFromPath,
+  isDriverPath,
+  isExplicitAuthPath,
+  isProviderPath,
+  normalizeTeamPath,
+} from './portalRoutes.ts';
+import type { DriverView, ProviderTab, TeamAuthMode, TeamPortalContext } from './portalRoutes.ts';
+import ProviderOnboardingFlow from './components/ProviderOnboardingFlow';
+import ProviderTeamPanel from './components/ProviderTeamPanel';
+import ProviderClientImport from './components/ProviderClientImport';
+const ProviderJoinPage = React.lazy(() => import('./components/ProviderJoinPage'));
+import ProviderRolesManager from './components/ProviderRolesManager';
+import ProviderFleetPanel from './components/ProviderFleetPanel';
+import ProviderRouteDispatch from './components/ProviderRouteDispatch';
+import ProviderAccountingView from './components/ProviderAccountingView';
 import OnDemandPickups from './components/OnDemandPickups';
 import RouteTable, { STATUS_COLORS } from '../shared/components/RouteTable.tsx';
 import type { Route as SharedRoute } from '../shared/types/index.ts';
@@ -75,29 +97,6 @@ interface WeatherDay {
   conditionDesc: string;
   precipChance: number;
   icon: string;
-}
-
-type TeamView = 'dashboard' | 'routes' | 'schedule' | 'pickups' | 'zones' | 'contracts' | 'profile' | 'messages' | 'provider';
-
-const TEAM_VIEW_TO_PATH: Record<TeamView, string> = {
-  dashboard: '/team',
-  routes: '/team/routes',
-  schedule: '/team/schedule',
-  pickups: '/team/pickups',
-  zones: '/team/zones',
-  contracts: '/team/contracts',
-  messages: '/team/messages',
-  profile: '/team/profile',
-  provider: '/team/provider',
-};
-
-const TEAM_PATH_TO_VIEW: Record<string, TeamView> = Object.fromEntries(
-  Object.entries(TEAM_VIEW_TO_PATH).map(([view, path]) => [path, view as TeamView])
-) as Record<string, TeamView>;
-
-function getTeamViewFromPath(pathname: string): TeamView {
-  const normalized = pathname.replace(/\/+$/, '') || '/team';
-  return TEAM_PATH_TO_VIEW[normalized] || 'dashboard';
 }
 
 const US_STATES = [
@@ -2522,196 +2521,129 @@ type ProviderDriver = {
   active_contracts: number; routes_30d: number; earnings_30d: number; active_zones: number;
 };
 
-const ProviderDashboard: React.FC = () => {
-  const [stats, setStats] = useState<Record<string, number> | null>(null);
+const ProviderDashboard: React.FC<{ activeTab: ProviderTab; setActiveTab: (tab: ProviderTab) => void }> = ({ activeTab, setActiveTab }) => {
   const [providerName, setProviderName] = useState('');
-  const [drivers, setDrivers] = useState<ProviderDriver[]>([]);
-  const [territories, setTerritories] = useState<ProviderTerritory[]>([]);
-  const [showTerritoryForm, setShowTerritoryForm] = useState(false);
-  const [editingTerritory, setEditingTerritory] = useState<ProviderTerritory | null>(null);
-  const [tName, setTName] = useState('');
-  const [tType, setTType] = useState('polygon');
-  const [tDay, setTDay] = useState('');
-  const [tColor, setTColor] = useState('#3B82F6');
-  const [tSaving, setTSaving] = useState(false);
+  const [providerSlug, setProviderSlug] = useState('');
+  const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [joinLinkCopied, setJoinLinkCopied] = useState(false);
 
-  const load = () => {
+  useEffect(() => {
     fetch('/api/team/my-provider/dashboard', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setStats(d.stats); setProviderName(d.providerName || ''); } })
+      .then(d => { if (d) { setStats(d.stats); setProviderName(d.providerName || ''); setProviderSlug(d.providerSlug || ''); } })
       .catch(() => {});
-    fetch('/api/team/my-provider/drivers', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : { drivers: [] })
-      .then(d => setDrivers(d.drivers || []))
-      .catch(() => {});
-    fetch('/api/team/my-provider/territories', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : { territories: [] })
-      .then(d => setTerritories(d.territories || []))
-      .catch(() => {});
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const joinPageUrl = providerSlug ? `${window.location.origin}/join/${providerSlug}` : '';
 
-  const resetForm = () => { setTName(''); setTType('polygon'); setTDay(''); setTColor('#3B82F6'); setEditingTerritory(null); setShowTerritoryForm(false); };
-
-  const handleSaveTerritory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTSaving(true);
-    const body = { name: tName, zoneType: tType, defaultPickupDay: tDay || null, color: tColor };
-    const url = editingTerritory ? `/api/team/my-provider/territories/${editingTerritory.id}` : '/api/team/my-provider/territories';
-    const method = editingTerritory ? 'PUT' : 'POST';
-    try {
-      const r = await fetch(url, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (r.ok) { resetForm(); load(); }
-    } catch {}
-    setTSaving(false);
-  };
-
-  const startEdit = (t: ProviderTerritory) => {
-    setEditingTerritory(t); setTName(t.name); setTType(t.zone_type);
-    setTDay(t.default_pickup_day || ''); setTColor(t.color || '#3B82F6');
-    setShowTerritoryForm(true);
-  };
-
-  const deleteTerritory = async (id: string) => {
-    if (!confirm('Delete this territory?')) return;
-    await fetch(`/api/team/my-provider/territories/${id}`, { method: 'DELETE', credentials: 'include' });
-    load();
-  };
-
-  const statusColor = (s: string) =>
-    s === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600';
+  const TABS: { id: ProviderTab; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'team', label: 'Team' },
+    { id: 'clients', label: 'Clients' },
+    { id: 'fleet', label: 'Fleet' },
+    { id: 'roles', label: 'Roles' },
+    { id: 'dispatch', label: 'Dispatch' },
+    { id: 'accounting', label: 'Accounting' },
+  ];
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-black text-gray-900">{providerName || 'My Company'}</h2>
-        <p className="text-sm text-gray-500 mt-1">Provider dashboard — manage your team and service territories</p>
+        <p className="text-sm text-gray-500 mt-1">Manage your company, team, fleet, and routes</p>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: 'Active Drivers', value: stats.active_driver_count ?? 0 },
-            { label: 'Territories', value: stats.territory_count ?? 0 },
-            { label: 'Covered Locations', value: stats.covered_locations ?? 0 },
-            { label: '30-Day Earnings', value: `$${Number(stats.total_earnings_30d || 0).toFixed(2)}` },
-          ].map(s => (
-            <Card key={s.label} className="p-5">
-              <p className="text-xs text-gray-500 font-medium">{s.label}</p>
-              <p className="text-2xl font-black text-gray-900 mt-1">{s.value}</p>
-            </Card>
+      {/* Tab Bar */}
+      <div className="border-b border-gray-200">
+        <nav className="flex gap-0 -mb-px overflow-x-auto">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? 'border-teal-600 text-teal-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
           ))}
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {joinPageUrl && (
+            <Card className="p-5 border-teal-200 bg-teal-50">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-teal-800 mb-1">Your Join Page</p>
+                  <p className="text-xs text-teal-700 font-mono break-all">{joinPageUrl}</p>
+                  <p className="text-xs text-teal-600 mt-1">Share this link with customers to start service or with drivers to join your team.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(joinPageUrl).then(() => {
+                      setJoinLinkCopied(true);
+                      setTimeout(() => setJoinLinkCopied(false), 2000);
+                    });
+                  }}
+                  className="flex-shrink-0 px-3 py-1.5 text-xs font-bold bg-teal-700 text-white rounded-lg hover:bg-teal-800 transition-colors"
+                >
+                  {joinLinkCopied ? 'Copied!' : 'Copy Link'}
+                </button>
+              </div>
+            </Card>
+          )}
+          {stats && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: 'Active Members', value: stats.active_member_count ?? stats.active_driver_count ?? 0 },
+                { label: 'Vehicles', value: stats.vehicle_count ?? 0 },
+                { label: 'Routes This Month', value: stats.routes_30d ?? 0 },
+                { label: '30-Day Revenue', value: `$${Number(stats.total_earnings_30d || 0).toFixed(2)}` },
+              ].map(s => (
+                <Card key={s.label} className="p-5">
+                  <p className="text-xs text-gray-500 font-medium">{s.label}</p>
+                  <p className="text-2xl font-black text-gray-900 mt-1">{s.value}</p>
+                </Card>
+              ))}
+            </div>
+          )}
+          <Card className="p-6">
+            <h3 className="font-semibold text-gray-900 mb-2">Getting Started</h3>
+            <ul className="space-y-2 text-sm text-gray-600">
+              <li className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs flex items-center justify-center font-bold flex-shrink-0">1</span>
+                Add your vehicles in the <button type="button" onClick={() => setActiveTab('fleet')} className="text-teal-600 underline">Fleet</button> tab
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs flex items-center justify-center font-bold flex-shrink-0">2</span>
+                Invite drivers in the <button type="button" onClick={() => setActiveTab('team')} className="text-teal-600 underline">Team</button> tab and set their OptimoRoute IDs
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs flex items-center justify-center font-bold flex-shrink-0">3</span>
+                Import your existing clients in the <button type="button" onClick={() => setActiveTab('clients')} className="text-teal-600 underline">Clients</button> tab
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs flex items-center justify-center font-bold flex-shrink-0">4</span>
+                Dispatch assigned routes in the <button type="button" onClick={() => setActiveTab('dispatch')} className="text-teal-600 underline">Dispatch</button> tab
+              </li>
+            </ul>
+          </Card>
         </div>
       )}
 
-      {/* Sub-drivers */}
-      <Card className="p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Drivers ({drivers.length})</h3>
-        {drivers.length === 0 ? (
-          <p className="text-sm text-gray-500">No drivers assigned to this provider yet. Assign drivers via the admin portal.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 pr-4 font-medium text-gray-600">Driver</th>
-                  <th className="text-left py-2 pr-4 font-medium text-gray-600">Status</th>
-                  <th className="text-right py-2 pr-4 font-medium text-gray-600">Contracts</th>
-                  <th className="text-right py-2 pr-4 font-medium text-gray-600">Routes (30d)</th>
-                  <th className="text-right py-2 font-medium text-gray-600">Earnings (30d)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {drivers.map(d => (
-                  <tr key={d.id}>
-                    <td className="py-3 pr-4">
-                      <p className="font-medium text-gray-900">{d.name}</p>
-                      <p className="text-xs text-gray-500">{d.email}</p>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(d.status)}`}>{d.status}</span>
-                    </td>
-                    <td className="py-3 pr-4 text-right text-gray-700">{d.active_contracts}</td>
-                    <td className="py-3 pr-4 text-right text-gray-700">{d.routes_30d}</td>
-                    <td className="py-3 text-right text-gray-700">${Number(d.earnings_30d || 0).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {/* Territories */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900">Service Territories ({territories.length})</h3>
-          {!showTerritoryForm && (
-            <button onClick={() => { resetForm(); setShowTerritoryForm(true); }} className="text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700">
-              + Add Territory
-            </button>
-          )}
-        </div>
-
-        {showTerritoryForm && (
-          <form onSubmit={handleSaveTerritory} className="border border-gray-200 rounded-lg p-4 mb-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
-                <input required value={tName} onChange={e => setTName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="North District" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
-                <select value={tType} onChange={e => setTType(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="polygon">Polygon</option>
-                  <option value="zip">ZIP Codes</option>
-                  <option value="circle">Circle</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Default Pickup Day</label>
-                <select value={tDay} onChange={e => setTDay(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="">— None —</option>
-                  {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Color</label>
-                <input type="color" value={tColor} onChange={e => setTColor(e.target.value)} className="h-9 w-full rounded-lg border border-gray-300 cursor-pointer" />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button type="submit" disabled={tSaving} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">{tSaving ? 'Saving…' : editingTerritory ? 'Update' : 'Create'}</button>
-              <button type="button" onClick={resetForm} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
-            </div>
-          </form>
-        )}
-
-        {territories.length === 0 && !showTerritoryForm ? (
-          <p className="text-sm text-gray-500">No territories defined yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {territories.map(t => (
-              <div key={t.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: t.color || '#3B82F6' }} />
-                  <div>
-                    <p className="font-medium text-sm text-gray-900">{t.name}</p>
-                    <p className="text-xs text-gray-500">{t.zone_type}{t.default_pickup_day ? ` · ${t.default_pickup_day}` : ''}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(t.status)}`}>{t.status}</span>
-                  <button onClick={() => startEdit(t)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                  <button onClick={() => deleteTerritory(t.id)} className="text-xs text-red-600 hover:underline">Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {activeTab === 'team' && <ProviderTeamPanel />}
+      {activeTab === 'clients' && <ProviderClientImport />}
+      {activeTab === 'fleet' && <ProviderFleetPanel />}
+      {activeTab === 'roles' && <ProviderRolesManager />}
+      {activeTab === 'dispatch' && <ProviderRouteDispatch />}
+      {activeTab === 'accounting' && <ProviderAccountingView />}
     </div>
   );
 };
@@ -3961,9 +3893,6 @@ const Profile: React.FC = () => {
                   </span>
                 </div>
               </div>
-              {profile.isProviderOwner && (
-                <p className="text-xs text-gray-500 mt-3">As the owner, you can manage your company's drivers and territories from the <strong>My Company</strong> section in the sidebar.</p>
-              )}
             </Card>
           )}
 
@@ -4362,9 +4291,12 @@ const DriverMessages: React.FC = () => {
 
 const TeamApp: React.FC = () => {
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
-  const [currentView, setCurrentViewRaw] = useState<TeamView>(() => getTeamViewFromPath(window.location.pathname));
-  const [pendingDeepLink] = useState<TeamView | null>(() => {
-    const view = getTeamViewFromPath(window.location.pathname);
+  const [currentDriverView, setCurrentDriverViewRaw] = useState<DriverView>(() => getDriverViewFromPath(window.location.pathname));
+  const [currentProviderTab, setCurrentProviderTabRaw] = useState<ProviderTab>(() => getProviderTabFromPath(window.location.pathname));
+  const [portalContext, setPortalContext] = useState<TeamPortalContext | null>(() => getPortalContextFromPath(window.location.pathname));
+  const [pendingDeepLink] = useState<DriverView | null>(() => {
+    if (!isDriverPath(window.location.pathname)) return null;
+    const view = getDriverViewFromPath(window.location.pathname);
     return view !== 'dashboard' ? view : null;
   });
   const [loading, setLoading] = useState(true);
@@ -4372,11 +4304,21 @@ const TeamApp: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [isProviderOwner, setIsProviderOwner] = useState(false);
+  const [ownerProvider, setOwnerProvider] = useState<any>(null);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonatedBy, setImpersonatedBy] = useState('');
   const [msgUnreadCount, setMsgUnreadCount] = useState(0);
 
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  // Detect portal context from pathname for pre-selection and join page
+  const [joinSlug] = useState<string | null>(() => {
+    const match = window.location.pathname.match(/^\/join\/([^/]+)/);
+    return match ? match[1] : null;
+  });
+  const [providerInviteToken] = useState<string | null>(() => {
+    return new URLSearchParams(window.location.search).get('provider-invite');
+  });
+
+  const [authMode, setAuthMode] = useState<TeamAuthMode>(() => getAuthModeFromPath(window.location.pathname));
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [googleSsoEnabled, setGoogleSsoEnabled] = useState<boolean | null>(null);
@@ -4397,21 +4339,52 @@ const TeamApp: React.FC = () => {
       .catch(() => setGoogleSsoEnabled(false));
   }, []);
 
-  const setCurrentView = useCallback((view: TeamView) => {
-    setCurrentViewRaw(view);
-    const targetPath = TEAM_VIEW_TO_PATH[view] || '/team';
-    if (window.location.pathname.replace(/\/+$/, '') !== targetPath) {
+  const syncPortalStateFromPath = useCallback((pathname: string) => {
+    setPortalContext(getPortalContextFromPath(pathname));
+    setAuthMode(getAuthModeFromPath(pathname));
+
+    if (isProviderPath(pathname)) {
+      setCurrentProviderTabRaw(getProviderTabFromPath(pathname));
+    } else if (isDriverPath(pathname)) {
+      setCurrentDriverViewRaw(getDriverViewFromPath(pathname));
+    }
+  }, []);
+
+  const syncAuthRoute = useCallback((mode: TeamAuthMode) => {
+    const nextPortalContext = getPortalContextFromPath(window.location.pathname) ?? portalContext;
+    const targetPath = getAuthPath(nextPortalContext, mode);
+
+    setPortalContext(nextPortalContext);
+    setAuthMode(mode);
+
+    if (normalizeTeamPath(window.location.pathname) !== targetPath) {
+      window.history.pushState({ authMode: mode }, '', targetPath);
+    }
+  }, [portalContext]);
+
+  const setCurrentDriverView = useCallback((view: DriverView) => {
+    setCurrentDriverViewRaw(view);
+    const targetPath = DRIVER_VIEW_TO_PATH[view] || '/driver';
+    if (normalizeTeamPath(window.location.pathname) !== targetPath) {
       window.history.pushState({ view }, '', targetPath);
+    }
+  }, []);
+
+  const setCurrentProviderTab = useCallback((tab: ProviderTab) => {
+    setCurrentProviderTabRaw(tab);
+    const targetPath = PROVIDER_TAB_TO_PATH[tab] || '/provider';
+    if (normalizeTeamPath(window.location.pathname) !== targetPath) {
+      window.history.pushState({ tab }, '', targetPath);
     }
   }, []);
 
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentViewRaw(getTeamViewFromPath(window.location.pathname));
+      syncPortalStateFromPath(window.location.pathname);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [syncPortalStateFromPath]);
 
   const checkSession = async () => {
     try {
@@ -4420,10 +4393,25 @@ const TeamApp: React.FC = () => {
       const json = await res.json();
       const driverData = json.data || json.driver;
       setCurrentDriver(normalizeDriver(driverData));
-      if (driverData?.isProviderOwner) setIsProviderOwner(true);
+      const isOwner = !!(json.isProviderOwner || driverData?.isProviderOwner);
+      if (isOwner) setIsProviderOwner(true);
+      if (json.provider) setOwnerProvider(json.provider);
       if (json.impersonating) {
         setImpersonating(true);
         setImpersonatedBy(json.impersonatedBy || 'Admin');
+      }
+      // Push URL to the correct portal root if currently on the wrong one, and sync state
+      const p = window.location.pathname;
+      if (isOwner && (isExplicitAuthPath(p) || !isProviderPath(p))) {
+        const tab = getProviderTabFromPath(p);
+        setPortalContext('provider');
+        setCurrentProviderTabRaw(tab);
+        window.history.replaceState({}, '', PROVIDER_TAB_TO_PATH[tab] || '/provider');
+      } else if (!isOwner && (isExplicitAuthPath(p) || !isDriverPath(p))) {
+        const view = getDriverViewFromPath(p);
+        setPortalContext('driver');
+        setCurrentDriverViewRaw(view);
+        window.history.replaceState({}, '', DRIVER_VIEW_TO_PATH[view] || '/driver');
       }
       await checkOnboarding();
     } catch {
@@ -4464,10 +4452,16 @@ const TeamApp: React.FC = () => {
     try {
       await fetch('/api/team/auth/logout', { method: 'POST', credentials: 'include' });
     } catch {}
+    const wasProviderOwner = isProviderOwner;
     setCurrentDriver(null);
     setOnboardingStatus(null);
-    setCurrentViewRaw('dashboard');
-    window.history.replaceState({}, '', '/team');
+    setIsProviderOwner(false);
+    setOwnerProvider(null);
+    setCurrentDriverViewRaw('dashboard');
+    setCurrentProviderTabRaw('overview');
+    setPortalContext(wasProviderOwner ? 'provider' : 'driver');
+    setAuthMode(getAuthModeFromPath(wasProviderOwner ? '/provider' : '/driver'));
+    window.history.replaceState({}, '', wasProviderOwner ? '/provider' : '/driver');
   };
 
   const handleStopImpersonation = async () => {
@@ -4479,11 +4473,33 @@ const TeamApp: React.FC = () => {
     }
   };
 
+  // Public join page — shown before session check resolves (no auth needed)
+  if (joinSlug && loading) {
+    return (
+      <React.Suspense fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-600"></div>
+        </div>
+      }>
+        <ProviderJoinPage slug={joinSlug} />
+      </React.Suspense>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-600"></div>
       </div>
+    );
+  }
+
+  // Public join page for logged-in users too (they can still sign in as driver)
+  if (joinSlug && !currentDriver) {
+    return (
+      <React.Suspense fallback={null}>
+        <ProviderJoinPage slug={joinSlug} />
+      </React.Suspense>
     );
   }
 
@@ -4504,9 +4520,8 @@ const TeamApp: React.FC = () => {
                 });
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || json.message || 'Login failed');
-                setCurrentDriver(normalizeDriver(json.data || json.driver));
-                if (pendingDeepLink) setCurrentViewRaw(pendingDeepLink);
-                await checkOnboarding();
+                await checkSession();
+                if (pendingDeepLink) setCurrentDriverViewRaw(pendingDeepLink);
               } catch (err: any) {
                 setAuthError(err.message);
               } finally {
@@ -4514,14 +4529,17 @@ const TeamApp: React.FC = () => {
               }
             }}
             switchToRegister={() => {
-              setAuthMode('register');
+              syncAuthRoute('register');
               setAuthError('');
             }}
             isLoading={authLoading}
             googleSsoEnabled={googleSsoEnabled ?? true}
+            initialPortalContext={portalContext ?? undefined}
           />
         ) : (
           <TeamRegister
+            initialPortalContext={portalContext ?? undefined}
+            initialProviderInviteToken={providerInviteToken ?? undefined}
             onRegister={async (data) => {
               setAuthError('');
               setAuthLoading(true);
@@ -4535,13 +4553,17 @@ const TeamApp: React.FC = () => {
                     email: data.email,
                     phone: data.phone,
                     password: data.password,
+                    registrationType: data.registrationType,
+                    companyName: data.companyName,
+                    inviteToken: data.inviteToken,
+                    providerInviteToken: data.providerInviteToken,
                   }),
                 });
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || json.message || 'Registration failed');
-                setCurrentDriver(normalizeDriver(json.data || json.driver));
-                if (pendingDeepLink) setCurrentViewRaw(pendingDeepLink);
-                await checkOnboarding();
+                // Use checkSession to uniformly handle both driver and provider responses
+                await checkSession();
+                if (pendingDeepLink) setCurrentDriverViewRaw(pendingDeepLink);
               } catch (err: any) {
                 setAuthError(err.message);
               } finally {
@@ -4549,7 +4571,7 @@ const TeamApp: React.FC = () => {
               }
             }}
             switchToLogin={() => {
-              setAuthMode('login');
+              syncAuthRoute('login');
               setAuthError('');
             }}
             isLoading={authLoading}
@@ -4560,11 +4582,203 @@ const TeamApp: React.FC = () => {
     );
   }
 
+  // Provider owner gating — show appropriate screen based on approval status
+  if (isProviderOwner && ownerProvider) {
+    const status = ownerProvider.approval_status;
+
+    if (status === 'draft' || status === 'pending_review') {
+      if (status === 'pending_review') {
+        return (
+          <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
+              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
+                <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">Application Under Review</h2>
+              <p className="text-gray-500 text-sm">
+                Your company application has been submitted and is being reviewed by our team. We'll reach out to <strong>{currentDriver?.email}</strong> within 1–2 business days.
+              </p>
+              <p className="text-xs text-gray-400">Questions? Contact <a href="mailto:support@ruralwm.com" className="text-teal-600 underline">support@ruralwm.com</a></p>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        );
+      }
+      // draft — show onboarding wizard
+      return <ProviderOnboardingFlow onComplete={checkSession} />;
+    }
+
+    if (status === 'rejected') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+          <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Application Not Approved</h2>
+            <p className="text-gray-500 text-sm">
+              Unfortunately, your company application was not approved at this time.
+            </p>
+            {ownerProvider.approval_notes && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-left">
+                <p className="text-xs font-bold text-red-700 mb-1">Reason:</p>
+                <p className="text-sm text-red-800">{ownerProvider.approval_notes}</p>
+              </div>
+            )}
+            <p className="text-xs text-gray-400">Contact <a href="mailto:support@ruralwm.com" className="text-teal-600 underline">support@ruralwm.com</a> if you believe this is an error or wish to reapply.</p>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-gray-700 underline"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (status === 'suspended') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+          <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Account Suspended</h2>
+            <p className="text-gray-500 text-sm">
+              Your company account has been temporarily suspended.
+            </p>
+            {ownerProvider.suspended_reason && (
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-left">
+                <p className="text-xs font-bold text-orange-700 mb-1">Reason:</p>
+                <p className="text-sm text-orange-800">{ownerProvider.suspended_reason}</p>
+              </div>
+            )}
+            <p className="text-xs text-gray-400">Contact <a href="mailto:support@ruralwm.com" className="text-teal-600 underline">support@ruralwm.com</a> to resolve this issue.</p>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-gray-700 underline"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Approved provider → full provider portal layout
+  if (isProviderOwner && ownerProvider && ownerProvider.approval_status === 'approved') {
+    const providerNavItems: { tab: ProviderTab; label: string; icon: React.ReactNode }[] = [
+      { tab: 'overview',   label: 'Overview',    icon: <HomeIcon className="w-5 h-5" /> },
+      { tab: 'team',       label: 'Team',         icon: <UserIcon className="w-5 h-5" /> },
+      { tab: 'clients',    label: 'Clients',      icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
+      { tab: 'fleet',      label: 'Fleet',        icon: <BriefcaseIcon className="w-5 h-5" /> },
+      { tab: 'roles',      label: 'Roles',        icon: <CheckCircleIcon className="w-5 h-5" /> },
+      { tab: 'dispatch',   label: 'Dispatch',     icon: <MapPinIcon className="w-5 h-5" /> },
+      { tab: 'accounting', label: 'Accounting',   icon: <ArchiveBoxIcon className="w-5 h-5" /> },
+    ];
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="flex-1 flex">
+          <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white transform transition-transform lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className="p-6 border-b border-gray-800">
+              <div className="flex items-center gap-3">
+                <img src="/favicon.svg" alt="" className="w-8 h-8" />
+                <div>
+                  <h1 className="text-lg font-black tracking-tight">Provider Portal</h1>
+                  <p className="text-xs text-gray-400">Rural Waste Management</p>
+                </div>
+              </div>
+            </div>
+            <nav className="p-4 space-y-1">
+              {providerNavItems.map(item => (
+                <button
+                  type="button"
+                  key={item.tab}
+                  onClick={() => { setCurrentProviderTab(item.tab); setSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${
+                    currentProviderTab === item.tab
+                      ? 'bg-teal-600 text-white'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  }`}
+                >
+                  {item.icon}
+                  <span className="flex-1 text-left">{item.label}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-xs font-black">
+                  {currentDriver.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{currentDriver.full_name}</p>
+                  <p className="text-xs text-gray-400 truncate">{currentDriver.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-white transition-colors py-2 rounded-lg hover:bg-gray-800"
+              >
+                <ArrowRightOnRectangleIcon className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
+          </aside>
+
+          {sidebarOpen && (
+            <div className="fixed inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />
+          )}
+
+          <main className="flex-1 min-w-0">
+            <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+              <button type="button" title="Open menu" onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-900">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+              </button>
+              <h2 className="text-lg font-black text-gray-900">
+                {providerNavItems.find(n => n.tab === currentProviderTab)?.label || 'Provider Portal'}
+              </h2>
+            </header>
+            <div className="p-4 sm:p-6 lg:p-8">
+              <ProviderDashboard activeTab={currentProviderTab} setActiveTab={setCurrentProviderTab} />
+            </div>
+          </main>
+        </div>
+
+        {toast && (
+          <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-teal-600 text-white'
+          }`}>
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-2 opacity-70 hover:opacity-100">&times;</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (onboardingStatus && onboardingStatus.onboarding_status !== 'completed') {
     return <OnboardingFlow status={onboardingStatus} onRefresh={checkOnboarding} />;
   }
 
-  const navItems: { view: TeamView; label: string; icon: React.ReactNode; badge?: number }[] = [
+  const navItems: { view: DriverView; label: string; icon: React.ReactNode; badge?: number }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
     { view: 'routes', label: 'Available Routes', icon: <BriefcaseIcon className="w-5 h-5" /> },
     { view: 'schedule', label: 'My Schedule', icon: <CalendarDaysIcon className="w-5 h-5" /> },
@@ -4573,7 +4787,6 @@ const TeamApp: React.FC = () => {
     { view: 'contracts', label: 'My Contracts', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
     { view: 'messages', label: 'Messages', icon: <ChatBubbleIcon className="w-5 h-5" />, badge: msgUnreadCount > 0 ? msgUnreadCount : undefined },
     { view: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
-    ...(isProviderOwner ? [{ view: 'provider' as TeamView, label: 'My Company', icon: <BuildingOfficeIcon className="w-5 h-5" /> }] : []),
   ];
 
   return (
@@ -4598,7 +4811,7 @@ const TeamApp: React.FC = () => {
           <div className="flex items-center gap-3">
             <img src="/favicon.svg" alt="" className="w-8 h-8" />
             <div>
-              <h1 className="text-lg font-black tracking-tight">Team Portal</h1>
+              <h1 className="text-lg font-black tracking-tight">Driver Portal</h1>
               <p className="text-xs text-gray-400">Rural Waste Management</p>
             </div>
           </div>
@@ -4609,9 +4822,9 @@ const TeamApp: React.FC = () => {
             <button
               type="button"
               key={item.view}
-              onClick={() => { setCurrentView(item.view); setSidebarOpen(false); if (item.view === 'messages') setMsgUnreadCount(0); }}
+              onClick={() => { setCurrentDriverView(item.view); setSidebarOpen(false); if (item.view === 'messages') setMsgUnreadCount(0); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold transition-colors ${
-                currentView === item.view
+                currentDriverView === item.view
                   ? 'bg-teal-600 text-white'
                   : 'text-gray-400 hover:text-white hover:bg-gray-800'
               }`}
@@ -4658,16 +4871,16 @@ const TeamApp: React.FC = () => {
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
           <h2 className="text-lg font-black text-gray-900">
-            {navItems.find(n => n.view === currentView)?.label || 'Team'}
+            {navItems.find(n => n.view === currentDriverView)?.label || 'Driver Portal'}
           </h2>
         </header>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {currentView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
-          {currentView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
-          {currentView === 'schedule' && <Schedule onNavigate={(view) => setCurrentView(view as TeamView)} showToast={showToast} />}
-          {currentView === 'pickups' && <OnDemandPickups />}
-          {currentView === 'zones' && (
+          {currentDriverView === 'dashboard' && <Dashboard driver={currentDriver} onNavigate={(view) => setCurrentDriverView(view as DriverView)} showToast={showToast} />}
+          {currentDriverView === 'routes' && <RouteBoard onNavigate={(view) => setCurrentDriverView(view as DriverView)} showToast={showToast} />}
+          {currentDriverView === 'schedule' && <Schedule onNavigate={(view) => setCurrentDriverView(view as DriverView)} showToast={showToast} />}
+          {currentDriverView === 'pickups' && <OnDemandPickups />}
+          {currentDriverView === 'zones' && (
             <>
               <React.Suspense fallback={<div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>}>
                 <ZoneMapView />
@@ -4675,10 +4888,9 @@ const TeamApp: React.FC = () => {
               <ZoneExpansionProposalsPanel />
             </>
           )}
-          {currentView === 'contracts' && <MyContracts />}
-          {currentView === 'messages' && <DriverMessages />}
-          {currentView === 'profile' && <Profile />}
-          {currentView === 'provider' && <ProviderDashboard />}
+          {currentDriverView === 'contracts' && <MyContracts />}
+          {currentDriverView === 'messages' && <DriverMessages />}
+          {currentDriverView === 'profile' && <Profile />}
         </div>
       </main>
       </div>

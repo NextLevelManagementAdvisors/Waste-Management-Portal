@@ -4,7 +4,6 @@ import { SupportMessage } from '../types.ts';
 import { Button } from './Button.tsx';
 import { PaperAirplaneIcon, SparklesIcon, UserIcon } from './Icons.tsx';
 import { getSupportResponseStream } from '../services/geminiService.ts';
-import { getSubscriptions, getInvoices } from '../services/apiService.ts';
 import { useLocation } from '../LocationContext.tsx';
 
 const ESCALATION_PHRASES = [
@@ -63,15 +62,8 @@ const Support: React.FC<{ onEscalateToHuman?: (context: { subject: string; body:
                  return;
             }
 
-            const allSubs = await getSubscriptions();
-            const allInvoices = await getInvoices();
-            const propertySubs = allSubs.filter(s => s.locationId === effectiveProperty.id);
-            const propertyInvoices = allInvoices.filter(i => i.locationId === effectiveProperty.id);
-
             const stream = await getSupportResponseStream(userMsg, {
-                user: { ...user, address: effectiveProperty.address },
-                subscriptions: propertySubs,
-                invoices: propertyInvoices
+                locationId: effectiveProperty.id,
             });
 
             let fullText = "";

@@ -51,11 +51,13 @@ async function getCredentials() {
   };
 }
 
+/**
+ * Creates a new Stripe Client using the recommended pattern.
+ * The SDK automatically uses the latest API version — no need to set apiVersion.
+ */
 export async function getUncachableStripeClient() {
   const { secretKey } = await getCredentials();
-  return new Stripe(secretKey, {
-    apiVersion: '2025-04-30.basil' as any,
-  });
+  return new Stripe(secretKey);
 }
 
 export async function getStripePublishableKey() {

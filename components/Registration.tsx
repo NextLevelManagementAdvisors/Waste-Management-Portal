@@ -24,14 +24,19 @@ function getInitialReferralCode(pendingQueryString?: string): string {
 }
 
 const Registration: React.FC<RegistrationProps> = ({ onRegister, switchToLogin, error, pendingQueryString, prefill, onGoogleAuthSuccess, googleSsoEnabled }) => {
-    const [formData, setFormData] = useState<RegistrationInfo>(() => ({
-        firstName: prefill?.firstName || '',
-        lastName: prefill?.lastName || '',
-        phone: '',
-        email: prefill?.email || '',
-        password: '',
-        referralCode: getInitialReferralCode(pendingQueryString),
-    }));
+    const [formData, setFormData] = useState<RegistrationInfo>(() => {
+        const params = new URLSearchParams(window.location.search);
+        return {
+            firstName: prefill?.firstName || '',
+            lastName: prefill?.lastName || '',
+            phone: '',
+            email: prefill?.email || '',
+            password: '',
+            referralCode: getInitialReferralCode(pendingQueryString),
+            clientInviteToken: params.get('client-invite') || undefined,
+            providerSlug: params.get('provider') || undefined,
+        };
+    });
     const [isLoading, setIsLoading] = useState(false);
 
     const handleGoogleSignup = useCallback(() => {

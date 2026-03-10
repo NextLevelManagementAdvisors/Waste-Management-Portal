@@ -170,6 +170,8 @@ export interface UpdateLocationInfo {
 
 export interface RegistrationInfo extends Omit<User, 'memberSince' | 'locations' | 'autopayEnabled'> {
   referralCode?: string;
+  clientInviteToken?: string;
+  providerSlug?: string;
 }
 
 export interface UpdateProfileInfo {

@@ -1,18 +1,16 @@
 
-import { User, Subscription, Invoice } from '../types.ts';
-
 /**
- * Calls the backend AI support endpoint which proxies Gemini securely server-side.
+ * Calls the backend AI support endpoint which runs the LangGraph support agent server-side.
  * Returns an async iterable of text chunks for streaming.
  */
 export const getSupportResponseStream = async (
   prompt: string,
-  userContext: { user: User & { address: string }; subscriptions: Subscription[]; invoices: Invoice[] }
+  options: { locationId?: string }
 ): Promise<AsyncIterable<{ text?: string }>> => {
   const response = await fetch('/api/ai/support', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, userContext }),
+    body: JSON.stringify({ prompt, locationId: options.locationId }),
   });
 
   if (!response.ok) {

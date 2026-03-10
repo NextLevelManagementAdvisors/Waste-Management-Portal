@@ -73,7 +73,12 @@ describe('Team Messaging Routes', () => {
   describe('GET /api/team/conversations', () => {
     it('should return a list of conversations for an authenticated and onboarded driver', async () => {
       const conversations = [{ id: 'conv-1', subject: 'Test' }];
-      (pool.query as vi.Mock).mockResolvedValue({ rows: conversations });
+      (pool.query as vi.Mock).mockImplementation((query) => {
+        if (typeof query === 'string' && query.includes('user_roles')) {
+          return Promise.resolve({ rows: [{ role: 'driver' }], rowCount: 1 });
+        }
+        return Promise.resolve({ rows: conversations, rowCount: conversations.length });
+      });
       
       const res = await request(app).get('/api/team/conversations');
 
@@ -84,7 +89,12 @@ describe('Team Messaging Routes', () => {
 
   describe('GET /api/team/conversations/unread-count', () => {
     it('should return the unread count', async () => {
-        (pool.query as vi.Mock).mockResolvedValue({ rows: [{ count: '2' }] });
+        (pool.query as vi.Mock).mockImplementation((query) => {
+            if (typeof query === 'string' && query.includes('user_roles')) {
+                return Promise.resolve({ rows: [{ role: 'driver' }], rowCount: 1 });
+            }
+            return Promise.resolve({ rows: [{ count: '2' }], rowCount: 1 });
+        });
         const res = await request(app).get('/api/team/conversations/unread-count');
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ count: 2 });
@@ -94,7 +104,15 @@ describe('Team Messaging Routes', () => {
   describe('GET /api/team/conversations/:id/messages', () => {
     it('should return messages for a conversation', async () => {
         const messages = [{ id: 'msg-1', body: 'Test message' }];
-        (pool.query as vi.Mock).mockResolvedValue({ rows: messages });
+        (pool.query as vi.Mock).mockImplementation((query) => {
+            if (typeof query === 'string' && query.includes('user_roles')) {
+                return Promise.resolve({ rows: [{ role: 'driver' }], rowCount: 1 });
+            }
+            if (typeof query === 'string' && query.includes('SELECT 1 FROM conversation_participants')) {
+                return Promise.resolve({ rows: [{ id: 1 }], rowCount: 1 });
+            }
+            return Promise.resolve({ rows: messages, rowCount: messages.length });
+        });
         
         const res = await request(app).get('/api/team/conversations/conv-1/messages');
 
@@ -106,7 +124,15 @@ describe('Team Messaging Routes', () => {
   describe('POST /api/team/conversations/:id/messages', () => {
     it('should create a new message', async () => {
       const newMessage = { id: 'msg-2', body: 'New message' };
-      (pool.query as vi.Mock).mockResolvedValue({ rows: [newMessage] });
+      (pool.query as vi.Mock).mockImplementation((query) => {
+        if (typeof query === 'string' && query.includes('user_roles')) {
+          return Promise.resolve({ rows: [{ role: 'driver' }], rowCount: 1 });
+        }
+        if (typeof query === 'string' && query.includes('SELECT 1 FROM conversation_participants')) {
+          return Promise.resolve({ rows: [{ id: 1 }], rowCount: 1 });
+        }
+        return Promise.resolve({ rows: [newMessage], rowCount: 1 });
+      });
       
       const res = await request(app)
         .post('/api/team/conversations/conv-1/messages')

@@ -17,7 +17,7 @@ import { findOptimalCollectionDay } from './collectionDayOptimizer';
 import { activatePendingSelections } from './activateSelections';
 import { checkRouteFeasibility } from './feasibilityCheck';
 import { approvalMessage, denialMessage, waitlistMessage } from './addressReviewMessages';
-import { notifyZoneDecision, notifyWaitlistFlagged } from './slackNotifier';
+import { notifyZoneDecision, notifyWaitlistFlagged, notifyProviderApproval, notifyProviderRejection } from './slackNotifier';
 import { formatRouteForClient } from './formatRoute';
 import { calculateRouteValuation, recalculateRouteValue, previewLocationCompensation, getActiveRules, calculateOrderCompensation } from './compensationEngine';
 import { broadcastToDriver, broadcastToZoneDrivers, broadcastToAdmins, broadcastToUser } from './websocket';
@@ -125,7 +125,7 @@ export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/badge-counts', requireAdmin, async (req: Request, res: Response) => {
     try {
       const adminUserId = req.session.originalAdminUserId || req.session.userId!;
-      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay, pendingZonesResult, flaggedWaitlistResult, contractAlerts] = await Promise.all([
+      const [pendingReviews, pendingMissedCollections, unreadMessages, oldestMissedCollection, oldestReview, noCollectionDay, pendingZonesResult, flaggedWaitlistResult, contractAlerts, pendingProvidersResult] = await Promise.all([
         storage.query(`SELECT COUNT(*) as count FROM locations WHERE service_status = 'pending_review'`),
         storage.query(`SELECT COUNT(*) as count FROM missed_collection_reports WHERE status = 'pending'`),
         storage.getUnreadCount(adminUserId, 'admin').catch(() => 0),
@@ -137,6 +137,7 @@ export function registerAdminRoutes(app: Express) {
         storage.query(`SELECT
           COALESCE((SELECT COUNT(*) FROM route_contracts WHERE status = 'active' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'), 0) AS expiring,
           COALESCE((SELECT COUNT(*) FROM coverage_requests WHERE status = 'pending'), 0) AS pending_coverage`),
+        storage.query(`SELECT COUNT(*) as count FROM providers WHERE approval_status = 'pending_review'`),
       ]);
       const missedCollections = parseInt(pendingMissedCollections.rows[0]?.count || '0');
       const addressReviews = parseInt(pendingReviews.rows[0]?.count || '0');
@@ -145,11 +146,12 @@ export function registerAdminRoutes(app: Express) {
       const flaggedWaitlist = parseInt(flaggedWaitlistResult.rows[0]?.count || '0');
       const contractsExpiring = parseInt(contractAlerts.rows[0]?.expiring || '0');
       const pendingCoverage = parseInt(contractAlerts.rows[0]?.pending_coverage || '0');
+      const pendingProviders = parseInt(pendingProvidersResult.rows[0]?.count || '0');
       const oldestMcDate = oldestMissedCollection.rows[0]?.oldest;
       const oldestArDate = oldestReview.rows[0]?.oldest;
       const hoursAgo = (d: string | null) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 3600000) : 0;
       res.json({
-        operations: missedCollections + pendingZones,
+        operations: missedCollections + pendingZones + pendingProviders,
         dashboard: addressReviews + flaggedWaitlist,
         communications: typeof unreadMessages === 'number' ? unreadMessages : parseInt((unreadMessages as any)?.count || '0'),
         missedCollections,
@@ -157,6 +159,7 @@ export function registerAdminRoutes(app: Express) {
         locationsNeedingCollectionDay,
         pendingZones,
         flaggedWaitlist,
+        pendingProviders,
         oldestMissedCollectionHours: hoursAgo(oldestMcDate),
         oldestAddressReviewHours: hoursAgo(oldestArDate),
         contractsExpiring,
@@ -317,7 +320,7 @@ export function registerAdminRoutes(app: Express) {
         phone: u.phone,
         memberSince: u.member_since,
         stripeCustomerId: u.stripe_customer_id,
-        isAdmin: u.is_admin,
+        isAdmin: Boolean(u.role_is_admin ?? u.is_admin),
         createdAt: u.created_at,
         locationCount: parseInt(u.property_count || '0'),
       }));
@@ -333,6 +336,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const user = await storage.getUserById(req.params.id as string);
       if (!user) return res.status(404).json({ error: 'User not found' });
+      const isAdmin = await roleRepo.hasRole(user.id, 'admin');
 
       const locations = await storage.getLocationsForUser(user.id);
 
@@ -396,7 +400,7 @@ export function registerAdminRoutes(app: Express) {
         phone: user.phone,
         memberSince: user.member_since,
         stripeCustomerId: user.stripe_customer_id,
-        isAdmin: user.is_admin,
+        isAdmin,
         createdAt: user.created_at,
         locations: locations.map(p => ({
           id: p.id,
@@ -667,7 +671,7 @@ export function registerAdminRoutes(app: Express) {
       const users = await storage.getUsersForExport(options);
       const header = 'ID,First Name,Last Name,Email,Phone,Member Since,Stripe ID,Admin,Properties,Addresses,Created At\n';
       const rows = users.map((u: any) =>
-        [u.id, u.first_name, u.last_name, u.email, u.phone || '', u.member_since || '', u.stripe_customer_id || '', u.is_admin, u.property_count, `"${(u.addresses || '').replace(/"/g, '""')}"`, u.created_at].join(',')
+        [u.id, u.first_name, u.last_name, u.email, u.phone || '', u.member_since || '', u.stripe_customer_id || '', Boolean(u.role_is_admin ?? u.is_admin), u.property_count, `"${(u.addresses || '').replace(/"/g, '""')}"`, u.created_at].join(',')
       ).join('\n');
       await audit(req, 'export_customers', 'system', undefined, { count: users.length });
       res.setHeader('Content-Type', 'text/csv');
@@ -1685,28 +1689,9 @@ export function registerAdminRoutes(app: Express) {
   // Providers & Territories
   // ============================================================
 
-  app.get('/api/admin/providers', requireAdmin, requirePermission('operations'), async (_req: Request, res: Response) => {
-    try {
-      const providers = await storage.getProviders();
-      res.json({ providers });
-    } catch (err: any) {
-      console.error('Error fetching providers:', err);
-      res.status(500).json({ error: 'Failed to fetch providers' });
-    }
-  });
-
-  app.get('/api/admin/providers/:id', requireAdmin, requirePermission('operations'), async (req: Request, res: Response) => {
-    try {
-        const provider = await storage.getProviderById(req.params.id);
-        if (!provider) {
-            return res.status(404).json({ error: 'Provider not found' });
-        }
-        res.json({ provider });
-    } catch (err: any) {
-        console.error('Error fetching provider:', err);
-        res.status(500).json({ error: 'Failed to fetch provider' });
-    }
-  });
+  // NOTE: GET /api/admin/providers and GET /api/admin/providers/:id are registered
+  // later in this file (around line 5961+) with { data: ... } response format.
+  // Do NOT add duplicate GET routes here — they would shadow the /pending route.
 
   app.post('/api/admin/providers', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
     try {
@@ -3340,7 +3325,7 @@ export function registerAdminRoutes(app: Express) {
           const rows = users
             .filter((u: any) => userIds.includes(u.id))
             .map((u: any) =>
-              [u.id, u.first_name, u.last_name, u.email, u.phone || '', u.member_since || '', u.stripe_customer_id || '', u.is_admin, u.property_count, `"${(u.addresses || '').replace(/"/g, '""')}"`, u.created_at].join(',')
+              [u.id, u.first_name, u.last_name, u.email, u.phone || '', u.member_since || '', u.stripe_customer_id || '', Boolean(u.role_is_admin ?? u.is_admin), u.property_count, `"${(u.addresses || '').replace(/"/g, '""')}"`, u.created_at].join(',')
             ).join('\n');
           await audit(req, 'export_customers', 'system', undefined, { count: userIds.length });
           res.setHeader('Content-Type', 'text/csv');
@@ -5938,6 +5923,303 @@ export function registerAdminRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error fetching location requirements:', err);
       res.status(500).json({ error: 'Failed to fetch location requirements' });
+    }
+  });
+
+  // ============================================================
+  // PROVIDER MANAGEMENT (admin)
+  // ============================================================
+
+  app.get('/api/admin/providers/pending', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const providers = await storage.getPendingProviders();
+      res.json({ data: providers });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load pending providers' });
+    }
+  });
+
+  app.get('/api/admin/providers', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { status } = req.query;
+      let providers;
+      if (status === 'pending_review') {
+        providers = await storage.getPendingProviders();
+      } else {
+        providers = await storage.getProviders();
+      }
+      res.json({ data: providers });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load providers' });
+    }
+  });
+
+  app.get('/api/admin/providers/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderById(req.params.id);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const territories = await storage.getTerritoriesForProvider(req.params.id);
+      const members = await storage.getProviderMembers(req.params.id);
+      res.json({ data: { ...provider, territories, members } });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load provider' });
+    }
+  });
+
+  app.put('/api/admin/providers/:id/decision', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { decision, notes } = req.body;
+      if (!['approved', 'rejected'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be "approved" or "rejected"' });
+      }
+      const provider = await storage.getProviderById(req.params.id);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+
+      const adminId = getAdminId(req);
+
+      if (decision === 'approved') {
+        await storage.updateProvider(req.params.id, {
+          approval_status: 'approved',
+          status: 'active',
+          approved_by: adminId,
+          approved_at: new Date().toISOString(),
+          approval_notes: notes || null,
+        });
+
+        // Solo operator: create driver_profiles row for the owner
+        if (provider.is_solo_operator) {
+          const existing = await storage.getDriverProfileByUserId(provider.owner_user_id);
+          if (!existing) {
+            const user = await storage.getUserById(provider.owner_user_id);
+            const driverProfile = await storage.createDriverProfile({
+              userId: provider.owner_user_id,
+              name: `${user?.first_name} ${user?.last_name}`.trim(),
+            });
+            await pool.query(
+              `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+              [provider.owner_user_id]
+            );
+            // Add as member in provider with driver role
+            const roles = await storage.getProviderRoles(req.params.id);
+            const driverRole = roles.find((r: any) => r.is_default_role);
+            if (driverRole) {
+              await storage.addProviderMember({
+                providerId: req.params.id,
+                userId: provider.owner_user_id,
+                roleId: driverRole.id,
+                employmentType: 'contractor',
+              });
+            }
+            // Update driver profile with provider linkage
+            await storage.updateDriver(driverProfile.id, { provider_id: req.params.id });
+          }
+        }
+
+        notifyProviderApproval(provider.name).catch(() => {});
+        await audit(req, 'approve_provider', 'provider', req.params.id, { notes });
+
+        // Activate provider territories on approval
+        const territories = await storage.getTerritoriesForProvider(req.params.id);
+        if (territories.length > 0) {
+          await pool.query(
+            `UPDATE provider_territories SET status = 'active' WHERE provider_id = $1 AND status != 'active'`,
+            [req.params.id]
+          );
+        } else {
+          // No territories at all — create a placeholder if the provider has zip codes from a previous territory attempt
+          // Skip silently; admin can add via TerritoryManager
+          console.log(`[Provider Approval] Provider ${req.params.id} approved with no territories — admin can add via TerritoryManager`);
+        }
+      } else {
+        await storage.updateProvider(req.params.id, {
+          approval_status: 'rejected',
+          approval_notes: notes || null,
+        });
+        notifyProviderRejection(provider.name, notes).catch(() => {});
+        await audit(req, 'reject_provider', 'provider', req.params.id, { notes });
+      }
+
+      const updated = await storage.getProviderById(req.params.id);
+      res.json({ data: updated });
+    } catch (err: any) {
+      console.error('Provider decision error:', err);
+      res.status(500).json({ error: 'Failed to process provider decision' });
+    }
+  });
+
+  app.put('/api/admin/providers/:id/suspend', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { reason } = req.body;
+      if (!reason?.trim()) return res.status(400).json({ error: 'Suspension reason required' });
+      const provider = await storage.getProviderById(req.params.id);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      await storage.suspendProvider(req.params.id, reason, getAdminId(req));
+      await audit(req, 'suspend_provider', 'provider', req.params.id, { reason });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to suspend provider' });
+    }
+  });
+
+  app.put('/api/admin/providers/:id/reactivate', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      await storage.reactivateProvider(req.params.id);
+      await audit(req, 'reactivate_provider', 'provider', req.params.id, {});
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to reactivate provider' });
+    }
+  });
+
+  // ============================================================
+  // Provider Invite Links (admin generates one-time URLs for hauler outreach)
+  // ============================================================
+
+  app.post('/api/admin/provider-invites', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const { note } = req.body;
+      const token = crypto.randomBytes(32).toString('hex');
+      const adminId = getAdminId(req);
+      await pool.query(
+        `INSERT INTO provider_invites (token, invited_by, note) VALUES ($1, $2, $3)`,
+        [token, adminId, note || null]
+      );
+      const appUrl = process.env.APP_URL || 'https://app.ruralwm.com';
+      const url = `${appUrl}/provider/?provider-invite=${token}`;
+      await audit(req, 'create_provider_invite', 'provider_invites', token, { note });
+      res.status(201).json({ url, token });
+    } catch (err) {
+      console.error('Create provider invite error:', err);
+      res.status(500).json({ error: 'Failed to create provider invite' });
+    }
+  });
+
+  app.get('/api/admin/provider-invites', requireAdmin, requirePermission('*'), async (_req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT pi.*, u.first_name || ' ' || u.last_name as invited_by_name,
+                u2.first_name || ' ' || u2.last_name as used_by_name
+         FROM provider_invites pi
+         LEFT JOIN users u ON u.id = pi.invited_by
+         LEFT JOIN users u2 ON u2.id = pi.used_by
+         ORDER BY pi.created_at DESC`
+      );
+      res.json({ invites: rows });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load provider invites' });
+    }
+  });
+
+  app.delete('/api/admin/provider-invites/:id', requireAdmin, requirePermission('*'), async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`DELETE FROM provider_invites WHERE id = $1 RETURNING id`, [req.params.id]);
+      if (result.rowCount === 0) return res.status(404).json({ error: 'Invite not found' });
+      await audit(req, 'delete_provider_invite', 'provider_invites', req.params.id, {});
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete provider invite' });
+    }
+  });
+
+  // Provider contracts (admin manages)
+  app.get('/api/admin/providers/:id/contracts', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const contracts = await storage.getProviderContracts(req.params.id);
+      res.json({ data: contracts });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load contracts' });
+    }
+  });
+
+  app.post('/api/admin/providers/:id/contracts', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { zoneId, perStopRate, effectiveDate, endDate, termsNotes } = req.body;
+      if (!perStopRate || !effectiveDate) {
+        return res.status(400).json({ error: 'perStopRate and effectiveDate required' });
+      }
+      const contract = await storage.createProviderContract({
+        providerId: req.params.id,
+        zoneId,
+        perStopRate: parseFloat(perStopRate),
+        effectiveDate,
+        endDate,
+        termsNotes,
+        createdBy: getAdminId(req),
+      });
+      await audit(req, 'create_provider_contract', 'provider', req.params.id, { zoneId, perStopRate });
+      res.status(201).json({ data: contract });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create contract' });
+    }
+  });
+
+  app.put('/api/admin/providers/:id/contracts/:contractId', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const updated = await storage.updateProviderContract(req.params.contractId, req.body);
+      await audit(req, 'update_provider_contract', 'provider', req.params.id, { contractId: req.params.contractId });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update contract' });
+    }
+  });
+
+  // Route → provider assignment
+  app.put('/api/admin/routes/:id/assign-provider', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { providerId, perStopRate } = req.body;
+      if (!providerId) return res.status(400).json({ error: 'providerId required' });
+      const provider = await storage.getProviderById(providerId);
+      if (!provider || provider.approval_status !== 'approved') {
+        return res.status(400).json({ error: 'Provider not found or not approved' });
+      }
+      const route = await storage.getRouteById(req.params.id);
+      if (!route) return res.status(404).json({ error: 'Route not found' });
+
+      // Auto-look up contract rate for this zone
+      let rate = perStopRate ? parseFloat(perStopRate) : null;
+      if (!rate && route.zone_id) {
+        const contract = await storage.getActiveProviderContractForZone(providerId, route.zone_id);
+        if (contract) rate = parseFloat(contract.per_stop_rate);
+      }
+
+      const updated = await storage.assignRouteToProvider(req.params.id, providerId, rate);
+      // Notify provider owner
+      broadcastToAdmins({ type: 'route_assigned_to_provider', routeId: req.params.id, providerId });
+      await audit(req, 'assign_route_to_provider', 'route', req.params.id, { providerId, perStopRate: rate });
+      res.json({ data: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to assign route to provider' });
+    }
+  });
+
+  // Provider financials (admin view)
+  app.get('/api/admin/providers/financials', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { from, to } = req.query as { from: string; to: string };
+      const summary = await storage.getAllProviderPaymentSummary(
+        from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        to || new Date().toISOString()
+      );
+      res.json({ data: summary });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load provider financials' });
+    }
+  });
+
+  app.get('/api/admin/providers/:id/financials', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { from, to } = req.query as { from: string; to: string };
+      const fromDate = from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const toDate = to || new Date().toISOString();
+      const [summary, payments, byDriver, byVehicle] = await Promise.all([
+        storage.getProviderRevenueSummary(req.params.id, fromDate, toDate),
+        storage.getProviderPaymentHistory(req.params.id, fromDate, toDate),
+        storage.getProviderEarningsBreakdownByDriver(req.params.id, fromDate, toDate),
+        storage.getProviderEarningsBreakdownByVehicle(req.params.id, fromDate, toDate),
+      ]);
+      res.json({ data: { summary, payments, byDriver, byVehicle } });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load provider financials' });
     }
   });
 }

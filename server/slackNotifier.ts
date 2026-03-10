@@ -87,3 +87,26 @@ export async function notifyContractRenewalRequest(driverName: string, contractI
     `🔄 *Contract renewal request* from ${driverName}${details ? ` (${details})` : ''} — review in admin portal.`
   );
 }
+
+export async function notifyNewProviderApplication(companyName: string, ownerName: string): Promise<void> {
+  await sendSlackMessage(
+    `🏢 *New provider application* from *${companyName}* (owner: ${ownerName}) — review in admin portal under Operations > Company Applications.`
+  );
+}
+
+export async function notifyProviderApproval(companyName: string): Promise<void> {
+  await sendSlackMessage(`✅ Provider *${companyName}* has been *approved* and is now active.`);
+}
+
+export async function notifyProviderRejection(companyName: string, notes?: string): Promise<void> {
+  await sendSlackMessage(
+    `❌ Provider *${companyName}* has been *rejected*.${notes ? ` Reason: ${notes}` : ''}`
+  );
+}
+
+export async function notifyProviderInsuranceExpiring(companyName: string, ownerEmail: string, daysRemaining: number): Promise<void> {
+  await sendSlackMessage(
+    `⚠️ Provider *${companyName}* (${ownerEmail}) insurance expires in *${daysRemaining} days*. Review in admin portal.`
+  );
+}
+

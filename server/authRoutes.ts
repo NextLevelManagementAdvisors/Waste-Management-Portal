@@ -206,7 +206,7 @@ export function registerAuthRoutes(app: Express) {
 
   app.post('/api/auth/register', async (req: Request, res: Response) => {
     try {
-      const { firstName, lastName, phone, email, password, referralCode } = req.body;
+      const { firstName, lastName, phone, email, password, referralCode, clientInviteToken, providerSlug } = req.body;
 
       if (!firstName || !lastName || !email || !password) {
         return res.status(400).json({ error: 'First name, last name, email, and password are required' });
@@ -286,6 +286,49 @@ export function registerAuthRoutes(app: Express) {
         } catch (refErr: any) {
           console.error('Referral processing failed (non-blocking):', refErr.message);
         }
+      }
+
+      // Check for provider client invitation by email — auto-create location pre-linked to provider
+      try {
+        const clientInvite = await pool.query(
+          `SELECT pci.*, p.name as provider_name
+           FROM provider_client_invitations pci
+           JOIN providers p ON p.id = pci.provider_id
+           WHERE LOWER(pci.email) = LOWER($1) AND pci.status = 'sent'
+           ORDER BY pci.created_at DESC LIMIT 1`,
+          [email]
+        );
+        if (clientInvite.rows[0]) {
+          const inv = clientInvite.rows[0];
+          if (inv.address) {
+            const territory = await pool.query(
+              `SELECT id FROM provider_territories WHERE provider_id = $1 AND status = 'active' LIMIT 1`,
+              [inv.provider_id]
+            );
+            await pool.query(
+              `INSERT INTO locations
+                 (user_id, address, service_type, in_hoa, has_gate_code, notes, service_status,
+                  service_status_updated_at, provider_id, provider_territory_id, can_size, collection_day)
+               VALUES ($1,$2,'residential',false,false,$3,'pending_review',NOW(),$4,$5,$6,$7)`,
+              [user.id, inv.address, inv.service_notes || null, inv.provider_id,
+               territory.rows[0]?.id || null, inv.can_size || null, inv.collection_frequency || null]
+            );
+          }
+          await pool.query(
+            `UPDATE provider_client_invitations SET status = 'registered' WHERE id = $1`,
+            [inv.id]
+          );
+        }
+      } catch (invErr: any) {
+        console.error('[ClientInvite] Post-registration hook failed:', invErr.message);
+      }
+
+      // Store pending provider slug if customer registered via a join page
+      if (providerSlug) {
+        pool.query(
+          `UPDATE users SET pending_provider_slug = $1 WHERE id = $2`,
+          [providerSlug, user.id]
+        ).catch((err: any) => console.error('[PendingProviderSlug] Failed to set:', err.message));
       }
 
       req.session.userId = user.id;
@@ -2222,6 +2265,88 @@ Respond ONLY with valid JSON, no markdown: {"recommendedSize": "32G" | "64G" | "
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to mark notifications as read' });
+    }
+  });
+
+  // Redeem a client invitation for already-registered customers
+  app.post('/api/customer/client-invite/redeem', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ error: 'token is required' });
+
+      const { rows } = await pool.query(
+        `SELECT pci.*, p.name as provider_name
+         FROM provider_client_invitations pci
+         JOIN providers p ON p.id = pci.provider_id
+         WHERE pci.token = $1 AND pci.status = 'sent' AND pci.expires_at > NOW()`,
+        [token]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Invitation not found or expired' });
+      const inv = rows[0];
+
+      if (inv.address) {
+        const territory = await pool.query(
+          `SELECT id FROM provider_territories WHERE provider_id = $1 AND status = 'active' LIMIT 1`,
+          [inv.provider_id]
+        );
+        await pool.query(
+          `INSERT INTO locations
+             (user_id, address, service_type, in_hoa, has_gate_code, notes, service_status,
+              service_status_updated_at, provider_id, provider_territory_id, can_size, collection_day)
+           VALUES ($1,$2,'residential',false,false,$3,'pending_review',NOW(),$4,$5,$6,$7)`,
+          [userId, inv.address, inv.service_notes || null, inv.provider_id,
+           territory.rows[0]?.id || null, inv.can_size || null, inv.collection_frequency || null]
+        );
+      }
+
+      await pool.query(
+        `UPDATE provider_client_invitations SET status = 'registered' WHERE id = $1`,
+        [inv.id]
+      );
+
+      res.json({ success: true, providerName: inv.provider_name });
+    } catch (err: any) {
+      console.error('Client invite redeem error:', err);
+      res.status(500).json({ error: 'Failed to redeem invitation' });
+    }
+  });
+
+  // Link first location to pending provider slug (called when customer adds their first address)
+  app.post('/api/customer/link-provider-slug', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { locationId } = req.body;
+      if (!locationId) return res.status(400).json({ error: 'locationId is required' });
+
+      const userResult = await pool.query(`SELECT pending_provider_slug FROM users WHERE id = $1`, [userId]);
+      const slug = userResult.rows[0]?.pending_provider_slug;
+      if (!slug) return res.json({ success: true, linked: false });
+
+      const providerResult = await pool.query(
+        `SELECT id FROM providers WHERE slug = $1 AND approval_status = 'approved'`,
+        [slug]
+      );
+      if (providerResult.rows.length === 0) {
+        await pool.query(`UPDATE users SET pending_provider_slug = NULL WHERE id = $1`, [userId]);
+        return res.json({ success: true, linked: false });
+      }
+      const providerId = providerResult.rows[0].id;
+
+      const territory = await pool.query(
+        `SELECT id FROM provider_territories WHERE provider_id = $1 AND status = 'active' LIMIT 1`,
+        [providerId]
+      );
+      await pool.query(
+        `UPDATE locations SET provider_id = $1, provider_territory_id = $2 WHERE id = $3 AND user_id = $4`,
+        [providerId, territory.rows[0]?.id || null, locationId, userId]
+      );
+      await pool.query(`UPDATE users SET pending_provider_slug = NULL WHERE id = $1`, [userId]);
+
+      res.json({ success: true, linked: true });
+    } catch (err: any) {
+      console.error('Link provider slug error:', err);
+      res.status(500).json({ error: 'Failed to link provider' });
     }
   });
 }

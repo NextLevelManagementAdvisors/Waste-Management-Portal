@@ -961,7 +961,9 @@ export class Storage {
     const offset = options.offset || 0;
     params.push(limit, offset);
     const result = await this.query(
-      `SELECT u.*, (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) as location_count
+      `SELECT u.*,
+              EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role = 'admin') AS role_is_admin,
+              (SELECT COUNT(*) FROM locations p WHERE p.user_id = u.id) AS property_count
        FROM users u ${where} ORDER BY ${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx}`,
       params
     );
@@ -1380,8 +1382,8 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any; optimoroute_driver_id: string | null }>) {
-    const ALLOWED_COLUMNS = ['name', 'email', 'phone', 'password_hash', 'status', 'onboarding_status', 'rating', 'total_jobs_completed', 'stripe_connect_account_id', 'stripe_connect_onboarded', 'w9_completed', 'direct_deposit_completed', 'availability', 'optimoroute_driver_id'];
+  async updateDriver(id: string, data: Partial<{ name: string; email: string; phone: string; password_hash: string; status: string; onboarding_status: string; rating: number; total_jobs_completed: number; stripe_connect_account_id: string; stripe_connect_onboarded: boolean; w9_completed: boolean; direct_deposit_completed: boolean; availability: any; optimoroute_driver_id: string | null; provider_id: string | null }>) {
+    const ALLOWED_COLUMNS = ['name', 'email', 'phone', 'password_hash', 'status', 'onboarding_status', 'rating', 'total_jobs_completed', 'stripe_connect_account_id', 'stripe_connect_onboarded', 'w9_completed', 'direct_deposit_completed', 'availability', 'optimoroute_driver_id', 'provider_id'];
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -1862,7 +1864,17 @@ export class Storage {
     return result.rows[0] || null;
   }
 
-  async updateProvider(id: string, data: Partial<{ name: string; status: string; }>) {
+  async updateProvider(id: string, data: Partial<{
+    name: string; status: string; business_type: string; ein: string;
+    contact_phone: string; contact_email: string; website: string;
+    service_description: string; logo_url: string; insurance_cert_url: string;
+    insurance_expires_at: string; license_number: string;
+    approval_status: string; approval_notes: string;
+    approved_by: string; approved_at: string;
+    suspended_at: string; suspended_reason: string;
+    is_solo_operator: boolean; onboarding_step: number;
+    stripe_account_id: string;
+  }>) {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -3070,6 +3082,614 @@ export class Storage {
       [invoiceId]
     );
     return result.rows[0] || null;
+  }
+
+  // ============================================================
+  // PROVIDER ONBOARDING & TEAM MANAGEMENT
+  // ============================================================
+
+  async getProviderByOwnerUserId(userId: string) {
+    const result = await this.query(
+      `SELECT * FROM providers WHERE owner_user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getPendingProviders() {
+    const result = await this.query(`
+      SELECT p.*, u.first_name || ' ' || u.last_name AS owner_name, u.email AS owner_email
+      FROM providers p
+      JOIN users u ON p.owner_user_id = u.id
+      WHERE p.approval_status = 'pending_review'
+      ORDER BY p.created_at ASC
+    `);
+    return result.rows;
+  }
+
+  async suspendProvider(id: string, reason: string, adminUserId: string) {
+    const result = await this.query(
+      `UPDATE providers
+       SET approval_status = 'suspended', suspended_at = NOW(), suspended_reason = $2, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, reason]
+    );
+    return result.rows[0] || null;
+  }
+
+  async reactivateProvider(id: string) {
+    const result = await this.query(
+      `UPDATE providers
+       SET approval_status = 'approved', suspended_at = NULL, suspended_reason = NULL, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    return result.rows[0] || null;
+  }
+
+  // Provider roles
+  async seedProviderDefaultRoles(providerId: string) {
+    const ownerPerms = {
+      execute_routes: true, dispatch_routes: true, manage_members: true,
+      manage_fleet: true, manage_billing: true, view_team_schedule: true,
+      view_team_routes: true, view_earnings_report: true,
+    };
+    const driverPerms = {
+      execute_routes: true, dispatch_routes: false, manage_members: false,
+      manage_fleet: false, manage_billing: false, view_team_schedule: false,
+      view_team_routes: false, view_earnings_report: false,
+    };
+    await this.query(
+      `INSERT INTO provider_roles (provider_id, name, permissions, is_owner_role, is_default_role)
+       VALUES ($1, 'Owner', $2, TRUE, FALSE)`,
+      [providerId, JSON.stringify(ownerPerms)]
+    );
+    await this.query(
+      `INSERT INTO provider_roles (provider_id, name, permissions, is_owner_role, is_default_role)
+       VALUES ($1, 'Driver', $2, FALSE, TRUE)`,
+      [providerId, JSON.stringify(driverPerms)]
+    );
+  }
+
+  async getProviderRoles(providerId: string) {
+    const result = await this.query(
+      `SELECT pr.*, COUNT(pm.id) AS member_count
+       FROM provider_roles pr
+       LEFT JOIN provider_members pm ON pm.role_id = pr.id AND pm.status = 'active'
+       WHERE pr.provider_id = $1
+       GROUP BY pr.id
+       ORDER BY pr.is_owner_role DESC, pr.is_default_role DESC, pr.name`,
+      [providerId]
+    );
+    return result.rows;
+  }
+
+  async createProviderRole(data: { providerId: string; name: string; permissions: Record<string, boolean> }) {
+    const result = await this.query(
+      `INSERT INTO provider_roles (provider_id, name, permissions)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [data.providerId, data.name, JSON.stringify(data.permissions)]
+    );
+    return result.rows[0];
+  }
+
+  async updateProviderRole(id: string, data: Partial<{ name: string; permissions: Record<string, boolean>; is_default_role: boolean }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    if (data.name !== undefined) { fields.push(`name = $${idx++}`); values.push(data.name); }
+    if (data.permissions !== undefined) { fields.push(`permissions = $${idx++}`); values.push(JSON.stringify(data.permissions)); }
+    if (data.is_default_role !== undefined) { fields.push(`is_default_role = $${idx++}`); values.push(data.is_default_role); }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.query(
+      `UPDATE provider_roles SET ${fields.join(', ')} WHERE id = $${idx} AND is_owner_role = FALSE RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteProviderRole(id: string) {
+    // Guard: no members currently assigned to this role, not owner role
+    const check = await this.query(
+      `SELECT COUNT(*) AS cnt FROM provider_members WHERE role_id = $1 AND status = 'active'`,
+      [id]
+    );
+    if (parseInt(check.rows[0].cnt) > 0) throw new Error('Cannot delete role with active members');
+    await this.query(
+      `DELETE FROM provider_roles WHERE id = $1 AND is_owner_role = FALSE`,
+      [id]
+    );
+  }
+
+  async getProviderRoleById(id: string) {
+    const result = await this.query(`SELECT * FROM provider_roles WHERE id = $1`, [id]);
+    return result.rows[0] || null;
+  }
+
+  // Provider members
+  async getProviderMembers(providerId: string) {
+    const result = await this.query(`
+      SELECT pm.*, u.first_name, u.last_name, u.email, u.phone,
+             pr.name AS role_name, pr.permissions, pr.is_owner_role,
+             dp.id AS driver_profile_id, dp.optimoroute_driver_id, dp.status AS driver_status
+      FROM provider_members pm
+      JOIN users u ON pm.user_id = u.id
+      LEFT JOIN provider_roles pr ON pm.role_id = pr.id
+      LEFT JOIN driver_profiles dp ON dp.user_id = pm.user_id
+      WHERE pm.provider_id = $1
+        AND pm.status = 'active'
+      ORDER BY pr.is_owner_role DESC NULLS LAST, u.first_name, u.last_name
+    `, [providerId]);
+    return result.rows;
+  }
+
+  async getMemberProviders(userId: string) {
+    const result = await this.query(`
+      SELECT pm.*, p.name AS provider_name, p.logo_url, p.approval_status,
+             p.status AS provider_status,
+             pr.name AS role_name, pr.permissions, pr.is_owner_role, pr.is_default_role
+      FROM provider_members pm
+      JOIN providers p ON pm.provider_id = p.id
+      LEFT JOIN provider_roles pr ON pm.role_id = pr.id
+      WHERE pm.user_id = $1 AND pm.status = 'active'
+      ORDER BY pr.is_owner_role DESC NULLS LAST, p.name
+    `, [userId]);
+    return result.rows;
+  }
+
+  async getMemberPermissions(userId: string, providerId: string) {
+    const result = await this.query(`
+      SELECT pr.permissions, pr.is_owner_role
+      FROM provider_members pm
+      JOIN provider_roles pr ON pm.role_id = pr.id
+      WHERE pm.user_id = $1 AND pm.provider_id = $2 AND pm.status = 'active'
+      LIMIT 1
+    `, [userId, providerId]);
+    return result.rows[0] || null;
+  }
+
+  async addProviderMember(data: { providerId: string; userId: string; roleId?: string; employmentType?: string }) {
+    const result = await this.query(
+      `INSERT INTO provider_members (provider_id, user_id, role_id, employment_type, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       ON CONFLICT (provider_id, user_id) DO UPDATE
+         SET role_id = EXCLUDED.role_id,
+             employment_type = EXCLUDED.employment_type,
+             status = 'active'
+       RETURNING *`,
+      [data.providerId, data.userId, data.roleId || null, data.employmentType || null]
+    );
+    await this.query(
+      `UPDATE driver_profiles
+       SET provider_id = $1, updated_at = NOW()
+       WHERE user_id = $2`,
+      [data.providerId, data.userId]
+    );
+    return result.rows[0];
+  }
+
+  async updateProviderMember(id: string, data: Partial<{ role_id: string; employment_type: string; status: string }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+    }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.query(
+      `UPDATE provider_members SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async removeProviderMember(providerId: string, userId: string) {
+    await this.query(
+      `UPDATE provider_members SET status = 'removed' WHERE provider_id = $1 AND user_id = $2`,
+      [providerId, userId]
+    );
+    await this.query(
+      `UPDATE driver_profiles
+       SET provider_id = NULL, updated_at = NOW()
+       WHERE user_id = $1 AND provider_id = $2`,
+      [userId, providerId]
+    );
+  }
+
+  async getProviderMemberByUserId(providerId: string, userId: string) {
+    const result = await this.query(
+      `SELECT pm.*, pr.permissions, pr.is_owner_role
+       FROM provider_members pm
+       LEFT JOIN provider_roles pr ON pm.role_id = pr.id
+       WHERE pm.provider_id = $1 AND pm.user_id = $2 AND pm.status = 'active'
+       LIMIT 1`,
+      [providerId, userId]
+    );
+    return result.rows[0] || null;
+  }
+
+  // Provider invitations
+  async createProviderInvitation(data: {
+    email?: string; phone?: string; name?: string;
+    providerId: string; roleId?: string; employmentType?: string;
+    invitedBy: string; token: string;
+  }) {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await this.query(
+      `INSERT INTO invitations (email, phone, name, roles, invited_by, token, status, expires_at, provider_id, role_id, employment_type)
+       VALUES ($1, $2, $3, ARRAY['driver'], $4, $5, 'pending', $6, $7, $8, $9)
+       RETURNING *`,
+      [data.email || null, data.phone || null, data.name || null, data.invitedBy,
+       data.token, expiresAt, data.providerId, data.roleId || null, data.employmentType || null]
+    );
+    return result.rows[0];
+  }
+
+  async getInvitationsForProvider(providerId: string) {
+    const result = await this.query(`
+      SELECT i.*, u.first_name || ' ' || u.last_name AS invited_by_name,
+             pr.name AS role_name
+      FROM invitations i
+      JOIN users u ON i.invited_by = u.id
+      LEFT JOIN provider_roles pr ON i.role_id = pr.id
+      WHERE i.provider_id = $1
+      ORDER BY i.created_at DESC
+    `, [providerId]);
+    return result.rows;
+  }
+
+  async getValidInvitationByToken(token: string) {
+    const result = await this.query(
+      `SELECT i.*, pr.name AS role_name, pr.permissions AS role_permissions
+       FROM invitations i
+       LEFT JOIN provider_roles pr ON i.role_id = pr.id
+       WHERE i.token = $1 AND i.status = 'pending' AND i.expires_at > NOW()
+       LIMIT 1`,
+      [token]
+    );
+    return result.rows[0] || null;
+  }
+
+  async revokeInvitation(id: string) {
+    await this.query(`UPDATE invitations SET status = 'revoked' WHERE id = $1`, [id]);
+  }
+
+  async acceptInvitation(id: string, acceptedBy: string) {
+    await this.query(
+      `UPDATE invitations SET status = 'accepted', accepted_by = $2, accepted_at = NOW() WHERE id = $1`,
+      [id, acceptedBy]
+    );
+  }
+
+  // Fleet management
+  async getProviderVehicles(providerId: string) {
+    const result = await this.query(
+      `SELECT * FROM provider_vehicles WHERE provider_id = $1 ORDER BY status DESC, make, model`,
+      [providerId]
+    );
+    return result.rows;
+  }
+
+  async createProviderVehicle(data: {
+    providerId: string; make?: string; model?: string; year?: number;
+    vehicle_type?: string; ownership?: string; vin?: string; license_plate?: string;
+    dot_number?: string; registration_expires_at?: string; last_inspection_date?: string;
+    notes?: string;
+  }) {
+    const result = await this.query(
+      `INSERT INTO provider_vehicles
+         (provider_id, make, model, year, vehicle_type, ownership, vin, license_plate,
+          dot_number, registration_expires_at, last_inspection_date, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [data.providerId, data.make||null, data.model||null, data.year||null,
+       data.vehicle_type||null, data.ownership||null, data.vin||null,
+       data.license_plate||null, data.dot_number||null,
+       data.registration_expires_at||null, data.last_inspection_date||null, data.notes||null]
+    );
+    return result.rows[0];
+  }
+
+  async updateProviderVehicle(id: string, data: Partial<{
+    make: string; model: string; year: number; vehicle_type: string; ownership: string;
+    vin: string; license_plate: string; dot_number: string;
+    registration_expires_at: string; last_inspection_date: string;
+    status: string; notes: string;
+  }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+    }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.query(
+      `UPDATE provider_vehicles SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteProviderVehicle(id: string) {
+    const check = await this.query(
+      `SELECT COUNT(*) AS cnt FROM routes
+       WHERE assigned_vehicle_id = $1 AND status NOT IN ('completed','cancelled')`,
+      [id]
+    );
+    if (parseInt(check.rows[0].cnt) > 0) throw new Error('Cannot delete vehicle assigned to an active route');
+    await this.query(`DELETE FROM provider_vehicles WHERE id = $1`, [id]);
+  }
+
+  async getVehiclesAssignedOnDate(providerId: string, date: string) {
+    const result = await this.query(`
+      SELECT v.* FROM provider_vehicles v
+      JOIN routes r ON r.assigned_vehicle_id = v.id
+      WHERE v.provider_id = $1
+        AND r.scheduled_date = $2
+        AND r.status NOT IN ('completed','cancelled','declined')
+    `, [providerId, date]);
+    return result.rows;
+  }
+
+  // Provider contracts
+  async createProviderContract(data: {
+    providerId: string; zoneId?: string; perStopRate: number;
+    effectiveDate: string; endDate?: string; termsNotes?: string; createdBy: string;
+  }) {
+    const result = await this.query(
+      `INSERT INTO provider_contracts
+         (provider_id, zone_id, per_stop_rate, effective_date, end_date, terms_notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [data.providerId, data.zoneId||null, data.perStopRate, data.effectiveDate,
+       data.endDate||null, data.termsNotes||null, data.createdBy]
+    );
+    return result.rows[0];
+  }
+
+  async getProviderContracts(providerId: string) {
+    const result = await this.query(`
+      SELECT pc.*, sz.name AS zone_name
+      FROM provider_contracts pc
+      LEFT JOIN service_zones sz ON pc.zone_id = sz.id
+      WHERE pc.provider_id = $1
+      ORDER BY pc.status DESC, pc.effective_date DESC
+    `, [providerId]);
+    return result.rows;
+  }
+
+  async getActiveProviderContractForZone(providerId: string, zoneId: string) {
+    const result = await this.query(`
+      SELECT * FROM provider_contracts
+      WHERE provider_id = $1 AND zone_id = $2 AND status = 'active'
+        AND effective_date <= CURRENT_DATE
+        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+      ORDER BY effective_date DESC
+      LIMIT 1
+    `, [providerId, zoneId]);
+    return result.rows[0] || null;
+  }
+
+  async updateProviderContract(id: string, data: Partial<{
+    per_stop_rate: number; end_date: string; status: string; terms_notes: string;
+  }>) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) { fields.push(`${key} = $${idx++}`); values.push(val); }
+    }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.query(
+      `UPDATE provider_contracts SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  }
+
+  // Provider route dispatch
+  async getProviderRoutes(providerId: string) {
+    const result = await this.query(`
+      SELECT r.*,
+             dp.name AS assigned_driver_name,
+             pv.make || ' ' || pv.model AS assigned_vehicle_name,
+             sz.name AS zone_name
+      FROM routes r
+      LEFT JOIN driver_profiles dp ON r.assigned_driver_id = dp.id
+      LEFT JOIN provider_vehicles pv ON r.assigned_vehicle_id = pv.id
+      LEFT JOIN service_zones sz ON r.zone_id = sz.id
+      WHERE r.assigned_provider_id = $1
+        AND r.status NOT IN ('completed','cancelled')
+      ORDER BY r.scheduled_date ASC, r.start_time ASC
+    `, [providerId]);
+    return result.rows;
+  }
+
+  async assignRouteToProvider(routeId: string, providerId: string, perStopRate: number | null) {
+    const result = await this.query(
+      `UPDATE routes
+       SET assigned_provider_id = $2,
+           provider_per_stop_rate = $3,
+           provider_dispatch_status = 'unassigned',
+           assigned_driver_id = NULL,
+           assigned_vehicle_id = NULL,
+           updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [routeId, providerId, perStopRate]
+    );
+    return result.rows[0] || null;
+  }
+
+  async dispatchRouteToDriver(routeId: string, providerId: string, driverId: string, vehicleId: string | null) {
+    const result = await this.query(
+      `UPDATE routes
+       SET assigned_driver_id = $2,
+           assigned_vehicle_id = $3,
+           provider_dispatch_status = 'dispatched',
+           status = 'assigned',
+           updated_at = NOW()
+       WHERE id = $1
+         AND assigned_provider_id = $4
+       RETURNING *`,
+      [routeId, driverId, vehicleId || null, providerId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async recallRouteDispatch(routeId: string, providerId: string) {
+    const result = await this.query(
+      `UPDATE routes
+       SET assigned_driver_id = NULL,
+           assigned_vehicle_id = NULL,
+           provider_dispatch_status = 'unassigned',
+           status = 'open',
+           updated_at = NOW()
+       WHERE id = $1
+         AND assigned_provider_id = $2
+       RETURNING *`,
+      [routeId, providerId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async declineRouteAsProvider(routeId: string, providerId: string, reason: string) {
+    const result = await this.query(
+      `UPDATE routes
+       SET assigned_provider_id = NULL,
+           provider_dispatch_status = 'declined',
+           provider_declined_reason = $2,
+           status = 'open',
+           updated_at = NOW()
+       WHERE id = $1
+         AND assigned_provider_id = $3
+       RETURNING *`,
+      [routeId, reason, providerId]
+    );
+    return result.rows[0] || null;
+  }
+
+  // Provider accounting
+  async getProviderRevenueSummary(providerId: string, from: string, to: string) {
+    const result = await this.query(`
+      SELECT
+        COUNT(*) AS total_routes,
+        COALESCE(SUM(provider_actual_pay), 0) AS total_revenue,
+        COALESCE(AVG(provider_actual_pay), 0) AS avg_revenue_per_route,
+        COALESCE(SUM(CASE WHEN provider_actual_pay IS NOT NULL THEN 0 ELSE 1 END), 0) AS pending_payment_count
+      FROM routes
+      WHERE assigned_provider_id = $1
+        AND status = 'completed'
+        AND completed_at >= $2 AND completed_at <= $3
+    `, [providerId, from, to]);
+    return result.rows[0];
+  }
+
+  async getProviderPaymentHistory(providerId: string, from: string, to: string, limit = 50, offset = 0) {
+    const result = await this.query(`
+      SELECT r.id, r.title, r.scheduled_date, r.completed_at,
+             sz.name AS zone_name,
+             r.provider_per_stop_rate, r.provider_actual_pay, r.payment_status,
+             dp.name AS driver_name,
+             (SELECT COUNT(*) FROM route_orders ro WHERE ro.route_id = r.id AND ro.status = 'completed') AS completed_stops
+      FROM routes r
+      LEFT JOIN service_zones sz ON r.zone_id = sz.id
+      LEFT JOIN driver_profiles dp ON r.assigned_driver_id = dp.id
+      WHERE r.assigned_provider_id = $1
+        AND r.status = 'completed'
+        AND r.completed_at >= $2 AND r.completed_at <= $3
+      ORDER BY r.completed_at DESC
+      LIMIT $4 OFFSET $5
+    `, [providerId, from, to, limit, offset]);
+    return result.rows;
+  }
+
+  async getProviderEarningsBreakdownByDriver(providerId: string, from: string, to: string) {
+    const result = await this.query(`
+      SELECT dp.name AS driver_name, dp.id AS driver_id,
+             COUNT(r.id) AS route_count,
+             COALESCE(SUM(r.provider_actual_pay), 0) AS total_earnings
+      FROM routes r
+      JOIN driver_profiles dp ON r.assigned_driver_id = dp.id
+      WHERE r.assigned_provider_id = $1
+        AND r.status = 'completed'
+        AND r.completed_at >= $2 AND r.completed_at <= $3
+      GROUP BY dp.id, dp.name
+      ORDER BY total_earnings DESC
+    `, [providerId, from, to]);
+    return result.rows;
+  }
+
+  async getProviderEarningsBreakdownByVehicle(providerId: string, from: string, to: string) {
+    const result = await this.query(`
+      SELECT pv.id AS vehicle_id,
+             pv.make || ' ' || pv.model || ' (' || pv.year || ')' AS vehicle_name,
+             COUNT(r.id) AS route_count,
+             COALESCE(SUM(r.provider_actual_pay), 0) AS total_earnings
+      FROM routes r
+      JOIN provider_vehicles pv ON r.assigned_vehicle_id = pv.id
+      WHERE r.assigned_provider_id = $1
+        AND r.status = 'completed'
+        AND r.completed_at >= $2 AND r.completed_at <= $3
+      GROUP BY pv.id, pv.make, pv.model, pv.year
+      ORDER BY total_earnings DESC
+    `, [providerId, from, to]);
+    return result.rows;
+  }
+
+  // Admin — all-provider financials
+  async getAllProviderPaymentSummary(from: string, to: string) {
+    const result = await this.query(`
+      SELECT p.id AS provider_id, p.name AS provider_name,
+             COUNT(r.id) AS route_count,
+             COALESCE(SUM(r.provider_actual_pay), 0) AS total_paid
+      FROM providers p
+      LEFT JOIN routes r ON r.assigned_provider_id = p.id
+        AND r.status = 'completed'
+        AND r.completed_at >= $1 AND r.completed_at <= $2
+      WHERE p.approval_status = 'approved'
+      GROUP BY p.id, p.name
+      ORDER BY total_paid DESC
+    `, [from, to]);
+    return result.rows;
+  }
+
+  // Provider compliance — insurance expiry check
+  async getProvidersWithExpiringInsurance(daysAhead: number) {
+    const result = await this.query(`
+      SELECT p.*, u.first_name || ' ' || u.last_name AS owner_name, u.email AS owner_email
+      FROM providers p
+      JOIN users u ON p.owner_user_id = u.id
+      WHERE p.approval_status = 'approved'
+        AND p.insurance_expires_at IS NOT NULL
+        AND p.insurance_expires_at <= CURRENT_DATE + $1
+        AND p.insurance_expires_at >= CURRENT_DATE
+    `, [daysAhead]);
+    return result.rows;
+  }
+
+  async getProvidersWithExpiredInsurance() {
+    const result = await this.query(`
+      SELECT p.*, u.first_name || ' ' || u.last_name AS owner_name, u.email AS owner_email
+      FROM providers p
+      JOIN users u ON p.owner_user_id = u.id
+      WHERE p.approval_status = 'approved'
+        AND p.insurance_expires_at IS NOT NULL
+        AND p.insurance_expires_at < CURRENT_DATE
+    `);
+    return result.rows;
+  }
+
+  // Provider contracts auto-expiry
+  async expireProviderContracts() {
+    const result = await this.query(`
+      UPDATE provider_contracts
+      SET status = 'expired'
+      WHERE status = 'active' AND end_date IS NOT NULL AND end_date < CURRENT_DATE
+      RETURNING *
+    `);
+    return result.rows;
   }
 }
 

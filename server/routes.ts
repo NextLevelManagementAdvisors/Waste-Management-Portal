@@ -1,5 +1,4 @@
 import express, { type Express, type Request, type Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
 import { storage } from './storage';
 import { getUncachableStripeClient, getStripePublishableKey } from './stripeClient';
 import * as optimoRoute from './optimoRouteClient';
@@ -7,6 +6,7 @@ import { requireAuth } from './middleware';
 import { sendPauseResumeConfirmation } from './notificationService';
 import { pool } from './db';
 import { getVapidPublicKey, saveSubscription, removeSubscription } from './pushService';
+import { isSupportAgentErrorStatus, streamSupportResponse } from './supportAgent';
 
 function paramStr(val: string | string[]): string {
   return Array.isArray(val) ? val[0] : val;
@@ -755,54 +755,57 @@ export function registerRoutes(app: Express) {
   });
 
   app.post('/api/ai/support', requireAuth, async (req: Request, res: Response) => {
+    const abortController = new AbortController();
+    req.on('close', () => abortController.abort());
+
     try {
-      const { prompt } = req.body;
+      const { prompt, locationId } = req.body;
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ error: 'prompt is required' });
+      }
+      if (locationId !== undefined && typeof locationId !== 'string') {
+        return res.status(400).json({ error: 'locationId must be a string' });
       }
       if (prompt.length > 2000) {
         return res.status(400).json({ error: 'prompt too long' });
       }
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      if (!process.env.GEMINI_API_KEY) {
         return res.status(503).json({ error: 'AI service not configured' });
       }
 
-      // Load context server-side from session — never trust client-supplied context
-      const user = await storage.getUserById(req.session.userId!);
-      const userLocations = user ? await storage.getLocationsForUser(user.id) : [];
-      const contextString = user ? `
-    User Details:
-    - Name: ${user.first_name} ${user.last_name}
-    - Properties: ${userLocations.length}
-  ` : '';
-
-      const ai = new GoogleGenAI({ apiKey });
-
+      // Stream the LangGraph agent response over SSE to preserve the existing client contract.
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
 
-      const responseStream = await ai.models.generateContentStream({
-        model: 'gemini-2.0-flash',
-        contents: `Context:\n${contextString}\n\nQuestion: ${prompt}`,
-        config: {
-          systemInstruction: "You are the Waste Management AI Concierge. You are helpful, professional, and proactive. You have access to the user's account details. Always be concise and helpful.",
-        },
-      });
-
-      for await (const chunk of responseStream) {
-        const text = chunk.text;
-        if (text) {
+      for await (const text of streamSupportResponse({
+        prompt,
+        userId: req.session.userId!,
+        locationId,
+        signal: abortController.signal,
+      })) {
+        if (!abortController.signal.aborted) {
           res.write(`data: ${JSON.stringify({ text })}\n\n`);
         }
       }
-      res.write('data: [DONE]\n\n');
-      res.end();
+
+      if (!res.writableEnded) {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
     } catch (error: any) {
+      if (abortController.signal.aborted) {
+        return;
+      }
+
       console.error('AI support error:', error);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'AI service error' });
+        const status = isSupportAgentErrorStatus(error);
+        res.status(status || 500).json({ error: status === 404 ? 'Location not found' : 'AI service error' });
+      } else if (!res.writableEnded) {
+        res.write('data: [DONE]\n\n');
+        res.end();
       }
     }
   });

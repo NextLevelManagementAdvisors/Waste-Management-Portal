@@ -1167,3 +1167,171 @@ CREATE TABLE IF NOT EXISTS driver_locations (
 );
 CREATE INDEX IF NOT EXISTS idx_driver_loc_driver ON driver_locations(driver_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_driver_loc_route ON driver_locations(route_id, recorded_at DESC);
+
+-- ============================================================
+-- PROVIDER ONBOARDING & TEAM MANAGEMENT
+-- ============================================================
+
+-- Provider roles (custom permission sets per company)
+CREATE TABLE IF NOT EXISTS provider_roles (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id      UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name             VARCHAR(100) NOT NULL,
+  permissions      JSONB NOT NULL DEFAULT '{}',
+  is_owner_role    BOOLEAN DEFAULT FALSE,
+  is_default_role  BOOLEAN DEFAULT FALSE,
+  created_at       TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_roles_provider ON provider_roles(provider_id);
+
+-- Provider members (many-to-many: users <-> providers with role + employment type)
+CREATE TABLE IF NOT EXISTS provider_members (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id      UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  user_id          UUID NOT NULL REFERENCES users(id),
+  role_id          UUID REFERENCES provider_roles(id),
+  employment_type  VARCHAR(20),
+  status           VARCHAR(30) DEFAULT 'active',
+  joined_at        TIMESTAMP DEFAULT NOW(),
+  UNIQUE(provider_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_members_user ON provider_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_members_provider ON provider_members(provider_id, status);
+
+-- Provider vehicles (fleet management)
+CREATE TABLE IF NOT EXISTS provider_vehicles (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id             UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  make                    VARCHAR(100),
+  model                   VARCHAR(100),
+  year                    INTEGER,
+  vehicle_type            VARCHAR(50),
+  ownership               VARCHAR(20),
+  vin                     VARCHAR(20),
+  license_plate           VARCHAR(20),
+  dot_number              VARCHAR(20),
+  registration_expires_at DATE,
+  last_inspection_date    DATE,
+  status                  VARCHAR(20) DEFAULT 'active',
+  notes                   TEXT,
+  created_at              TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_vehicles_provider ON provider_vehicles(provider_id, status);
+
+-- Provider contracts (zone-level rate agreements between RWM and a provider)
+CREATE TABLE IF NOT EXISTS provider_contracts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id       UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  zone_id           UUID REFERENCES service_zones(id),
+  per_stop_rate     NUMERIC(10,2) NOT NULL,
+  effective_date    DATE NOT NULL,
+  end_date          DATE,
+  status            VARCHAR(20) DEFAULT 'active',
+  terms_notes       TEXT,
+  created_by        UUID REFERENCES users(id),
+  created_at        TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_contracts_provider ON provider_contracts(provider_id, status);
+CREATE INDEX IF NOT EXISTS idx_provider_contracts_zone ON provider_contracts(zone_id, status);
+
+-- Extend providers: business identity, compliance, approval lifecycle, onboarding state
+DO $$ BEGIN
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS business_type VARCHAR(50);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS ein VARCHAR(20);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(30);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS website VARCHAR(255);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS service_description TEXT;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS insurance_cert_url VARCHAR(500);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS insurance_expires_at DATE;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS license_number VARCHAR(100);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS approval_status VARCHAR(30) DEFAULT 'draft';
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS approval_notes TEXT;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id);
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS suspended_reason TEXT;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS is_solo_operator BOOLEAN DEFAULT FALSE;
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS onboarding_step INTEGER DEFAULT 1;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- Extend invitations: link to provider + role for team member invites
+DO $$ BEGIN
+  ALTER TABLE invitations ADD COLUMN IF NOT EXISTS provider_id UUID REFERENCES providers(id) ON DELETE CASCADE;
+  ALTER TABLE invitations ADD COLUMN IF NOT EXISTS role_id UUID REFERENCES provider_roles(id);
+  ALTER TABLE invitations ADD COLUMN IF NOT EXISTS employment_type VARCHAR(20);
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- Extend routes: provider assignment + vehicle + provider-level pay
+DO $$ BEGIN
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS assigned_provider_id UUID REFERENCES providers(id);
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS assigned_vehicle_id UUID REFERENCES provider_vehicles(id);
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS provider_per_stop_rate NUMERIC(10,2);
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS provider_actual_pay NUMERIC(10,2);
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS provider_dispatch_status VARCHAR(30);
+  ALTER TABLE routes ADD COLUMN IF NOT EXISTS provider_declined_reason TEXT;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- Provider network: slugs, join pages, client import, admin invite links
+DO $$ BEGIN
+  -- Provider unique slug for public join pages (/join/:slug)
+  ALTER TABLE providers ADD COLUMN IF NOT EXISTS slug VARCHAR(100);
+  -- Pending provider link for customers who registered via a join page
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_provider_slug VARCHAR(100);
+  -- Container size per service location
+  ALTER TABLE locations ADD COLUMN IF NOT EXISTS can_size VARCHAR(50);
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- Unique index on provider slug (separate from DO block to avoid IF NOT EXISTS issues)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_slug ON providers(slug) WHERE slug IS NOT NULL;
+
+-- Backfill slugs for existing providers (run once; skips already-set slugs)
+UPDATE providers
+SET slug = LOWER(REGEXP_REPLACE(
+  REGEXP_REPLACE(name, '[^a-zA-Z0-9\s-]', '', 'g'),
+  '[\s-]+', '-', 'g'
+))
+WHERE slug IS NULL;
+
+-- Provider client invitations (provider imports existing customers)
+CREATE TABLE IF NOT EXISTS provider_client_invitations (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider_id          UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  invited_by           UUID REFERENCES users(id),
+  name                 VARCHAR(255),
+  email                VARCHAR(255) NOT NULL,
+  phone                VARCHAR(20),
+  address              TEXT,
+  can_size             VARCHAR(50),
+  collection_frequency VARCHAR(20),
+  service_notes        TEXT,
+  latitude             NUMERIC(10,7),
+  longitude            NUMERIC(10,7),
+  token                VARCHAR(255) UNIQUE NOT NULL,
+  status               VARCHAR(30) DEFAULT 'pending',
+  location_id          UUID REFERENCES locations(id),
+  expires_at           TIMESTAMP DEFAULT NOW() + INTERVAL '90 days',
+  created_at           TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pci_provider_status ON provider_client_invitations(provider_id, status);
+CREATE INDEX IF NOT EXISTS idx_pci_token ON provider_client_invitations(token);
+CREATE INDEX IF NOT EXISTS idx_pci_email ON provider_client_invitations(LOWER(email));
+
+-- Admin provider invite links (one-time URLs to recruit specific haulers)
+CREATE TABLE IF NOT EXISTS provider_invites (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token        VARCHAR(255) UNIQUE NOT NULL,
+  invited_by   UUID REFERENCES users(id),
+  note         TEXT,
+  used_at      TIMESTAMP,
+  used_by      UUID REFERENCES users(id),
+  expires_at   TIMESTAMP DEFAULT NOW() + INTERVAL '30 days',
+  created_at   TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_invites_token ON provider_invites(token);
+CREATE INDEX IF NOT EXISTS idx_routes_provider ON routes(assigned_provider_id) WHERE assigned_provider_id IS NOT NULL;

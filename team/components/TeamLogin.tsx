@@ -6,9 +6,10 @@ interface TeamLoginProps {
   switchToRegister: () => void;
   isLoading: boolean;
   googleSsoEnabled?: boolean;
+  initialPortalContext?: 'provider' | 'driver';
 }
 
-const TeamLogin: React.FC<TeamLoginProps> = ({ onLogin, switchToRegister, isLoading, googleSsoEnabled }) => {
+const TeamLogin: React.FC<TeamLoginProps> = ({ onLogin, switchToRegister, isLoading, googleSsoEnabled, initialPortalContext }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -20,14 +21,14 @@ const TeamLogin: React.FC<TeamLoginProps> = ({ onLogin, switchToRegister, isLoad
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">Driver Sign In</h2>
-        <p className="text-center text-gray-600 text-sm">Access your driver dashboard and manage jobs</p>
+        <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">Sign In</h2>
+        <p className="text-center text-gray-600 text-sm">Access your driver or company dashboard</p>
       </div>
 
       {googleSsoEnabled !== false && (
         <>
           <a
-            href="/api/team/auth/google"
+            href={`/api/team/auth/google${initialPortalContext === 'provider' ? '?intent=provider' : ''}`}
             className={`flex items-center justify-center gap-3 w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors ${isLoading ? 'pointer-events-none opacity-50' : ''}`}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">

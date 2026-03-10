@@ -5,10 +5,15 @@ import { storage, detectZoneConflicts } from './storage';
 import { pool } from './db';
 import { getUncachableStripeClient } from './stripeClient';
 import { encrypt, decrypt, validateRoutingNumber, validateAccountNumber, validateAccountType, maskAccountNumber } from './encryption';
-import { notifyWaitlistFlagged, notifyZoneConflict, notifyQualificationsUpdated, notifyNewZoneProposal, notifyContractRenewalRequest } from './slackNotifier';
+import { notifyWaitlistFlagged, notifyZoneConflict, notifyQualificationsUpdated, notifyNewZoneProposal, notifyContractRenewalRequest, notifyNewProviderApplication } from './slackNotifier';
+import { providerUpload } from './uploadMiddleware';
 import { formatRouteForClient } from './formatRoute';
 import { sendDriverNotification } from './notificationService';
 import { broadcastToDriver, broadcastToAdmins, broadcastToUser, broadcastToZoneDrivers } from './websocket';
+import { sendEmail } from './gmailClient';
+import { geocodeAddress } from './routeSuggestionService';
+import convex from '@turf/convex';
+import { featureCollection, point } from '@turf/helpers';
 
 /** Run waitlist auto-flagging for a zone that just became active. Fire-and-forget. */
 async function triggerWaitlistAutoFlag(zone: any) {
@@ -42,21 +47,72 @@ async function requireDriverAuth(req: Request, res: Response, next: NextFunction
   try {
     const userId = req.session.userId;
     const roleCheck = await pool.query(
-      'SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2',
-      [userId, 'driver']
+      `SELECT role FROM user_roles WHERE user_id = $1 AND role IN ('driver', 'provider_owner')`,
+      [userId]
     );
     if (roleCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Driver access required' });
+      return res.status(403).json({ error: 'Team portal access required' });
     }
-    const driverProfile = await storage.getDriverProfileByUserId(userId);
-    if (!driverProfile) {
-      return res.status(404).json({ error: 'Driver profile not found' });
+    const roles = roleCheck.rows.map((r: any) => r.role as string);
+    res.locals.teamRoles = roles;
+
+    // Load driver profile if the user has the driver role
+    if (roles.includes('driver')) {
+      const driverProfile = await storage.getDriverProfileByUserId(userId);
+      if (!driverProfile) {
+        return res.status(404).json({ error: 'Driver profile not found' });
+      }
+      res.locals.driverProfile = driverProfile;
     }
-    res.locals.driverProfile = driverProfile;
+
+    // Load provider if the user is a provider owner
+    if (roles.includes('provider_owner')) {
+      const provider = await storage.getProviderByOwnerUserId(userId);
+      res.locals.ownerProvider = provider || null;
+    }
+
     next();
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+}
+
+/** Middleware: requires a provider membership with an optional permission check */
+async function requireProviderAccess(permission?: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      // The provider is always the owner's provider (all provider management endpoints
+      // operate on the authenticated user's own provider).
+      const provider = await storage.getProviderByOwnerUserId(userId);
+      if (!provider) {
+        // Also check provider_members for non-owner members
+        const memberships = await storage.getMemberProviders(userId);
+        if (memberships.length === 0) return res.status(403).json({ error: 'No provider access' });
+        // Use the first active approved membership (or a specific one in future)
+        const membership = memberships.find((m: any) => m.approval_status === 'approved') || memberships[0];
+        res.locals.activeProvider = { id: membership.provider_id, name: membership.provider_name };
+        res.locals.memberPermissions = membership.permissions || {};
+        res.locals.memberRole = { is_owner_role: membership.is_owner_role, name: membership.role_name };
+        if (permission && !membership.permissions?.[permission]) {
+          return res.status(403).json({ error: `Permission required: ${permission}` });
+        }
+        return next();
+      }
+      // User is the provider owner — full permissions
+      res.locals.activeProvider = provider;
+      res.locals.memberPermissions = {
+        execute_routes: true, dispatch_routes: true, manage_members: true,
+        manage_fleet: true, manage_billing: true, view_team_schedule: true,
+        view_team_routes: true, view_earnings_report: true,
+      };
+      res.locals.memberRole = { is_owner_role: true, name: 'Owner' };
+      next();
+    } catch {
+      res.status(500).json({ error: 'Server error' });
+    }
+  };
 }
 
 async function requireOnboarded(req: Request, res: Response, next: NextFunction) {
@@ -80,6 +136,24 @@ async function requireOnboarded(req: Request, res: Response, next: NextFunction)
 
 export function registerTeamRoutes(app: Express) {
 
+  // ==================== Public (no auth) ====================
+
+  // Public provider info by slug — used by /join/:slug join page
+  app.get('/api/public/provider/:slug', async (req: Request, res: Response) => {
+    try {
+      const { slug } = req.params;
+      const result = await pool.query(
+        `SELECT id, name, slug, logo_url, description, approval_status
+         FROM providers WHERE slug = $1 AND approval_status = 'approved'`,
+        [slug]
+      );
+      if (result.rowCount === 0) return res.status(404).json({ error: 'Provider not found' });
+      res.json({ provider: result.rows[0] });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load provider' });
+    }
+  });
+
   app.get('/api/team/auth/google', async (req: Request, res: Response) => {
     try {
       const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -99,7 +173,9 @@ export function registerTeamRoutes(app: Express) {
       const discovery = await discoveryRes.json() as { authorization_endpoint: string };
 
       const state = crypto.randomBytes(32).toString('hex');
+      const intent = req.query.intent === 'provider' ? 'provider' : 'driver';
       req.session.teamGoogleOAuthState = state;
+      (req.session as any).teamGoogleOAuthIntent = intent;
 
       const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
       const appDomain = process.env.APP_DOMAIN;
@@ -143,25 +219,27 @@ export function registerTeamRoutes(app: Express) {
       const state = req.query.state as string;
 
       if (!code || !state) {
-        return res.redirect('/team?error=google_auth_failed');
+        return res.redirect('/driver?error=google_auth_failed');
       }
 
       const expectedState = req.session.teamGoogleOAuthState;
+      const intent: 'provider' | 'driver' = (req.session as any).teamGoogleOAuthIntent === 'provider' ? 'provider' : 'driver';
       delete req.session.teamGoogleOAuthState;
+      delete (req.session as any).teamGoogleOAuthIntent;
 
       if (!expectedState || state !== expectedState) {
-        return res.redirect('/team?error=google_auth_failed');
+        return res.redirect('/driver?error=google_auth_failed');
       }
 
       const cbClientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
       const cbClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
       if (!cbClientId || !cbClientSecret) {
-        return res.redirect('/team?error=google_not_configured');
+        return res.redirect('/driver?error=google_not_configured');
       }
 
       const discoveryRes = await fetch(GOOGLE_DISCOVERY_URL);
       if (!discoveryRes.ok) {
-        return res.redirect('/team?error=google_auth_failed');
+        return res.redirect('/driver?error=google_auth_failed');
       }
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
@@ -192,13 +270,13 @@ export function registerTeamRoutes(app: Express) {
 
       if (!tokenRes.ok) {
         console.error('Team Google token exchange HTTP error:', tokenRes.status);
-        return res.redirect('/team?error=google_token_failed');
+        return res.redirect('/driver?error=google_token_failed');
       }
 
       const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
       if (!tokenData.access_token) {
         console.error('Team Google token exchange failed:', tokenData.error || 'no access_token');
-        return res.redirect('/team?error=google_token_failed');
+        return res.redirect('/driver?error=google_token_failed');
       }
 
       const userInfoRes = await fetch(discovery.userinfo_endpoint, {
@@ -206,7 +284,7 @@ export function registerTeamRoutes(app: Express) {
       });
 
       if (!userInfoRes.ok) {
-        return res.redirect('/team?error=google_auth_failed');
+        return res.redirect('/driver?error=google_auth_failed');
       }
 
       const userInfo = await userInfoRes.json() as {
@@ -218,7 +296,7 @@ export function registerTeamRoutes(app: Express) {
       };
 
       if (!userInfo.email || !userInfo.email_verified) {
-        return res.redirect('/team?error=google_email_not_verified');
+        return res.redirect('/driver?error=google_email_not_verified');
       }
 
       const email = userInfo.email.toLowerCase();
@@ -232,16 +310,39 @@ export function registerTeamRoutes(app: Express) {
 
       if (existingUser.rows.length > 0) {
         userId = existingUser.rows[0].id;
-        // Ensure driver profile exists
-        let driverProfile = await storage.getDriverProfileByUserId(userId);
-        if (!driverProfile) {
-          driverProfile = await storage.createDriverProfile({ userId, name: fullName });
+        if (intent === 'provider') {
+          // Ensure provider record exists for existing users signing up as provider
+          const existingProvider = await pool.query(
+            `SELECT id FROM providers WHERE owner_user_id = $1 LIMIT 1`,
+            [userId]
+          );
+          if (existingProvider.rows.length === 0) {
+            const provider = await storage.createProvider({ name: '', ownerUserId: userId });
+            await storage.seedProviderDefaultRoles(provider.id);
+            const roles = await storage.getProviderRoles(provider.id);
+            const ownerRole = roles.find((r: any) => r.is_owner_role);
+            await storage.addProviderMember({
+              providerId: provider.id,
+              userId,
+              roleId: ownerRole?.id,
+              employmentType: 'contractor',
+            });
+            await pool.query(
+              `INSERT INTO user_roles (user_id, role) VALUES ($1, 'provider_owner') ON CONFLICT DO NOTHING`,
+              [userId]
+            );
+          }
+        } else if (intent === 'driver') {
+          // Ensure driver profile and role exist for returning drivers
+          const driverProfile = await storage.getDriverProfileByUserId(userId);
+          if (!driverProfile) {
+            await storage.createDriverProfile({ userId, name: fullName });
+          }
+          await pool.query(
+            `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+            [userId]
+          );
         }
-        // Ensure driver role exists
-        await pool.query(
-          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
-          [userId]
-        );
       } else {
         // Create new user
         const userResult = await pool.query(
@@ -250,34 +351,59 @@ export function registerTeamRoutes(app: Express) {
           [firstName, lastName, email]
         );
         userId = userResult.rows[0].id;
-        await storage.createDriverProfile({ userId, name: fullName });
-        await pool.query(
-          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
-          [userId]
-        );
-        await pool.query(
-          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
-          [userId]
-        );
+
+        if (intent === 'provider') {
+          // Create provider with draft status; company name captured in onboarding step 1
+          const provider = await storage.createProvider({ name: '', ownerUserId: userId });
+          await storage.seedProviderDefaultRoles(provider.id);
+          const roles = await storage.getProviderRoles(provider.id);
+          const ownerRole = roles.find((r: any) => r.is_owner_role);
+          await storage.addProviderMember({
+            providerId: provider.id,
+            userId,
+            roleId: ownerRole?.id,
+            employmentType: 'contractor',
+          });
+          await pool.query(
+            `INSERT INTO user_roles (user_id, role) VALUES ($1, 'provider_owner') ON CONFLICT DO NOTHING`,
+            [userId]
+          );
+        } else {
+          await storage.createDriverProfile({ userId, name: fullName });
+          await pool.query(
+            `INSERT INTO user_roles (user_id, role) VALUES ($1, 'driver') ON CONFLICT DO NOTHING`,
+            [userId]
+          );
+          await pool.query(
+            `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
+            [userId]
+          );
+        }
       }
 
       req.session.userId = userId;
+      // Determine landing portal based on actual provider ownership
+      const providerCheck = await pool.query(
+        `SELECT id FROM providers WHERE owner_user_id = $1 LIMIT 1`,
+        [userId]
+      );
+      const landingPath = providerCheck.rows.length > 0 ? '/provider' : '/driver';
       req.session.save((err) => {
         if (err) {
           console.error('Session save error during team Google OAuth callback:', err);
-          return res.redirect('/team?error=google_auth_failed');
+          return res.redirect('/driver?error=google_auth_failed');
         }
-        res.redirect('/team');
+        res.redirect(landingPath);
       });
     } catch (error: any) {
       console.error('Team Google OAuth callback error:', error);
-      res.redirect('/team?error=google_auth_failed');
+      res.redirect('/driver?error=google_auth_failed');
     }
   });
 
   app.post('/api/team/auth/register', async (req: Request, res: Response) => {
     try {
-      const { name, full_name, email, phone, password } = req.body;
+      const { name, full_name, email, phone, password, registrationType, companyName, inviteToken, providerInviteToken } = req.body;
       const driverName = name || full_name;
 
       if (!driverName || !email || !password) {
@@ -306,6 +432,71 @@ export function registerTeamRoutes(app: Express) {
       );
       const userId = userResult.rows[0].id;
 
+      // --- Provider registration path ---
+      if (registrationType === 'provider') {
+        if (!companyName) {
+          return res.status(400).json({ error: 'Company name is required for provider registration' });
+        }
+        const provider = await storage.createProvider({ name: companyName, ownerUserId: userId });
+
+        // Generate unique slug from company name
+        const baseSlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        let slug = baseSlug;
+        let slugSuffix = 2;
+        while (true) {
+          const existing = await pool.query(`SELECT id FROM providers WHERE slug = $1`, [slug]);
+          if (existing.rowCount === 0) break;
+          slug = `${baseSlug}-${slugSuffix++}`;
+        }
+        await pool.query(`UPDATE providers SET slug = $1 WHERE id = $2`, [slug, provider.id]);
+        (provider as any).slug = slug;
+
+        await storage.seedProviderDefaultRoles(provider.id);
+        // Get the seeded owner role
+        const roles = await storage.getProviderRoles(provider.id);
+        const ownerRole = roles.find((r: any) => r.is_owner_role);
+        await storage.addProviderMember({
+          providerId: provider.id,
+          userId,
+          roleId: ownerRole?.id,
+          employmentType: 'contractor',
+        });
+        await pool.query(
+          `INSERT INTO user_roles (user_id, role) VALUES ($1, 'provider_owner') ON CONFLICT DO NOTHING`,
+          [userId]
+        );
+
+        // Mark admin-generated provider invite as used (if token was provided)
+        if (providerInviteToken) {
+          pool.query(
+            `UPDATE provider_invites SET used_at = NOW(), used_by = $1
+             WHERE token = $2 AND used_at IS NULL AND expires_at > NOW()`,
+            [userId, providerInviteToken]
+          ).catch((err: any) => console.error('[ProviderInvite] Failed to mark invite used:', err));
+        }
+
+        req.session.userId = userId;
+        req.session.save((err) => {
+          if (err) {
+            console.error('Session save error during provider registration:', err);
+            return res.status(500).json({ error: 'Registration failed' });
+          }
+          res.status(201).json({
+            isProviderOwner: true,
+            provider: { id: provider.id, name: provider.name, slug: (provider as any).slug, approval_status: 'draft', onboarding_step: 1 },
+            user: { id: userId, first_name: firstName, last_name: lastName, email: email.toLowerCase() },
+          });
+        });
+        return;
+      }
+
+      // --- Driver registration path (existing logic + invite token support) ---
+      let invitation: any = null;
+      if (inviteToken) {
+        invitation = await storage.getValidInvitationByToken(inviteToken);
+        // Invalid/expired tokens are non-fatal — register as independent driver
+      }
+
       const driverProfile = await storage.createDriverProfile({ userId, name: driverName });
 
       await pool.query(
@@ -316,6 +507,19 @@ export function registerTeamRoutes(app: Express) {
         `INSERT INTO user_roles (user_id, role) VALUES ($1, 'customer') ON CONFLICT DO NOTHING`,
         [userId]
       );
+
+      // If invited to a provider, join it and skip the W9/bank onboarding gate
+      if (invitation?.provider_id) {
+        await storage.addProviderMember({
+          providerId: invitation.provider_id,
+          userId,
+          roleId: invitation.role_id || undefined,
+          employmentType: invitation.employment_type || 'contractor',
+        });
+        // Mark driver profile as onboarding completed (company handles payment)
+        await storage.updateDriver(driverProfile.id, { onboarding_status: 'completed' });
+        await storage.acceptInvitation(invitation.id, userId);
+      }
 
       req.session.userId = userId;
 
@@ -357,19 +561,23 @@ export function registerTeamRoutes(app: Express) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      // Verify driver role
+      // Verify driver or provider_owner role
       const roleCheck = await pool.query(
-        'SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2',
-        [user.id, 'driver']
+        `SELECT role FROM user_roles WHERE user_id = $1 AND role IN ('driver', 'provider_owner')`,
+        [user.id]
       );
       if (roleCheck.rows.length === 0) {
-        return res.status(403).json({ error: 'No driver account found. Please register as a team member first.' });
+        return res.status(403).json({ error: 'No team account found. Please register first.' });
       }
+      const userRoles = roleCheck.rows.map((r: any) => r.role as string);
 
-      const driverProfile = await storage.getDriverProfileByUserId(user.id);
-      if (!driverProfile) {
-        return res.status(404).json({ error: 'Driver profile not found' });
-      }
+      const driverProfile = userRoles.includes('driver')
+        ? await storage.getDriverProfileByUserId(user.id)
+        : null;
+
+      const isProviderOwner = userRoles.includes('provider_owner');
+      const provider = isProviderOwner ? await storage.getProviderByOwnerUserId(user.id) : null;
+      const memberships = await storage.getMemberProviders(user.id);
 
       req.session.userId = user.id;
 
@@ -378,7 +586,10 @@ export function registerTeamRoutes(app: Express) {
           console.error('Session save error during driver login:', err);
           return res.status(500).json({ error: 'Login failed' });
         }
-        res.json({ data: formatDriverForClient(driverProfile, user) });
+        const response: any = { memberships, isProviderOwner };
+        if (driverProfile) response.data = formatDriverForClient(driverProfile, user);
+        if (provider) response.provider = provider;
+        res.json(response);
       });
     } catch (error: any) {
       console.error('Driver login error:', error);
@@ -400,18 +611,31 @@ export function registerTeamRoutes(app: Express) {
   app.get('/api/team/auth/me', requireDriverAuth, async (req: Request, res: Response) => {
     try {
       const driverProfile = res.locals.driverProfile;
+      const ownerProvider = res.locals.ownerProvider;
       const user = await storage.getUserById(req.session.userId!);
       if (!user) {
         return res.status(401).json({ error: 'User not found' });
       }
-      const roles = await pool.query(
+      const rolesResult = await pool.query(
         'SELECT role FROM user_roles WHERE user_id = $1',
         [user.id]
       );
+      const userRoles = rolesResult.rows.map((r: any) => r.role as string);
+      const isProviderOwner = userRoles.includes('provider_owner');
+
+      const memberships = await storage.getMemberProviders(user.id);
+
       const clientData: any = {
-        data: formatDriverForClient(driverProfile, user),
-        roles: roles.rows.map((r: any) => r.role),
+        roles: userRoles,
+        isProviderOwner,
+        memberships,
       };
+      clientData.data = driverProfile
+        ? formatDriverForClient(driverProfile, user)
+        : { id: user.id, name: user.full_name, email: user.email, phone: user.phone, isProviderOwner };
+      if (isProviderOwner && ownerProvider) {
+        clientData.provider = ownerProvider;
+      }
       if (req.session.impersonatingUserId) {
         clientData.impersonating = true;
         const admin = await storage.getUserById(req.session.originalAdminUserId!);
@@ -614,7 +838,7 @@ export function registerTeamRoutes(app: Express) {
   });
 
   app.get('/api/team/onboarding/stripe-connect/return', async (req: Request, res: Response) => {
-    res.redirect('/team/');
+    res.redirect('/driver/');
   });
 
   app.get('/api/team/onboarding/stripe-connect/refresh', requireDriverAuth, async (req: Request, res: Response) => {
@@ -623,7 +847,7 @@ export function registerTeamRoutes(app: Express) {
       const driver = await storage.getDriverById(driverId);
 
       if (!driver.stripe_connect_account_id) {
-        return res.redirect('/team/');
+        return res.redirect('/driver/');
       }
 
       const stripe = await getUncachableStripeClient();
@@ -641,7 +865,7 @@ export function registerTeamRoutes(app: Express) {
       res.redirect(accountLink.url);
     } catch (error: any) {
       console.error('Stripe Connect refresh error:', error);
-      res.redirect('/team/');
+      res.redirect('/driver/');
     }
   });
 
@@ -2504,7 +2728,7 @@ export function registerTeamRoutes(app: Express) {
          WHERE p.id = $1`,
         [providerId]
       );
-      res.json({ stats: rows[0], providerName: res.locals.provider.name });
+      res.json({ stats: rows[0], providerName: res.locals.provider.name, providerSlug: res.locals.provider.slug || '' });
     } catch (err: any) {
       console.error('Error fetching provider dashboard:', err);
       res.status(500).json({ error: 'Failed to fetch dashboard' });
@@ -2597,6 +2821,297 @@ export function registerTeamRoutes(app: Express) {
     } catch (err: any) {
       console.error('Error deleting territory:', err);
       res.status(500).json({ error: 'Failed to delete territory' });
+    }
+  });
+
+  // ============================================================
+  // Client Invitations (provider sends to their existing customers)
+  // ============================================================
+
+  async function sendClientInvitationEmail(inv: any, providerName: string) {
+    const baseUrl = process.env.APP_URL || 'https://app.ruralwm.com';
+    const newAccountUrl = `${baseUrl}/?client-invite=${inv.token}`;
+    const existingAccountUrl = `${baseUrl}/?client-invite=${inv.token}&action=redeem`;
+    const subject = `${providerName} invited you to manage your waste pickup online`;
+    const html = `
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#0f766e;">${providerName}</h2>
+        <p>Hi ${inv.name || 'there'},</p>
+        <p>${providerName} has invited you to manage your waste pickup service online through Rural Waste Management.</p>
+        ${inv.address ? `<p><strong>Service address:</strong> ${inv.address}</p>` : ''}
+        ${inv.can_size ? `<p><strong>Container size:</strong> ${inv.can_size}</p>` : ''}
+        ${inv.collection_frequency ? `<p><strong>Pickup frequency:</strong> ${inv.collection_frequency}</p>` : ''}
+        <div style="margin:32px 0;">
+          <p><strong>New to Rural Waste Management?</strong></p>
+          <a href="${newAccountUrl}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Create Your Account</a>
+        </div>
+        <div style="margin:32px 0;">
+          <p><strong>Already have an account?</strong></p>
+          <a href="${existingAccountUrl}" style="display:inline-block;background:#1e40af;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Sign In & Activate Service</a>
+        </div>
+        <p style="color:#6b7280;font-size:0.875rem;">This invitation expires in 90 days.</p>
+      </div>
+    `;
+    await sendEmail(inv.email, subject, html);
+  }
+
+  async function recomputeProviderPolygon(providerId: string, providerName: string) {
+    try {
+      // Gather geocoded points from client invitations and registered locations
+      const { rows: invRows } = await pool.query(
+        `SELECT latitude, longitude FROM provider_client_invitations
+         WHERE provider_id = $1 AND latitude IS NOT NULL AND longitude IS NOT NULL`,
+        [providerId]
+      );
+      const { rows: locRows } = await pool.query(
+        `SELECT latitude, longitude
+         FROM locations
+         WHERE provider_id = $1 AND latitude IS NOT NULL AND longitude IS NOT NULL`,
+        [providerId]
+      );
+      const pts: [number, number][] = [
+        ...invRows.map((r: any) => [Number(r.longitude), Number(r.latitude)] as [number, number]),
+        ...locRows.map((r: any) => [Number(r.longitude), Number(r.latitude)] as [number, number]),
+      ];
+      if (pts.length < 3) return;
+
+      const hull = convex(featureCollection(pts.map(([lng, lat]) => point([lng, lat]))));
+      if (!hull) return;
+
+      // polygon_coords format: array of [lat, lng] pairs (matching territoryAnalysisService convention)
+      const coords = (hull.geometry.coordinates[0] as [number, number][]).map(([lng, lat]) => [lat, lng]);
+
+      const existing = await storage.getTerritoriesForProvider(providerId);
+      const polygonZone = existing.find((t: any) => t.zone_type === 'polygon');
+      if (polygonZone) {
+        await pool.query(
+          `UPDATE provider_territories SET polygon_coords = $1, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify(coords), polygonZone.id]
+        );
+      } else {
+        // Deactivate zip zones and create a polygon zone
+        await pool.query(
+          `UPDATE provider_territories SET status = 'inactive' WHERE provider_id = $1 AND zone_type = 'zipcode'`,
+          [providerId]
+        );
+        await storage.createProviderTerritory({
+          providerId,
+          name: `${providerName} Service Area`,
+          zone_type: 'polygon',
+          polygon_coords: coords,
+        });
+      }
+    } catch (err) {
+      console.error('[PolygonRecompute] Failed for provider', providerId, err);
+    }
+  }
+
+  app.get('/api/team/my-provider/client-invitations', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM provider_client_invitations WHERE provider_id = $1 ORDER BY created_at DESC`,
+        [res.locals.provider.id]
+      );
+      res.json({ invitations: rows });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load client invitations' });
+    }
+  });
+
+  app.get('/api/team/my-provider/clients', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT l.id, l.address, l.service_status, l.can_size, l.collection_day, l.notes,
+                u.first_name || ' ' || u.last_name as name, u.email, u.phone
+         FROM locations l
+         JOIN users u ON u.id = l.user_id
+         WHERE l.provider_id = $1
+         ORDER BY l.created_at DESC`,
+        [res.locals.provider.id]
+      );
+      res.json({ clients: rows });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load clients' });
+    }
+  });
+
+  async function createAndSendClientInvitation(providerId: string, providerName: string, invitedBy: string, data: {
+    name?: string; email: string; phone?: string; address?: string;
+    can_size?: string; collection_frequency?: string; service_notes?: string;
+  }) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const { rows } = await pool.query(
+      `INSERT INTO provider_client_invitations
+         (provider_id, invited_by, name, email, phone, address, can_size, collection_frequency, service_notes, token, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+       RETURNING *`,
+      [providerId, invitedBy, data.name || null, data.email, data.phone || null,
+       data.address || null, data.can_size || null, data.collection_frequency || null, data.service_notes || null, token]
+    );
+    const inv = rows[0];
+
+    // Geocode address if provided
+    if (data.address) {
+      geocodeAddress(data.address).then(async (geo) => {
+        if (geo) {
+          await pool.query(
+            `UPDATE provider_client_invitations SET latitude = $1, longitude = $2 WHERE id = $3`,
+            [geo.lat, geo.lng, inv.id]
+          );
+          // Recompute polygon after geocoding
+          recomputeProviderPolygon(providerId, providerName).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    await sendClientInvitationEmail(inv, providerName);
+    await pool.query(
+      `UPDATE provider_client_invitations SET status = 'sent' WHERE id = $1`,
+      [inv.id]
+    );
+    return { ...inv, status: 'sent' };
+  }
+
+  app.post('/api/team/my-provider/client-invitations', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { name, email, phone, address, can_size, collection_frequency, service_notes } = req.body;
+      if (!email) return res.status(400).json({ error: 'email is required' });
+      const provider = res.locals.provider;
+      const inv = await createAndSendClientInvitation(provider.id, provider.name, req.session.userId!, {
+        name, email, phone, address, can_size, collection_frequency, service_notes,
+      });
+      res.status(201).json({ invitation: inv });
+    } catch (err: any) {
+      console.error('Client invitation error:', err);
+      res.status(500).json({ error: 'Failed to send client invitation' });
+    }
+  });
+
+  app.post('/api/team/my-provider/client-invitations/bulk', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { clients } = req.body;
+      if (!Array.isArray(clients) || clients.length === 0) {
+        return res.status(400).json({ error: 'clients array is required' });
+      }
+      if (clients.length > 100) {
+        return res.status(400).json({ error: 'Maximum 100 clients per bulk import' });
+      }
+      const provider = res.locals.provider;
+      const results: { email: string; success: boolean; error?: string }[] = [];
+      for (const client of clients) {
+        if (!client.email) { results.push({ email: '', success: false, error: 'Missing email' }); continue; }
+        try {
+          await createAndSendClientInvitation(provider.id, provider.name, req.session.userId!, client);
+          results.push({ email: client.email, success: true });
+        } catch (err: any) {
+          results.push({ email: client.email, success: false, error: err.message || 'Failed' });
+        }
+      }
+      res.json({ results });
+    } catch (err: any) {
+      console.error('Bulk client invitation error:', err);
+      res.status(500).json({ error: 'Failed to process bulk invitations' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/client-invitations/:id', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, status FROM provider_client_invitations WHERE id = $1 AND provider_id = $2`,
+        [req.params.id, res.locals.provider.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Invitation not found' });
+      if (rows[0].status === 'registered') {
+        return res.status(400).json({ error: 'Cannot revoke a completed invitation' });
+      }
+      await pool.query(`DELETE FROM provider_client_invitations WHERE id = $1`, [req.params.id]);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to revoke invitation' });
+    }
+  });
+
+  app.post('/api/team/my-provider/client-invitations/:id/resend', requireDriverAuth, requireProviderOwner, async (req: Request, res: Response) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM provider_client_invitations WHERE id = $1 AND provider_id = $2`,
+        [req.params.id, res.locals.provider.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Invitation not found' });
+      const inv = rows[0];
+      if (inv.status === 'registered') {
+        return res.status(400).json({ error: 'Client already registered' });
+      }
+      await sendClientInvitationEmail(inv, res.locals.provider.name);
+      await pool.query(
+        `UPDATE provider_client_invitations SET status = 'sent', updated_at = NOW() WHERE id = $1`,
+        [req.params.id]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to resend invitation' });
+    }
+  });
+
+  app.post('/api/team/my-provider/territories/recompute', requireDriverAuth, requireProviderOwner, async (_req: Request, res: Response) => {
+    try {
+      const provider = res.locals.provider;
+      await recomputeProviderPolygon(provider.id, provider.name);
+      const territories = await storage.getTerritoriesForProvider(provider.id);
+      res.json({ success: true, territories });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to recompute territory' });
+    }
+  });
+
+  // Driver joins a provider by slug (authenticated driver, no existing membership required)
+  app.post('/api/team/provider/:slug/join', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const { slug } = req.params;
+      const userId = req.session.userId!;
+      const providerResult = await pool.query(
+        `SELECT id, name FROM providers WHERE slug = $1 AND approval_status = 'approved'`,
+        [slug]
+      );
+      if (providerResult.rowCount === 0) return res.status(404).json({ error: 'Provider not found' });
+      const provider = providerResult.rows[0];
+
+      // Check if already a member
+      const existing = await pool.query(
+        `SELECT pm.id
+         FROM provider_members pm
+         WHERE pm.user_id = $1
+           AND pm.provider_id = $2
+           AND pm.status = 'active'`,
+        [userId, provider.id]
+      );
+      if (existing.rowCount! > 0) return res.status(409).json({ error: 'Already a member of this provider' });
+
+      // Get driver profile (create if needed)
+      let driverProfile = await storage.getDriverProfileByUserId(userId);
+      if (!driverProfile) {
+        const user = await storage.getUserById(userId);
+        driverProfile = await storage.createDriverProfile({
+          userId,
+          name: `${user?.first_name || ''} ${user?.last_name || ''}`.trim(),
+        });
+      }
+
+      // Get default role for this provider
+      const roles = await storage.getProviderRoles(provider.id);
+      const defaultRole = roles.find((r: any) => r.is_default_role) || roles[0];
+
+      await storage.addProviderMember({
+        providerId: provider.id,
+        userId,
+        roleId: defaultRole?.id || null,
+        employmentType: 'contractor',
+      });
+
+      res.json({ success: true, provider: { id: provider.id, name: provider.name } });
+    } catch (err: any) {
+      console.error('Provider join error:', err);
+      res.status(500).json({ error: 'Failed to join provider' });
     }
   });
 
@@ -3054,6 +3569,646 @@ export function registerTeamRoutes(app: Express) {
     } catch (error: any) {
       console.error('Get ratings error:', error);
       res.status(500).json({ error: 'Failed to get ratings' });
+    }
+  });
+
+
+  // ============================================================
+  // PROVIDER ONBOARDING ENDPOINTS
+  // ============================================================
+
+  app.get('/api/team/provider/onboarding', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const territories = await storage.getTerritoriesForProvider(provider.id);
+      res.json({ data: { ...provider, territories } });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load onboarding state' });
+    }
+  });
+
+  app.put('/api/team/provider/onboarding/business-info', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const { companyName, businessType, contactPhone, contactEmail, website, serviceDescription, isSoloOperator } = req.body;
+
+      // Generate slug when company name is first provided (e.g., Google OAuth providers start with no name/slug)
+      if (companyName && !provider.slug) {
+        const baseSlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || provider.id.slice(0, 8);
+        let slug = baseSlug;
+        let suffix = 2;
+        while (true) {
+          const existing = await pool.query(`SELECT id FROM providers WHERE slug = $1 AND id != $2`, [slug, provider.id]);
+          if (existing.rowCount === 0) break;
+          slug = `${baseSlug}-${suffix++}`;
+        }
+        await pool.query(`UPDATE providers SET slug = $1 WHERE id = $2`, [slug, provider.id]);
+      }
+
+      const updated = await storage.updateProvider(provider.id, {
+        name: companyName || provider.name,
+        business_type: businessType,
+        contact_phone: contactPhone,
+        contact_email: contactEmail,
+        website,
+        service_description: serviceDescription,
+        is_solo_operator: isSoloOperator === true,
+        onboarding_step: Math.max(provider.onboarding_step || 1, 2),
+      });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save business info' });
+    }
+  });
+
+  app.post('/api/team/provider/onboarding/insurance', requireDriverAuth, providerUpload.single('insurance_cert'), async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const { licenseNumber, insuranceExpiresAt } = req.body;
+      const updateData: any = {
+        license_number: licenseNumber,
+        onboarding_step: Math.max(provider.onboarding_step || 1, 3),
+      };
+      if (req.file) {
+        updateData.insurance_cert_url = `/uploads/providers/${req.file.filename}`;
+      }
+      if (insuranceExpiresAt) {
+        updateData.insurance_expires_at = insuranceExpiresAt;
+      }
+      const updated = await storage.updateProvider(provider.id, updateData);
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save insurance info' });
+    }
+  });
+
+  app.put('/api/team/provider/onboarding/service-area', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const { zipCodes } = req.body;
+      if (zipCodes && Array.isArray(zipCodes) && zipCodes.length > 0) {
+        // Replace existing territories with the new set
+        const existing = await storage.getTerritoriesForProvider(provider.id);
+        for (const t of existing) {
+          await storage.deleteProviderTerritory(t.id);
+        }
+        await storage.createProviderTerritory({
+          providerId: provider.id,
+          name: 'Primary Service Area',
+          zone_type: 'zipcode',
+          zip_codes: zipCodes,
+        });
+      }
+      const updated = await storage.updateProvider(provider.id, {
+        onboarding_step: Math.max(provider.onboarding_step || 1, 4),
+      });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save service area' });
+    }
+  });
+
+  // ── Provider Stripe Connect (V2 API) ──────────────────────────────────
+  // Creates a V2 Connected Account where the platform collects fees/losses.
+  // Uses Account Links V2 for onboarding and V2 account retrieval for status.
+  app.post('/api/team/provider/onboarding/stripe', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+
+      // Create a Stripe Client (SDK auto-uses latest API version)
+      const stripeClient = await getUncachableStripeClient();
+
+      // Resolve base URL for redirect URLs
+      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      const appDomain = process.env.APP_DOMAIN;
+      let baseUrl: string;
+      if (replitDomain) {
+        baseUrl = `https://${replitDomain}`;
+      } else if (appDomain) {
+        baseUrl = appDomain;
+      } else {
+        baseUrl = 'http://localhost:5000';
+      }
+
+      let accountId = provider.stripe_account_id;
+
+      // If the provider has an old V1 account (acct_ prefix), clear it and create a fresh V2 account.
+      // V1 accounts don't have the 'recipient' configuration required by V2 account links.
+      if (accountId && accountId.startsWith('acct_')) {
+        console.log(`[Stripe Connect] Replacing V1 account ${accountId} with V2 account for provider ${provider.id}`);
+        accountId = null as any;
+        await storage.updateProvider(provider.id, { stripe_account_id: null as any });
+      }
+
+      if (!accountId) {
+        // Create a V2 Connected Account.
+        // - dashboard: 'express' gives them a Stripe-hosted dashboard
+        // - responsibilities: platform collects fees and covers losses
+        // - capabilities: enable stripe_transfers so the account can receive payouts
+        const user = await storage.getUserById(req.session.userId!);
+        const account = await stripeClient.v2.core.accounts.create({
+          display_name: provider.name || user?.firstName || 'Provider',
+          contact_email: provider.contact_email || user?.email || undefined,
+          identity: {
+            country: 'us',
+          },
+          dashboard: 'express',
+          defaults: {
+            responsibilities: {
+              fees_collector: 'application',
+              losses_collector: 'application',
+            },
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: {
+                    requested: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+        accountId = account.id;
+        await storage.updateProvider(provider.id, { stripe_account_id: accountId });
+      }
+
+      // Create a V2 Account Link to redirect the provider to Stripe onboarding.
+      // - configurations: ['recipient'] matches the capability we requested on the V2 account
+      // - refresh_url: if the link expires, send them back to retry
+      // - return_url: after completing onboarding, redirect back to our app
+      const accountLink = await stripeClient.v2.core.accountLinks.create({
+        account: accountId,
+        use_case: {
+          type: 'account_onboarding',
+          account_onboarding: {
+            configurations: ['recipient'],
+            refresh_url: `${baseUrl}/provider?stripe_refresh=1`,
+            return_url: `${baseUrl}/provider?stripe_return=1`,
+          },
+        },
+      });
+
+      res.json({ data: { url: accountLink.url, accountId } });
+    } catch (err: any) {
+      console.error('Provider Stripe Connect error:', err);
+      res.status(500).json({ error: err.message || 'Failed to create Stripe account' });
+    }
+  });
+
+  // Check onboarding & payment readiness using the V2 accounts API.
+  // Always fetches fresh status from Stripe (not cached).
+  app.get('/api/team/provider/onboarding/stripe/status', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider?.stripe_account_id) return res.json({ data: { onboarded: false } });
+
+      const stripeClient = await getUncachableStripeClient();
+
+      // Retrieve the V2 account with expanded configuration and requirements.
+      // The `include` parameter fetches nested objects not returned by default.
+      const account = await stripeClient.v2.core.accounts.retrieve(provider.stripe_account_id, {
+        include: ['configuration.recipient', 'requirements'],
+      });
+
+      // Check if the account can receive payments:
+      // stripe_transfers.status === 'active' means fully set up
+      const readyToReceivePayments =
+        account?.configuration?.recipient?.capabilities?.stripe_balance
+          ?.stripe_transfers?.status === 'active';
+
+      // Check if onboarding requirements are satisfied:
+      // 'currently_due' or 'past_due' means more info is needed
+      const requirementsStatus =
+        account.requirements?.summary?.minimum_deadline?.status;
+      const onboardingComplete =
+        requirementsStatus !== 'currently_due' && requirementsStatus !== 'past_due';
+
+      // Consider "onboarded" if either transfers are active OR requirements are done
+      const onboarded = readyToReceivePayments || onboardingComplete;
+
+      if (onboarded && (provider.onboarding_step || 1) < 5) {
+        await storage.updateProvider(provider.id, { onboarding_step: 5 });
+      }
+
+      res.json({
+        data: {
+          onboarded,
+          readyToReceivePayments,
+          onboardingComplete,
+          requirementsStatus: requirementsStatus || 'none',
+          accountId: provider.stripe_account_id,
+        },
+      });
+    } catch (err: any) {
+      console.error('Provider Stripe status error:', err);
+      res.status(500).json({ error: 'Failed to check Stripe status' });
+    }
+  });
+
+  app.post('/api/team/provider/onboarding/submit', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const provider = await storage.getProviderByOwnerUserId(userId);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      if (provider.approval_status === 'approved') {
+        return res.status(400).json({ error: 'Provider is already approved' });
+      }
+      const updated = await storage.updateProvider(provider.id, {
+        approval_status: 'pending_review',
+        onboarding_step: 5,
+      });
+      const user = await storage.getUserById(userId);
+      notifyNewProviderApplication(
+        provider.name,
+        `${user?.first_name} ${user?.last_name}`
+      ).catch(() => {});
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to submit application' });
+    }
+  });
+
+  // ============================================================
+  // PROVIDER PROFILE
+  // ============================================================
+
+  app.put('/api/team/my-provider/profile', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'Provider not found' });
+      const { companyName, contactPhone, contactEmail, website, serviceDescription, logoUrl } = req.body;
+      const updated = await storage.updateProvider(provider.id, {
+        name: companyName,
+        contact_phone: contactPhone,
+        contact_email: contactEmail,
+        website,
+        service_description: serviceDescription,
+        logo_url: logoUrl,
+      });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update company profile' });
+    }
+  });
+
+  // ============================================================
+  // FLEET MANAGEMENT
+  // ============================================================
+
+  app.get('/api/team/my-provider/vehicles', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const vehicles = await storage.getProviderVehicles(provider.id);
+      res.json({ data: vehicles });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load fleet' });
+    }
+  });
+
+  app.post('/api/team/my-provider/vehicles', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const vehicle = await storage.createProviderVehicle({ providerId: provider.id, ...req.body });
+      res.status(201).json({ data: vehicle });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to add vehicle' });
+    }
+  });
+
+  app.put('/api/team/my-provider/vehicles/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const vehicles = await storage.getProviderVehicles(provider.id);
+      if (!vehicles.find((v: any) => v.id === req.params.id)) {
+        return res.status(404).json({ error: 'Vehicle not found' });
+      }
+      const updated = await storage.updateProviderVehicle(req.params.id, req.body);
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update vehicle' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/vehicles/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      await storage.deleteProviderVehicle(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to delete vehicle' });
+    }
+  });
+
+  // ============================================================
+  // TEAM MANAGEMENT
+  // ============================================================
+
+  app.get('/api/team/my-provider/members', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const members = await storage.getProviderMembers(provider.id);
+      res.json({ data: members });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load team members' });
+    }
+  });
+
+  app.post('/api/team/my-provider/invite', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const provider = await storage.getProviderByOwnerUserId(userId);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      if (provider.approval_status !== 'approved') {
+        return res.status(403).json({ error: 'Provider must be approved before inviting team members' });
+      }
+      const { email, phone, name, roleId, employmentType } = req.body;
+      if (!email && !phone) return res.status(400).json({ error: 'Email or phone required' });
+      const token = crypto.randomBytes(32).toString('hex');
+      const invitation = await storage.createProviderInvitation({
+        email, phone, name, providerId: provider.id,
+        roleId, employmentType, invitedBy: userId, token,
+      });
+      // TODO: Send email/SMS invite via Gmail + Twilio (use invitation routes pattern)
+      res.status(201).json({ data: invitation });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to send invitation' });
+    }
+  });
+
+  app.get('/api/team/my-provider/invitations', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const invitations = await storage.getInvitationsForProvider(provider.id);
+      res.json({ data: invitations });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load invitations' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/invitations/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.revokeInvitation(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to revoke invitation' });
+    }
+  });
+
+  app.patch('/api/team/my-provider/members/:id/role', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { roleId } = req.body;
+      const updated = await storage.updateProviderMember(req.params.id, { role_id: roleId });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update member role' });
+    }
+  });
+
+  app.patch('/api/team/my-provider/members/:id/optimo-id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const members = await storage.getProviderMembers(provider.id);
+      const member = members.find((m: any) => m.id === req.params.id);
+      if (!member) return res.status(404).json({ error: 'Member not found' });
+      if (!member.driver_profile_id) return res.status(400).json({ error: 'Member does not have a driver profile' });
+      const { optimorouteDriverId } = req.body;
+      await storage.updateDriver(member.driver_profile_id, { optimoroute_driver_id: optimorouteDriverId });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update OptimoRoute ID' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/members/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const provider = await storage.getProviderByOwnerUserId(userId);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const members = await storage.getProviderMembers(provider.id);
+      const member = members.find((m: any) => m.id === req.params.id);
+      if (!member) return res.status(404).json({ error: 'Member not found' });
+      if (member.is_owner_role) return res.status(400).json({ error: 'Cannot remove the company owner' });
+      // Guard: check for active dispatched routes
+      const activeRoutes = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM routes
+         WHERE assigned_driver_id = $1 AND status NOT IN ('completed','cancelled')`,
+        [member.driver_profile_id]
+      );
+      if (parseInt(activeRoutes.rows[0].cnt) > 0) {
+        return res.status(400).json({ error: 'Cannot remove member with active dispatched routes' });
+      }
+      await storage.removeProviderMember(provider.id, member.user_id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to remove member' });
+    }
+  });
+
+  // ============================================================
+  // ROLE MANAGEMENT
+  // ============================================================
+
+  app.get('/api/team/my-provider/roles', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const roles = await storage.getProviderRoles(provider.id);
+      res.json({ data: roles });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load roles' });
+    }
+  });
+
+  app.post('/api/team/my-provider/roles', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { name, permissions } = req.body;
+      if (!name) return res.status(400).json({ error: 'Role name required' });
+      const role = await storage.createProviderRole({ providerId: provider.id, name, permissions: permissions || {} });
+      res.status(201).json({ data: role });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create role' });
+    }
+  });
+
+  app.put('/api/team/my-provider/roles/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const role = await storage.getProviderRoleById(req.params.id);
+      if (!role) return res.status(404).json({ error: 'Role not found' });
+      if (role.is_owner_role) return res.status(400).json({ error: 'Cannot modify the Owner role' });
+      const updated = await storage.updateProviderRole(req.params.id, req.body);
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update role' });
+    }
+  });
+
+  app.delete('/api/team/my-provider/roles/:id', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteProviderRole(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to delete role' });
+    }
+  });
+
+  // ============================================================
+  // ROUTE DISPATCH
+  // ============================================================
+
+  app.get('/api/team/my-provider/routes', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const routes = await storage.getProviderRoutes(provider.id);
+      res.json({ data: routes });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load routes' });
+    }
+  });
+
+  app.post('/api/team/my-provider/routes/:routeId/dispatch', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { driverId, vehicleId } = req.body;
+      if (!driverId) return res.status(400).json({ error: 'driverId required' });
+
+      // Validate driver belongs to provider and has execute_routes
+      const members = await storage.getProviderMembers(provider.id);
+      const member = members.find((m: any) => m.driver_profile_id === driverId);
+      if (!member) return res.status(400).json({ error: 'Driver is not a member of this company' });
+      if (!member.permissions?.execute_routes) {
+        return res.status(400).json({ error: 'Driver does not have route execution permission' });
+      }
+      if (!member.optimoroute_driver_id) {
+        return res.status(400).json({
+          error: 'This driver does not have an OptimoRoute ID set. Please add it in Team Management before dispatching.',
+        });
+      }
+
+      // Check vehicle belongs to this provider and is active
+      if (vehicleId) {
+        const vehicles = await storage.getProviderVehicles(provider.id);
+        const vehicle = vehicles.find((v: any) => v.id === vehicleId);
+        if (!vehicle) return res.status(400).json({ error: 'Vehicle not found in fleet' });
+        if (vehicle.status !== 'active') return res.status(400).json({ error: 'Vehicle is not active' });
+        // Check registration expiry
+        if (vehicle.registration_expires_at && new Date(vehicle.registration_expires_at) < new Date()) {
+          return res.status(400).json({ error: 'Vehicle registration has expired and cannot be dispatched' });
+        }
+      }
+
+      const updated = await storage.dispatchRouteToDriver(req.params.routeId, provider.id, driverId, vehicleId || null);
+      if (!updated) return res.status(404).json({ error: 'Route not found or not assigned to this company' });
+
+      // Notify driver
+      sendDriverNotification(driverId, 'route_dispatched', { routeId: req.params.routeId }).catch(() => {});
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to dispatch route' });
+    }
+  });
+
+  app.post('/api/team/my-provider/routes/:routeId/recall', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const updated = await storage.recallRouteDispatch(req.params.routeId, provider.id);
+      if (!updated) return res.status(404).json({ error: 'Route not found or not assigned to this company' });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to recall dispatch' });
+    }
+  });
+
+  app.post('/api/team/my-provider/routes/:routeId/decline', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const { reason } = req.body;
+      if (!reason?.trim()) return res.status(400).json({ error: 'Decline reason required' });
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const updated = await storage.declineRouteAsProvider(req.params.routeId, provider.id, reason);
+      if (!updated) return res.status(404).json({ error: 'Route not found or not assigned to this company' });
+      // Notify admins
+      broadcastToAdmins({ type: 'route_declined_by_provider', routeId: req.params.routeId, providerName: provider.name, reason });
+      res.json({ data: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to decline route' });
+    }
+  });
+
+  // ============================================================
+  // PROVIDER ACCOUNTING
+  // ============================================================
+
+  app.get('/api/team/my-provider/accounting/summary', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { from, to } = req.query as { from: string; to: string };
+      if (!from || !to) return res.status(400).json({ error: 'from and to query params required' });
+      const summary = await storage.getProviderRevenueSummary(provider.id, from, to);
+      res.json({ data: summary });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load accounting summary' });
+    }
+  });
+
+  app.get('/api/team/my-provider/accounting/payments', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { from, to, limit, offset } = req.query as any;
+      const payments = await storage.getProviderPaymentHistory(
+        provider.id, from, to,
+        parseInt(limit) || 50, parseInt(offset) || 0
+      );
+      res.json({ data: payments });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load payment history' });
+    }
+  });
+
+  app.get('/api/team/my-provider/accounting/breakdown/drivers', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { from, to } = req.query as { from: string; to: string };
+      const breakdown = await storage.getProviderEarningsBreakdownByDriver(provider.id, from, to);
+      res.json({ data: breakdown });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load driver breakdown' });
+    }
+  });
+
+  app.get('/api/team/my-provider/accounting/breakdown/vehicles', requireDriverAuth, async (req: Request, res: Response) => {
+    try {
+      const provider = await storage.getProviderByOwnerUserId(req.session.userId!);
+      if (!provider) return res.status(404).json({ error: 'No provider found' });
+      const { from, to } = req.query as { from: string; to: string };
+      const breakdown = await storage.getProviderEarningsBreakdownByVehicle(provider.id, from, to);
+      res.json({ data: breakdown });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load vehicle breakdown' });
     }
   });
 

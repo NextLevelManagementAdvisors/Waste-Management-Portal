@@ -569,7 +569,128 @@ Complete inventory of user stories across all three portals (Customer, Admin, Te
 
 ---
 
-## 4. CROSS-CUTTING / SYSTEM STORIES
+## 4. PROVIDER PORTAL
+
+> **Audit summary (2026-03-10):** 54 stories. Done: 43 | Partial: 3 (P-12, P-42, P-53) | Not started: 8 (P-15, P-16, P-46, P-47, P-48, P-50, P-51, P-52).
+
+### 4.1 Authentication & Registration
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-1 | Done | As a hauling company owner, I want to register with my company name, email, phone, and password, so that I can create a provider account on the platform. |
+| P-2 | Done | As a hauling company owner, I want to sign up with Google SSO, so that I can register without creating a new password. |
+| P-3 | Done | As a provider owner, I want to log in with my email and password, so that I can access the provider portal. |
+| P-4 | Done | As a provider owner, I want to log in with Google SSO, so that I can access the portal quickly. |
+| P-5 | Done | As a provider owner, I want to be automatically routed to `/provider` after login, so that I land in the correct portal and not the driver portal. |
+| P-6 | Done | As a provider owner, I want to be redirected to `/provider` after Google OAuth completes, so that the OAuth flow lands me in the right place. |
+
+### 4.2 Onboarding Wizard
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-7 | Done | As a new provider owner (approval status: draft), I want to see the onboarding wizard when I visit `/provider`, so that I can complete my application before accessing the portal. |
+| P-8 | Done | As a provider owner, I want my onboarding progress saved after each step, so that I can leave and resume without losing data. |
+| P-9 | Done | As a provider owner, I want to fill in my business information (business type, EIN, contact phone/email, website, description, solo operator flag) in step 1, so that the platform knows who I am. |
+| P-10 | Done | As a provider owner, I want a unique URL slug generated from my company name when I complete step 1, so that my public join page is accessible immediately after approval. |
+| P-11 | Done | As a provider owner who registered via Google OAuth, I want my slug generated when I provide my company name in step 1 (not at registration), so that Google OAuth providers get a slug too. |
+| P-12 | Partial | As a provider owner, I want to upload my certificate of insurance (PDF/image, max 10 MB) and enter my license number and expiry date in step 2, so that the platform can verify my compliance. <!-- Upload works; no virus/format validation beyond mime type --> |
+| P-13 | Done | As a provider owner, I want to enter the ZIP codes I serve in step 3, so that the platform knows my coverage area. |
+| P-14 | Done | As a provider owner, I want to connect my bank account via Stripe Express in step 4, so that I can receive payments for completed routes. |
+| P-15 | — | As a provider owner, I want to skip Stripe Connect and complete it later from my profile, so that I'm not blocked from submitting if I don't have banking details ready. |
+| P-16 | — | As a provider owner, I want a progress indicator showing which step I'm on and how many remain, so that I know how close I am to completion. |
+| P-17 | Done | As a provider owner, I want to review a summary of all my submitted information in step 5, so that I can confirm everything is correct before submitting. |
+| P-18 | Done | As a provider owner, I want to submit my completed application for admin review, so that my account can be approved. |
+
+### 4.3 Application Status Gating
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-19 | Done | As a provider owner whose application is pending review, I want to see an "Application Under Review" screen at `/provider`, so that I know my submission was received and I can't access the portal yet. |
+| P-20 | Done | As a provider owner whose application was rejected, I want to see a "Not Approved" screen with the admin's rejection notes, so that I understand why and can contact support. |
+| P-21 | Done | As a provider owner whose account is suspended, I want to see a "Suspended" screen with the reason, so that I know what happened. |
+| P-22 | Done | As an approved provider owner, I want the full provider portal to unlock automatically, so that I can start using all features after approval without any extra steps. |
+
+### 4.4 Overview Tab
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-23 | Done | As an approved provider owner, I want to see a dashboard with summary stats (active members, vehicles, routes this month, 30-day revenue), so that I have a quick snapshot of my operation. |
+| P-24 | Done | As a provider owner, I want to see my public join page URL on the Overview tab, so that I can share it with drivers and customers. |
+| P-25 | Done | As a provider owner, I want a Getting Started checklist on the Overview tab with links to other tabs, so that I know what to set up after approval. |
+
+### 4.5 Team Management
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-26 | Done | As a provider owner, I want to view all team members with their role, employment type (contractor/employee), and status (active/suspended), so that I have a full roster view. |
+| P-27 | Done | As a provider owner, I want to invite a driver by email (with name, phone, role, and employment type), so that they receive an invitation link to join my team. |
+| P-28 | Done | As a provider owner, I want to bulk-invite multiple drivers by pasting a list of emails, so that I can onboard large teams quickly. |
+| P-29 | Done | As a provider owner, I want to view pending invitations and revoke them before they're accepted, so that I can manage who joins. |
+| P-30 | Done | As a provider owner, I want to set or update a team member's OptimoRoute driver ID, so that they can be assigned routes via the dispatch integration. |
+| P-31 | Done | As a provider owner, I want to change a team member's role, so that I can promote or reassign responsibilities. |
+| P-32 | Done | As a provider owner, I want to remove a team member from my company, so that former employees no longer have access. |
+
+### 4.6 Client Management
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-33 | Done | As a provider owner, I want to invite individual customers by entering their name, email, phone, address, container size, and collection frequency, so that I can register existing customers on the platform. |
+| P-34 | Done | As a provider owner, I want to bulk-import clients by pasting a CSV or list of emails with shared settings, so that I can migrate large customer lists efficiently. |
+| P-35 | Done | As a provider owner, I want to see all pending client invitations with their status (pending/sent/registered), so that I know who has accepted and who hasn't. |
+| P-36 | Done | As a provider owner, I want to resend an expired client invitation, so that customers who didn't register in time can try again. |
+| P-37 | Done | As a provider owner, I want to see all registered customers linked to my company (name, email, address, can size, collection day, service status), so that I have a full client view. |
+
+### 4.7 Fleet Management
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-38 | Done | As a provider owner, I want to add vehicles to my fleet with make, model, year, type, ownership, status, VIN, license plate, DOT number, registration expiry, and last inspection date, so that my equipment is tracked. |
+| P-39 | Done | As a provider owner, I want to edit vehicle details, so that I can keep records current. |
+| P-40 | Done | As a provider owner, I want to remove a vehicle from my fleet, so that decommissioned equipment is no longer listed. |
+| P-41 | Done | As a provider owner, I want compliance badges on vehicles warning me when registration expires within 30 days or inspection is overdue by more than a year, so that I can stay compliant. |
+| P-42 | Partial | As a provider owner, I want automated email/SMS alerts when a vehicle's registration or inspection is about to expire, so that I don't miss a deadline. <!-- Badge UI done; automated reminders not implemented --> |
+
+### 4.8 Roles & Permissions
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-43 | Done | As a provider owner, I want to see pre-defined roles (Owner with full access, Default Driver with route execution rights), so that I have sensible defaults without any setup. |
+| P-44 | Done | As a provider owner, I want to create custom roles (e.g., Dispatcher, Accountant) with a specific set of permissions, so that I can give team members exactly the access they need. |
+| P-45 | Done | As a provider owner, I want to update the permissions on any custom role, so that I can adjust access as my team evolves. |
+| P-46 | — | As a provider owner, I want to delete a custom role (and choose what to do with members currently holding it), so that I can clean up unused roles. |
+| P-47 | — | As a provider team member, I want to see only the portal tabs I have permission to access, so that my view reflects my actual role. |
+
+### 4.9 Dispatch
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-48 | Done | As a provider owner or dispatcher, I want to see available routes offered to my company with details (name, date, stop count, per-stop rate), so that I can decide which to accept. |
+| P-49 | Done | As a provider owner or dispatcher, I want to assign a driver and vehicle to a route and dispatch it, so that my team knows what to do and OptimoRoute is updated. |
+| P-50 | Done | As a provider owner or dispatcher, I want to recall a dispatched route assignment, so that I can reassign it to a different driver or vehicle. |
+| P-51 | Done | As a provider owner or dispatcher, I want to decline a route with a reason, so that the admin knows my company can't fulfil it. |
+| P-52 | — | As a driver on a provider team, I want to see only routes assigned to me (not the full provider dispatch view), so that my view isn't cluttered with routes meant for others. |
+
+### 4.10 Accounting
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-53 | Partial | As a provider owner, I want to see financial summaries (total revenue, routes completed, average revenue per route, pending payments) for selectable time periods, so that I can track my business performance. <!-- Summary API done; payment settlement not yet wired --> |
+| P-54 | Done | As a provider owner, I want a per-route payment breakdown showing route name, zone, date, stop count, per-stop rate, total, and payment status, so that I can verify what I've been paid. |
+| P-55 | Done | As a provider owner, I want revenue and route breakdowns by driver, so that I can see each team member's contribution. |
+| P-56 | Done | As a provider owner, I want revenue and route breakdowns by vehicle, so that I can assess fleet utilization. |
+| P-57 | — | As a provider owner, I want to export accounting data as CSV for a selected period, so that I can use it in my own accounting tools. |
+
+### 4.11 Public Join Page
+
+| # | Status | User Story |
+|---|--------|-----------|
+| P-58 | Done | As a provider owner, I want a public join page at `/join/:slug` that shows my company name, description, and CTAs for drivers and customers, so that I can recruit directly. |
+| P-59 | Done | As a prospective driver, I want to visit a provider's join page and be taken to driver registration pre-linked to that company, so that I join the right team. |
+| P-60 | Done | As a prospective customer, I want to visit a provider's join page and be taken to customer registration pre-linked to that provider, so that my service is set up under them. |
+
+---
+
+## 5. CROSS-CUTTING / SYSTEM STORIES
 
 | # | User Story |
 |---|-----------|

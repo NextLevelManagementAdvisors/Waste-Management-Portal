@@ -4,7 +4,12 @@
       "Bash(npm run build:*)",
       "Bash(npx kill-port:*)",
       "Bash(npm run dev:backend:*)",
-      "Bash(npm run dev:frontend:*)"
+      "Bash(npm run dev:frontend:*)",
+      "WebFetch(domain:optimoroute.com)",
+      "Bash(\"c:/Users/forre/Source/Waste-Management-Portal/server/slackNotifier.ts\")",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck --isolatedModules server/teamRoutes.ts)",
+      "Bash(psql $DATABASE_URL -f server/schema.sql)",
+      "Bash(npx pg-promise \"postgresql://postgres:F7swift\\\\!@localhost:5432/waste_management\")"
     ]
   }
 }

@@ -73,6 +73,7 @@ export const logger = {
       stack: payload.stack,
     };
     console.error('[CLIENT ERROR]', payload.message);
+    if (payload.stack) console.error('[CLIENT STACK]', payload.stack);
     appendLog('app', entry);
     appendLog('error', entry);
   },
