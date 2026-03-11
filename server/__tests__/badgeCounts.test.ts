@@ -105,6 +105,9 @@ describe('GET /api/admin/badge-counts', () => {
       if (sql.includes('FROM route_contracts') && sql.includes('FROM coverage_requests')) {
         return { rows: [{ expiring: '7', pending_coverage: '8' }] } as any;
       }
+      if (sql.includes("FROM providers WHERE approval_status = 'pending_review'")) {
+        return { rows: [{ count: '0' }] } as any;
+      }
       throw new Error(`Unexpected query: ${sql}`);
     });
   });

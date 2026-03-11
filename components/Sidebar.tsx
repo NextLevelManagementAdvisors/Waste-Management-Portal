@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View } from '../types.ts';
 import { useLocation } from '../LocationContext.tsx';
 import { VIEW_TO_PATH } from '../constants.ts';
@@ -19,16 +19,8 @@ interface NavItem {
   id: View;
   label: string;
   icon: React.ReactNode;
+  badge?: number;
 }
-
-const navItems: NavItem[] = [
-  { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
-  { id: 'myservice', label: 'Manage Plan', icon: <TruckIcon className="w-5 h-5" /> },
-  { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
-  { id: 'requests', label: 'Requests', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
-  { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
-  { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" /> },
-];
 
 const NavLink: React.FC<{
   item: NavItem;
@@ -52,7 +44,15 @@ const NavLink: React.FC<{
         {item.icon}
       </span>
       <span className="ml-3 text-[14px] tracking-tight">{item.label}</span>
-      {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
+      <span className="ml-auto flex items-center">
+        {item.badge ? (
+          <span className={`inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-red-500 text-white'}`}>
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        ) : (
+          isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />
+        )}
+      </span>
     </a>
   </li>
 );
@@ -60,18 +60,44 @@ const NavLink: React.FC<{
 const SidebarContent: React.FC<{ currentView: View, onLinkClick: (view: View) => void, onLogout: () => void }> = ({ currentView, onLinkClick, onLogout }) => {
     const { user, locations } = useLocation();
     const hasLocations = locations.length > 0;
+    const [unreadCount, setUnreadCount] = useState(0);
 
-    const baseItems = hasLocations
+    useEffect(() => {
+      const fetchUnread = () => {
+        fetch('/api/conversations/unread-count', { credentials: 'include' })
+          .then(r => r.ok ? r.json() : { count: 0 })
+          .then(d => setUnreadCount(d.count || 0))
+          .catch(() => {});
+      };
+      fetchUnread();
+      const interval = setInterval(fetchUnread, 60_000);
+      return () => clearInterval(interval);
+    }, []);
+
+    // Clear badge when user navigates to Help
+    useEffect(() => {
+      if (currentView === 'help') setUnreadCount(0);
+    }, [currentView]);
+
+    const navItems: NavItem[] = [
+      { id: 'home', label: 'Overview', icon: <HomeIcon className="w-5 h-5" /> },
+      { id: 'myservice', label: 'Manage Plan', icon: <TruckIcon className="w-5 h-5" /> },
+      { id: 'billing', label: 'Billing', icon: <BanknotesIcon className="w-5 h-5" /> },
+      { id: 'requests', label: 'Requests', icon: <ClipboardDocumentIcon className="w-5 h-5" /> },
+      { id: 'referrals', label: 'Referrals', icon: <GiftIcon className="w-5 h-5" /> },
+      { id: 'help', label: 'Help', icon: <SparklesIcon className="w-5 h-5" />, badge: unreadCount || undefined },
+    ];
+
+    const visibleNavItems = hasLocations
       ? navItems
       : navItems.filter(item => !['myservice', 'billing'].includes(item.id));
-    const visibleNavItems = baseItems;
 
     return (
         <div className="flex flex-col h-full bg-white lg:border-r lg:border-base-200">
          <div className="flex items-center px-8 h-24">
            <img src="/logo.svg" alt="Rural Waste Management" className="h-10" />
          </div>
-         
+
          <div className="flex-1 overflow-y-auto py-8 px-5">
            <nav>
              <ul className="space-y-2">
@@ -133,7 +159,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, isOpen, 
             <SidebarContent currentView={currentView} onLinkClick={handleLinkClick} onLogout={onLogout} />
         </div>
       </div>
-      
+
       <div className="hidden lg:block lg:w-80 lg:flex-shrink-0">
         <SidebarContent currentView={currentView} onLinkClick={handleLinkClick} onLogout={onLogout} />
       </div>
