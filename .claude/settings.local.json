@@ -9,7 +9,15 @@
       "Bash(\"c:/Users/forre/Source/Waste-Management-Portal/server/slackNotifier.ts\")",
       "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck --isolatedModules server/teamRoutes.ts)",
       "Bash(psql $DATABASE_URL -f server/schema.sql)",
-      "Bash(npx pg-promise \"postgresql://postgres:F7swift\\\\!@localhost:5432/waste_management\")"
+      "Bash(npx pg-promise \"postgresql://postgres:F7swift\\\\!@localhost:5432/waste_management\")",
+      "Bash(gh repo:*)",
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:developers.hostinger.com)",
+      "WebFetch(domain:www.hostinger.com)",
+      "WebFetch(domain:lobehub.com)",
+      "WebFetch(domain:fastmcp.me)",
+      "WebFetch(domain:skywork.ai)"
     ]
   }
 }
