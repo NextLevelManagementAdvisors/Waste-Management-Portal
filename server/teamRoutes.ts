@@ -177,12 +177,9 @@ export function registerTeamRoutes(app: Express) {
       req.session.teamGoogleOAuthState = state;
       (req.session as any).teamGoogleOAuthIntent = intent;
 
-      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
       const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
-      if (replitDomain) {
-        redirectUri = `https://${replitDomain}/api/team/auth/google/callback`;
-      } else if (appDomain) {
+      if (appDomain) {
         redirectUri = `${appDomain}/api/team/auth/google/callback`;
       } else {
         const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
@@ -243,12 +240,9 @@ export function registerTeamRoutes(app: Express) {
       }
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
-      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
       const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
-      if (replitDomain) {
-        redirectUri = `https://${replitDomain}/api/team/auth/google/callback`;
-      } else if (appDomain) {
+      if (appDomain) {
         redirectUri = `${appDomain}/api/team/auth/google/callback`;
       } else {
         const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
@@ -745,9 +739,7 @@ export function registerTeamRoutes(app: Express) {
 
       if (driver.stripe_connect_account_id) {
         const stripe = await getUncachableStripeClient();
-        const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-        const protocol = domain.includes('localhost') ? 'http' : 'https';
-        const baseUrl = `${protocol}://${domain}`;
+        const baseUrl = process.env.APP_DOMAIN || 'http://localhost:5000';
 
         const accountLink = await stripe.accountLinks.create({
           account: driver.stripe_connect_account_id,
@@ -780,9 +772,7 @@ export function registerTeamRoutes(app: Express) {
         stripe_connect_account_id: account.id,
       });
 
-      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-      const protocol = domain.includes('localhost') ? 'http' : 'https';
-      const baseUrl = `${protocol}://${domain}`;
+      const baseUrl = process.env.APP_DOMAIN || 'http://localhost:5000';
 
       const accountLink = await stripe.accountLinks.create({
         account: account.id,
@@ -851,9 +841,7 @@ export function registerTeamRoutes(app: Express) {
       }
 
       const stripe = await getUncachableStripeClient();
-      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-      const protocol = domain.includes('localhost') ? 'http' : 'https';
-      const baseUrl = `${protocol}://${domain}`;
+      const baseUrl = process.env.APP_DOMAIN || 'http://localhost:5000';
 
       const accountLink = await stripe.accountLinks.create({
         account: driver.stripe_connect_account_id,
@@ -2829,7 +2817,7 @@ export function registerTeamRoutes(app: Express) {
   // ============================================================
 
   async function sendClientInvitationEmail(inv: any, providerName: string) {
-    const baseUrl = process.env.APP_URL || 'https://app.ruralwm.com';
+    const baseUrl = process.env.APP_DOMAIN || 'https://app.ruralwm.com';
     const newAccountUrl = `${baseUrl}/?client-invite=${inv.token}`;
     const existingAccountUrl = `${baseUrl}/?client-invite=${inv.token}&action=redeem`;
     const subject = `${providerName} invited you to manage your waste pickup online`;
@@ -3684,12 +3672,9 @@ export function registerTeamRoutes(app: Express) {
       const stripeClient = await getUncachableStripeClient();
 
       // Resolve base URL for redirect URLs
-      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
-      const appDomain = process.env.APP_DOMAIN;
+const appDomain = process.env.APP_DOMAIN;
       let baseUrl: string;
-      if (replitDomain) {
-        baseUrl = `https://${replitDomain}`;
-      } else if (appDomain) {
+      if (appDomain) {
         baseUrl = appDomain;
       } else {
         baseUrl = 'http://localhost:5000';

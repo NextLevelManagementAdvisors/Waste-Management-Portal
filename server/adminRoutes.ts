@@ -6084,7 +6084,7 @@ export function registerAdminRoutes(app: Express) {
         `INSERT INTO provider_invites (token, invited_by, note) VALUES ($1, $2, $3)`,
         [token, adminId, note || null]
       );
-      const appUrl = process.env.APP_URL || 'https://app.ruralwm.com';
+      const appUrl = process.env.APP_DOMAIN || 'https://app.ruralwm.com';
       const url = `${appUrl}/provider/?provider-invite=${token}`;
       await audit(req, 'create_provider_invite', 'provider_invites', token, { note });
       res.status(201).json({ url, token });

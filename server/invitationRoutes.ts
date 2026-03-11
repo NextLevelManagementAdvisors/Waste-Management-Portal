@@ -102,10 +102,7 @@ export function registerInvitationRoutes(app: Express) {
       // Build shared context for notifications
       const inviter = await storage.getUserById(invitedBy);
       const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
-      const appDomain = process.env.APP_DOMAIN || (() => {
-        const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
-        return domain ? `https://${domain}` : 'http://localhost:5000';
-      })();
+      const appDomain = process.env.APP_DOMAIN || 'http://localhost:5000';
       const registerUrl = roles.includes('driver')
         ? `${appDomain}/team/register?invite=${token}`
         : roles.includes('admin')
@@ -212,10 +209,7 @@ export function registerInvitationRoutes(app: Express) {
       // Build notification context
       const inviter = await storage.getUserById(invite.invited_by);
       const inviterName = inviter ? `${inviter.first_name} ${inviter.last_name}` : 'An administrator';
-      const appDomain = process.env.APP_DOMAIN || (() => {
-        const domain = process.env.REPLIT_DOMAINS?.split(',')[0];
-        return domain ? `https://${domain}` : 'http://localhost:5000';
-      })();
+      const appDomain = process.env.APP_DOMAIN || 'http://localhost:5000';
       const registerUrl = invite.roles.includes('driver')
         ? `${appDomain}/team/register?invite=${invite.token}`
         : invite.roles.includes('admin')

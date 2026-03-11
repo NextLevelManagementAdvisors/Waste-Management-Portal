@@ -15,7 +15,6 @@ A full-stack, multi-SPA platform for running a waste management service business
 - [Running Locally](#running-locally)
 - [Production Deployment](#production-deployment)
   - [Hostinger VPS](#hostinger-vps)
-  - [Replit](#replit)
 - [Database Schema](#database-schema)
 - [Available Scripts](#available-scripts)
 - [API Reference](#api-reference)
@@ -397,16 +396,6 @@ The schema is applied automatically on first startup — no migration step requi
    ```
 
 8. **Register Stripe webhook:** In the Stripe Dashboard, add `https://yourdomain.com/api/stripe/webhook` and subscribe to invoice and subscription events.
-
-### Replit
-
-The project is pre-configured for Replit:
-
-1. Set all secrets in the **Secrets** tab (same keys as `.env`).
-2. The `stripe-replit-sync` package auto-registers Stripe webhooks using `REPLIT_DOMAINS`.
-3. Deployment config:
-   - **Build:** `npm run build`
-   - **Run:** `NODE_ENV=production npx tsx server/index.ts`
 
 ---
 

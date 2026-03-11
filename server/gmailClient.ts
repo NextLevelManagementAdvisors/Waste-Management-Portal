@@ -2,10 +2,7 @@ import { auth as googleAuth, gmail as createGmail } from '@googleapis/gmail';
 
 // Auth mode is controlled by GMAIL_AUTH_MODE setting (persisted in DB).
 // When set to 'oauth' or 'service_account', only that path is used.
-// When unset (legacy), falls back to priority order:
-// 1. Service Account  2. OAuth2  3. Replit connector
-
-let connectionSettings: any;
+// When unset (legacy), falls back in order: 1. Service Account  2. OAuth2
 
 function getServiceAccountAuth() {
   const serviceAccountJson = process.env.GMAIL_SERVICE_ACCOUNT_JSON;
@@ -73,31 +70,7 @@ async function getGmailAuth() {
     return oauth2Client;
   }
 
-  // 3. Replit connector fallback
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? 'repl ' + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL
-    : null;
-
-  if (!xReplitToken) {
-    throw new Error('Gmail not configured. Set GMAIL_SERVICE_ACCOUNT_JSON and GMAIL_SENDER_EMAIL in .env');
-  }
-
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
-    { headers: { 'Accept': 'application/json', 'X_REPLIT_TOKEN': xReplitToken } }
-  ).then(res => res.json()).then(data => data.items?.[0]);
-
-  const accessToken = connectionSettings?.settings?.access_token || connectionSettings?.settings?.oauth?.credentials?.access_token;
-  if (!connectionSettings || !accessToken) {
-    throw new Error('Gmail not connected');
-  }
-
-  const oauth2Client = new googleAuth.OAuth2();
-  oauth2Client.setCredentials({ access_token: accessToken });
-  return oauth2Client;
+  throw new Error('Gmail not configured. Set GMAIL_SERVICE_ACCOUNT_JSON and GMAIL_SENDER_EMAIL in .env');
 }
 
 export async function getUncachableGmailClient() {

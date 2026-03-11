@@ -1064,9 +1064,7 @@ export function registerAuthRoutes(app: Express) {
 
       await storage.createPasswordResetToken(user.id, token, expiresAt);
 
-      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
-      const protocol = domain.includes('localhost') ? 'http' : 'https';
-      const resetUrl = `${protocol}://${domain}/reset-password?token=${token}`;
+      const resetUrl = `${process.env.APP_DOMAIN || 'http://localhost:5000'}/reset-password?token=${token}`;
 
       const htmlBody = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -1185,12 +1183,9 @@ export function registerAuthRoutes(app: Express) {
         req.session.googleOAuthPopup = true;
       }
 
-      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
       const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
-      if (replitDomain) {
-        redirectUri = `https://${replitDomain}/api/auth/google/callback`;
-      } else if (appDomain) {
+      if (appDomain) {
         redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
         const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
@@ -1251,12 +1246,9 @@ export function registerAuthRoutes(app: Express) {
       }
       const discovery = await discoveryRes.json() as { token_endpoint: string; userinfo_endpoint: string };
 
-      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
       const appDomain = process.env.APP_DOMAIN;
       let redirectUri: string;
-      if (replitDomain) {
-        redirectUri = `https://${replitDomain}/api/auth/google/callback`;
-      } else if (appDomain) {
+      if (appDomain) {
         redirectUri = `${appDomain}/api/auth/google/callback`;
       } else {
         const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5000';
