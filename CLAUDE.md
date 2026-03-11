@@ -123,3 +123,10 @@ cd /opt/waste-portal && git pull origin main && npm run build
 systemctl restart waste-portal
 journalctl -u waste-portal --no-pager -n 15
 ```
+
+### Hostinger MCP Server
+A Hostinger API MCP server is configured in `hostinger.json`. When available, use it for
+Hostinger-specific tasks (VPS management, DNS, domains) instead of raw SSH where possible.
+- Config file: `~/.claude/hostinger.json` (outside repo, never committed)
+- MCP server: `hostinger-api-mcp@latest` (via npx)
+- API token is stored in that file — keep it out of the project repo
